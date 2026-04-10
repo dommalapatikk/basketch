@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# Environment (secrets)
+.env
+.env.local
+
+# Build output
+dist/
+build/
+
+# Pipeline artifacts (generated, not committed)
+migros-deals.json
+coop-deals.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
