@@ -116,7 +116,7 @@ export function ComparisonPage() {
       </div>
 
       <div className="mt-16 text-center">
-        <Link to="/onboarding" className="btn btn-outline btn-sm">
+        <Link to="/onboarding" className="btn btn-outline btn-sm" state={{ favoriteId, editMode: true }}>
           Edit my list
         </Link>
       </div>

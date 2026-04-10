@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import type { FavoriteItemRow, StarterPackRow } from '../../../shared/types'
-import { addFavoriteItemsBatch, createFavorite } from '../lib/queries'
+import { addFavoriteItemsBatch, createFavorite, fetchFavoriteItems } from '../lib/queries'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { FavoritesEditor } from '../components/FavoritesEditor'
 import { EmailCapture } from '../components/EmailCapture'
@@ -11,11 +11,24 @@ type Step = 'pick' | 'edit' | 'save'
 
 export function OnboardingPage() {
   const navigate = useNavigate()
-  const [step, setStep] = useState<Step>('pick')
-  const [favoriteId, setFavoriteId] = useState<string | null>(null)
+  const location = useLocation()
+  const editState = location.state as { favoriteId?: string; editMode?: boolean } | null
+
+  const [step, setStep] = useState<Step>(editState?.editMode ? 'edit' : 'pick')
+  const [favoriteId, setFavoriteId] = useState<string | null>(editState?.favoriteId ?? null)
   const [items, setItems] = useState<FavoriteItemRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(!!editState?.editMode)
   const [error, setError] = useState<string | null>(null)
+
+  // If arriving in edit mode from comparison page, load existing items
+  useEffect(() => {
+    if (editState?.editMode && editState.favoriteId) {
+      fetchFavoriteItems(editState.favoriteId).then((existingItems) => {
+        setItems(existingItems)
+        setLoading(false)
+      })
+    }
+  }, [editState?.editMode, editState?.favoriteId])
 
   async function handlePackSelect(pack: StarterPackRow) {
     setLoading(true)

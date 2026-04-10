@@ -78,13 +78,14 @@ export function findBestMatch(
   const normalized = keyword.toLowerCase().trim()
   if (!normalized) return null
 
-  // Score all deals by relevance
+  // Score all deals by relevance, excluding 0% discount (not real deals)
   const scored = storeDeals
+    .filter((d) => (d.discount_percent ?? 0) > 0)
     .map((d) => ({
       deal: d,
       relevance: matchRelevance(normalized, d.product_name),
     }))
-    .filter((s) => s.relevance > 0)
+    .filter((s) => s.relevance >= 2)
 
   if (scored.length === 0) return null
 

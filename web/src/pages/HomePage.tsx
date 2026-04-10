@@ -63,8 +63,6 @@ export function HomePage() {
         </div>
       </div>
 
-      {!loading && <VerdictBanner verdict={verdict} />}
-
       <div className="card mt-24">
         <h3 className="section-title">Already have a list?</h3>
         <p className="text-sm text-muted mb-8">
@@ -92,6 +90,8 @@ export function HomePage() {
         </div>
         {emailError && <p className="text-sm mt-8 text-error" role="alert">{emailError}</p>}
       </div>
+
+      {!loading && <div className="mt-24"><VerdictBanner verdict={verdict} /></div>}
     </div>
   )
 }
