@@ -2,332 +2,413 @@
 
 **Date:** 10 April 2026
 **Reviewer:** Product Designer (Mobile-First) Agent
-**Scope:** All built frontend components and pages
-**Reference:** `docs/design-system.md` (created alongside this review)
+**Scope:** Full design review of all UI code -- styles, components, pages, SEO, accessibility
+**Reference:** `docs/design-system.md`, `docs/prd.md`, `docs/use-cases.md`
 
 ---
 
 ## Executive Summary
 
-The frontend is well-built for an MVP. The architecture follows the favorites-first pivot correctly, the 3-step onboarding flow is clean, and the split shopping list delivers the core value. The visual system is consistent and restrained -- no decoration, no clutter.
+The basketch frontend is solid for an MVP. The visual system is cohesive -- consistent spacing, restrained color usage, and a clean Swiss utility aesthetic. The favorites-first onboarding, 3-step progress bar, and split shopping list all serve the 30-second decision goal well. The code uses Tailwind theme tokens correctly, shadcn/ui patterns properly, and accessibility basics are in place (ARIA labels, role attributes, keyboard support).
 
-However, there are **accessibility failures** (contrast ratios, touch targets) that need fixing before user testing, and a **critical brand color issue** (Coop uses red instead of their official orange/green) that should be a conscious decision, not an accident.
+There are issues to fix before user testing. The most significant: **missing Open Graph meta tags** (blocks sharing on WhatsApp/social), **WCAG contrast failures** on muted text, and **a few mobile edge cases** at 320px width. None require redesign -- all are adjustments.
 
-**Overall verdict:** 7 components Approved, 4 Adjust, 1 Redesign concern (VerdictBanner position).
+**Overall verdict: 12 Approved, 6 Adjust, 0 Redesign.**
 
 ---
 
-## Review by Component
+## 1. Visual Consistency
 
-### 1. Layout.tsx -- Approved
+### Verdict: Approved
 
 **What works:**
-- Sticky header with logo + nav is the correct pattern for a utility tool
-- 640px max-width is appropriate -- keeps content scannable on all devices
-- Footer is minimal and unobtrusive
-- `<Outlet />` pattern cleanly separates layout from page content
+- **Border radius** is consistent: `rounded-md` (8px) used across Card, Button, Input, CompareCard, Badge uses `rounded-full` intentionally for pill shape, and `rounded-sm` for progress bar steps. No rogue radii.
+- **Spacing** follows a tight scale: `p-4` for cards and main content, `p-3` for compact areas (header, comparison summary), `gap-2` for inline groups, `gap-3` for grid layouts. Consistent throughout.
+- **Colors** are scoped: Migros orange (#e65100), Coop green (#007a3d), and accent blue (#2563eb) are the only non-neutral colors in the system. No arbitrary color values in component code.
+- **Typography weights** are consistent: `font-bold` for h1, `font-semibold` for h2/h3 and section labels, `font-medium` for list item labels.
+- **Shadows** are minimal: only `shadow-sm` on Card. No competing shadow levels.
 
-**Issues (minor):**
-- Header nav links ("My List", "About") are 14px without explicit touch target sizing. On mobile, the tap area is only the text width, which may be smaller than 44x44px. Consider wrapping nav links in a container with `min-height: 44px; min-width: 44px; display: flex; align-items: center`.
-- Footer lacks the "About" link and "built by Kiran" attribution mentioned in the agent instructions. It only says "basketch -- Migros vs Coop, side by side".
+**Minor inconsistency:**
+- The `text-[0.95rem]` and `text-[0.7rem]` arbitrary values in TemplatePicker break the Tailwind type scale. These should be `text-sm` and `text-xs` respectively. Not visible to users, but creates drift from the design system over time.
 
-**Verdict: Approved** (with minor touch target note)
+### Adjustment needed:
+- Replace `text-[0.95rem]` with `text-base` or `text-sm` in TemplatePicker template card label.
+- Replace `text-[0.7rem]` with `text-xs` in TemplatePicker item preview text.
 
 ---
 
-### 2. VerdictBanner.tsx -- Adjust
+## 2. Mobile-First Design
+
+### Verdict: Approved with adjustments
 
 **What works:**
-- Clean card layout with centered text
-- "WEEKLY VERDICT" uppercase label creates visual hierarchy
-- Stale/partial data warnings are appropriately subtle (amber, small text)
-- Returns `null` when no verdict -- no empty card rendered
+- Layout uses `max-w-[640px]` with `p-4` padding, giving content a clean reading width on all devices. On a 375px screen, content area is 375 - 32 = 343px, which is appropriate.
+- TemplatePicker uses `grid-cols-2 max-[400px]:grid-cols-1` -- correctly collapses to single column on very small screens (320px).
+- All buttons have `min-h-[44px]` -- meets Apple HIG touch target minimum.
+- FavoritesEditor remove buttons have explicit `min-h-[44px] min-w-[44px]` -- correct.
+- No horizontal scroll risks: all text containers use `overflow-hidden text-ellipsis` where needed (comparison page URL display).
 
-**Issues:**
+**Potential issues at 320px:**
+- CompareCard's 2-column grid (`grid-cols-2 gap-2`) at 320px gives each column approximately 140px. With `p-3` card padding and `p-2` column padding, content width per column is roughly 124px. Product images at `max-h-[120px]` and product names could overflow if long. The `text-sm text-muted` on product name has no truncation.
+- The "Save this list" card on ComparisonPage puts the URL display + Copy + Share buttons in a single flex row. On 320px, the two buttons (~60px each) plus the URL box compete for ~256px. This likely works but is tight.
 
-| # | Issue | Severity | Recommendation |
-|---|-------|----------|----------------|
-| 1 | **Verdict text does not use store colors.** The design spec says "Must use store colors for store names" (e.g., "Migros" in orange, "Coop" in red). Currently the entire verdict is plain text in `--color-text`. | Medium | Parse the verdict string to wrap store names in colored `<span>` elements. This is the key visual signal -- users should spot their store's color instantly. |
-| 2 | **Position on HomePage is below the hero.** The design spec says "The hero element. First thing users see. Above the fold on mobile." Currently the hero section with title + subtitle + CTA button pushes the verdict below the fold on a 667px-height iPhone. | Medium | Move `<VerdictBanner>` above the hero CTA, or reduce hero padding. The verdict is the primary value for returning users; the hero CTA is for first-time users. Consider: verdict first, then hero/CTA. |
-| 3 | **No deal count or category breakdown visible.** The verdict says "This week: Migros for Fresh, Coop for Household" but doesn't show how many deals or average discount per category. This was part of the design spec (CategorySection with deal counts). | Low | Acceptable for MVP. The favorites-first pivot makes the generic category breakdown less relevant -- the user's comparison page is personalized. |
-
-**Verdict: Adjust** -- Add store colors to verdict text (issue 1) and consider repositioning above the fold (issue 2).
+### Adjustments needed:
+- Add `line-clamp-2` or `truncate` to product name in DealColumn (CompareCard line 48: `text-sm text-muted` div).
+- Consider `flex-wrap` on the "Save this list" button row for 320px safety, or stack the URL and buttons vertically below 360px.
 
 ---
 
-### 3. TemplatePicker.tsx -- Approved
+## 3. Component Quality
+
+### 3.1 Button.tsx -- Approved
 
 **What works:**
-- 2-column grid is scannable on mobile
-- Selected state (blue border + light blue bg) provides clear feedback
-- Three states handled (loading, error, empty)
-- Pack cards are full `<button>` elements -- semantically correct and accessible
-- Shows item count per pack -- helps user choose
+- Uses `cva` (class-variance-authority) correctly -- the standard shadcn/ui pattern.
+- Five well-chosen variants: `primary` (accent blue), `outline` (border only), `migros` (orange), `coop` (green), `ghost` (text only). Covers all app needs.
+- `disabled:opacity-50 disabled:cursor-not-allowed` -- proper disabled state.
+- `min-h-[44px]` -- meets touch target requirement.
+- `transition-opacity` with `hover:opacity-90` -- subtle, functional hover. No flashy animations.
+- `forwardRef` used correctly for composability.
+- `fullWidth` variant is a clean boolean option.
 
-**Issues (minor):**
-- No description shown for the starter packs in the spec mentions "How do you cook?" framing. The current heading is "Pick a starter pack" which is functional but less engaging. The OnboardingPage subtitle covers this with "Choose a template to get started fast" which is acceptable.
+**One concern:**
+- Hover uses `opacity-90` which is a subtle 10% change. On mobile (where hover doesn't exist), this is fine. On desktop, it may feel like the button isn't responding. Consider adding a slightly darker background on hover as an alternative for desktop.
 
-**Verdict: Approved**
-
----
-
-### 4. FavoritesEditor.tsx -- Adjust
+### 3.2 Card.tsx -- Approved
 
 **What works:**
-- Clean list layout with label + keyword per item
-- Remove button has `aria-label` for screen readers
-- Item count footer provides context
-- "Add item" toggle keeps the UI clean until needed
+- Clean: `rounded-md border border-border bg-surface p-4 shadow-sm`. Exactly what a utility card should be.
+- `forwardRef` for composability.
+- `className` prop merged via `cn()` -- allows per-instance customization without breaking base styles.
 
-**Issues:**
+**No issues.**
 
-| # | Issue | Severity | Recommendation |
-|---|-------|----------|----------------|
-| 1 | **Remove button ("x") touch target is too small.** Padding is 4px vertical, 8px horizontal. With 1.2rem font, the effective size is approximately 24x24px -- well below the 44x44px minimum. | High | Increase padding to at least `12px 16px` or use `min-width: 44px; min-height: 44px`. The "x" character should also be replaced with a proper icon or the text "Remove" for clarity. |
-| 2 | **Inline style on section title.** `style={{ marginBottom: 0 }}` overrides the CSS class. This breaks the pattern of CSS-only styling. | Low | Add a utility class `.mb-0 { margin-bottom: 0; }` to styles.css. |
-
-**Verdict: Adjust** -- Fix remove button touch target (critical accessibility issue).
-
----
-
-### 5. ProductSearch.tsx -- Adjust
+### 3.3 Input.tsx -- Approved
 
 **What works:**
-- Search + results pattern is intuitive
-- "Add anyway" fallback for no-results is smart UX -- users can add items not currently on sale
-- Deduplication of results by product name prevents confusion
-- Enter key support for search
+- Focus state: `focus:border-accent focus:ring-2 focus:ring-accent/10` -- visible focus ring for keyboard navigation.
+- `w-full` default with `flex-1` override where needed -- correct responsive pattern.
+- `text-sm` with `px-3 py-2.5` -- comfortable touch target and readability.
 
-**Issues:**
+**Minor note:**
+- No explicit `min-h-[44px]`. The `py-2.5` (10px top + 10px bottom) + `text-sm` (~20px line height) = ~40px, which is close but below the 44px minimum. Adding `min-h-[44px]` would be safer.
 
-| # | Issue | Severity | Recommendation |
-|---|-------|----------|----------------|
-| 1 | **"Add" button uses `.btn-sm` (6px/12px padding).** Effective height is ~28px. Below 44px minimum touch target. | High | Use standard `.btn` sizing or add `min-height: 44px`. |
-| 2 | **"Search" button uses `.btn-sm`.** Same touch target issue. | High | Same fix. |
-| 3 | **Store name in results is plain text without color.** Results show "CHF 1.50 (-25%) | migros" but "migros" is not visually differentiated with brand color. | Low | Wrap store name in a small StoreBadge or colored text span. |
-
-**Verdict: Adjust** -- Fix button touch targets.
-
----
-
-### 6. EmailCapture.tsx -- Approved
+### 3.4 Badge.tsx -- Approved
 
 **What works:**
-- Clean card layout with clear purpose
-- "No password needed" copy reduces anxiety
-- Skip option is clearly offered ("You can also skip this and bookmark the comparison page")
-- Enter key support for email submission
-- Error state handled gracefully
-
-**Issues (minor):**
-- Error text uses `style={{ color: 'var(--color-coop)' }}` -- this is an inline style. Should use a CSS class like `.text-error`.
-- The error color is the Coop brand color, which is semantically wrong. Errors should use a dedicated error color. In this case `--color-coop` and error red happen to be the same (#E10A0A), but the semantic intention is unclear.
-
-**Verdict: Approved** (with note about semantic color usage)
+- Five variants mapped to app concepts: `migros`, `coop`, `both`, `none`, `accent`.
+- Uses light background + darker text: `bg-migros-light text-migros-text` -- correct pattern for legibility.
+- `rounded-full` for pill shape -- distinct from cards (rounded-md).
+- `text-xs font-semibold` -- appropriate scale for labels.
+- The `accent` variant uses `text-[0.65rem] uppercase tracking-wide` -- smaller scale for "Recommended" tag, which is intentional.
 
 ---
 
-### 7. CompareCard.tsx -- Approved
+## 4. Color System
+
+### Verdict: Approved with one contrast adjustment
+
+**Theme tokens (from styles.css):**
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `migros` | #e65100 | Migros brand (deep orange) |
+| `migros-light` | #fff3e6 | Migros backgrounds |
+| `migros-text` | #c54400 | Migros text on light bg |
+| `coop` | #007a3d | Coop brand (green) |
+| `coop-light` | #e6f4ec | Coop backgrounds |
+| `accent` | #2563eb | CTAs, links, active states |
+| `accent-light` | #eff6ff | Selected template bg |
+| `success` | #16a34a | Savings, "both" badges |
+| `warning` | #b45309 | Data freshness warnings |
+| `error` | #dc2626 | Error messages |
+| `surface` | #ffffff | Card backgrounds |
+| `bg` | #fafafa | Page background |
+| `border` | #e5e5e5 | All borders |
+| `muted` | #666666 | Secondary text |
+
+**Color harmony assessment:**
+- Migros orange and Coop green are the official brand colors. They are visually distinct and neither dominates -- good balance. The light variants (#fff3e6 and #e6f4ec) create gentle, branded backgrounds without overwhelming the content.
+- Accent blue (#2563eb) is a strong, neutral CTA color that doesn't compete with either store brand. It only appears on buttons and the progress bar -- correct.
+- The neutral palette (surface/bg/border/muted) is well-calibrated for a light-mode utility app. The #fafafa background is just barely off-white, giving cards (#ffffff) subtle lift without needing heavier shadows.
+
+**WCAG contrast analysis:**
+
+| Combination | Ratio (approx) | WCAG AA (4.5:1) | Verdict |
+|-------------|----------------|------------------|---------|
+| `muted` (#666) on `bg` (#fafafa) | 5.4:1 | Pass | OK |
+| `muted` (#666) on `surface` (#fff) | 5.7:1 | Pass | OK |
+| `migros-text` (#c54400) on `migros-light` (#fff3e6) | ~4.7:1 | Pass (barely) | OK |
+| `coop` (#007a3d) on `coop-light` (#e6f4ec) | ~4.8:1 | Pass (barely) | OK |
+| `coop` (#007a3d) on `white` (#fff) | ~5.3:1 | Pass | OK |
+| `white` on `migros` (#e65100) | ~4.6:1 | Pass (barely) | OK |
+| `white` on `coop` (#007a3d) | ~5.3:1 | Pass | OK |
+| `white` on `accent` (#2563eb) | ~4.6:1 | Pass (barely) | OK |
+| `muted` (#666) on `migros-light` (#fff3e6) | ~5.0:1 | Pass | OK |
+| `success` (#16a34a) on `success-light` (#e8f5e9) | ~3.8:1 | **Fail** | Adjust |
+| `muted` (#666) italic "No deal" text on colored bg | ~4.5:1 | Borderline | Monitor |
+
+### Adjustment needed:
+- The `success` text (#16a34a) on `success-light` background (#e8f5e9) -- used in the "Same deal at both" badge and success messages -- falls below 4.5:1. Darken `success` to #14752d or darken `success-light` to improve contrast.
+- Several brand-on-light combinations are borderline (~4.6-4.8:1). They pass AA but would fail AAA. For a grocery app used in bright outdoor conditions (checking phone in the store), bumping these slightly darker would improve real-world legibility.
+
+---
+
+## 5. Typography Hierarchy
+
+### Verdict: Approved
+
+**Observed scale:**
+
+| Level | Usage | Classes | Approx size |
+|-------|-------|---------|-------------|
+| H1 | Page titles (Home, Onboarding, Comparison, About) | `text-2xl font-bold` or `text-[1.75rem] font-extrabold` | 28px / 24px |
+| H2 | Section headers (starter packs, favorites, data sources) | `text-lg font-semibold` | 18px |
+| H3 | Card titles (email capture, save list, about sections) | `text-lg font-semibold` | 18px |
+| Body | Descriptions, form labels | `text-sm` or `text-base` | 14px / 16px |
+| Caption | Store labels, item counts, muted info | `text-xs` or `text-[0.7rem]` | 12px / 11.2px |
+| Micro | Category labels on deal columns | `text-[0.7rem] uppercase tracking-wide` | 11.2px |
 
 **What works:**
-- Side-by-side 2-column layout is the core design pattern -- clean execution
-- Store-specific background tints (Migros light, Coop light) create instant visual grouping
-- Recommendation tag with pill shape provides quick scanning
-- "No deal" state is clearly differentiated (muted, italic)
-- Price is prominently sized (1.1rem, Bold)
+- Clear differentiation between levels. H1 is visually dominant, H2/H3 are section-level, body is comfortable, captions are clearly secondary.
+- System font stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`) is fast-loading and native-feeling on all devices.
+- `leading-tight` on the home page H1 creates a compact, punchy headline.
 
-**Issues (minor):**
-- Inline style `style={{ marginLeft: 8 }}` on the keyword span. Should be a CSS class.
-- Inline style `style={{ marginTop: 2 }}` on product name. Should be a CSS class.
-- The keyword shown after the label (e.g., "Milk milch") is useful for debugging but may confuse end users who don't understand the matching system. Consider hiding it or showing it only in a tooltip.
-
-**Verdict: Approved**
+**Minor issue:**
+- H2 and H3 use identical classes (`text-lg font-semibold`). This is fine because they serve similar purposes (section vs. card headers) and the structural context differentiates them. But if the hierarchy grows, consider `text-xl` for H2.
+- The `text-[1.75rem]` on the HomePage H1 breaks the Tailwind scale. `text-3xl` (30px) or keeping `text-2xl` (24px) would be more consistent with the rest of the app. The current 28px is slightly off-grid.
 
 ---
 
-### 8. SplitList.tsx -- Approved
+## 6. Deal Comparison Cards (CompareCard + SplitList)
+
+### Verdict: Approved
 
 **What works:**
-- Four-section split (Migros / Coop / Either / No deals) matches the design spec perfectly
-- Colored dots next to section headers provide instant store identification
-- Sections only render when they have items -- no empty sections cluttering the page
-- Empty state message is clear
+- **2-column layout** (`grid-cols-2 gap-2`) is the correct pattern for Migros vs Coop side-by-side comparison. Each column has its store's light background color -- instant visual association.
+- **Price hierarchy** is correct: sale price in `text-lg font-bold` (large, prominent), original price in `text-xs text-muted line-through` (clearly secondary), discount in `text-xs font-semibold text-success` (green, attention-grabbing).
+- **Product images** use `max-h-[120px] object-contain` -- constrains height, preserves aspect ratio, prevents layout blow-up from oversized images.
+- **Store label** uses `text-[0.7rem] font-semibold uppercase tracking-wide` -- small but readable, clearly a label.
+- **Recommendation badge** in the card header (Migros/Coop/Either/No deals) with color-coded variants gives instant scanability.
+- **"No deal" state** shows italic muted text within the store column -- present but visually subordinate. Correct.
+- **SplitList grouping** with colored dots (Migros orange, Coop green, success green, muted gray) creates a clear visual hierarchy of recommendation groups.
 
-**Verdict: Approved** -- Clean, well-structured component.
+**Scanability test (mental model):**
+A user scrolling through the comparison page sees: section header with colored dot + count -> card with product name + badge -> 2-column comparison with prices. This reads top-to-bottom, left-to-right, and communicates the recommendation in under 2 seconds per card. Good.
 
----
-
-### 9. HomePage.tsx -- Adjust
-
-**What works:**
-- Hero copy is strong: "Your groceries. Two stores. One smart list." -- clear, concise, action-oriented
-- Subtitle explains the value proposition in one sentence
-- Full-width CTA is easy to tap
-- Email lookup for returning users is below the fold -- appropriate secondary action
-- Three states for verdict loading
-
-**Issues:**
-
-| # | Issue | Severity | Recommendation |
-|---|-------|----------|----------------|
-| 1 | **Verdict banner is below the hero, below the fold on most phones.** See VerdictBanner issue #2 above. For returning users, the verdict is the primary content. For new users, the CTA is primary. These audiences have competing needs. | Medium | Consider: if user has a saved email in localStorage, show verdict first then CTA. If new user, show CTA first. Or simply move verdict above the email lookup card (it currently sits between hero and email card, which is correct ordering, but the hero pushes it down). |
-| 2 | **Lookup error uses inline style** `style={{ color: 'var(--color-warning)' }}`. | Low | Use a CSS class. |
-| 3 | **No loading state shown while fetching deals for verdict.** The `!loading &&` guard means nothing renders while deals load. A skeleton or "Loading this week's verdict..." would be better. | Low | Add a skeleton or loading indicator in the verdict position. |
-
-**Verdict: Adjust** -- Address verdict positioning for returning users.
+**Minor notes:**
+- The `lazy` loading on product images is correct for performance. Good.
+- The `bg-gray-50` fallback on images provides a neutral placeholder while loading. Good.
+- Product name in the deal column is below the price. This is unconventional (usually name comes first), but for a deal comparison app, the price IS the primary information. The current order (price -> discount -> name) prioritizes the decision-relevant data. This is a deliberate, correct choice.
 
 ---
 
-### 10. OnboardingPage.tsx -- Approved
+## 7. Empty, Loading, and Error States
 
-**What works:**
-- 3-step wizard is clear and linear
-- Step progress bar provides orientation (where am I?)
-- Contextual subtitle changes per step -- good wayfinding
-- "Start from scratch" option respects user agency
-- "Skip -- just show my deals" after email step reduces friction
-- "Compare deals (X items)" CTA shows item count -- reassuring
-- Loading state handled for pack import
+### Verdict: Approved with adjustments
 
-**Issues (minor):**
-- The step bar uses 4px height bars. These are purely visual (not interactive), which is correct.
-- When returning to edit from comparison page, the flow starts at "pick" again. Consider deep-linking to the "edit" step if the user already has a favoriteId.
+**Loading states:**
+- Onboarding page: "Setting up..." text + CSS spinner (`border-3 border-border border-t-accent animate-spin`). Spinner uses accent color. Good.
+- Comparison page: "Loading your deals..." text + identical spinner. Consistent.
+- TemplatePicker: "Loading starter packs..." text only (no spinner). Inconsistent.
 
-**Verdict: Approved**
+**Error states:**
+- TemplatePicker: `bg-error-light p-6 text-center text-error` -- clear red error card. Good.
+- OnboardingPage: Same pattern with `role="alert"`. Good accessibility.
+- ComparisonPage: Same pattern for both "No favorites list found" and "Could not load your deals". Both offer a "Create a new list" CTA button. Good recovery path.
+- EmailCapture: Inline `text-sm text-error` with `role="alert"`. Appropriate for form validation.
 
----
+**Empty states:**
+- FavoritesEditor empty: "Add your first product to see this week's best deals." -- clear, actionable copy. Good.
+- SplitList empty: "Your list is empty. Add items to see deals." -- clear. Good.
+- TemplatePicker empty: "No starter packs available" -- functional but not actionable. Should offer a "Build my own list" alternative.
+- ProductSearch no results: "No current deals found for '...'. You can still add it to track future deals." + "Add to my list" button. Excellent -- turns a dead end into an action.
 
-### 11. ComparisonPage.tsx -- Approved
-
-**What works:**
-- Page title and subtitle give immediate context ("15 items compared | 4 at Migros | 3 at Coop")
-- SplitList is the right component for this page
-- "Edit my list" link at the bottom provides a clear exit/modify path
-- Error state with "Create a new list" CTA is recovery-friendly
-- Loading state is present
-
-**Issues (minor):**
-- No VerdictBanner shown on the comparison page. The user sees their personalized comparison but not the overall weekly verdict. Consider adding it at the top for context.
-
-**Verdict: Approved**
+### Adjustments needed:
+- Add a spinner to TemplatePicker loading state to match Onboarding and Comparison pages.
+- Add an actionable fallback to the TemplatePicker empty state ("No starter packs available. Build your own list instead." with link/button).
 
 ---
 
-### 12. AboutPage.tsx -- Approved
+## 8. Micro-Interactions
 
-**What works:**
-- Clean card-based layout with clear sections
-- "How it works" as an ordered list is easy to scan
-- Data sources are transparent (Migros API, aktionis.ch)
-- Legal note ("Only publicly available data") is present
-- Privacy section is clear and reassuring
-- "Built by" section is personal and honest
+### Verdict: Approved
 
-**Issues (minor):**
-- Inline styles for list padding (`style={{ paddingLeft: 20 }}`). Should be CSS classes.
-- No link to GitHub repo (mentioned in design spec).
-- Footer repeats the tagline but About page doesn't link back to Home.
+**Button hover:**
+- `hover:opacity-90` on all button variants. Subtle, consistent. Ghost variant uses `hover:text-current` (color shift from muted to dark). Both appropriate.
 
-**Verdict: Approved**
+**Loading indicators:**
+- Button text changes: "Search" -> "...", "Save" -> "Saving...", "Find my list" -> "Searching...". Inline text change is the correct pattern for utility buttons -- no separate spinner needed.
+- Page-level spinner for longer operations (creating favorite, loading comparison). Correct escalation.
 
----
+**Copy feedback:**
+- ComparisonPage "Copy" button changes to "Copied!" for 2 seconds, then reverts. Clear, time-limited feedback. Good.
 
-## Cross-Cutting Issues
+**Step progress bar:**
+- Onboarding uses 3 colored bars: completed = `bg-success`, current = `bg-accent`, future = `bg-border`. Clean, scannable. ARIA labels on each step ("Step 1 (done)", "Step 2 (current)"). Good accessibility.
 
-### Issue A: CSS Architecture -- Custom CSS vs Tailwind
+**Email save success:**
+- "List saved! Redirecting to your deals..." with `bg-success-light` background and 1.5-second delay. Good -- gives confirmation before navigation.
 
-The coding standards document specifies Tailwind + shadcn/ui. The built frontend uses **plain CSS with custom properties** in `styles.css`. No Tailwind classes are used. No shadcn/ui components are used.
+**Remove item:**
+- "x" changes to "..." while removing, button is disabled. Hover changes color to `text-error`. Correct feedback pattern.
 
-**Assessment:** The plain CSS approach works well for this MVP. The styles are organized, consistent, and maintainable at this scale (~550 lines). However, it diverges from the documented coding standards. This is a decision to formalize, not a bug to fix.
-
-**Recommendation:** Either (a) update coding-standards.md to reflect the plain CSS decision, or (b) plan a Tailwind migration before the codebase grows. At the current size, either approach is fine.
-
-### Issue B: Coop Brand Color
-
-The CSS uses `--color-coop: #e10a0a` (red). Coop Switzerland's official primary brand color is orange (#FF8C00). Their logo uses orange, white, and grey.
-
-However, using orange for Coop would create a visual conflict with Migros (#FF6600) -- both would be shades of orange, making instant store differentiation impossible.
-
-**Assessment:** The red choice is defensible as a design decision for differentiation. But it should be documented as intentional, not mistaken for the "official" brand color. The agent instructions say "Migros = orange, Coop = green" -- neither matches what's implemented (Coop is red, not green).
-
-**Recommendation:** Consider using Coop's secondary green/teal from their "Coop Naturaplan" or sustainability branding, or a deep green (#007A3D or similar) that many Swiss shoppers associate with Coop's physical stores and signage. Green vs orange provides maximum differentiation and matches the agent spec ("Migros = orange, Coop = green").
-
-### Issue C: Accessibility Failures
-
-Three categories of failure need attention before user testing:
-
-1. **Touch targets below 44px:** `.btn-sm` (28px), `.fav-remove` (24px), header nav links (text-height only)
-2. **Contrast ratio failures:** Migros tag text on light bg (3.2:1), white on Migros orange buttons (3.0:1), warning amber on white (3.5:1)
-3. **Button minimum heights:** Standard `.btn` is approximately 38px -- just below the 44px minimum
-
-**Recommendation:** Add `min-height: 44px` to all `.btn` variants. Darken Migros tag text to `#CC5200` and warning text to `#B45309` for WCAG AA compliance.
-
-### Issue D: Inline Styles
-
-Multiple components use `style={{ }}` for one-off spacing or color overrides:
-- `CompareCard.tsx`: `style={{ marginLeft: 8 }}`, `style={{ marginTop: 2 }}`
-- `FavoritesEditor.tsx`: `style={{ marginBottom: 0 }}`
-- `EmailCapture.tsx`: `style={{ color: 'var(--color-coop)' }}`
-- `HomePage.tsx`: `style={{ color: 'var(--color-warning)' }}`
-- `AboutPage.tsx`: `style={{ paddingLeft: 20 }}`
-
-**Recommendation:** Add small utility classes to `styles.css` (e.g., `.ml-8`, `.mt-2`, `.mb-0`, `.pl-20`, `.text-error`, `.text-warning`). This keeps all visual decisions in one place and avoids scattered inline styles.
-
-### Issue E: Missing Components from Original Architecture
-
-The original architecture (technical-architecture.md) specified these components that do not exist in the build:
-- `DealCard.tsx` -- replaced by `CompareCard.tsx` (appropriate pivot -- favorites-first means no generic deal browsing)
-- `CategorySection.tsx` -- replaced by `SplitList.tsx` sections (appropriate pivot)
-- `StoreBadge.tsx` -- store identity is handled via tags in CompareCard (acceptable)
-- `DataWarning.tsx` -- stale data warning is inline in VerdictBanner (acceptable)
-
-**Assessment:** These changes are correct. The favorites-first pivot changed the UI from "browse all deals by category" to "see your items with store comparison." The new components serve the new architecture better.
+**Missing interactions:**
+- No skeleton/shimmer loading states for the comparison cards. Text loading is fine for MVP, but shimmer would improve perceived performance.
+- No animation on step transitions in onboarding. Steps appear/disappear instantly. A subtle fade or slide would smooth the experience. Low priority for MVP.
 
 ---
 
-## Priority Action Items
+## 9. Store Identity
 
-### Must Fix (Before User Testing)
+### Verdict: Approved
 
-| # | Issue | Component | What to Do |
-|---|-------|-----------|------------|
-| 1 | Touch targets below 44px | FavoritesEditor, ProductSearch, Layout | Add `min-height: 44px` to all interactive elements |
-| 2 | Contrast ratio failures | styles.css | Darken Migros tag text, warning text. Test white-on-brand-color buttons. |
-| 3 | Store colors in verdict text | VerdictBanner | Wrap "Migros" and "Coop" in colored spans |
+**Migros identity:**
+- Color: #e65100 (deep orange). Used for: Migros button variant, Migros badge, Migros section dot in SplitList, "Migros" label in comparison summary.
+- Light variant: #fff3e6 (warm peach). Used for: DealColumn background, comparison summary card.
+- Text variant: #c54400 (darkened orange). Used for: Badge text on light background.
 
-### Should Fix (Before Friends Beta)
+**Coop identity:**
+- Color: #007a3d (green). Used for: Coop button variant, Coop badge, Coop section dot in SplitList, "Coop" label in comparison summary.
+- Light variant: #e6f4ec (mint). Used for: DealColumn background, comparison summary card.
 
-| # | Issue | Component | What to Do |
-|---|-------|-----------|------------|
-| 4 | Coop brand color decision | styles.css | Decide: keep red, switch to green, or use official orange. Document the decision. |
-| 5 | Inline styles cleanup | Multiple | Add utility classes to styles.css, remove inline styles |
-| 6 | Verdict banner positioning | HomePage | Test whether verdict appears above the fold on iPhone SE (375x667). Adjust hero padding if not. |
+**Balance assessment:**
+- Both stores get identical treatment: same column width in comparison, same badge structure, same section grouping pattern, same summary card layout. Neither store is visually favored.
+- The home page headline ("Compare Migros and Coop deals") names both stores. The description text is neutral.
+- The comparison page summary shows both stores side by side with equal visual weight.
 
-### Nice to Have (Post-Beta)
-
-| # | Issue | Component | What to Do |
-|---|-------|-----------|------------|
-| 7 | GitHub repo link on About page | AboutPage | Add link per design spec |
-| 8 | Footer attribution | Layout | Add "Built by Kiran" to footer per spec |
-| 9 | Coding standards alignment | docs/coding-standards.md | Update to reflect plain CSS approach (or plan Tailwind migration) |
-| 10 | Loading skeleton for verdict | HomePage | Replace blank space during load with skeleton |
+**No bias detected.** The design treats both stores as peers throughout.
 
 ---
 
-## Component Verdict Summary
+## 10. SEO and Sharing
 
-| Component | Verdict | Key Issue |
-|-----------|---------|-----------|
-| Layout.tsx | **Approved** | Minor: nav link touch targets |
-| VerdictBanner.tsx | **Adjust** | No store colors in text; position below fold |
-| TemplatePicker.tsx | **Approved** | -- |
-| FavoritesEditor.tsx | **Adjust** | Remove button touch target too small |
-| ProductSearch.tsx | **Adjust** | Button touch targets too small |
-| EmailCapture.tsx | **Approved** | Minor: inline style for error color |
-| CompareCard.tsx | **Approved** | Minor: inline styles |
-| SplitList.tsx | **Approved** | -- |
-| HomePage.tsx | **Adjust** | Verdict position; loading state |
-| OnboardingPage.tsx | **Approved** | -- |
-| ComparisonPage.tsx | **Approved** | -- |
-| AboutPage.tsx | **Approved** | Minor: missing GitHub link |
-| styles.css | **Approved** | Consistent, well-organized, appropriate for MVP scale |
+### Verdict: Adjust (significant gaps)
+
+**What exists in index.html:**
+- `<title>basketch -- Migros vs Coop deals</title>` -- Good. Includes brand name + value proposition + both store names.
+- `<meta name="description" content="Your groceries. Two stores. One smart list. Compare Migros vs Coop deals for the items you actually buy." />` -- Good copy. Includes keywords.
+- `<meta name="viewport" content="width=device-width, initial-scale=1.0" />` -- Correct.
+- `<meta charset="UTF-8" />` -- Correct.
+- `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />` -- Present. SVG favicon with basket + Swiss cross design in accent blue. Good brand identity.
+
+**What is missing:**
+
+1. **Open Graph tags (critical for WhatsApp/social sharing):**
+   - `<meta property="og:title">` -- Missing
+   - `<meta property="og:description">` -- Missing
+   - `<meta property="og:image">` -- Missing (no social preview image)
+   - `<meta property="og:url">` -- Missing
+   - `<meta property="og:type">` -- Missing
+
+   This is critical because the PRD explicitly calls out WhatsApp sharing as a growth channel (Section 6, Phase 1). Without OG tags, a shared link shows as a bare URL in WhatsApp -- no title, no description, no image. This directly undermines the share-a-list viral loop (UC-7).
+
+2. **Twitter/X card tags:**
+   - `<meta name="twitter:card">` -- Missing
+   - `<meta name="twitter:title">` -- Missing
+   - `<meta name="twitter:description">` -- Missing
+
+3. **Additional SEO tags:**
+   - `<html lang="en">` -- Present. Good.
+   - `<link rel="canonical">` -- Missing. Should be `https://basketch.vercel.app/`.
+   - `<meta name="robots">` -- Missing (defaults to index/follow, which is correct, but explicit is better).
+   - `<meta name="theme-color">` -- Missing. Should be `#2563eb` (accent blue) for mobile browser chrome coloring.
+
+4. **Social preview image:**
+   - No OG image exists. Need a 1200x630px image showing the basketch logo, tagline, and Migros/Coop branding. This is the single highest-impact SEO/sharing improvement.
+
+5. **Apple touch icon:**
+   - `<link rel="apple-touch-icon">` -- Missing. Users who add to home screen get a generic icon.
+
+### Adjustments needed (priority order):
+1. Add OG meta tags to `index.html` (title, description, url, type, image).
+2. Create a social preview image (1200x630px).
+3. Add `<meta name="theme-color" content="#2563eb">`.
+4. Add `<link rel="canonical" href="https://basketch.vercel.app/">`.
+5. Add apple-touch-icon (can reuse/resize the SVG favicon).
+
+---
+
+## Component-by-Component Verdicts
+
+| # | Component | File | Verdict | Notes |
+|---|-----------|------|---------|-------|
+| 1 | **Button** | `ui/Button.tsx` | Approved | Clean CVA pattern, good variants, 44px touch targets |
+| 2 | **Card** | `ui/Card.tsx` | Approved | Minimal, correct shadow + border |
+| 3 | **Input** | `ui/Input.tsx` | Adjust | Add `min-h-[44px]` for guaranteed touch target |
+| 4 | **Badge** | `ui/Badge.tsx` | Approved | Five variants cover all use cases |
+| 5 | **Layout** | `Layout.tsx` | Approved | Sticky header, 640px max-width, proper nav |
+| 6 | **TemplatePicker** | `TemplatePicker.tsx` | Adjust | Replace arbitrary font sizes; add spinner to loading state; improve empty state |
+| 7 | **FavoritesEditor** | `FavoritesEditor.tsx` | Approved | Good empty state, proper remove UX, ARIA labels |
+| 8 | **ProductSearch** | `ProductSearch.tsx` | Approved | Excellent no-results recovery, keyboard support |
+| 9 | **CompareCard** | `CompareCard.tsx` | Adjust | Add line-clamp on product name for 320px safety |
+| 10 | **SplitList** | `SplitList.tsx` | Approved | Clean section grouping, colored dots, proper empty state |
+| 11 | **EmailCapture** | `EmailCapture.tsx` | Approved | Good success animation, ARIA, validation |
+| 12 | **HomePage** | `HomePage.tsx` | Adjust | Arbitrary H1 size `text-[1.75rem]` -- use scale value |
+| 13 | **OnboardingPage** | `OnboardingPage.tsx` | Approved | 3-step flow, progress bar, back navigation, all states handled |
+| 14 | **ComparisonPage** | `ComparisonPage.tsx` | Adjust | Add truncation safeguard on share URL row for small screens |
+| 15 | **AboutPage** | `AboutPage.tsx` | Approved | Clean cards, ordered list, privacy section, proper attribution |
+| 16 | **index.html** | `index.html` | Adjust | Missing OG tags, theme-color, canonical, apple-touch-icon |
+| 17 | **styles.css** | `styles.css` | Approved | Clean theme tokens, correct @theme syntax, minimal custom CSS |
+| 18 | **favicon.svg** | `public/favicon.svg` | Approved | Basket + Swiss cross in accent blue. Good brand mark. |
+
+---
+
+## Priority Fix List
+
+### P0 -- Fix before user testing
+
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 1 | Missing Open Graph meta tags | `web/index.html` | Add og:title, og:description, og:url, og:type, og:image |
+| 2 | Success color contrast failure | `web/src/styles.css` | Darken `--color-success` from #16a34a to #147a2d for 4.5:1 on success-light |
+| 3 | Input touch target below 44px | `web/src/components/ui/Input.tsx` | Add `min-h-[44px]` to base classes |
+
+### P1 -- Fix before launch
+
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 4 | Arbitrary font sizes in TemplatePicker | `TemplatePicker.tsx` | Replace `text-[0.95rem]` -> `text-base`, `text-[0.7rem]` -> `text-xs` |
+| 5 | Arbitrary H1 size on HomePage | `HomePage.tsx` | Replace `text-[1.75rem]` -> `text-3xl` or `text-2xl` |
+| 6 | No line-clamp on product names in CompareCard | `CompareCard.tsx` | Add `line-clamp-2` to product name div |
+| 7 | Missing theme-color meta tag | `web/index.html` | Add `<meta name="theme-color" content="#2563eb">` |
+| 8 | Missing canonical URL | `web/index.html` | Add `<link rel="canonical" href="https://basketch.vercel.app/">` |
+| 9 | TemplatePicker loading state missing spinner | `TemplatePicker.tsx` | Add CSS spinner to match other loading states |
+| 10 | Create social preview image | `web/public/` | 1200x630px OG image for sharing |
+
+### P2 -- Nice to have
+
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 11 | Share URL row could wrap on 320px | `ComparisonPage.tsx` | Add responsive stacking for the URL + buttons row |
+| 12 | No apple-touch-icon | `web/index.html` | Generate and add apple-touch-icon for home screen |
+| 13 | TemplatePicker empty state not actionable | `TemplatePicker.tsx` | Add "Build from scratch" fallback link |
+| 14 | H2/H3 use same visual weight | Various | Consider `text-xl` for H2 if hierarchy grows |
+| 15 | No skeleton loading for comparison cards | `ComparisonPage.tsx` | Add shimmer placeholders for perceived performance |
+
+---
+
+## Design System Compliance Summary
+
+| Aspect | Compliant? | Notes |
+|--------|------------|-------|
+| Color tokens via @theme | Yes | All colors defined as CSS custom properties in styles.css |
+| No arbitrary colors in components | Yes | All components use theme tokens (bg-migros, text-coop, etc.) |
+| Consistent border radius | Yes | rounded-md for containers, rounded-full for badges |
+| 44px touch targets | Mostly | Buttons pass, Input is ~40px (needs fix), remove buttons pass |
+| WCAG AA contrast | Mostly | Muted text passes, brand colors pass (barely), success fails on success-light |
+| System font stack | Yes | Native fonts, no external font loading |
+| No custom CSS (beyond theme) | Yes | Only @keyframes spin is custom. Everything else is Tailwind utility classes. |
+| shadcn/ui patterns | Yes | CVA for variants, forwardRef, cn() utility, composable props |
+| Mobile-first responsive | Yes | 640px max-width, responsive grids, no horizontal overflow |
+| Three states (loading/error/success) | Yes | All data-fetching components handle all three states |
+
+---
+
+## Overall Assessment
+
+The basketch frontend is a clean, well-executed MVP that follows Swiss design principles: restraint, precision, clarity. The favorites-first flow is well-structured, the comparison cards are scannable, and the visual system is cohesive.
+
+The biggest gap is SEO/sharing meta tags -- this directly impacts the growth engine described in the PRD (WhatsApp sharing, social previews). This should be the first fix.
+
+The codebase quality is high: consistent patterns, proper accessibility attributes, no visual debt. The adjustments listed above are minor refinements, not structural issues. This is ready for user testing after the P0 fixes.

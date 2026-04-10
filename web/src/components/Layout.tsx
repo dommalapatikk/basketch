@@ -1,4 +1,22 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { cn } from '@/lib/utils'
+
+function NavLink(props: { to: string; children: React.ReactNode }) {
+  const { pathname } = useLocation()
+  const isActive = pathname === props.to || pathname.startsWith(props.to + '/')
+
+  return (
+    <Link
+      to={props.to}
+      className={cn(
+        'flex min-h-[44px] items-center text-sm no-underline',
+        isActive ? 'font-semibold text-current' : 'text-muted hover:text-current',
+      )}
+    >
+      {props.children}
+    </Link>
+  )
+}
 
 export function Layout() {
   return (
@@ -10,12 +28,8 @@ export function Layout() {
             basketch
           </Link>
           <nav className="flex gap-4">
-            <Link to="/onboarding" className="flex min-h-[44px] items-center text-sm text-muted no-underline hover:text-current">
-              My List
-            </Link>
-            <Link to="/about" className="flex min-h-[44px] items-center text-sm text-muted no-underline hover:text-current">
-              About
-            </Link>
+            <NavLink to="/onboarding">New List</NavLink>
+            <NavLink to="/about">About</NavLink>
           </nav>
         </div>
       </header>

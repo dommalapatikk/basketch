@@ -48,7 +48,7 @@ export function EmailCapture(props: {
 
   return (
     <Card>
-      <h3 className="mb-3 text-lg font-semibold">Secure your list</h3>
+      <h3 className="mb-3 text-lg font-semibold">Save your list</h3>
       <p className="mb-2 text-sm text-muted">
         Enter your email so you can find your list again next week.
         No account needed.

@@ -155,7 +155,7 @@ export function OnboardingPage() {
 
       {!loading && step === 'pick' && (
         <div>
-          <TemplatePicker onSelect={handlePackSelect} />
+          <TemplatePicker onSelect={handlePackSelect} onSkip={handleSkipTemplate} />
           <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipTemplate} type="button">
             Build my own list
           </Button>
@@ -181,6 +181,9 @@ export function OnboardingPage() {
           <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipEmail} type="button">
             Continue without saving
           </Button>
+          <p className="mt-2 text-center text-xs text-muted">
+            You can still bookmark the next page to return later.
+          </p>
         </div>
       )}
     </div>

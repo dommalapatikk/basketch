@@ -38,13 +38,13 @@ export function HomePage() {
   return (
     <div>
       <div className="py-8 text-center">
-        <h1 className="text-[1.75rem] font-extrabold leading-tight">
-          Smart grocery shopping<br />
-          for Swiss shoppers
+        <h1 className="text-3xl font-extrabold leading-tight">
+          Migros or Coop<br />
+          this week?
         </h1>
         <p className="mt-2 text-base text-muted">
-          Compare Migros and Coop deals for the items you actually buy.
-          Save CHF 20-40 per month by shopping where deals are best.
+          See which of your regular items are on sale at each store.
+          Split your shopping and save.
         </p>
         <div className="mt-6">
           <Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>
@@ -56,7 +56,7 @@ export function HomePage() {
       <Card className="mt-6">
         <h3 className="mb-3 text-lg font-semibold">Already have a list?</h3>
         <p className="mb-2 text-sm text-muted">
-          Enter the email you saved with your list to find it.
+          Enter the email you saved, or use the bookmark/link you saved last time.
         </p>
         <div className="flex gap-2">
           <label htmlFor="email-lookup" className="sr-only">Email address</label>

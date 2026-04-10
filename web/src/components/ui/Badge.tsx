@@ -12,7 +12,7 @@ const badgeVariants = cva(
         coop: 'bg-coop-light text-coop',
         both: 'bg-success-light text-success',
         none: 'bg-gray-100 text-muted',
-        accent: 'bg-accent text-white text-[0.65rem] uppercase tracking-wide',
+        accent: 'bg-accent text-white text-xs uppercase tracking-wide',
       },
     },
     defaultVariants: {

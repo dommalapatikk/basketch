@@ -7,6 +7,7 @@ import { HomePage } from './pages/HomePage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { ComparisonPage } from './pages/ComparisonPage'
 import { AboutPage } from './pages/AboutPage'
+import { NotFoundPage } from './pages/NotFoundPage'
 
 export function App() {
   return (
@@ -18,6 +19,7 @@ export function App() {
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/compare/:favoriteId" element={<ComparisonPage />} />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

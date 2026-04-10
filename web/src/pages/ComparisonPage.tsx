@@ -87,26 +87,77 @@ export function ComparisonPage() {
 
   const migrosItems = comparisons.filter((c) => c.recommendation === 'migros')
   const coopItems = comparisons.filter((c) => c.recommendation === 'coop')
+  const withDeals = comparisons.filter((c) => c.recommendation !== 'none')
+  const noDeals = comparisons.filter((c) => c.recommendation === 'none')
 
   const migrosTotal = migrosItems.reduce((sum, c) => sum + (c.migrosDeal?.sale_price ?? 0), 0)
   const coopTotal = coopItems.reduce((sum, c) => sum + (c.coopDeal?.sale_price ?? 0), 0)
 
+  // Calculate total savings (original - sale price for matched deals)
+  const totalSavings = withDeals.reduce((sum, c) => {
+    const deal = c.recommendation === 'migros' ? c.migrosDeal
+      : c.recommendation === 'coop' ? c.coopDeal
+        : c.migrosDeal ?? c.coopDeal
+    if (!deal || deal.original_price == null) return sum
+    return sum + Math.max(0, deal.original_price - deal.sale_price)
+  }, 0)
+
+  // Build verdict sentence
+  function buildVerdict(): string {
+    const parts: string[] = []
+    if (migrosItems.length > 0) parts.push(`${migrosItems.length} at Migros`)
+    if (coopItems.length > 0) parts.push(`${coopItems.length} at Coop`)
+    if (parts.length === 0) return 'No deals matched this week.'
+    const verdict = `Buy ${parts.join(', ')}.`
+    if (totalSavings > 0) return `${verdict} Save CHF ${totalSavings.toFixed(2)} by splitting.`
+    return verdict
+  }
+
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">Your deals this week</h1>
-      <p className="mb-6 text-sm text-muted">
-        {comparisons.length} items compared
-      </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Your deals this week</h1>
+          <p className="mt-1 text-sm text-muted">
+            {comparisons.length} items — {withDeals.length} have deals{noDeals.length > 0 ? `, ${noDeals.length} without` : ''}
+          </p>
+        </div>
+        <Link to="/onboarding" state={{ favoriteId, editMode: true }} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+          Edit list
+        </Link>
+      </div>
+
+      {/* Verdict sentence */}
+      {withDeals.length > 0 && (
+        <div className="mb-4 rounded-md border border-border bg-surface p-3 text-center text-sm font-semibold">
+          {buildVerdict()}
+        </div>
+      )}
+
+      {/* Bookmark/share prompt — prominent for first-time visitors */}
+      <Card className="mb-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted">Bookmark this page to check deals next week.</p>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
+              {copied ? 'Copied!' : 'Copy link'}
+            </Button>
+            <Button size="sm" onClick={handleShare} type="button">
+              Share
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {(migrosItems.length > 0 || coopItems.length > 0) && (
         <div className="mb-4 grid grid-cols-2 gap-2">
           <div className="rounded-md bg-migros-light p-3 text-center">
-            <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-migros">Migros</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-migros">Migros</div>
             <div className="mt-0.5 text-xl font-bold">CHF {migrosTotal.toFixed(2)}</div>
             <div className="text-xs text-muted">{migrosItems.length} item{migrosItems.length !== 1 ? 's' : ''}</div>
           </div>
           <div className="rounded-md bg-coop-light p-3 text-center">
-            <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-coop">Coop</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-coop">Coop</div>
             <div className="mt-0.5 text-xl font-bold">CHF {coopTotal.toFixed(2)}</div>
             <div className="text-xs text-muted">{coopItems.length} item{coopItems.length !== 1 ? 's' : ''}</div>
           </div>
@@ -114,30 +165,6 @@ export function ComparisonPage() {
       )}
 
       <SplitList comparisons={comparisons} />
-
-      <Card className="mt-4">
-        <h3 className="mb-2 text-lg font-semibold">Save this list</h3>
-        <p className="mb-2 text-sm text-muted">
-          Bookmark this page or share the link to access your list anytime.
-        </p>
-        <div className="flex gap-2">
-          <div className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-muted">
-            {window.location.href}
-          </div>
-          <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
-            {copied ? 'Copied!' : 'Copy'}
-          </Button>
-          <Button size="sm" onClick={handleShare} type="button">
-            Share
-          </Button>
-        </div>
-      </Card>
-
-      <div className="mt-4 text-center">
-        <Link to="/onboarding" state={{ favoriteId, editMode: true }} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-          Edit my list
-        </Link>
-      </div>
     </div>
   )
 }

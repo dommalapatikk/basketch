@@ -56,7 +56,7 @@ export function ProductSearch(props: {
         <Input
           id="product-search"
           type="text"
-          placeholder="Search products (e.g. milch, butter, poulet)"
+          placeholder="Search in German (e.g. milch, butter, poulet)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}

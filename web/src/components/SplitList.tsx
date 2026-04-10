@@ -54,9 +54,14 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
             <span className="size-3 rounded-full bg-muted" />
             No deals this week ({noDeals.length})
           </div>
-          {noDeals.map((c) => (
-            <CompareCard key={c.favorite.id} comparison={c} />
-          ))}
+          <div className="rounded-md border border-border bg-surface p-3">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+              {noDeals.map((c) => (
+                <span key={c.favorite.id}>{c.favorite.label}</span>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted">Check back next week for deals on these items.</p>
+          </div>
         </section>
       )}
     </div>

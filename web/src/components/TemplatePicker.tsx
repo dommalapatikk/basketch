@@ -3,16 +3,36 @@ import { useState } from 'react'
 import type { StarterPackRow } from '@shared/types'
 import { useStarterPacks } from '../lib/hooks'
 import { Badge } from './ui/Badge'
+import { Button } from './ui/Button'
 
 export function TemplatePicker(props: {
   onSelect: (pack: StarterPackRow) => void
+  onSkip?: () => void
 }) {
   const { data: packs, isLoading, error } = useStarterPacks()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  if (isLoading) return <div className="py-12 text-center text-muted">Loading starter packs...</div>
+  if (isLoading) {
+    return (
+      <div className="py-12 text-center text-muted">
+        Loading starter packs...
+        <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+      </div>
+    )
+  }
   if (error) return <div className="rounded-md bg-error-light p-6 text-center text-error">Could not load starter packs</div>
-  if (!packs || packs.length === 0) return <div className="py-12 text-center text-muted">No starter packs available</div>
+  if (!packs || packs.length === 0) {
+    return (
+      <div className="py-12 text-center text-muted">
+        No starter packs available.
+        {props.onSkip && (
+          <div className="mt-4">
+            <Button variant="outline" onClick={props.onSkip} type="button">Build from scratch</Button>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   function handleSelect(pack: StarterPackRow) {
     setSelectedId(pack.id)
@@ -40,13 +60,13 @@ export function TemplatePicker(props: {
             {index === 0 && (
               <Badge variant="accent">Recommended</Badge>
             )}
-            <div className="mt-2 text-[0.95rem] font-semibold">{pack.label}</div>
+            <div className="mt-2 text-base font-semibold">{pack.label}</div>
             {pack.description && (
               <div className="mt-1 text-xs text-muted">{pack.description}</div>
             )}
-            <div className="mt-1.5 text-[0.7rem] leading-snug text-muted">
-              {pack.items.slice(0, 4).map((i) => i.label).join(', ')}
-              {pack.items.length > 4 && ` +${pack.items.length - 4} more`}
+            <div className="mt-1.5 text-xs leading-snug text-muted">
+              {pack.items.slice(0, 6).map((i) => i.label).join(', ')}
+              {pack.items.length > 6 && ` +${pack.items.length - 6} more`}
             </div>
           </button>
         ))}

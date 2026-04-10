@@ -14,7 +14,7 @@ function DealColumn(props: { deal: DealRow | null; storeName: string; bgClass: s
   if (!deal) {
     return (
       <div className={`rounded-md p-2 text-xs ${bgClass}`}>
-        <div className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-wide">{storeName}</div>
+        <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide">{storeName}</div>
         <div className="italic text-muted">No deal</div>
       </div>
     )
@@ -22,7 +22,7 @@ function DealColumn(props: { deal: DealRow | null; storeName: string; bgClass: s
 
   return (
     <div className={`rounded-md p-2 text-xs ${bgClass}`}>
-      <div className="mb-0.5 text-[0.7rem] font-semibold uppercase tracking-wide">{storeName}</div>
+      <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide">{storeName}</div>
       {deal.image_url && (
         <img
           className="mb-1.5 max-h-[120px] w-full rounded object-contain bg-gray-50"
@@ -44,7 +44,7 @@ function DealColumn(props: { deal: DealRow | null; storeName: string; bgClass: s
           -{deal.discount_percent}%
         </div>
       )}
-      <div className="mt-0.5 text-sm text-muted">
+      <div className="mt-0.5 line-clamp-2 text-sm text-muted">
         {deal.product_name}
       </div>
     </div>
