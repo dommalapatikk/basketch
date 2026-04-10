@@ -68,8 +68,8 @@ body {
 }
 
 .header-logo-icon {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
 }
 
 .header-nav {
@@ -447,7 +447,7 @@ body {
 
 .compare-store-img {
   width: 100%;
-  max-height: 80px;
+  max-height: 120px;
   object-fit: contain;
   border-radius: 4px;
   margin-bottom: 6px;
@@ -630,6 +630,128 @@ body {
 
 .lh-loose {
   line-height: 2;
+}
+
+/* Success message */
+.success-msg {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--color-success);
+  background: #e8f5e9;
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+/* Share/copy link section */
+.share-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.share-url {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-url-text {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Savings summary */
+.savings-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.savings-card {
+  padding: 12px;
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.savings-card-migros {
+  background: #fff3e6;
+}
+
+.savings-card-coop {
+  background: #e6f4ec;
+}
+
+.savings-card-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.savings-card-amount {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.savings-card-count {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* Pack card recommended badge */
+.pack-card-badge {
+  display: inline-block;
+  background: var(--color-accent);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pack-card-items {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* Loading spinner */
+.loading::after {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 12px auto 0;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive: single column packs on small screens */
+@media (max-width: 400px) {
+  .pack-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Screen reader only — visually hidden but accessible */

@@ -127,7 +127,7 @@ export function OnboardingPage() {
             onClick={handleSkipTemplate}
             type="button"
           >
-            Start from scratch
+            Build my own list
           </button>
         </div>
       )}
@@ -158,7 +158,7 @@ export function OnboardingPage() {
             onClick={handleSkipEmail}
             type="button"
           >
-            Skip — just show my deals
+            Continue without saving
           </button>
         </div>
       )}

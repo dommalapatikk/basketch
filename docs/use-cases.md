@@ -170,17 +170,18 @@ Timeline: Open basketch → Pick template → Customize → See comparison → S
 
 RETURN VISIT — Sarah Checks Her Comparison (Weekly)
 
-Timeline: Open basketch → Enter email → See comparison → Go shopping
+Timeline: Open bookmark → See comparison → Go shopping
 
-[Open basketch]
+[Open bookmark or saved link]
    |
-   +-- Enter email → 20 seconds
-   +-- See updated comparison for this week
-   +-- "This week: 4 of your items are on sale"
+   +-- Comparison page loads instantly with this week's deals
+   +-- Savings summary: "Migros CHF 12.50 (3 items) | Coop CHF 8.40 (2 items)"
    +-- Split list: Migros list (3 items) | Coop list (2 items)
    +-- Go shopping with the right list
    |
-   Total: under 30 seconds
+   Total: under 10 seconds
+
+   Alternative: If bookmark lost, enter email on home page → find list
 ```
 
 ---
@@ -549,8 +550,107 @@ THEN the verdict banner is fully visible without scrolling
 | UC-3: Quick Check at Store | US-1 | JTBD-5 | Sarah, Marco | Should-have | MVP |
 | UC-4: Data Pipeline | — (system) | — | — | Must-have | MVP |
 | UC-5: Mobile-First | NFR | JTBD-2, JTBD-5 | Sarah | Must-have | MVP |
-| UC-6: Personal Basket | US-5, US-6, US-7 | — | Marco | Must-have | Phase 2 |
-| UC-7: Email Notifications | US-8, US-9, US-10 | — | Marco | Must-have | Phase 3 |
+| UC-6: Return via Direct URL | US-6 | JTBD-5 | Sarah, Marco | Must-have | MVP |
+| UC-7: Share Comparison List | US-7 | JTBD-3 | Sarah, Marco | Must-have | MVP |
+| UC-8: Return via Email Lookup | US-8 | JTBD-5 | Sarah | Should-have | MVP |
+| UC-9: Email Notifications | US-9, US-10 | — | Marco | Must-have | Phase 2 |
+
+---
+
+### UC-6: Return via Direct URL (Bookmark/Share Link)
+
+**Persona:** Sarah, Marco
+**Job:** JTBD-5
+**Trigger:** Returning to check deals next week
+**Priority:** Must-have
+
+**Rationale:** Email lookup is fragile — users forget which email they used, or skip the email step entirely. The comparison page URL (`/compare/:favoriteId`) already works as a stable, unique, unguessable link. Surfacing it prominently solves 60% of the retention problem.
+
+**Main Flow:**
+
+| # | Shopper does... | System does... |
+|---|-----------------|----------------|
+| 1 | Completes onboarding (UC-1) | Navigates to `/compare/:favoriteId` |
+| 2 | — | Shows "Save this list" section with the direct URL |
+| 3 | Taps "Copy" or "Share" | Copies URL to clipboard, or opens native share sheet |
+| 4 | Bookmarks the page or shares via WhatsApp | — |
+| 5 | Returns next week via bookmark or chat link | Shows updated comparison with this week's deals |
+
+**Acceptance Criteria:**
+
+```
+GIVEN the shopper has completed onboarding
+WHEN they view the comparison page
+THEN a "Save this list" section shows the direct URL
+  AND a "Copy" button copies the URL to clipboard with visual feedback
+  AND a "Share" button uses the native share API (or copies as fallback)
+  AND the URL is stable and works across devices and sessions
+  AND the URL is unguessable (UUID-based, not sequential)
+```
+
+---
+
+### UC-7: Share Comparison with Partner or Friends
+
+**Persona:** Sarah (shares with partner), Marco (shares with flatmates)
+**Job:** JTBD-3
+**Trigger:** User wants to split shopping with someone
+**Priority:** Must-have
+
+**Main Flow:**
+
+| # | Shopper does... | System does... |
+|---|-----------------|----------------|
+| 1 | Views comparison page | Shows "Share" button |
+| 2 | Taps "Share" | Opens native share sheet (WhatsApp, SMS, email, etc.) |
+| 3 | Sends link to partner | Partner opens same comparison page |
+| 4 | Partner sees the same split shopping list | — |
+
+**Acceptance Criteria:**
+
+```
+GIVEN a shopper has a comparison page open
+WHEN they tap "Share"
+THEN the native share API is invoked (on supported devices)
+  AND the share includes a title, description, and URL
+  AND the recipient can view the full comparison without any setup
+```
+
+---
+
+### UC-8: Return via Email Lookup
+
+**Persona:** Sarah
+**Job:** JTBD-5
+**Trigger:** User lost their bookmark and wants to find their list
+**Priority:** Should-have (secondary to UC-6)
+
+**Main Flow:**
+
+| # | Shopper does... | System does... |
+|---|-----------------|----------------|
+| 1 | Opens basketch home page | Shows "Already have a list?" with email input |
+| 2 | Enters the email they saved during onboarding | Looks up favorites by email |
+| 3 | — | Redirects to `/compare/:favoriteId` |
+
+**Edge cases:**
+
+| Condition | Behaviour |
+|-----------|-----------|
+| Email not found | "No list found for this email. Try creating a new one." |
+| Multiple lists with same email | Return most recently created list |
+| User never saved email | Cannot use this flow — must use bookmark (UC-6) |
+
+**Acceptance Criteria:**
+
+```
+GIVEN a shopper saved their email during onboarding
+WHEN they enter that email on the home page
+THEN they are redirected to their comparison page
+  AND the comparison shows current week's deals
+```
+
+**Note:** Email lookup is a fallback for users who lost their bookmark. The primary return path is the direct URL (UC-6). Email confirmation and verification are deferred to Phase 2.
 
 ---
 

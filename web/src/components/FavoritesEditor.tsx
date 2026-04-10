@@ -11,12 +11,19 @@ export function FavoritesEditor(props: {
   onItemsChange: (items: FavoriteItemRow[]) => void
 }) {
   const [adding, setAdding] = useState(false)
+  const [removing, setRemoving] = useState<Set<string>>(new Set())
 
   async function handleRemove(itemId: string) {
+    setRemoving((prev) => new Set(prev).add(itemId))
     const success = await removeFavoriteItem(itemId)
     if (success) {
       props.onItemsChange(props.items.filter((i) => i.id !== itemId))
     }
+    setRemoving((prev) => {
+      const next = new Set(prev)
+      next.delete(itemId)
+      return next
+    })
   }
 
   async function handleAdd(keyword: string, label: string, category: Category) {
@@ -48,7 +55,7 @@ export function FavoritesEditor(props: {
 
       {props.items.length === 0 ? (
         <div className="empty-msg">
-          No items yet. Add some favorites to compare deals.
+          Add your first product to see this week's best deals.
         </div>
       ) : (
         <ul className="fav-list">
@@ -61,10 +68,11 @@ export function FavoritesEditor(props: {
               <button
                 className="fav-remove"
                 onClick={() => handleRemove(item.id)}
+                disabled={removing.has(item.id)}
                 type="button"
                 aria-label={`Remove ${item.label}`}
               >
-                x
+                {removing.has(item.id) ? '...' : 'x'}
               </button>
             </li>
           ))}

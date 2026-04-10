@@ -32,26 +32,33 @@ export function TemplatePicker(props: {
     props.onSelect(pack)
   }
 
+  // First pack is the recommended default
+  const isFirst = (index: number) => index === 0
+
   return (
     <div>
       <h2 className="section-title">Pick a starter pack</h2>
       <p className="text-sm text-muted mb-16">
-        Choose a template that matches your shopping style. You can customise it next.
+        Choose a template to pre-fill your list. You can add or remove items next.
       </p>
       <div className="pack-grid">
-        {packs.map((pack) => (
+        {packs.map((pack, index) => (
           <button
             key={pack.id}
             className={`pack-card ${selectedId === pack.id ? 'selected' : ''}`}
             onClick={() => handleSelect(pack)}
             type="button"
           >
+            {isFirst(index) && (
+              <div className="pack-card-badge">Recommended</div>
+            )}
             <div className="pack-card-label">{pack.label}</div>
             {pack.description && (
               <div className="pack-card-desc">{pack.description}</div>
             )}
-            <div className="text-sm text-muted mt-8">
-              {pack.items.length} items
+            <div className="pack-card-items">
+              {pack.items.slice(0, 4).map((i) => i.label).join(', ')}
+              {pack.items.length > 4 && ` +${pack.items.length - 4} more`}
             </div>
           </button>
         ))}

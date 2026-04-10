@@ -49,11 +49,12 @@ export function HomePage() {
     <div>
       <div className="hero">
         <h1 className="hero-title">
-          Your groceries.<br />
-          Two stores. One smart list.
+          Smart grocery shopping<br />
+          for Swiss shoppers
         </h1>
         <p className="hero-subtitle">
-          See which of your regular items are on sale this week at Migros or Coop.
+          Compare Migros and Coop deals for the items you actually buy.
+          Save CHF 20-40 per month by shopping where deals are best.
         </p>
         <div className="hero-cta">
           <Link to="/onboarding" className="btn btn-primary btn-block">

@@ -81,14 +81,14 @@ export function ProductSearch(props: {
       {searched && results.length === 0 && (
         <div>
           <p className="text-sm text-muted mb-8">
-            No matching deals found this week.
+            No current deals found for "{query.trim()}". You can still add it to track future deals.
           </p>
           <button
             className="btn btn-sm btn-outline"
             onClick={handleAddCustom}
             type="button"
           >
-            Add "{query.trim()}" anyway
+            Add "{query.trim()}" to my list
           </button>
         </div>
       )}

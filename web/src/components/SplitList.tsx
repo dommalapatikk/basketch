@@ -7,7 +7,7 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
   const { migros, coop, either, noDeals } = splitShoppingList(props.comparisons)
 
   if (props.comparisons.length === 0) {
-    return <div className="empty-msg">Add some favorites to see your comparison.</div>
+    return <div className="empty-msg">Your list is empty. Add items to see deals.</div>
   }
 
   return (

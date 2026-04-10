@@ -8,6 +8,7 @@ export function EmailCapture(props: {
 }) {
   const [email, setEmail] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSave() {
@@ -22,7 +23,8 @@ export function EmailCapture(props: {
     const success = await saveFavoriteEmail(props.favoriteId, trimmed)
 
     if (success) {
-      props.onSaved()
+      setSaved(true)
+      setTimeout(() => props.onSaved(), 1500)
     } else {
       setError('Could not save email. Try again.')
       setSaving(false)
@@ -33,12 +35,20 @@ export function EmailCapture(props: {
     if (e.key === 'Enter') handleSave()
   }
 
+  if (saved) {
+    return (
+      <div className="success-msg" role="status">
+        List saved! Redirecting to your deals...
+      </div>
+    )
+  }
+
   return (
     <div className="card">
-      <h3 className="section-title">Save your list</h3>
+      <h3 className="section-title">Secure your list</h3>
       <p className="text-sm text-muted mb-8">
-        Save your email so we can notify you about your deals in the future.
-        Bookmark this page to return to your list anytime.
+        Enter your email so you can find your list again next week.
+        No account needed.
       </p>
       <div className="email-group">
         <label htmlFor="email-capture" className="sr-only">Email address</label>
@@ -62,9 +72,6 @@ export function EmailCapture(props: {
         </button>
       </div>
       {error && <p className="text-sm mt-8 text-error" role="alert">{error}</p>}
-      <p className="text-sm text-muted mt-8">
-        You can also skip this and bookmark the comparison page.
-      </p>
     </div>
   )
 }
