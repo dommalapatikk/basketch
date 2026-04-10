@@ -16,7 +16,7 @@ export function keywordMatches(keyword: string, productName: string): boolean {
   // Exact word or end-of-compound match (e.g., "milch" matches "vollmilch 1l")
   // Pattern: keyword appears at word boundary or end of a compound word,
   // followed by space, digit, end-of-string, or common suffixes
-  const pattern = new RegExp(`${escapeRegex(keyword)}(?=[\\s\\d]|$)`, 'i')
+  const pattern = new RegExp(`${escapeRegex(keyword)}(?=[\\s\\d,.)·;!?]|$)`, 'i')
   return pattern.test(productName)
 }
 
@@ -25,16 +25,45 @@ function escapeRegex(str: string): string {
 }
 
 /**
+ * Check if a product name contains any of the exclude terms.
+ * Used to filter out false positives (e.g., "milch" should not match chocolate).
+ */
+export function isExcluded(
+  productName: string,
+  excludeTerms: string[] | null | undefined,
+): boolean {
+  if (!excludeTerms || excludeTerms.length === 0) return false
+  const name = productName.toLowerCase()
+  return excludeTerms.some((term) => name.includes(term.toLowerCase()))
+}
+
+/**
+ * Check if a product name contains any of the prefer terms.
+ * Used to boost relevance for expected product forms.
+ */
+export function isPreferred(
+  productName: string,
+  preferTerms: string[] | null | undefined,
+): boolean {
+  if (!preferTerms || preferTerms.length === 0) return false
+  const name = productName.toLowerCase()
+  return preferTerms.some((term) => name.includes(term.toLowerCase()))
+}
+
+/**
  * Score how relevant a keyword match is to a product name.
  * Higher = more relevant. Prioritizes products where the keyword
  * is the main subject, not a modifier in a compound or multi-word name.
  *
  * Scoring:
+ * - 5: keyword match + product name is short (≤4 words) = likely the actual product
  * - 4: keyword is one of the first 2 words ("milch 1l", "bio milch 1l")
  * - 3: keyword is a standalone word later in the name ("schokolade milch nuss")
  * - 2: keyword is end of a compound word ("vollmilch 1l")
  * - 1: keyword appears as substring only (fallback)
  */
+const QUALIFIERS = new Set(['bio', 'naturaplan', 'prix', 'garantie', 'm-budget', 'm-classic', 'coop', 'migros', 'aha!', 'free', 'from', 'optigal'])
+
 export function matchRelevance(keyword: string, productName: string): number {
   const kw = keyword.toLowerCase()
   const name = productName.toLowerCase()
@@ -43,14 +72,14 @@ export function matchRelevance(keyword: string, productName: string): number {
   // Check if keyword is the first word or part of the first word
   // "milch 1l" → first word IS milch → 4
   // "vollmilch 1l" → first word ENDS with milch → 4
+  // "pouletbrust" → first word STARTS with poulet → 4
   // "bio milch 1l" → second word IS milch and first word is a qualifier → 4
   const firstWord = words[0] ?? ''
-  if (firstWord === kw || firstWord.endsWith(kw)) return 4
+  if (firstWord === kw || firstWord.endsWith(kw) || firstWord.startsWith(kw)) return 4
 
   // Check if keyword is second word AND first word is a common qualifier
-  const qualifiers = new Set(['bio', 'naturaplan', 'prix', 'garantie', 'm-budget', 'coop', 'migros', 'aha!', 'free', 'from'])
   const secondWord = words[1] ?? ''
-  if ((secondWord === kw || secondWord.endsWith(kw)) && qualifiers.has(firstWord)) return 4
+  if ((secondWord === kw || secondWord.endsWith(kw) || secondWord.startsWith(kw)) && QUALIFIERS.has(firstWord)) return 4
 
   // Check if keyword is a standalone word anywhere
   const standalonePattern = new RegExp(`(^|\\s)${escapeRegex(kw)}(\\s|\\d|$)`, 'i')
@@ -58,6 +87,9 @@ export function matchRelevance(keyword: string, productName: string): number {
 
   // Check if keyword is at end of a compound word (e.g., "vollmilch")
   if (keywordMatches(kw, name)) return 2
+
+  // Check if keyword is at start of a compound word (e.g., "pouletbrust", "milchdrink")
+  if (words.some((w) => w.startsWith(kw) && w.length > kw.length)) return 2
 
   // Substring match (e.g., "milch" in "milchschokolade")
   if (name.includes(kw)) return 1
@@ -70,28 +102,51 @@ export function matchRelevance(keyword: string, productName: string): number {
  * Uses relevance-weighted scoring: products where the keyword is the
  * main subject rank higher than products where it's a modifier.
  * Among equally relevant matches, picks the highest discount.
+ *
+ * Supports exclude/prefer terms to filter out false positives and
+ * boost expected product forms.
  */
 export function findBestMatch(
   keyword: string,
   storeDeals: DealRow[],
+  options?: {
+    excludeTerms?: string[] | null
+    preferTerms?: string[] | null
+  },
 ): DealRow | null {
   const normalized = keyword.toLowerCase().trim()
   if (!normalized) return null
 
   // Score all deals by relevance, excluding 0% discount (not real deals)
+  // and applying exclude terms to filter false positives
   const scored = storeDeals
     .filter((d) => (d.discount_percent ?? 0) > 0)
-    .map((d) => ({
-      deal: d,
-      relevance: matchRelevance(normalized, d.product_name),
-    }))
+    .filter((d) => !isExcluded(d.product_name, options?.excludeTerms))
+    .map((d) => {
+      const relevance = matchRelevance(normalized, d.product_name)
+      const words = d.product_name.toLowerCase().split(/[\s·,]+/).filter(Boolean)
+      const preferred = isPreferred(d.product_name, options?.preferTerms)
+
+      return {
+        deal: d,
+        relevance,
+        // Bonus: short product names where keyword is the main subject
+        // "milch 1l" (2 words, relevance 4) → more likely to BE milk
+        // "tafelschokolade milch & nuss 12x100g" (5 words, relevance 3) → not milk
+        shortNameBonus: (relevance >= 3 && words.length <= 4) ? 1 : 0,
+        preferBonus: preferred ? 1 : 0,
+      }
+    })
     .filter((s) => s.relevance >= 2)
 
   if (scored.length === 0) return null
 
-  // Sort by relevance first (higher = better), then by discount (higher = better)
+  // Sort: prefer bonus → short name bonus → relevance → discount
   scored.sort((a, b) => {
-    if (a.relevance !== b.relevance) return b.relevance - a.relevance
+    if (a.preferBonus !== b.preferBonus) return b.preferBonus - a.preferBonus
+    const aScore = a.relevance + a.shortNameBonus
+    const bScore = b.relevance + b.shortNameBonus
+    if (aScore !== bScore) return bScore - aScore
     return (b.deal.discount_percent ?? 0) - (a.deal.discount_percent ?? 0)
   })
 
@@ -134,8 +189,12 @@ export function matchFavorites(
   const coopDeals = deals.filter((d) => d.store === 'coop')
 
   return favorites.map((fav) => {
-    const migrosDeal = findBestMatch(fav.keyword, migrosDeals)
-    const coopDeal = findBestMatch(fav.keyword, coopDeals)
+    const matchOptions = {
+      excludeTerms: fav.exclude_terms,
+      preferTerms: fav.prefer_terms,
+    }
+    const migrosDeal = findBestMatch(fav.keyword, migrosDeals, matchOptions)
+    const coopDeal = findBestMatch(fav.keyword, coopDeals, matchOptions)
     const recommendation = getRecommendation(migrosDeal, coopDeal)
 
     return {

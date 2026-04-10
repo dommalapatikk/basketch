@@ -161,7 +161,7 @@ export async function fetchFavoriteItems(
  */
 export async function addFavoriteItem(
   favoriteId: string,
-  item: { keyword: string; label: string; category: Category },
+  item: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[] },
 ): Promise<FavoriteItemRow | null> {
   const { data, error } = await supabase
     .from('favorite_items')
@@ -170,6 +170,8 @@ export async function addFavoriteItem(
       keyword: item.keyword,
       label: item.label,
       category: item.category,
+      exclude_terms: item.excludeTerms ?? null,
+      prefer_terms: item.preferTerms ?? null,
     })
     .select('*')
     .single()
@@ -202,13 +204,15 @@ export async function removeFavoriteItem(itemId: string): Promise<boolean> {
  */
 export async function addFavoriteItemsBatch(
   favoriteId: string,
-  items: { keyword: string; label: string; category: Category }[],
+  items: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[] }[],
 ): Promise<FavoriteItemRow[]> {
   const rows = items.map((item) => ({
     favorite_id: favoriteId,
     keyword: item.keyword,
     label: item.label,
     category: item.category,
+    exclude_terms: item.excludeTerms ?? null,
+    prefer_terms: item.preferTerms ?? null,
   }))
 
   const { data, error } = await supabase

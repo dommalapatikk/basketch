@@ -137,9 +137,11 @@ export interface StarterPack {
 }
 
 export interface StarterPackItem {
-  keyword: string     // search keyword: 'milch', 'poulet'
-  label: string       // display name: 'Milk', 'Chicken'
+  keyword: string           // search keyword: 'milch', 'poulet'
+  label: string             // display name: 'Milk', 'Chicken'
   category: Category
+  excludeTerms?: string[]   // products containing these terms are excluded from matching
+  preferTerms?: string[]    // products containing these terms get a relevance boost
 }
 
 /**
@@ -174,6 +176,8 @@ export interface FavoriteItemRow {
   keyword: string
   label: string
   category: Category
+  exclude_terms: string[] | null
+  prefer_terms: string[] | null
   created_at: string
 }
 

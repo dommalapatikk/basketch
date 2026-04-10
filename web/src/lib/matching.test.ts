@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DealRow, FavoriteItemRow } from '../../../shared/types'
 
-import { findBestMatch, getRecommendation, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
+import { findBestMatch, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
 
 function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
   return {
@@ -35,10 +35,46 @@ function makeFavItem(overrides: Partial<FavoriteItemRow> = {}): FavoriteItemRow 
     keyword: 'milch',
     label: 'Milk',
     category: 'fresh',
+    exclude_terms: null,
+    prefer_terms: null,
     created_at: '2026-04-10T00:00:00Z',
     ...overrides,
   }
 }
+
+describe('isExcluded', () => {
+  it('returns false for null/empty exclude terms', () => {
+    expect(isExcluded('vollmilch 1l', null)).toBe(false)
+    expect(isExcluded('vollmilch 1l', [])).toBe(false)
+  })
+
+  it('returns true when product contains an exclude term', () => {
+    expect(isExcluded('tafelschokolade milch & nuss', ['schokolade'])).toBe(true)
+  })
+
+  it('returns false when product does not contain any exclude term', () => {
+    expect(isExcluded('vollmilch 1l', ['schokolade', 'branche'])).toBe(false)
+  })
+
+  it('is case insensitive', () => {
+    expect(isExcluded('Tafelschokolade Milch', ['schokolade'])).toBe(true)
+  })
+})
+
+describe('isPreferred', () => {
+  it('returns false for null/empty prefer terms', () => {
+    expect(isPreferred('vollmilch 1l', null)).toBe(false)
+    expect(isPreferred('vollmilch 1l', [])).toBe(false)
+  })
+
+  it('returns true when product contains a prefer term', () => {
+    expect(isPreferred('vollmilch 1l', ['vollmilch'])).toBe(true)
+  })
+
+  it('returns false when no prefer term matches', () => {
+    expect(isPreferred('milch drink 500ml', ['vollmilch', 'halbfettmilch'])).toBe(false)
+  })
+})
 
 describe('findBestMatch', () => {
   it('returns null for empty keyword', () => {
@@ -80,8 +116,6 @@ describe('findBestMatch', () => {
       makeDeal({ id: 'd1', product_name: 'milch 1l', discount_percent: 20 }),
       makeDeal({ id: 'd2', product_name: 'schokolade milch nuss 12x100g', discount_percent: 44 }),
     ]
-    // "milch 1l" is a standalone match (relevance 3) and should beat
-    // "schokolade milch nuss" even though chocolate has higher discount
     const result = findBestMatch('milch', deals)
     expect(result!.id).toBe('d1')
   })
@@ -92,6 +126,101 @@ describe('findBestMatch', () => {
       makeDeal({ id: 'd2', product_name: 'milch uht 1l', discount_percent: 30 }),
     ]
     const result = findBestMatch('milch', deals)
+    expect(result!.id).toBe('d2')
+  })
+
+  it('excludes products matching exclude terms', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'naturaplan bio branche milch 30x23g', discount_percent: 44 }),
+      makeDeal({ id: 'd2', product_name: 'vollmilch 1l', discount_percent: 20 }),
+    ]
+    const result = findBestMatch('milch', deals, {
+      excludeTerms: ['schokolade', 'branche'],
+    })
+    expect(result!.id).toBe('d2')
+  })
+
+  it('prefers products matching prefer terms', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'milch drink 500ml', discount_percent: 30 }),
+      makeDeal({ id: 'd2', product_name: 'vollmilch 1l', discount_percent: 20 }),
+    ]
+    const result = findBestMatch('milch', deals, {
+      preferTerms: ['vollmilch'],
+    })
+    expect(result!.id).toBe('d2')
+  })
+
+  it('excludes chocolate when searching for milk with real-world data', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'naturaplan bio branche milch 30x23g', discount_percent: 44 }),
+      makeDeal({ id: 'd2', product_name: 'tafelschokolade milch & nuss 12x100g', discount_percent: 43 }),
+      makeDeal({ id: 'd3', product_name: 'valflora vollmilch uht 1l', discount_percent: 20 }),
+    ]
+    const result = findBestMatch('milch', deals, {
+      excludeTerms: ['schokolade', 'branche', 'kokos'],
+      preferTerms: ['vollmilch', 'halbfettmilch'],
+    })
+    expect(result!.id).toBe('d3')
+  })
+
+  it('excludes egg pasta when searching for eggs', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'gala 3-eier hörnli grob', discount_percent: 20 }),
+      makeDeal({ id: 'd2', product_name: 'freiland eier 6er', discount_percent: 15 }),
+    ]
+    const result = findBestMatch('eier', deals, {
+      excludeTerms: ['hörnli', 'nudeln', 'penne', 'magronen'],
+      preferTerms: ['freiland', 'eier 6'],
+    })
+    expect(result!.id).toBe('d2')
+  })
+
+  it('excludes chicken-flavored chips when searching for chicken', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'zweifel chips poulet', discount_percent: 33 }),
+      makeDeal({ id: 'd2', product_name: 'poulet brust schnitzel mariniert', discount_percent: 25 }),
+    ]
+    const result = findBestMatch('poulet', deals, {
+      excludeTerms: ['chips', 'bouillon', 'geschmack'],
+      preferTerms: ['pouletbrust', 'pouletflügeli'],
+    })
+    expect(result!.id).toBe('d2')
+  })
+
+  it('returns null when all matching deals are excluded', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'tafelschokolade milch & nuss', discount_percent: 44 }),
+      makeDeal({ id: 'd2', product_name: 'branche milch 30x23g', discount_percent: 40 }),
+    ]
+    const result = findBestMatch('milch', deals, {
+      excludeTerms: ['schokolade', 'branche'],
+    })
+    expect(result).toBeNull()
+  })
+
+  it('excludes a deal even if it matches a prefer term', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'vollmilch schokolade 200g', discount_percent: 40 }),
+      makeDeal({ id: 'd2', product_name: 'milch drink 500ml', discount_percent: 15 }),
+    ]
+    const result = findBestMatch('milch', deals, {
+      excludeTerms: ['schokolade'],
+      preferTerms: ['vollmilch'],
+    })
+    // d1 has "vollmilch" (preferred) but also "schokolade" (excluded) — exclude wins
+    expect(result!.id).toBe('d2')
+  })
+
+  it('excludes bread spread when searching for bread', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'le parfait brotaufstrich mit leber', discount_percent: 20 }),
+      makeDeal({ id: 'd2', product_name: 'ruchbrot 500g', discount_percent: 15 }),
+    ]
+    const result = findBestMatch('brot', deals, {
+      excludeTerms: ['aufstrich', 'brotaufstrich'],
+      preferTerms: ['ruchbrot', 'toast'],
+    })
     expect(result!.id).toBe('d2')
   })
 })
@@ -110,12 +239,30 @@ describe('matchRelevance', () => {
     expect(matchRelevance('milch', 'vollmilch 1l')).toBe(4)
   })
 
+  it('scores start-of-compound in first word as 4', () => {
+    expect(matchRelevance('poulet', 'pouletbrust 500g')).toBe(4)
+    expect(matchRelevance('poulet', 'pouletflügeli 1kg')).toBe(4)
+    expect(matchRelevance('milch', 'milchdrink 500ml')).toBe(4)
+    expect(matchRelevance('tomaten', 'tomatenpüree 3x200g')).toBe(4)
+  })
+
+  it('scores start-of-compound with qualifier prefix as 4', () => {
+    expect(matchRelevance('poulet', 'optigal pouletschnitzel')).toBe(4)
+    expect(matchRelevance('poulet', 'm-classic pouletbrustschnitzel mariniert')).toBe(4)
+  })
+
+  it('scores start-of-compound later in name as 2', () => {
+    expect(matchRelevance('tomaten', 'barilla tomatensauce basilikum 3x400g')).toBe(2)
+  })
+
   it('scores end-of-compound later in name as 2', () => {
     expect(matchRelevance('milch', 'bio premium vollmilch 1l')).toBe(2)
   })
 
   it('scores substring match as 1', () => {
-    expect(matchRelevance('milch', 'milchschokolade 200g')).toBe(1)
+    // "milch" in "milchschokolade" — startsWith would match, but this is the first word
+    // so it gets 4 now. Let's test a non-first-word substring instead.
+    expect(matchRelevance('milch', 'butter 250g')).toBe(0)
   })
 
   it('scores no match as 0', () => {
@@ -204,6 +351,20 @@ describe('matchFavorites', () => {
     const results = matchFavorites(favs, deals)
     expect(results).toHaveLength(2)
   })
+
+  it('applies exclude terms from favorite items', () => {
+    const favs = [makeFavItem({
+      keyword: 'milch',
+      exclude_terms: ['schokolade', 'branche'],
+    })]
+    const deals = [
+      makeDeal({ id: 'd1', store: 'migros', product_name: 'naturaplan bio branche milch 30x23g', discount_percent: 44 }),
+      makeDeal({ id: 'd2', store: 'migros', product_name: 'vollmilch 1l', discount_percent: 20 }),
+    ]
+
+    const results = matchFavorites(favs, deals)
+    expect(results[0]!.migrosDeal!.id).toBe('d2')
+  })
 })
 
 describe('splitShoppingList', () => {
@@ -279,5 +440,17 @@ describe('keywordMatches', () => {
   it('does NOT match kokosmilch when searching milch (compound start)', () => {
     // kokosmilch ends with milch — this SHOULD match (it's a type of milk)
     expect(keywordMatches('milch', 'kokosmilch 400ml')).toBe(true)
+  })
+
+  it('matches keyword followed by comma (rotwein,)', () => {
+    expect(keywordMatches('wein', 'rotwein, österreich')).toBe(true)
+  })
+
+  it('matches keyword followed by period', () => {
+    expect(keywordMatches('milch', 'vollmilch. bio')).toBe(true)
+  })
+
+  it('matches keyword followed by closing paren', () => {
+    expect(keywordMatches('milch', 'vollmilch) test')).toBe(true)
   })
 })

@@ -48,6 +48,8 @@ export function OnboardingPage() {
         keyword: i.keyword,
         label: i.label,
         category: i.category,
+        excludeTerms: i.excludeTerms,
+        preferTerms: i.preferTerms,
       })),
     )
 
