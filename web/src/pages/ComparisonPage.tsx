@@ -27,6 +27,7 @@ export function ComparisonPage() {
   const {
     data: products,
     isLoading: productsLoading,
+    error: productsError,
   } = useProductsWithGroups()
 
   const comparisons = useMemo(() => {
@@ -35,7 +36,7 @@ export function ComparisonPage() {
   }, [items, deals, products])
 
   const loading = itemsLoading || dealsLoading || productsLoading
-  const error = itemsError || dealsError
+  const error = itemsError || dealsError || productsError
 
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href).then(() => {

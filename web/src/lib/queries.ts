@@ -120,20 +120,18 @@ export async function saveFavoriteEmail(
 
 /**
  * Look up a favorites list by email. Returns the favorite ID or null.
+ * Uses an RPC function to avoid exposing email column via PostgREST.
  */
 export async function lookupFavoriteByEmail(
   email: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
-    .from('favorites')
-    .select('id')
-    .eq('email', email)
-    .single()
+    .rpc('lookup_favorite_by_email', { lookup_email: email })
 
-  if (error) {
+  if (error || !data) {
     return null
   }
-  return data.id
+  return data as string
 }
 
 /**
@@ -159,7 +157,7 @@ export async function fetchFavoriteItems(
  */
 export async function addFavoriteItem(
   favoriteId: string,
-  item: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[] },
+  item: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string },
 ): Promise<FavoriteItemRow | null> {
   const { data, error } = await supabase
     .from('favorite_items')
@@ -170,6 +168,7 @@ export async function addFavoriteItem(
       category: item.category,
       exclude_terms: item.excludeTerms ?? null,
       prefer_terms: item.preferTerms ?? null,
+      product_group_id: item.productGroupId ?? null,
     })
     .select('*')
     .single()
@@ -202,7 +201,7 @@ export async function removeFavoriteItem(itemId: string): Promise<boolean> {
  */
 export async function addFavoriteItemsBatch(
   favoriteId: string,
-  items: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[] }[],
+  items: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string }[],
 ): Promise<FavoriteItemRow[]> {
   const rows = items.map((item) => ({
     favorite_id: favoriteId,
@@ -211,6 +210,7 @@ export async function addFavoriteItemsBatch(
     category: item.category,
     exclude_terms: item.excludeTerms ?? null,
     prefer_terms: item.preferTerms ?? null,
+    product_group_id: item.productGroupId ?? null,
   }))
 
   const { data, error } = await supabase

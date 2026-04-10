@@ -62,6 +62,7 @@ export function OnboardingPage() {
         category: i.category,
         excludeTerms: i.excludeTerms,
         preferTerms: i.preferTerms,
+        productGroupId: i.productGroupId,
       })),
     )
 

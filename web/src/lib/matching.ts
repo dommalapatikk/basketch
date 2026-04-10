@@ -232,12 +232,15 @@ export function matchFavorites(
     let migrosDeal: DealRow | null = null
     let coopDeal: DealRow | null = null
 
-    if (fav.product_group_id && products && products.length > 0) {
-      // Product group matching — exact, no fallback
-      migrosDeal = findBestMatchByProductGroup(fav.product_group_id, migrosDeals, products)
-      coopDeal = findBestMatchByProductGroup(fav.product_group_id, coopDeals, products)
+    if (fav.product_group_id) {
+      // Product group matching — exact, no fallback.
+      // If products data is unavailable, result is "no deals" (never fall back to keyword).
+      if (products && products.length > 0) {
+        migrosDeal = findBestMatchByProductGroup(fav.product_group_id, migrosDeals, products)
+        coopDeal = findBestMatchByProductGroup(fav.product_group_id, coopDeals, products)
+      }
     } else {
-      // Keyword matching — legacy fallback
+      // Keyword matching — for favorites without a product group
       const matchOptions = {
         excludeTerms: fav.exclude_terms,
         preferTerms: fav.prefer_terms,

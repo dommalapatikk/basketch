@@ -83,13 +83,14 @@ async function main(): Promise<void> {
     resolveProducts(coopDeals, 'coop'),
   ])
 
-  // Merge product ID maps (source_name -> product_id)
+  // Merge product ID maps (store|source_name -> product_id)
+  // Keyed by store to prevent cross-store name collisions
   const productIds = new Map<string, string>()
   for (const [name, resolved] of migrosProducts) {
-    productIds.set(name, resolved.productId)
+    productIds.set(`migros|${name}`, resolved.productId)
   }
   for (const [name, resolved] of coopProducts) {
-    productIds.set(name, resolved.productId)
+    productIds.set(`coop|${name}`, resolved.productId)
   }
 
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)

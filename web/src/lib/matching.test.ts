@@ -4,7 +4,26 @@ import { describe, expect, it } from 'vitest'
 
 import type { DealRow, FavoriteItemRow } from '@shared/types'
 
-import { findBestMatch, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
+import type { ProductRow } from '@shared/types'
+
+import { findBestMatch, findBestMatchByProductGroup, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
+
+function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
+  return {
+    id: 'prod-1',
+    canonical_name: 'Test Product',
+    brand: null,
+    is_organic: false,
+    store: 'migros',
+    category: 'fresh',
+    sub_category: null,
+    product_group: null,
+    source_name: 'test product',
+    first_seen_at: '2026-04-10T00:00:00Z',
+    updated_at: '2026-04-10T00:00:00Z',
+    ...overrides,
+  }
+}
 
 function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
   return {
@@ -366,6 +385,133 @@ describe('matchFavorites', () => {
 
     const results = matchFavorites(favs, deals)
     expect(results[0]!.migrosDeal!.id).toBe('d2')
+  })
+})
+
+describe('findBestMatchByProductGroup', () => {
+  it('finds the best deal matching a product group', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros' }),
+      makeProduct({ id: 'p2', product_group: 'milk-whole-1l', store: 'migros' }),
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', product_id: 'p1', discount_percent: 20, store: 'migros' }),
+      makeDeal({ id: 'd2', product_id: 'p2', discount_percent: 40, store: 'migros' }),
+    ]
+
+    const result = findBestMatchByProductGroup('milk-whole-1l', deals, products)
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('d2') // higher discount wins
+  })
+
+  it('returns null when no products match the group', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'butter-250g', store: 'migros' }),
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', product_id: 'p1', discount_percent: 20 }),
+    ]
+
+    const result = findBestMatchByProductGroup('milk-whole-1l', deals, products)
+    expect(result).toBeNull()
+  })
+
+  it('ignores deals with 0% discount', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros' }),
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', product_id: 'p1', discount_percent: 0 }),
+    ]
+
+    const result = findBestMatchByProductGroup('milk-whole-1l', deals, products)
+    expect(result).toBeNull()
+  })
+
+  it('only matches deals whose product_id is in the group', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros' }),
+      makeProduct({ id: 'p2', product_group: 'butter-250g', store: 'migros' }),
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', product_id: 'p1', discount_percent: 20 }),
+      makeDeal({ id: 'd2', product_id: 'p2', discount_percent: 50 }),
+      makeDeal({ id: 'd3', product_id: null, discount_percent: 60 }),
+    ]
+
+    const result = findBestMatchByProductGroup('milk-whole-1l', deals, products)
+    expect(result!.id).toBe('d1')
+  })
+})
+
+describe('matchFavorites — product group path', () => {
+  it('uses product group matching when product_group_id is set', () => {
+    const favs = [makeFavItem({ keyword: 'milch', product_group_id: 'milk-whole-1l' })]
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros' }),
+      makeProduct({ id: 'p2', product_group: 'milk-whole-1l', store: 'coop' }),
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', store: 'migros', product_id: 'p1', product_name: 'vollmilch 1l', discount_percent: 30 }),
+      makeDeal({ id: 'd2', store: 'coop', product_id: 'p2', product_name: 'bio milch 1l', discount_percent: 20 }),
+    ]
+
+    const results = matchFavorites(favs, deals, products)
+    expect(results[0]!.migrosDeal!.id).toBe('d1')
+    expect(results[0]!.coopDeal!.id).toBe('d2')
+    expect(results[0]!.recommendation).toBe('migros')
+  })
+
+  it('does NOT fall back to keyword when product_group_id is set but products empty', () => {
+    const favs = [makeFavItem({ keyword: 'milch', product_group_id: 'milk-whole-1l' })]
+    const deals = [
+      makeDeal({ store: 'migros', product_name: 'milch 1l', discount_percent: 30 }),
+    ]
+
+    // Products array is empty — should NOT fall back to keyword match
+    const results = matchFavorites(favs, deals, [])
+    expect(results[0]!.migrosDeal).toBeNull()
+    expect(results[0]!.coopDeal).toBeNull()
+    expect(results[0]!.recommendation).toBe('none')
+  })
+
+  it('does NOT fall back to keyword when product_group_id is set but products undefined', () => {
+    const favs = [makeFavItem({ keyword: 'milch', product_group_id: 'milk-whole-1l' })]
+    const deals = [
+      makeDeal({ store: 'migros', product_name: 'milch 1l', discount_percent: 30 }),
+    ]
+
+    // Products undefined — should NOT fall back to keyword match
+    const results = matchFavorites(favs, deals, undefined)
+    expect(results[0]!.recommendation).toBe('none')
+  })
+
+  it('uses keyword matching when product_group_id is null', () => {
+    const favs = [makeFavItem({ keyword: 'milch', product_group_id: null })]
+    const deals = [
+      makeDeal({ store: 'migros', product_name: 'milch 1l', discount_percent: 30 }),
+    ]
+
+    const results = matchFavorites(favs, deals, [])
+    expect(results[0]!.migrosDeal).not.toBeNull()
+    expect(results[0]!.recommendation).toBe('migros')
+  })
+
+  it('isolates product groups per store', () => {
+    const favs = [makeFavItem({ keyword: 'milch', product_group_id: 'milk-whole-1l' })]
+    const products = [
+      makeProduct({ id: 'p-migros', product_group: 'milk-whole-1l', store: 'migros' }),
+      // No coop product in this group
+    ]
+    const deals = [
+      makeDeal({ id: 'd1', store: 'migros', product_id: 'p-migros', discount_percent: 30 }),
+      makeDeal({ id: 'd2', store: 'coop', product_id: null, product_name: 'milch 1l', discount_percent: 40 }),
+    ]
+
+    const results = matchFavorites(favs, deals, products)
+    expect(results[0]!.migrosDeal!.id).toBe('d1')
+    expect(results[0]!.coopDeal).toBeNull() // no coop product in group
+    expect(results[0]!.recommendation).toBe('migros')
   })
 })
 

@@ -190,6 +190,7 @@ export interface StarterPackItem {
   category: Category
   excludeTerms?: string[]   // products containing these terms are excluded from matching
   preferTerms?: string[]    // products containing these terms get a relevance boost
+  productGroupId?: string   // links to product_groups.id for exact matching
 }
 
 /**
