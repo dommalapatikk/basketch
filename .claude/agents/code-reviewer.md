@@ -63,6 +63,7 @@ Then read all code files that need review:
 - [ ] Module boundaries are respected (no cross-module imports that bypass interfaces)
 - [ ] Data flows match the architecture diagram
 - [ ] No modules were created that aren't in the architecture
+- [ ] **Tech stack matches Section 5 of technical-architecture.md** — every specified library, framework, and tool must be used. If code uses a different technology than what was specified (e.g., plain CSS instead of Tailwind, raw useState instead of React Query), flag as **Blocked** with explanation. The architecture was approved by the PM — silent deviations are not acceptable.
 
 ### Coding Standards Compliance
 - [ ] Naming conventions followed (files, functions, variables, types)
