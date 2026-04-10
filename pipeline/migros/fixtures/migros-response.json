@@ -1,0 +1,160 @@
+{
+  "products": [
+    {
+      "id": "100100300000",
+      "name": "Emmi Caffè Latte 230ml",
+      "brand": "Emmi",
+      "offer": {
+        "price": {
+          "value": 1.95,
+          "unitPrice": null
+        },
+        "promotionPrice": {
+          "value": 1.45,
+          "unitPrice": null
+        },
+        "promotionPercentage": 26
+      },
+      "image": {
+        "original": "https://image.migros.ch/original/abc123.jpg"
+      },
+      "productAvailability": {
+        "startDate": "2026-04-07",
+        "endDate": "2026-04-13"
+      },
+      "categories": [
+        {
+          "name": "Milchgetränke"
+        }
+      ],
+      "migpiId": "100100300000",
+      "productUrls": {
+        "url": "/de/product/100100300000"
+      }
+    },
+    {
+      "id": "100200400000",
+      "name": "  Zweifel   Paprika Chips  Original   200 G ",
+      "brand": "Zweifel",
+      "offer": {
+        "price": {
+          "value": 4.5,
+          "unitPrice": null
+        },
+        "promotionPrice": {
+          "value": 2.95,
+          "unitPrice": null
+        },
+        "promotionPercentage": null
+      },
+      "image": {
+        "original": "https://image.migros.ch/original/def456.jpg"
+      },
+      "productAvailability": {
+        "startDate": "2026-04-07",
+        "endDate": "2026-04-13"
+      },
+      "categories": [
+        {
+          "name": "Chips & Snacks"
+        }
+      ],
+      "migpiId": "100200400000",
+      "productUrls": {
+        "url": "/de/product/100200400000"
+      }
+    },
+    {
+      "id": "100300500000",
+      "name": "Bio Bananen 1 KG",
+      "brand": null,
+      "offer": {
+        "price": {
+          "value": null,
+          "unitPrice": null
+        },
+        "promotionPrice": {
+          "value": 1.95,
+          "unitPrice": null
+        },
+        "promotionPercentage": null
+      },
+      "image": null,
+      "productAvailability": {
+        "startDate": "2026-04-07",
+        "endDate": null
+      },
+      "categories": null,
+      "migpiId": "100300500000",
+      "productUrls": null
+    },
+    {
+      "id": "100400600000",
+      "name": "Migros Budget Butter 250g",
+      "brand": "M-Budget",
+      "offer": {
+        "price": {
+          "value": 2.6,
+          "unitPrice": null
+        },
+        "promotionPrice": {
+          "value": null,
+          "unitPrice": null
+        },
+        "promotionPercentage": 20
+      },
+      "image": {
+        "original": "https://image.migros.ch/original/ghi789.jpg"
+      },
+      "productAvailability": {
+        "startDate": "2026-04-07",
+        "endDate": "2026-04-13"
+      },
+      "categories": [
+        {
+          "name": "Butter & Margarine"
+        }
+      ],
+      "migpiId": "100400600000",
+      "productUrls": {
+        "url": "/de/product/100400600000"
+      }
+    },
+    {
+      "id": "100500700000",
+      "name": "Rivella Rot 6 x 1.5 L",
+      "brand": "Rivella",
+      "offer": {
+        "price": {
+          "value": 11.7,
+          "unitPrice": null
+        },
+        "promotionPrice": {
+          "value": 8.95,
+          "unitPrice": null
+        },
+        "promotionPercentage": 24
+      },
+      "image": {
+        "original": "https://image.migros.ch/original/jkl012.jpg"
+      },
+      "productAvailability": {
+        "startDate": "2026-04-07",
+        "endDate": "2026-04-13"
+      },
+      "categories": [
+        {
+          "name": "Softdrinks"
+        }
+      ],
+      "migpiId": "100500700000",
+      "productUrls": {
+        "url": "/de/product/100500700000"
+      }
+    }
+  ],
+  "totalCount": 5,
+  "facets": [],
+  "currentPage": 0,
+  "pageSize": 100
+}
