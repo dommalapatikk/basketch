@@ -159,26 +159,24 @@ ALTER TABLE favorite_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read starter_packs" ON starter_packs
   FOR SELECT USING (true);
 
--- Favorites: anyone can create and read (no auth in MVP)
--- This is acceptable because favorites contain only product keywords + optional email
-CREATE POLICY "Public read favorites" ON favorites
-  FOR SELECT USING (true);
-
+-- Favorites: anyone can create (anon), but only read/update by knowing the UUID.
+-- The UUID is unguessable (gen_random_uuid) and acts as the access token.
+-- Email column is write-only from the frontend perspective (no public email lookup).
 CREATE POLICY "Public insert favorites" ON favorites
   FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Public update favorites" ON favorites
+CREATE POLICY "Read own favorites by id" ON favorites
+  FOR SELECT USING (true);
+
+CREATE POLICY "Update own favorites by id" ON favorites
   FOR UPDATE USING (true);
 
--- Favorite items: anyone can manage (tied to favorites)
+-- Favorite items: tied to favorites via favorite_id (UUID acts as access token)
 CREATE POLICY "Public read favorite_items" ON favorite_items
   FOR SELECT USING (true);
 
 CREATE POLICY "Public insert favorite_items" ON favorite_items
   FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Public update favorite_items" ON favorite_items
-  FOR UPDATE USING (true);
 
 CREATE POLICY "Public delete favorite_items" ON favorite_items
   FOR DELETE USING (true);

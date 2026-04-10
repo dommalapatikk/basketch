@@ -8,10 +8,6 @@ on:
     - cron: "0 6 * * 4"
   workflow_dispatch: # Allow manual trigger
 
-env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
 jobs:
   fetch-migros:
     name: Fetch Migros Deals
@@ -58,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coop-deals
-          path: pipeline/coop-deals.json
+          path: pipeline/coop/coop-deals.json
           retention-days: 7
 
   process-and-store:
@@ -92,16 +88,27 @@ jobs:
           path: pipeline/
         continue-on-error: true
 
+      - name: Check artifacts exist
+        run: |
+          echo "Migros: $([ -f pipeline/migros-deals.json ] && echo 'found' || echo 'MISSING')"
+          echo "Coop: $([ -f pipeline/coop-deals.json ] && echo 'found' || echo 'MISSING')"
+
       - name: Categorize and store
         run: cd pipeline && npx tsx run.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
   keep-alive:
     name: Supabase Keep-Alive
     runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase to prevent auto-pause
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           curl -s -o /dev/null -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
-            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"
+            "${SUPABASE_URL}/rest/v1/" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"

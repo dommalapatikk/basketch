@@ -42,18 +42,22 @@ export function calculateDiscountPercent(
  * Returns null if the item cannot be meaningfully converted
  * (e.g. missing name or no usable price).
  */
-export function normalizeMigrosDeal(raw: any): UnifiedDeal | null {
+export function normalizeMigrosDeal(raw: unknown): UnifiedDeal | null {
   try {
     if (!raw || typeof raw !== 'object') return null
+    const r = raw as Record<string, unknown>
 
-    const name = raw.name
+    const name = r.name
     if (!name || typeof name !== 'string') return null
 
-    const offer = raw.offer
+    const offer = r.offer
     if (!offer || typeof offer !== 'object') return null
+    const o = offer as Record<string, unknown>
 
-    const originalPrice = offer.price?.value ?? null
-    const salePrice = offer.promotionPrice?.value ?? null
+    const price = o.price as Record<string, unknown> | null | undefined
+    const promoPrice = o.promotionPrice as Record<string, unknown> | null | undefined
+    const originalPrice = (price?.value as number) ?? null
+    const salePrice = (promoPrice?.value as number) ?? null
 
     // We need at least one usable price
     if (originalPrice == null && salePrice == null) return null
@@ -67,24 +71,27 @@ export function normalizeMigrosDeal(raw: any): UnifiedDeal | null {
 
     // Discount: prefer API-provided, then calculate, then null
     let discountPercent: number | null = null
-    if (typeof offer.promotionPercentage === 'number' && offer.promotionPercentage > 0) {
-      discountPercent = offer.promotionPercentage
+    if (typeof o.promotionPercentage === 'number' && o.promotionPercentage > 0) {
+      discountPercent = o.promotionPercentage
     } else {
       discountPercent = calculateDiscountPercent(effectiveOriginalPrice, effectiveSalePrice)
     }
 
-    const availability = raw.productAvailability
-    const validFrom = availability?.startDate ?? new Date().toISOString().slice(0, 10)
-    const validTo = availability?.endDate ?? null
+    const availability = r.productAvailability as Record<string, unknown> | null | undefined
+    const validFrom = (availability?.startDate as string) ?? new Date().toISOString().slice(0, 10)
+    const validTo = (availability?.endDate as string) ?? null
 
-    const imageUrl = raw.image?.original ?? null
+    const image = r.image as Record<string, unknown> | null | undefined
+    const imageUrl = (image?.original as string) ?? null
 
+    const categories = r.categories as Array<Record<string, unknown>> | undefined
     const sourceCategory =
-      Array.isArray(raw.categories) && raw.categories.length > 0
-        ? raw.categories[0]?.name ?? null
+      Array.isArray(categories) && categories.length > 0
+        ? (categories[0]?.name as string) ?? null
         : null
 
-    const productUrl = raw.productUrls?.url ?? null
+    const productUrls = r.productUrls as Record<string, unknown> | null | undefined
+    const productUrl = (productUrls?.url as string) ?? null
     const sourceUrl = productUrl ? `${MIGROS_BASE_URL}${productUrl}` : null
 
     return {

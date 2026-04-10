@@ -9,6 +9,7 @@ import type { UnifiedDeal } from '../shared/types'
 
 import { categorizeDeal } from './categorize'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals } from './store'
+import { isValidDealEntry } from './validate'
 
 function readDealsFile(filename: string): UnifiedDeal[] {
   const filePath = path.resolve(process.cwd(), filename)
@@ -19,7 +20,22 @@ function readDealsFile(filename: string): UnifiedDeal[] {
       console.error(`[pipeline] [ERROR] ${filename} is not an array`)
       return []
     }
-    return parsed as UnifiedDeal[]
+
+    const valid: UnifiedDeal[] = []
+    let skipped = 0
+    for (const entry of parsed) {
+      if (isValidDealEntry(entry)) {
+        valid.push(entry)
+      } else {
+        skipped++
+      }
+    }
+
+    if (skipped > 0) {
+      console.warn(`[pipeline] [WARN] Skipped ${skipped} invalid entries in ${filename}`)
+    }
+
+    return valid
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn(`[pipeline] [WARN] Could not read ${filename}: ${message}`)
@@ -32,14 +48,19 @@ async function main(): Promise<void> {
   console.log('[pipeline] [INFO] Starting pipeline run')
 
   // Read deal files from disk (artifacts from previous CI jobs)
+  // Artifacts are downloaded to pipeline/ by CI, but Coop writes to coop/ subdirectory.
+  // Check both locations for Coop deals.
   const migrosRaw = readDealsFile('migros-deals.json')
-  const coopRaw = readDealsFile('coop-deals.json')
+  const coopRaw = readDealsFile('coop-deals.json').length > 0
+    ? readDealsFile('coop-deals.json')
+    : readDealsFile('coop/coop-deals.json')
 
   const migrosStatus = migrosRaw.length > 0 ? 'success' : 'failed'
   const coopStatus = coopRaw.length > 0 ? 'success' : 'failed'
 
   if (migrosRaw.length === 0 && coopRaw.length === 0) {
     console.error('[pipeline] [ERROR] No deal data available from either source')
+    process.exit(1)
   }
 
   console.log(
@@ -70,14 +91,16 @@ async function main(): Promise<void> {
     coop_count: coopRaw.length,
     total_stored: storedCount,
     duration_ms: durationMs,
-    error_log: null,
+    error_log: migrosStatus === 'failed' || coopStatus === 'failed'
+      ? `Sources: migros=${migrosStatus}, coop=${coopStatus}`
+      : null,
   })
 
   console.log(`[pipeline] [INFO] Pipeline complete in ${durationMs}ms — stored ${storedCount} deals`)
 }
 
-// Best-effort: exit 0 even on partial failure
+// Exit 0 on partial success (one source), exit 1 on unexpected crash
 main().catch((err) => {
   console.error('[pipeline] [ERROR] Unexpected pipeline error:', err)
-  process.exit(0)
+  process.exit(1)
 })
