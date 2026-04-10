@@ -6,7 +6,7 @@ import type {
   FavoriteItemRow,
   StarterPackRow,
   Store,
-} from '../../../shared/types'
+} from '@shared/types'
 
 import { supabase } from './supabase'
 
@@ -35,8 +35,7 @@ export async function fetchActiveDeals(filters?: {
 
   const { data, error } = await query
   if (error) {
-    console.error('[queries] fetchActiveDeals error:', error.message)
-    return []
+    throw new Error(`[queries] fetchActiveDeals: ${error.message}`)
   }
   return data as DealRow[]
 }
@@ -77,8 +76,7 @@ export async function fetchStarterPacks(): Promise<StarterPackRow[]> {
     .order('sort_order', { ascending: true })
 
   if (error) {
-    console.error('[queries] fetchStarterPacks error:', error.message)
-    return []
+    throw new Error(`[queries] fetchStarterPacks: ${error.message}`)
   }
   return data as StarterPackRow[]
 }
@@ -150,8 +148,7 @@ export async function fetchFavoriteItems(
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('[queries] fetchFavoriteItems error:', error.message)
-    return []
+    throw new Error(`[queries] fetchFavoriteItems: ${error.message}`)
   }
   return data as FavoriteItemRow[]
 }

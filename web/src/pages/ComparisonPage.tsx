@@ -1,42 +1,35 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
-import type { DealRow, FavoriteComparison, FavoriteItemRow } from '../../../shared/types'
-import { fetchActiveDeals, fetchFavoriteItems } from '../lib/queries'
+import { useActiveDeals, useFavoriteItems } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
+import { Button, buttonVariants } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
 import { SplitList } from '../components/SplitList'
 
 export function ComparisonPage() {
   const { favoriteId } = useParams<{ favoriteId: string }>()
-  const [comparisons, setComparisons] = useState<FavoriteComparison[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    if (!favoriteId) {
-      setError('No favorites list found')
-      setLoading(false)
-      return
-    }
+  const {
+    data: items,
+    isLoading: itemsLoading,
+    error: itemsError,
+  } = useFavoriteItems(favoriteId)
 
-    Promise.all([
-      fetchFavoriteItems(favoriteId),
-      fetchActiveDeals(),
-    ]).then(([items, deals]: [FavoriteItemRow[], DealRow[]]) => {
-      if (items.length === 0) {
-        setError('Your favorites list is empty')
-        setLoading(false)
-        return
-      }
-      const matched = matchFavorites(items, deals)
-      setComparisons(matched)
-      setLoading(false)
-    }).catch(() => {
-      setError('Could not load your deals')
-      setLoading(false)
-    })
-  }, [favoriteId])
+  const {
+    data: deals,
+    isLoading: dealsLoading,
+    error: dealsError,
+  } = useActiveDeals()
+
+  const comparisons = useMemo(() => {
+    if (!items?.length || !deals?.length) return []
+    return matchFavorites(items, deals)
+  }, [items, deals])
+
+  const loading = itemsLoading || dealsLoading
+  const error = itemsError || dealsError
 
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -57,12 +50,35 @@ export function ComparisonPage() {
     }
   }
 
-  if (loading) return <div className="loading">Loading your deals...</div>
-  if (error) {
+  if (loading) {
+    return (
+      <div className="py-12 text-center text-muted">
+        Loading your deals...
+        <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+      </div>
+    )
+  }
+
+  if (error || !favoriteId) {
     return (
       <div>
-        <div className="error-msg">{error}</div>
-        <Link to="/onboarding" className="btn btn-primary btn-block mt-16">
+        <div className="rounded-md bg-error-light p-6 text-center text-error">
+          {!favoriteId ? 'No favorites list found' : 'Could not load your deals'}
+        </div>
+        <Link to="/onboarding" className={buttonVariants({ fullWidth: true, className: 'mt-4' })}>
+          Create a new list
+        </Link>
+      </div>
+    )
+  }
+
+  if (items && items.length === 0) {
+    return (
+      <div>
+        <div className="rounded-md bg-error-light p-6 text-center text-error">
+          Your favorites list is empty
+        </div>
+        <Link to="/onboarding" className={buttonVariants({ fullWidth: true, className: 'mt-4' })}>
           Create a new list
         </Link>
       </div>
@@ -77,46 +93,48 @@ export function ComparisonPage() {
 
   return (
     <div>
-      <h1 className="page-title">Your deals this week</h1>
-      <p className="page-subtitle">
+      <h1 className="mb-2 text-2xl font-bold">Your deals this week</h1>
+      <p className="mb-6 text-sm text-muted">
         {comparisons.length} items compared
       </p>
 
       {(migrosItems.length > 0 || coopItems.length > 0) && (
-        <div className="savings-summary">
-          <div className="savings-card savings-card-migros">
-            <div className="savings-card-label store-migros">Migros</div>
-            <div className="savings-card-amount">CHF {migrosTotal.toFixed(2)}</div>
-            <div className="savings-card-count">{migrosItems.length} item{migrosItems.length !== 1 ? 's' : ''}</div>
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <div className="rounded-md bg-migros-light p-3 text-center">
+            <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-migros">Migros</div>
+            <div className="mt-0.5 text-xl font-bold">CHF {migrosTotal.toFixed(2)}</div>
+            <div className="text-xs text-muted">{migrosItems.length} item{migrosItems.length !== 1 ? 's' : ''}</div>
           </div>
-          <div className="savings-card savings-card-coop">
-            <div className="savings-card-label store-coop">Coop</div>
-            <div className="savings-card-amount">CHF {coopTotal.toFixed(2)}</div>
-            <div className="savings-card-count">{coopItems.length} item{coopItems.length !== 1 ? 's' : ''}</div>
+          <div className="rounded-md bg-coop-light p-3 text-center">
+            <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-coop">Coop</div>
+            <div className="mt-0.5 text-xl font-bold">CHF {coopTotal.toFixed(2)}</div>
+            <div className="text-xs text-muted">{coopItems.length} item{coopItems.length !== 1 ? 's' : ''}</div>
           </div>
         </div>
       )}
 
       <SplitList comparisons={comparisons} />
 
-      <div className="share-section mt-16">
-        <h3 className="section-title">Save this list</h3>
-        <p className="text-sm text-muted mb-8">
+      <Card className="mt-4">
+        <h3 className="mb-2 text-lg font-semibold">Save this list</h3>
+        <p className="mb-2 text-sm text-muted">
           Bookmark this page or share the link to access your list anytime.
         </p>
-        <div className="share-url">
-          <div className="share-url-text">{window.location.href}</div>
-          <button className="btn btn-sm btn-outline" onClick={handleCopyLink} type="button">
+        <div className="flex gap-2">
+          <div className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-md border border-border bg-bg px-3 py-2 text-xs text-muted">
+            {window.location.href}
+          </div>
+          <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
             {copied ? 'Copied!' : 'Copy'}
-          </button>
-          <button className="btn btn-sm btn-primary" onClick={handleShare} type="button">
+          </Button>
+          <Button size="sm" onClick={handleShare} type="button">
             Share
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
 
-      <div className="mt-16 text-center">
-        <Link to="/onboarding" className="btn btn-outline btn-sm" state={{ favoriteId, editMode: true }}>
+      <div className="mt-4 text-center">
+        <Link to="/onboarding" state={{ favoriteId, editMode: true }} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
           Edit my list
         </Link>
       </div>

@@ -1,4 +1,4 @@
-import type { FavoriteComparison } from '../../../shared/types'
+import type { FavoriteComparison } from '@shared/types'
 import { splitShoppingList } from '../lib/matching'
 
 import { CompareCard } from './CompareCard'
@@ -7,15 +7,15 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
   const { migros, coop, either, noDeals } = splitShoppingList(props.comparisons)
 
   if (props.comparisons.length === 0) {
-    return <div className="empty-msg">Your list is empty. Add items to see deals.</div>
+    return <div className="py-12 text-center text-muted">Your list is empty. Add items to see deals.</div>
   }
 
   return (
     <div>
       {migros.length > 0 && (
         <section>
-          <div className="split-header">
-            <span className="split-dot split-dot-migros" />
+          <div className="flex items-center gap-2 py-3 font-semibold">
+            <span className="size-3 rounded-full bg-migros" />
             Buy at Migros ({migros.length})
           </div>
           {migros.map((c) => (
@@ -26,8 +26,8 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
 
       {coop.length > 0 && (
         <section>
-          <div className="split-header">
-            <span className="split-dot split-dot-coop" />
+          <div className="flex items-center gap-2 py-3 font-semibold">
+            <span className="size-3 rounded-full bg-coop" />
             Buy at Coop ({coop.length})
           </div>
           {coop.map((c) => (
@@ -38,8 +38,8 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
 
       {either.length > 0 && (
         <section>
-          <div className="split-header">
-            <span className="split-dot split-dot-either" />
+          <div className="flex items-center gap-2 py-3 font-semibold">
+            <span className="size-3 rounded-full bg-success" />
             Same deal at both ({either.length})
           </div>
           {either.map((c) => (
@@ -50,8 +50,8 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
 
       {noDeals.length > 0 && (
         <section>
-          <div className="split-header">
-            <span className="split-dot split-dot-none" />
+          <div className="flex items-center gap-2 py-3 font-semibold">
+            <span className="size-3 rounded-full bg-muted" />
             No deals this week ({noDeals.length})
           </div>
           {noDeals.map((c) => (

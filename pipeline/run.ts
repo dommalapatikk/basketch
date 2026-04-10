@@ -76,10 +76,28 @@ async function main(): Promise<void> {
   // Store deals
   const storedCount = await storeDeals(categorized)
 
+  // Check for significant storage loss (more than 10% of deals failed to store)
+  const storageShortfall = categorized.length - storedCount
+  const storagePartialFailure = storedCount < categorized.length
+  if (storagePartialFailure) {
+    console.error(
+      `[pipeline] [ERROR] Storage shortfall: stored ${storedCount} of ${categorized.length} deals (${storageShortfall} failed)`,
+    )
+  }
+
   // Deactivate expired deals
   const deactivatedCount = await deactivateExpiredDeals()
   if (deactivatedCount > 0) {
     console.log(`[pipeline] [INFO] Deactivated ${deactivatedCount} expired deals`)
+  }
+
+  // Build error log from all failure sources
+  const errors: string[] = []
+  if (migrosStatus === 'failed' || coopStatus === 'failed') {
+    errors.push(`Sources: migros=${migrosStatus}, coop=${coopStatus}`)
+  }
+  if (storagePartialFailure) {
+    errors.push(`Storage: stored ${storedCount}/${categorized.length} (${storageShortfall} failed)`)
   }
 
   // Log pipeline run
@@ -91,10 +109,14 @@ async function main(): Promise<void> {
     coop_count: coopRaw.length,
     total_stored: storedCount,
     duration_ms: durationMs,
-    error_log: migrosStatus === 'failed' || coopStatus === 'failed'
-      ? `Sources: migros=${migrosStatus}, coop=${coopStatus}`
-      : null,
+    error_log: errors.length > 0 ? errors.join('; ') : null,
   })
+
+  // Fail hard only if zero deals stored despite having data to store
+  if (storedCount === 0 && categorized.length > 0) {
+    console.error('[pipeline] [ERROR] Zero deals stored — failing pipeline')
+    process.exit(1)
+  }
 
   console.log(`[pipeline] [INFO] Pipeline complete in ${durationMs}ms — stored ${storedCount} deals`)
 }

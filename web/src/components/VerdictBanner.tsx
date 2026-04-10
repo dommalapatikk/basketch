@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 
-import type { WeeklyVerdict } from '../../../shared/types'
+import type { WeeklyVerdict } from '@shared/types'
 
 function StoreLabel(props: { store: 'migros' | 'coop' }) {
   const label = props.store === 'migros' ? 'Migros' : 'Coop'
-  const className = props.store === 'migros' ? 'store-migros' : 'store-coop'
+  const className = props.store === 'migros' ? 'font-bold text-migros' : 'font-bold text-coop'
   return <span className={className}>{label}</span>
 }
 
@@ -37,14 +37,14 @@ export function VerdictBanner(props: { verdict: WeeklyVerdict | null }) {
   const { verdict } = props
 
   return (
-    <div className="verdict-banner">
-      <div className="verdict-title">Weekly Verdict</div>
-      <div className="verdict-text">{verdictContent(verdict)}</div>
+    <div className="mb-4 rounded-md border border-border bg-surface p-4 text-center">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Weekly Verdict</div>
+      <div className="font-semibold">{verdictContent(verdict)}</div>
       {verdict.dataFreshness === 'stale' && (
-        <div className="verdict-stale">Data may be outdated</div>
+        <div className="mt-2 text-xs text-warning">Data may be outdated</div>
       )}
       {verdict.dataFreshness === 'partial' && (
-        <div className="verdict-stale">Partial data — one source is missing</div>
+        <div className="mt-2 text-xs text-warning">Partial data — one source is missing</div>
       )}
     </div>
   )

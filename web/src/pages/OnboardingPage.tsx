@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 
-import type { FavoriteItemRow, StarterPackRow } from '../../../shared/types'
-import { addFavoriteItemsBatch, createFavorite, fetchFavoriteItems } from '../lib/queries'
+import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
+import { addFavoriteItemsBatch, createFavorite } from '../lib/queries'
+import { useFavoriteItems } from '../lib/hooks'
+import { Button } from '../components/ui/Button'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { FavoritesEditor } from '../components/FavoritesEditor'
 import { EmailCapture } from '../components/EmailCapture'
@@ -12,32 +15,36 @@ type Step = 'pick' | 'edit' | 'save'
 export function OnboardingPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const editState = location.state as { favoriteId?: string; editMode?: boolean } | null
 
   const [step, setStep] = useState<Step>(editState?.editMode ? 'edit' : 'pick')
   const [favoriteId, setFavoriteId] = useState<string | null>(editState?.favoriteId ?? null)
   const [items, setItems] = useState<FavoriteItemRow[]>([])
-  const [loading, setLoading] = useState(!!editState?.editMode)
   const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState(false)
 
-  // If arriving in edit mode from comparison page, load existing items
+  // Use React Query for loading existing items in edit mode
+  const editFavoriteId = editState?.editMode ? editState.favoriteId : undefined
+  const { data: existingItems, isLoading: editItemsLoading } = useFavoriteItems(editFavoriteId)
+
+  // Sync React Query data into local state when it arrives
   useEffect(() => {
-    if (editState?.editMode && editState.favoriteId) {
-      fetchFavoriteItems(editState.favoriteId).then((existingItems) => {
-        setItems(existingItems)
-        setLoading(false)
-      })
+    if (existingItems && existingItems.length > 0 && items.length === 0 && editState?.editMode) {
+      setItems(existingItems)
     }
-  }, [editState?.editMode, editState?.favoriteId])
+  }, [existingItems, editState?.editMode, items.length])
+
+  const loading = actionLoading || editItemsLoading
 
   async function handlePackSelect(pack: StarterPackRow) {
-    setLoading(true)
+    setActionLoading(true)
     setError(null)
 
     const id = await createFavorite()
     if (!id) {
       setError('Could not create your list. Please try again.')
-      setLoading(false)
+      setActionLoading(false)
       return
     }
     setFavoriteId(id)
@@ -55,7 +62,7 @@ export function OnboardingPage() {
 
     if (imported.length === 0) {
       setError('Could not import starter pack items. Try starting from scratch.')
-      setLoading(false)
+      setActionLoading(false)
       setStep('edit')
       return
     }
@@ -65,12 +72,13 @@ export function OnboardingPage() {
     }
 
     setItems(imported)
-    setLoading(false)
+    queryClient.invalidateQueries({ queryKey: ['favorites', id, 'items'] })
+    setActionLoading(false)
     setStep('edit')
   }
 
   function handleSkipTemplate() {
-    setLoading(true)
+    setActionLoading(true)
     setError(null)
     createFavorite().then((id) => {
       if (id) {
@@ -79,7 +87,7 @@ export function OnboardingPage() {
       } else {
         setError('Could not create your list. Please try again.')
       }
-      setLoading(false)
+      setActionLoading(false)
     })
   }
 
@@ -109,41 +117,48 @@ export function OnboardingPage() {
   return (
     <div>
       {step !== 'pick' && (
-        <button className="btn-back" onClick={handleBack} type="button">
+        <button
+          className="mb-2 inline-flex min-h-[44px] cursor-pointer items-center gap-1 border-none bg-transparent py-2 text-sm text-muted hover:text-current"
+          onClick={handleBack}
+          type="button"
+        >
           &larr; Back
         </button>
       )}
-      <h1 className="page-title">Set up your list</h1>
-      <p className="page-subtitle">
+      <h1 className="mb-2 text-2xl font-bold">Set up your list</h1>
+      <p className="mb-6 text-sm text-muted">
         {step === 'pick' && 'Choose a template to get started fast.'}
         {step === 'edit' && 'Add, remove, or search for products.'}
         {step === 'save' && 'Save your list to access it anytime.'}
       </p>
 
-      <div className="steps" role="group" aria-label={`Step ${stepIndex + 1} of 3`}>
+      <div className="mb-6 flex gap-2" role="group" aria-label={`Step ${stepIndex + 1} of 3`}>
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className={`step ${i < stepIndex ? 'done' : ''} ${i === stepIndex ? 'active' : ''}`}
+            className={`h-1 flex-1 rounded-sm ${
+              i < stepIndex ? 'bg-success' : i === stepIndex ? 'bg-accent' : 'bg-border'
+            }`}
             aria-label={`Step ${i + 1}${i < stepIndex ? ' (done)' : i === stepIndex ? ' (current)' : ''}`}
           />
         ))}
       </div>
 
-      {error && <div className="error-msg mb-16" role="alert">{error}</div>}
+      {error && <div className="mb-4 rounded-md bg-error-light p-6 text-center text-error" role="alert">{error}</div>}
 
-      {loading && <div className="loading">Setting up...</div>}
+      {loading && (
+        <div className="py-12 text-center text-muted">
+          Setting up...
+          <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+        </div>
+      )}
 
       {!loading && step === 'pick' && (
         <div>
           <TemplatePicker onSelect={handlePackSelect} />
-          <button
-            className="btn btn-outline btn-block mt-16"
-            onClick={handleSkipTemplate}
-            type="button"
-          >
+          <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipTemplate} type="button">
             Build my own list
-          </button>
+          </Button>
         </div>
       )}
 
@@ -154,27 +169,18 @@ export function OnboardingPage() {
             items={items}
             onItemsChange={setItems}
           />
-          <button
-            className="btn btn-primary btn-block mt-24"
-            onClick={handleDoneEditing}
-            disabled={items.length === 0}
-            type="button"
-          >
+          <Button fullWidth className="mt-6" onClick={handleDoneEditing} disabled={items.length === 0} type="button">
             Compare deals ({items.length} items)
-          </button>
+          </Button>
         </div>
       )}
 
       {!loading && step === 'save' && favoriteId && (
         <div>
           <EmailCapture favoriteId={favoriteId} onSaved={handleEmailSaved} />
-          <button
-            className="btn btn-outline btn-block mt-16"
-            onClick={handleSkipEmail}
-            type="button"
-          >
+          <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipEmail} type="button">
             Continue without saving
-          </button>
+          </Button>
         </div>
       )}
     </div>

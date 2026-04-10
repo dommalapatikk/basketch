@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
-import type { Category, DealRow } from '../../../shared/types'
+import type { Category, DealRow } from '@shared/types'
 import { searchDeals } from '../lib/queries'
+import { Button } from './ui/Button'
+import { Input } from './ui/Input'
 
 export function ProductSearch(props: {
   onSelect: (keyword: string, label: string, category: Category) => void
@@ -38,7 +40,6 @@ export function ProductSearch(props: {
   }
 
   function handleSelect(deal: DealRow) {
-    // Use the search query as keyword, product name as label
     props.onSelect(query.trim().toLowerCase(), deal.product_name, deal.category)
   }
 
@@ -50,68 +51,59 @@ export function ProductSearch(props: {
 
   return (
     <div>
-      <div className="flex gap-8 mb-8">
+      <div className="mb-2 flex gap-2">
         <label htmlFor="product-search" className="sr-only">Search products</label>
-        <input
+        <Input
           id="product-search"
-          className="input"
           type="text"
           placeholder="Search products (e.g. milch, butter, poulet)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Search products"
+          className="flex-1"
         />
-        <button
-          className="btn btn-primary btn-sm"
+        <Button
+          size="sm"
           onClick={handleSearch}
           disabled={searching || !query.trim()}
           type="button"
         >
           {searching ? '...' : 'Search'}
-        </button>
+        </Button>
       </div>
 
       {results.length > 0 && (
-        <p className="text-sm text-muted mb-8">
+        <p className="mb-2 text-sm text-muted">
           Matching keyword: <strong>{query.trim().toLowerCase()}</strong>
         </p>
       )}
 
       {searched && results.length === 0 && (
         <div>
-          <p className="text-sm text-muted mb-8">
+          <p className="mb-2 text-sm text-muted">
             No current deals found for "{query.trim()}". You can still add it to track future deals.
           </p>
-          <button
-            className="btn btn-sm btn-outline"
-            onClick={handleAddCustom}
-            type="button"
-          >
+          <Button variant="outline" size="sm" onClick={handleAddCustom} type="button">
             Add "{query.trim()}" to my list
-          </button>
+          </Button>
         </div>
       )}
 
       {results.length > 0 && (
-        <ul className="fav-list">
+        <ul className="list-none">
           {results.map((deal) => (
-            <li key={`${deal.store}-${deal.product_name}`} className="fav-item">
+            <li key={`${deal.store}-${deal.product_name}`} className="flex items-center justify-between border-b border-border py-2.5 last:border-b-0">
               <div>
-                <div className="fav-item-label">{deal.product_name}</div>
-                <div className="fav-item-keyword">
+                <div className="font-medium">{deal.product_name}</div>
+                <div className="text-xs text-muted">
                   CHF {deal.sale_price.toFixed(2)}
                   {deal.discount_percent ? ` (-${deal.discount_percent}%)` : ''}
                   {' | '}{deal.store}
                 </div>
               </div>
-              <button
-                className="btn btn-sm btn-primary"
-                onClick={() => handleSelect(deal)}
-                type="button"
-              >
+              <Button size="sm" onClick={() => handleSelect(deal)} type="button">
                 Add
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

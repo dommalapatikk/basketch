@@ -6,9 +6,9 @@ import type {
   DealRow,
   Store,
   WeeklyVerdict,
-} from '../../../shared/types'
+} from '@shared/types'
 
-import { TIE_THRESHOLD, VERDICT_WEIGHTS } from '../../../shared/category-rules'
+import { TIE_THRESHOLD, VERDICT_WEIGHTS } from '@shared/category-rules'
 
 const ALL_CATEGORIES: Category[] = ['fresh', 'long-life', 'non-food']
 

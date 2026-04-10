@@ -4,7 +4,7 @@ import type {
   DealRow,
   FavoriteComparison,
   FavoriteItemRow,
-} from '../../../shared/types'
+} from '@shared/types'
 
 /**
  * Check if keyword matches a product name with word-boundary awareness.

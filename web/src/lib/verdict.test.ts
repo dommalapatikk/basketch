@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { DealRow } from '../../../shared/types'
+import type { DealRow } from '@shared/types'
 
 import { averageDiscount, computeCategoryVerdict, computeWeeklyVerdict, scoreStore } from './verdict'
 

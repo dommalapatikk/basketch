@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { DealRow, FavoriteItemRow } from '../../../shared/types'
+import type { DealRow, FavoriteItemRow } from '@shared/types'
 
 import { findBestMatch, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
 

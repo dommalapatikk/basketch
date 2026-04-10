@@ -1,8 +1,9 @@
-# Code Review: basketch
+# Code Review: basketch Frontend (Tailwind + React Query Rebuild)
 
-**Reviewer:** Independent Code Reviewer Agent
+**Reviewer:** Independent Code Reviewer (Agent)
 **Date:** 10 April 2026
-**Scope:** All code from Steps 2-7 (shared types, pipeline, frontend)
+**Scope:** All frontend files in `web/` -- rebuild from plain CSS + raw useState/useEffect to Tailwind CSS v4 + shadcn/ui + React Query v5
+**Test results:** 76 tests passed (0 failed), TypeScript compiles with zero errors
 
 ---
 
@@ -10,278 +11,190 @@
 
 | Metric | Count |
 |--------|-------|
-| Files reviewed | 28 |
-| Approved | 22 |
-| Needs Changes | 5 |
-| Blocked | 1 |
+| Files reviewed | 26 |
+| Verdict: Approved | 22 |
+| Verdict: Needs Changes | 4 |
+| Verdict: Blocked | 0 |
 
-**Test results:**
-- Pipeline TypeScript (vitest): 46/46 passed
-- Frontend TypeScript (vitest): 36/36 passed
-- Python (pytest): Could not execute (permission issue) -- tests reviewed by reading code
-- Pipeline tsc --noEmit: 0 errors
-- Frontend tsc --noEmit: 0 errors
+The rebuild successfully replaces the previous plain CSS + raw useState/useEffect implementation with the approved tech stack. Tailwind CSS v4 is correctly configured via the Vite plugin. React Query v5 is integrated with `staleTime: 3600000` (1 hour) as specified in Section 5.8 of the architecture. The shadcn/ui component pattern (copy into `src/components/ui/`, compose in app-level components) is followed correctly.
+
+**What's done well:**
+- Clean React Query integration with proper `queryKey` design and `enabled` guards
+- shadcn/ui primitives (Button, Card, Input, Badge) are well-structured with `cva` and `cn()` -- exactly the right pattern
+- The matching logic (`matching.ts`) is thoroughly tested (58 tests) with good German compound word awareness
+- Verdict logic is independently tested (18 tests)
+- No `console.log` in production, no `@ts-ignore`, no `any` types, no security issues
+- All data fetching goes through `queries.ts` -- components never call `supabase.from()` directly
+- Three-state handling (loading/error/success) present in data-fetching components
+- Good accessibility: `aria-label`, `role="alert"`, `role="status"`, screen-reader-only labels, 44px touch targets
 
 ---
 
 ## Per-File Review
 
-### shared/types.ts
-
+### web/vite.config.ts
 - **Verdict: Approved**
-- Well-structured single source of truth. Union types over enums (correct per standards). All interfaces cover both camelCase (app) and snake_case (DB) shapes. The `dealToRow` mapping function is clean.
-- Good: `FavoriteComparison` type with `recommendation` union is well-designed for the split shopping list.
-- Good: `StarterPackItem` includes `category`, enabling the onboarding flow to pre-assign categories without a round-trip.
+- Tailwind v4 Vite plugin correctly configured. Path aliases for `@shared` and `@` are correct.
 
-### shared/category-rules.ts
-
+### web/tsconfig.json
 - **Verdict: Approved**
-- Constants extracted as required: `TIE_THRESHOLD`, `VERDICT_WEIGHTS`, `DEFAULT_CATEGORY`. Keywords are comprehensive for Swiss grocery context. `CATEGORY_RULES` is ordered correctly (fresh first, non-food second, long-life is the default catch-all).
+- Extends base config. Strict mode inherited. Path aliases match Vite config. `noEmit: true` appropriate for Vite projects.
 
----
-
-### pipeline/migros/normalize.ts
-
-- **Verdict: Needs Changes**
-- Issues:
-  - Line 45: `normalizeMigrosDeal(raw: any)` -- this is the **only** use of `any` in the entire codebase. The coding standards say "no `any` types". This is at the API boundary where incoming data shape is unknown, which is a legitimate case, but it should use `unknown` instead of `any` to enforce type-narrowing at the callsite.
-- Suggestions:
-  - Change `raw: any` to `raw: unknown`. The function already does runtime checks (`typeof raw !== 'object'`, `!raw`), so the logic would work with minimal adjustment.
-- Good: `normalizeProductName` and `calculateDiscountPercent` are clean, single-responsibility functions. The regex for unit normalization is well-tested. The try/catch returns null rather than throwing -- correct per pipeline error handling standards.
-
-### pipeline/migros/fetch.ts
-
+### web/package.json
 - **Verdict: Approved**
-- Follows the source module contract: `fetchMigrosDeals(): Promise<UnifiedDeal[]>`. Never throws. Logs with the structured format `[migros] [LEVEL] message`. Pagination stops correctly when `products.length < PAGE_SIZE`.
-- Good: The direct-run detection (`isDirectRun`) is a clean pattern for CLI use during development.
-
-### pipeline/migros/fetch.test.ts
-
-- **Verdict: Approved**
-- 21 tests covering normalization, discount calculation, and fixture-based integration. Tests the boundary well: null input, undefined input, missing name, missing offer, both prices null. The fixture-based test at the end (`normalizes all fixture products without throwing`) is a smart catch-all.
-
-### pipeline/migros/fixtures/migros-response.json
-
-- **Verdict: Approved**
-- Good fixture design: 5 products covering different edge cases (normal deal, null promotionPercentage, null image/categories/productUrls, null promotionPrice with percentage, multi-unit quantity). This is exactly what fixture data should look like.
-
----
-
-### pipeline/coop/fetch.py
-
-- **Verdict: Approved**
-- Clean structure. Never raises -- catches all exceptions and returns empty list. Logging follows the structured format. Pagination stops when no cards are found. The `if __name__ == "__main__"` block writes JSON and uses correct exit code.
-- Good: `REQUEST_TIMEOUT = 15` prevents hangs on network issues.
-
-### pipeline/coop/normalize.py
-
-- **Verdict: Approved**
-- Type hints on all function signatures (correct per Python standards). Output uses camelCase keys matching the TypeScript `UnifiedDeal` interface. `parse_price` handles Swiss-specific formats (`179.--`, en-dash). `normalize_product_name` regex matches the TypeScript version in `pipeline/migros/normalize.ts`.
-- Good: The functions are well-isolated -- each does one thing. `parse_deal_card` handles every CSS selector gracefully with null checks.
-
-### pipeline/coop/test_fetch.py
-
-- **Verdict: Approved**
-- Comprehensive: 37+ test cases organized into clear classes. Tests cover normalization, price parsing, discount parsing, date parsing, HTML card parsing with fixtures, and end-to-end normalization. The `test_camel_case_keys` test is a smart contract test ensuring Python output matches TypeScript expectations.
-
----
-
-### pipeline/categorize.ts
-
-- **Verdict: Approved**
-- Clean implementation of keyword matching. First-match-wins logic is correct. The `discount_percent` guarantee (lines 28-37) ensures it is never null after categorization -- good data integrity safeguard.
-- Good: Falls through to `DEFAULT_CATEGORY` cleanly rather than having an explicit long-life rule.
-
-### pipeline/categorize.test.ts
-
-- **Verdict: Approved**
-- 17 tests with good use of `it.each` for parameterized testing. Covers fresh, non-food, long-life default, source category matching, discount_percent guarantee, and first-match-wins ordering. The `makeDeal` helper is clean.
-
-### pipeline/store.ts
-
-- **Verdict: Approved**
-- Batching (100 per batch), error handling (log + continue on batch failure), and deactivation logic are all correct. Uses `dealToRow` from shared types for the camelCase-to-snake_case conversion.
-- Good: `deactivateExpiredDeals` correctly filters by `is_active = true` before updating -- avoids unnecessary writes.
-
-### pipeline/store.test.ts
-
-- **Verdict: Approved**
-- 8 tests with proper mocking of the Supabase client. Tests batch splitting (250 deals = 3 batches), partial failure handling, snake_case conversion, deactivation query construction, and pipeline run logging. The mock chain (`mockFrom -> mockUpsert`, etc.) is well-structured.
-
-### pipeline/run.ts
-
-- **Verdict: Blocked**
-- Issue (Architecture violation, line 22):
-  - `readDealsFile` casts `parsed as UnifiedDeal[]` without validating individual entries. The technical architecture (Section 2.5) explicitly requires: "run.ts must validate the JSON from the Python Coop scraper against the UnifiedDeal schema before processing. If any field is missing or has the wrong type, log the invalid entry and skip it rather than crashing the pipeline. This is the trust boundary between the Python and TypeScript halves."
-  - Currently, malformed JSON from the Coop scraper (e.g., missing `salePrice`, wrong types) would silently pass through as `UnifiedDeal` objects, potentially causing runtime errors in `categorizeDeal` or `storeDeals`.
-  - **Fix:** Add per-entry validation before casting. Validate at minimum: `store` is `'migros' | 'coop'`, `productName` is a non-empty string, `salePrice` is a positive number. Log and skip invalid entries.
-- Issue (Line 83):
-  - `process.exit(0)` on catch swallows the real exit code. If the pipeline crashes unexpectedly, CI will report success. This is intentional ("best-effort: exit 0 even on partial failure") but the comment should be more explicit about the tradeoff -- CI will never alert on total pipeline failure.
-- Suggestions:
-  - Consider `process.exit(1)` when both sources return 0 deals (lines 41-43 log the error but still exit 0).
-
----
-
-### web/src/lib/supabase.ts
-
-- **Verdict: Approved**
-- Minimal, correct. Uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (read-only key, safe in browser). Throws on missing env vars (correct -- fail fast).
-- Good: No `SUPABASE_SERVICE_ROLE_KEY` anywhere in the web folder.
-
-### web/src/lib/queries.ts
-
-- **Verdict: Needs Changes**
-- Issue (Line 52): `searchDeals` uses `.ilike('product_name', `%${normalized}%`)`. While Supabase parameterizes queries server-side (no SQL injection), the `%` wildcard characters in the user input are not escaped. A user searching for `%` or `_` would get unexpected results. This is a minor correctness issue, not a security issue.
-  - **Fix:** Escape `%` and `_` in the `normalized` string before passing to `ilike`.
-- Issue (Line 239): `findBestDeal` uses `.single()` which throws an error when there are zero results. The function catches this via the `if (error)` check and returns null, which works, but it triggers a Supabase error log for a normal "not found" case. Consider using `.maybeSingle()` instead to avoid the spurious error.
-- Good: All queries return empty arrays/null on error (never throw). Query construction is clean and type-safe. The `addFavoriteItemsBatch` function is a nice optimization for starter pack import.
-
-### web/src/lib/verdict.ts
-
-- **Verdict: Approved**
-- This is the highest-leverage code in the frontend. The scoring logic is correct: weighted combination of deal count share (0.4) and average discount share (0.6), normalized to 0-100. Tie detection within 5% threshold. Data freshness detection for stale/partial/current.
-- Verified: When both stores have identical deals (same count, same avg discount), scores are equal, and the winner is correctly 'tie'.
-- Verified: When one store has 0 deals, its score is 0 (the `if (storeDeals.length === 0) return 0` guard).
-- Good: The `groupDeals` function pre-initializes all categories with empty arrays, avoiding undefined access.
-
-### web/src/lib/verdict.test.ts
-
-- **Verdict: Approved**
-- 18 tests covering averageDiscount, scoreStore, computeCategoryVerdict, and computeWeeklyVerdict. Tests the critical cases: tie, migros wins, coop wins, both empty, null discount_percent, data freshness (stale/partial/current).
-
-### web/src/lib/matching.ts
-
-- **Verdict: Approved**
-- Clean implementation of the favorites-to-deals matching. `findBestMatch` does keyword substring matching and returns the best discount. `getRecommendation` has correct tiebreaker logic (discount first, then sale price, then 'both'). `splitShoppingList` is a clean switch-based partitioner.
-- Good: The `matchFavorites` function also converts `FavoriteItemRow` (snake_case) to `FavoriteItem` (camelCase) in the output -- clean boundary mapping.
-
-### web/src/lib/matching.test.ts
-
-- **Verdict: Approved**
-- 18 tests with thorough coverage of findBestMatch, getRecommendation, matchFavorites, and splitShoppingList. The split test (lines 163-193) is particularly good -- it sets up a scenario with all four recommendation types and verifies correct bucketing.
-
----
-
-### web/src/App.tsx
-
-- **Verdict: Approved**
-- Clean router setup. Named exports used (correct). Routes match the architecture: `/` (home), `/onboarding`, `/compare/:favoriteId`, `/about`.
-
-### web/src/main.tsx
-
-- **Verdict: Approved**
-- Minimal entry point with StrictMode. Correct.
+- All required dependencies present: `@tanstack/react-query` v5, `tailwindcss` v4, `@tailwindcss/vite`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`. Scripts are correct. No unnecessary dependencies.
 
 ### web/src/styles.css
-
 - **Verdict: Approved**
-- Mobile-first CSS (640px max-width). No Tailwind -- the project uses hand-written CSS, which is fine for an MVP this size. Variables for brand colors, consistent spacing, and good touch target sizes (buttons have adequate padding). The comparison grid (`grid-template-columns: 1fr 1fr`) works well for the side-by-side store view on mobile.
+- Uses Tailwind v4 `@import 'tailwindcss'` and `@theme` for custom design tokens. Custom colors for Migros/Coop branding are well-defined. Minimal custom CSS (only body font-family and spin animation). The custom `animate-spin` keyframe is acceptable since Tailwind v4 uses CSS-first configuration.
+
+### web/src/main.tsx
+- **Verdict: Approved**
+- Clean entry point. StrictMode enabled. Named import from `App`.
+
+### web/src/App.tsx
+- **Verdict: Approved**
+- `QueryClientProvider` wraps the entire app -- correct placement. Route structure matches the architecture URL plan (`/`, `/onboarding`, `/compare/:favoriteId`, `/about`). Layout component wraps all routes via nested `<Route element={<Layout />}>`.
+
+### web/src/lib/utils.ts
+- **Verdict: Approved**
+- Standard shadcn/ui `cn()` utility using `clsx` + `tailwind-merge`.
+
+### web/src/lib/query-client.ts
+- **Verdict: Approved**
+- `staleTime: 60 * 60 * 1000` (1 hour) matches Section 5.8 of the architecture exactly. `retry: 1` is reasonable for a frontend that shows fallback UI on failure.
+
+### web/src/lib/hooks.ts
+- **Verdict: Approved**
+- Clean React Query hooks with proper `queryKey` arrays. `useFavoriteItems` correctly uses `enabled: !!favoriteId` to prevent fetching with undefined ID. Non-null assertion on `favoriteId!` in `queryFn` is safe because the `enabled` guard ensures it's defined when the query runs.
+
+### web/src/lib/queries.ts
+- **Verdict: Approved**
+- All Supabase queries centralized here -- correct per standards. Error handling returns empty arrays/null rather than throwing -- correct per architecture. SQL injection prevented by using Supabase's query builder. Search inputs correctly escape `%` and `_` wildcards (lines 51, 241). Types imported from shared. `findBestDeal` correctly uses `.maybeSingle()` (line 252).
+
+### web/src/lib/matching.ts
+- **Verdict: Approved**
+- Excellent matching logic with well-documented scoring system. German compound word awareness is important for this Swiss grocery app. The `QUALIFIERS` set for brand prefixes (bio, m-budget, etc.) is a smart design. 58 tests confirm correctness. Clean separation of concerns: `keywordMatches`, `matchRelevance`, `findBestMatch`, `matchFavorites`, `splitShoppingList` are each single-responsibility.
+
+### web/src/lib/verdict.ts
+- **Verdict: Approved**
+- Correct use of shared constants (`TIE_THRESHOLD`, `VERDICT_WEIGHTS`). Score normalization logic is sound. `dataFreshness` detection handles all three cases (current, stale, partial). 18 tests confirm correctness.
+
+### web/src/components/ui/Button.tsx
+- **Verdict: Approved**
+- Proper shadcn/ui pattern: `cva` for variants, `forwardRef`, `cn()` for class merging. Brand variants (migros, coop) are a good project-specific extension. `min-h-[44px]` ensures touch targets meet accessibility guidelines.
+
+### web/src/components/ui/Card.tsx
+- **Verdict: Approved**
+- Simple, clean. `forwardRef` + `cn()` for extensibility.
+
+### web/src/components/ui/Input.tsx
+- **Verdict: Approved**
+- Clean. Focus styles use accent color. `forwardRef` for form integration.
+
+### web/src/components/ui/Badge.tsx
+- **Verdict: Approved**
+- Good variant set matching store branding. `cva` pattern correct.
 
 ### web/src/components/Layout.tsx
-
 - **Verdict: Approved**
-- Simple layout with sticky header, nav links, and footer. Uses `Outlet` for nested routing. No issues.
+- Sticky header, mobile-first max-width (`640px`), footer with attribution. Touch-target sizing on nav links (`min-h-[44px]`). `<Outlet />` for nested routes. Good semantic structure (header/main/footer).
 
 ### web/src/components/TemplatePicker.tsx
-
 - **Verdict: Approved**
-- Handles loading/error/success states correctly. The pack grid is a 2-column grid which works well on mobile.
+- Three-state handling present (loading/error/empty/success). Grid layout with responsive breakpoint. "Recommended" badge on first pack is a nice UX touch. Correctly uses `useStarterPacks()` React Query hook.
 
 ### web/src/components/FavoritesEditor.tsx
-
-- **Verdict: Approved**
-- Clean add/remove flow. Accessibility: the remove button has `aria-label`. Item count displayed at the bottom.
+- **Verdict: Needs Changes**
+- Issues:
+  1. **Lines 17-28, 30-36: Direct Supabase mutation calls without React Query `useMutation`.** `removeFavoriteItem` and `addFavoriteItem` are called directly with manual state management (`setRemoving`, `props.onItemsChange`). This works but is inconsistent with the React Query pattern used for reads. For consistency, these should use `useMutation` from React Query, which provides `isPending`, `onSuccess`, and automatic cache invalidation.
+  2. **Line 72: Plain text "x" for remove button.** Consider using a proper icon (lucide-react's `X` icon is already a dependency in `package.json`) for visual consistency.
+- Suggestions:
+  - Wrap mutations in `useMutation` hooks to align with the React Query data layer pattern.
+  - Use `queryClient.invalidateQueries({ queryKey: ['favorites'] })` in `onSuccess` to keep cache in sync.
 
 ### web/src/components/ProductSearch.tsx
-
 - **Verdict: Needs Changes**
-- Issue: No debouncing on search. Every keystroke followed by Enter triggers a Supabase query. While this is acceptable for MVP (search is triggered by button/Enter, not on-type), the `handleKeyDown` fires on every Enter press without debounce.
-  - **Suggestion (non-blocking):** Consider adding a `disabled` state during search to prevent double-submission.
-- Issue (Line 42): When a user selects a search result, the search query string is used as the keyword, not the product name. This means if a user searches "milch", selects "vollmilch bio 1l", the keyword saved is "milch" -- which is actually correct behavior for broad matching. But the label is set to `deal.product_name` which might be confusingly specific. This is a UX decision, not a bug.
-- Good: The "Add anyway" button for no-results is a thoughtful UX touch -- users can add items that aren't currently on sale.
-
-### web/src/components/EmailCapture.tsx
-
-- **Verdict: Needs Changes**
-- Issue (Line 15): Email validation is just `trimmed.includes('@')`. This allows clearly invalid emails like `@`, `a@`, `@b`. While server-side validation should catch these, the frontend should provide better feedback.
-  - **Fix:** Use a basic regex or the HTML5 `type="email"` validation via a form submit, or at minimum check for `x@y.z` pattern.
-- Issue (Line 41): The component says "we'll send you a link" but the system doesn't actually send emails -- it uses email as a lookup key. This copy is misleading.
-  - **Fix:** Change to "Enter your email to find your list next time."
+- Issues:
+  1. **Lines 11-14, 16-36: Raw useState pattern for search data fetching.** The search functionality uses `useState` + manual async function instead of React Query. Since the architecture specifies React Query for data fetching, this should use `useQuery` with the search term as a query key parameter. This would also give automatic deduplication and caching of repeated searches for free.
+- Suggestions:
+  - Refactor to `useQuery({ queryKey: ['deals', 'search', debouncedQuery], queryFn: ..., enabled: !!debouncedQuery })` pattern. Add a debounce (300ms) to avoid firing on every keystroke if search-on-type is added later.
 
 ### web/src/components/CompareCard.tsx
-
-- **Verdict: Needs Changes**
-- Issue (Lines 34, 55): `{migrosDeal.discount_percent && (...)}` -- this is a common React gotcha. If `discount_percent` is `0` (which the categorizer can set), this evaluates to `0` and React renders the number `0` in the DOM. Since the categorizer guarantees `discount_percent` is never null after processing, the only falsy value would be `0`.
-  - **Fix:** Use `{migrosDeal.discount_percent != null && migrosDeal.discount_percent > 0 && (...)}` or `{!!migrosDeal.discount_percent && (...)}`.
-- Good: The two-column comparison layout is clean. The recommendation tag system (`REC_TAGS`) is well-structured.
+- **Verdict: Approved**
+- Clean two-column comparison layout. Lazy-loaded images (`loading="lazy"`). Null-safe rendering for missing deals -- discount display correctly checks `deal.discount_percent != null && deal.discount_percent > 0` (line 42). Brand colors applied correctly.
 
 ### web/src/components/SplitList.tsx
-
 - **Verdict: Approved**
-- Clean component that delegates to `splitShoppingList` and renders each bucket with appropriate headers. Empty state handled.
+- Clean grouping of comparisons by recommendation. Empty state handled. Color dots for visual store identification are a nice touch.
+
+### web/src/components/EmailCapture.tsx
+- **Verdict: Approved**
+- Email validation uses regex pattern `^[^\s@]+@[^\s@]+\.[^\s@]+$` (line 19) -- adequate for frontend validation. Three states (form, saving, saved). Error display with `role="alert"`. Success state with redirect delay. Copy correctly says "find your list again next week" -- no misleading claims about sending emails.
 
 ### web/src/components/VerdictBanner.tsx
-
 - **Verdict: Approved**
-- Correctly handles null verdict (returns null). Shows freshness warnings for stale and partial data. The `verdictSummary` function is readable and produces the right copy.
+- Handles null verdict gracefully. Shows stale/partial data warnings. Clean verdict rendering with store-colored labels.
 
 ### web/src/pages/HomePage.tsx
-
 - **Verdict: Approved**
-- Handles loading/success states. Fetches all active deals on mount and computes the weekly verdict. Email lookup navigates to the comparison page on success, shows error on failure.
-- Good: The hero section with CTA is clean and focused.
-
-### web/src/pages/OnboardingPage.tsx
-
-- **Verdict: Approved**
-- Three-step flow (pick/edit/save) is well-implemented. Step indicator shows progress. The "Start from scratch" option creates an empty favorites list. Loading state prevents double-clicks.
-- Good: The "Skip -- just show my deals" option for email capture respects the user's choice.
-
-### web/src/pages/ComparisonPage.tsx
-
-- **Verdict: Approved**
-- Fetches favorites and deals in parallel (`Promise.all`), which is correct for performance. Handles missing favoriteId, empty favorites, and fetch errors. Shows summary counts at the top.
+- Email lookup uses direct `lookupFavoriteByEmail` call -- acceptable since this is a one-shot user action (not data fetching for display). Error and loading states handled. Good accessibility with `role="alert"` on error. Screen-reader-only label on input.
 
 ### web/src/pages/AboutPage.tsx
-
 - **Verdict: Approved**
-- Static content page. No issues. Privacy section is appropriate.
+- Static content, well-structured. Uses Card component. No issues.
+
+### web/src/pages/OnboardingPage.tsx
+- **Verdict: Needs Changes**
+- Issues:
+  1. **Lines 25-32: `useEffect` for data fetching.** When arriving in edit mode, the component uses `useEffect` + `fetchFavoriteItems` to load existing items. This should use the existing `useFavoriteItems` hook (React Query) instead, which already supports conditional fetching via the `enabled` parameter. Using raw `useEffect` for data fetching is exactly what the rebuild was meant to eliminate.
+  2. **Line 16: Unsafe type assertion on `location.state`.** `location.state as { favoriteId?: string; editMode?: boolean } | null` is a hard cast with no runtime validation. If the state shape changes or something unexpected is passed, this silently succeeds. Consider adding a runtime check.
+- Fix for issue 1: Replace the `useEffect` block with:
+  ```tsx
+  const { data: existingItems, isLoading: existingItemsLoading } = useFavoriteItems(
+    editState?.editMode ? editState.favoriteId : undefined
+  )
+  ```
+  Then use `existingItems` and `existingItemsLoading` instead of the manual `items`/`loading` state for the edit-mode case.
+
+### web/src/pages/ComparisonPage.tsx
+- **Verdict: Needs Changes**
+- Issues:
+  1. **Line 125: `window.location.href` used directly in JSX render.** This reads the browser URL at render time. Not a real bug (the component remounts on navigation), but it couples render output to a global. Minor issue.
+- Suggestions:
+  - Consider using `useLocation().pathname` combined with `window.location.origin` for a React-idiomatic approach. This is a very minor point and does not block deployment.
 
 ---
 
 ## Cross-Cutting Issues
 
-### 1. Missing JSON validation at the Python-TypeScript trust boundary (Blocked)
+### 1. Shared type imports use relative paths instead of `@shared/*` alias
 
-`pipeline/run.ts` reads Coop JSON output and casts it to `UnifiedDeal[]` without validating individual entries. The architecture document explicitly requires per-entry validation at this boundary. This is the single most important issue in the review because malformed Python output could corrupt the database.
+**Severity: Needs Changes (consistency, non-blocking)**
 
-### 2. No console.log in web production code (Passed)
+Every file that imports from `shared/types.ts` uses the relative path `'../../../shared/types'` instead of the configured `@shared/types` alias. Both `tsconfig.json` and `vite.config.ts` configure the `@shared` path alias, but no file uses it.
 
-Verified: zero `console.log` statements in `web/src/`. Query functions use `console.error` for genuine errors, which is acceptable.
+**Files affected:** `queries.ts`, `matching.ts`, `verdict.ts`, `TemplatePicker.tsx`, `FavoritesEditor.tsx`, `ProductSearch.tsx`, `CompareCard.tsx`, `SplitList.tsx`, `VerdictBanner.tsx`, `OnboardingPage.tsx`, plus test files.
 
-### 3. No secrets in source code (Passed)
+**Fix:** Replace `from '../../../shared/types'` with `from '@shared/types'` and `from '../../../shared/category-rules'` with `from '@shared/category-rules'` in all files. This is the convention specified in CLAUDE.md: "Import shared types via: `import { Deal } from '@shared/types'`".
 
-- `.env` file exists but is in `.gitignore`
-- No API keys or tokens found in any source file
-- Frontend uses `VITE_` prefixed env vars (anon key only)
-- Pipeline uses `process.env.SUPABASE_SERVICE_ROLE_KEY` (from GH secrets)
+### 2. Write operations not using React Query's `useMutation`
 
-### 4. No circular dependencies (Passed)
+**Severity: Needs Changes (consistency, non-blocking)**
 
-Import graph is clean:
-- `shared/types.ts` has no imports from pipeline or web
-- `shared/category-rules.ts` imports only from `./types`
-- Pipeline modules import from `shared` and local files only
-- Web modules import from `shared` and `./lib` only
+Write operations (`addFavoriteItem`, `removeFavoriteItem`, `addFavoriteItemsBatch`, `saveFavoriteEmail`, `createFavorite`) are called directly with manual loading/error state management via `useState`. While this works, it misses the benefits of React Query's `useMutation`:
+- Automatic `isPending`/`isError`/`isSuccess` states
+- `onSuccess` callbacks for cache invalidation
+- Built-in retry logic
+- Consistent pattern with the read operations
 
-### 5. Consistent error handling (Passed)
+This is not a blocking issue -- the current implementation is functional and correct. But for consistency with the React Query architecture decision, these should eventually be wrapped in `useMutation` hooks.
 
-- Pipeline: logs errors, returns empty array, never throws -- correct per standards
-- Frontend: returns empty array/null on query errors, shows error UI -- correct per standards
+### 3. No `tailwind.config.ts` file
 
-### 6. The `any` type in normalize.ts
+**Severity: Not an issue (informational)**
 
-Only one occurrence in the entire codebase (`normalizeMigrosDeal(raw: any)`). This is at an API boundary where the shape is genuinely unknown, but `unknown` would be more type-safe.
+The coding standards document (Section 2) mentions `tailwind.config.ts` in the project structure, but the actual implementation uses Tailwind CSS v4 with the `@theme` directive in `styles.css`. This is correct -- Tailwind v4 moved configuration into CSS. The docs reference is outdated, not the code.
 
 ---
 
@@ -289,49 +202,203 @@ Only one occurrence in the entire codebase (`normalizeMigrosDeal(raw: any)`). Th
 
 | Module | Tests | Coverage quality | Notes |
 |--------|-------|-----------------|-------|
-| pipeline/migros/normalize | 21 | Excellent | Fixture-based, edge cases covered |
-| pipeline/categorize | 17 | Excellent | Parameterized, discount guarantee tested |
-| pipeline/store | 8 | Good | Mocked Supabase, batch splitting tested |
-| pipeline/run | 0 | Missing | No tests for the orchestrator. The JSON validation gap makes this more concerning. |
-| pipeline/coop (Python) | 37+ | Excellent | Fixture-based, end-to-end, camelCase contract test |
-| web/lib/verdict | 18 | Excellent | Scoring, tie detection, freshness all tested |
-| web/lib/matching | 18 | Excellent | Matching, recommendation, split list all tested |
-| web/lib/queries | 0 | Acceptable | Query functions are thin wrappers around Supabase. Testing would require mocking Supabase, which adds low value for MVP. |
-| web/components | 0 | Acceptable | Components are rendering-focused with minimal logic. Testing standards say not to test pure rendering. |
+| `matching.ts` | 58 | Excellent | German compound words, exclude/prefer terms, edge cases |
+| `verdict.ts` | 18 | Good | Scoring, tie detection, partial data |
+| UI components | 0 | Acceptable | Per standards: "No tests for trivial code (pure rendering)" |
+| `queries.ts` | 0 | Acceptable for MVP | Thin wrappers around Supabase, medium priority per standards |
+| `hooks.ts` | 0 | Acceptable | Thin wrappers over query functions |
 
-**Missing test coverage that matters:**
-1. `pipeline/run.ts` -- the orchestrator has no tests. Since it's the entry point and handles the trust boundary, at least the `readDealsFile` function should have a test with malformed JSON.
+Test coverage is appropriate for a portfolio MVP. The high-leverage code (matching logic, verdict calculation) is thoroughly tested. The low-leverage code (UI rendering, Supabase queries) is untested, which matches the testing strategy in coding standards Section 6.
+
+---
+
+## Security Assessment
+
+- No API keys or secrets in source code
+- `SUPABASE_SERVICE_ROLE_KEY` not present anywhere in `web/`
+- Environment variables accessed via `import.meta.env.VITE_*` (safe, read-only anon key)
+- Supabase client throws on missing env vars (fail-fast, good)
+- Search inputs escape `%` and `_` before use in `.ilike()` queries
+- No `dangerouslySetInnerHTML` usage
+- No XSS vectors identified
 
 ---
 
 ## Final Verdict
 
-**Needs work** -- one Blocked file, five Needs Changes files.
+**Ready to deploy with minor changes.**
 
-### Must fix before deploy:
+The rebuild successfully implements the approved tech stack: Tailwind CSS v4 with shadcn/ui-style components and React Query v5 with 1-hour stale time. The core logic (matching + verdict) is well-tested and correct. The code is clean, well-structured, and follows the coding standards.
 
-1. **pipeline/run.ts** (Blocked): Add per-entry validation when reading Coop JSON. This is an architecture requirement and a data integrity risk.
+### Required before shipping (2 items):
 
-### Should fix before deploy:
+1. **`OnboardingPage.tsx` line 25-32:** Replace `useEffect` + `fetchFavoriteItems` with the existing `useFavoriteItems` React Query hook. This is the one remaining instance of the old pattern (raw useEffect for data fetching) that the rebuild was meant to eliminate. Architecture compliance issue.
 
-2. **pipeline/migros/normalize.ts**: Change `any` to `unknown`.
-3. **web/src/components/CompareCard.tsx**: Fix the `discount_percent && (...)` falsy-zero rendering bug.
-4. **web/src/components/EmailCapture.tsx**: Fix misleading "we'll send you a link" copy.
-5. **web/src/lib/queries.ts**: Use `.maybeSingle()` instead of `.single()` in `findBestDeal`.
-6. **web/src/components/EmailCapture.tsx**: Improve email validation beyond `includes('@')`.
+2. **All files importing from shared:** Replace `'../../../shared/types'` with `'@shared/types'` across all files. This is the convention documented in CLAUDE.md and both tsconfig and vite are already configured for it.
 
-### Nice to have (non-blocking):
+### Recommended but not blocking (3 items):
 
-7. Escape `%` and `_` wildcards in `searchDeals` ilike queries.
-8. Add a test for `readDealsFile` with malformed JSON.
+3. Wrap write operations in `useMutation` hooks in `FavoritesEditor.tsx`, `OnboardingPage.tsx`, `EmailCapture.tsx`, and `HomePage.tsx` for consistency with the React Query pattern.
+4. Refactor `ProductSearch.tsx` to use `useQuery` for search results instead of manual `useState`.
+5. Use lucide-react `X` icon for the remove button in `FavoritesEditor.tsx` (the dependency is already installed).
 
-### What's well done:
+---
 
-- The verdict calculation logic is correct and well-tested. I verified the scoring math manually.
-- The matching/split-list logic correctly handles all four recommendation types.
-- The Python and TypeScript normalization functions produce identical output for the same input -- the `test_camel_case_keys` test in Python is a smart contract test.
-- Error handling is consistent across the entire codebase: pipeline never throws, frontend never crashes on query failure.
-- The three-state pattern (loading/error/success) is followed in every data-fetching component.
-- Type safety is excellent -- one `any` in the entire codebase, zero `@ts-ignore`, zero `@ts-expect-error`.
-- The shared types module is genuinely shared -- no type duplication found anywhere.
-- CSS is clean, mobile-first, and well-organized with CSS variables.
+## Re-Review (10 April 2026)
+
+Re-checked the two required fixes from the original review. Both are now resolved.
+
+### Issue 1: OnboardingPage.tsx -- raw useEffect for data fetching
+
+**Status: Approved**
+
+The raw `useEffect` + `fetchFavoriteItems` pattern has been replaced with the `useFavoriteItems` React Query hook (line 27). The implementation is clean:
+
+- `editFavoriteId` is derived conditionally (line 26): only set when `editState?.editMode` is true, otherwise `undefined`
+- `useFavoriteItems(editFavoriteId)` leverages the hook's existing `enabled: !!favoriteId` guard, so it only fetches when in edit mode
+- A small `useEffect` (lines 30-34) syncs the React Query data into local state -- this is acceptable because `items` is also mutated by `handlePackSelect` and `FavoritesEditor`, so local state is the correct owner. The sync effect has proper guards (`existingItems.length > 0`, `items.length === 0`, `editState?.editMode`) to prevent infinite loops or overwriting user edits
+- No raw `fetchFavoriteItems` call remains anywhere in the file
+
+### Issue 2: Relative imports instead of @shared alias
+
+**Status: Approved**
+
+Zero matches found for `from '../../../shared` anywhere in `web/src/`. Spot-checked four files to confirm `@shared` alias is now used:
+
+- `src/lib/queries.ts` line 3: `from '@shared/types'`
+- `src/lib/verdict.ts` lines 3 and 11: `from '@shared/types'` and `from '@shared/category-rules'`
+- `src/components/CompareCard.tsx` line 1: `from '@shared/types'`
+- `src/pages/OnboardingPage.tsx` line 4: `from '@shared/types'`
+
+### Build and test verification
+
+- `npx tsc --noEmit` -- zero errors (clean exit)
+- `npx vitest run` -- 76 tests passed (0 failed), 2 test files (matching + verdict)
+
+No regressions introduced by either fix.
+
+### Updated summary table
+
+| Required fix | Original status | Re-review status |
+|-------------|----------------|-----------------|
+| 1. OnboardingPage.tsx: useEffect -> React Query | Needs Changes | **Approved** |
+| 2. All files: relative imports -> @shared alias | Needs Changes | **Approved** |
+
+All required changes are now resolved. The 3 recommended-but-not-blocking items (useMutation for writes, useQuery for ProductSearch, lucide-react X icon) remain as future improvements.
+
+---
+
+## Codex Fixes Re-Review
+
+**Reviewer:** Independent Code Reviewer (Agent)
+**Date:** 10 April 2026
+**Scope:** 4 specific fixes applied from Codex's review (Fixes 3, 4, 5, 6)
+**Test results:** Frontend: 76 tests passed (0 failed). Pipeline: 77 tests passed (0 failed). TypeScript: zero errors in both projects.
+
+---
+
+### Fix 3: React Query cache invalidation after mutations
+
+**Files:** `web/src/components/FavoritesEditor.tsx`, `web/src/pages/OnboardingPage.tsx`
+
+**Verdict: Approved**
+
+The fix adds `useQueryClient` and `invalidateQueries` calls after add/remove mutations. Reviewed:
+
+- **FavoritesEditor.tsx (lines 2, 15, 19-21, 28, 41):** `useQueryClient()` is obtained at component level (line 15). A helper `invalidateItems()` (lines 19-21) invalidates with key `['favorites', props.favoriteId, 'items']`. Called after successful `removeFavoriteItem` (line 28) and `addFavoriteItem` (line 41). The query key exactly matches the key in `useFavoriteItems` hook (`hooks.ts` line 14: `['favorites', favoriteId, 'items']`), so invalidation targets the correct cache entry.
+- **OnboardingPage.tsx (lines 3, 18, 75):** `useQueryClient()` at component level (line 18). `invalidateQueries` called after `addFavoriteItemsBatch` succeeds (line 75), using key `['favorites', id, 'items']` where `id` is the just-created favorite. This ensures that if the user navigates to edit mode, the cache is fresh.
+- Both files correctly call `invalidateQueries` only on success paths (after confirming the mutation returned valid data), not on error paths. This avoids unnecessary refetches on failure.
+- The mutations themselves are still called imperatively (not via `useMutation`). This is consistent with the existing pattern noted in the original review as "recommended but not blocking." The invalidation fix addresses the actual bug (stale cache) without requiring a full refactor to `useMutation`.
+
+No issues found. No regressions introduced.
+
+---
+
+### Fix 4: Read query functions now throw on Supabase errors
+
+**Files:** `web/src/lib/queries.ts`
+
+**Verdict: Approved**
+
+Three read functions used as `queryFn` in React Query hooks now throw on Supabase errors instead of returning empty arrays:
+
+- **fetchActiveDeals (lines 37-39):** Throws `Error` with `[queries] fetchActiveDeals: ${error.message}`. Previously returned `[]`.
+- **fetchStarterPacks (lines 78-80):** Throws `Error` with `[queries] fetchStarterPacks: ${error.message}`. Previously returned `[]`.
+- **fetchFavoriteItems (lines 150-152):** Throws `Error` with `[queries] fetchFavoriteItems: ${error.message}`. Previously returned `[]`.
+
+This is the correct fix. React Query needs `queryFn` to throw in order to populate `isError` and trigger retry logic (configured as `retry: 1` in `query-client.ts`). Without throwing, errors were silently swallowed and components would show empty states instead of error UI.
+
+Write operations intentionally kept as-is (return `null`/`false`/`[]` on failure):
+- `searchDeals` (line 62): returns `[]` -- correct, called imperatively from `ProductSearch`
+- `createFavorite` (line 95): returns `null` -- correct, called imperatively
+- `saveFavoriteEmail` (line 114): returns `false` -- correct, called imperatively
+- `addFavoriteItem` (line 177): returns `null` -- correct, called imperatively
+- `removeFavoriteItem` (line 193): returns `false` -- correct, called imperatively
+- `addFavoriteItemsBatch` (line 221): returns `[]` -- correct, called imperatively
+- `lookupFavoriteByEmail` (line 131): returns `null` -- correct, called imperatively
+- `findBestDeal` (line 252): returns `null` -- correct, called imperatively
+
+The distinction between "used by React Query hooks" (must throw) and "called imperatively" (return error values) is correct and well-reasoned. Error messages include the function name for debuggability.
+
+No issues found. No regressions introduced.
+
+---
+
+### Fix 5: Pipeline storage failure visibility
+
+**Files:** `pipeline/run.ts`
+
+**Verdict: Approved**
+
+The fix adds three capabilities to the pipeline runner:
+
+1. **Storage shortfall logging (lines 79-86):** After `storeDeals` returns, the code compares `storedCount` to `categorized.length`. If there is any shortfall, it logs an `[ERROR]` line with exact counts. This makes partial storage failures visible in CI logs instead of silently succeeding.
+
+2. **Structured error_log in pipeline_runs (lines 95-101, 112):** Errors from source failures and storage shortfalls are collected into a `string[]`, then joined with `'; '` and stored in `error_log` field. This field already exists in the `PipelineRun` type (`shared/types.ts` line 66: `error_log: string | null`). When no errors occur, `null` is stored. This gives historical visibility into partial failures via the database.
+
+3. **exit(1) only when zero deals stored (lines 116-119):** `process.exit(1)` triggers only when `storedCount === 0 && categorized.length > 0` -- meaning the pipeline had data to store but failed entirely. Partial success (e.g., 180 of 200 deals stored) exits normally. This is the correct behavior: partial data is better than no data for a weekly deal comparison app, and the error_log captures the shortfall for monitoring.
+
+The exit logic is sound:
+- Both sources empty (lines 61-64): `process.exit(1)` -- correct, no point continuing
+- Partial source failure (one source has data): continues -- correct by design
+- Storage shortfall but some deals stored: logs error, records in DB, exits 0 -- correct
+- Zero deals stored despite having data: `process.exit(1)` -- correct, total storage failure
+- Unexpected crash (line 126): `process.exit(1)` -- correct
+
+No issues found. No regressions introduced.
+
+---
+
+### Fix 6: Nested button/link accessibility fix
+
+**Files:** `web/src/pages/HomePage.tsx`, `web/src/pages/ComparisonPage.tsx`
+
+**Verdict: Approved**
+
+The fix replaces the pattern `<Link><Button>text</Button></Link>` (nested interactive elements, invalid HTML) with `<Link className={buttonVariants(...)}>text</Link>` (single interactive element styled as a button).
+
+- **HomePage.tsx (line 50):** `<Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>` -- applies full-width primary button styling via CVA. `buttonVariants` is exported from `Button.tsx` (line 46), so the styling is guaranteed to match the `Button` component exactly.
+
+- **ComparisonPage.tsx (lines 68, 81, 137):** Three instances:
+  - Line 68: `buttonVariants({ fullWidth: true, className: 'mt-4' })` -- error state "Create a new list" link
+  - Line 81: `buttonVariants({ fullWidth: true, className: 'mt-4' })` -- empty state "Create a new list" link
+  - Line 137: `buttonVariants({ variant: 'outline', size: 'sm' })` -- "Edit my list" link
+
+All four instances correctly use the `buttonVariants` function with appropriate variant props. The `className` parameter in `buttonVariants()` is supported by CVA for merging additional classes.
+
+This fix resolves the HTML spec violation where `<button>` inside `<a>` (or vice versa) creates nested interactive elements. Screen readers and keyboard navigation now work correctly since there is only one focusable element per action.
+
+No issues found. No regressions introduced.
+
+---
+
+### Summary
+
+| Fix | Description | Verdict |
+|-----|-------------|---------|
+| Fix 3 | React Query cache invalidation after mutations | **Approved** |
+| Fix 4 | Read query functions throw on Supabase errors | **Approved** |
+| Fix 5 | Pipeline storage failure visibility | **Approved** |
+| Fix 6 | Nested button/link accessibility fix | **Approved** |
+
+**All 4 fixes are approved.** Each fix is correctly implemented, addresses the original issue without introducing new problems, and all tests pass (76 frontend + 77 pipeline, zero TypeScript errors).

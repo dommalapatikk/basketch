@@ -6,7 +6,8 @@
     "outDir": "./dist",
     "rootDir": "..",
     "paths": {
-      "@shared/*": ["../shared/*"]
+      "@shared/*": ["../shared/*"],
+      "@/*": ["./src/*"]
     },
     "baseUrl": ".",
     "noEmit": true

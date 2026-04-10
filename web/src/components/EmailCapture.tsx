@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
 import { saveFavoriteEmail } from '../lib/queries'
+import { Button } from './ui/Button'
+import { Card } from './ui/Card'
+import { Input } from './ui/Input'
 
 export function EmailCapture(props: {
   favoriteId: string
@@ -37,41 +40,35 @@ export function EmailCapture(props: {
 
   if (saved) {
     return (
-      <div className="success-msg" role="status">
+      <div className="rounded-md bg-success-light p-6 text-center font-semibold text-success" role="status">
         List saved! Redirecting to your deals...
       </div>
     )
   }
 
   return (
-    <div className="card">
-      <h3 className="section-title">Secure your list</h3>
-      <p className="text-sm text-muted mb-8">
+    <Card>
+      <h3 className="mb-3 text-lg font-semibold">Secure your list</h3>
+      <p className="mb-2 text-sm text-muted">
         Enter your email so you can find your list again next week.
         No account needed.
       </p>
-      <div className="email-group">
+      <div className="flex gap-2">
         <label htmlFor="email-capture" className="sr-only">Email address</label>
-        <input
+        <Input
           id="email-capture"
-          className="input"
           type="email"
           placeholder="your@email.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Email address"
+          className="flex-1"
         />
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-          type="button"
-        >
+        <Button onClick={handleSave} disabled={saving} type="button">
           {saving ? 'Saving...' : 'Save'}
-        </button>
+        </Button>
       </div>
-      {error && <p className="text-sm mt-8 text-error" role="alert">{error}</p>}
-    </div>
+      {error && <p className="mt-2 text-sm text-error" role="alert">{error}</p>}
+    </Card>
   )
 }

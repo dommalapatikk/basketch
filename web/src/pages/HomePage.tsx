@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { lookupFavoriteByEmail } from '../lib/queries'
+import { Button, buttonVariants } from '../components/ui/Button'
+import { Card } from '../components/ui/Card'
+import { Input } from '../components/ui/Input'
 
 export function HomePage() {
   const navigate = useNavigate()
@@ -34,49 +37,48 @@ export function HomePage() {
 
   return (
     <div>
-      <div className="hero">
-        <h1 className="hero-title">
+      <div className="py-8 text-center">
+        <h1 className="text-[1.75rem] font-extrabold leading-tight">
           Smart grocery shopping<br />
           for Swiss shoppers
         </h1>
-        <p className="hero-subtitle">
+        <p className="mt-2 text-base text-muted">
           Compare Migros and Coop deals for the items you actually buy.
           Save CHF 20-40 per month by shopping where deals are best.
         </p>
-        <div className="hero-cta">
-          <Link to="/onboarding" className="btn btn-primary btn-block">
+        <div className="mt-6">
+          <Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>
             Build my shopping list
           </Link>
         </div>
       </div>
 
-      <div className="card mt-24">
-        <h3 className="section-title">Already have a list?</h3>
-        <p className="text-sm text-muted mb-8">
+      <Card className="mt-6">
+        <h3 className="mb-3 text-lg font-semibold">Already have a list?</h3>
+        <p className="mb-2 text-sm text-muted">
           Enter the email you saved with your list to find it.
         </p>
-        <div className="email-group">
+        <div className="flex gap-2">
           <label htmlFor="email-lookup" className="sr-only">Email address</label>
-          <input
+          <Input
             id="email-lookup"
-            className="input"
             type="email"
             placeholder="your@email.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={handleEmailKeyDown}
+            className="flex-1"
           />
-          <button
-            className="btn btn-primary"
+          <Button
             onClick={handleEmailLookup}
             disabled={searching}
             type="button"
           >
             {searching ? 'Searching...' : 'Find my list'}
-          </button>
+          </Button>
         </div>
-        {emailError && <p className="text-sm mt-8 text-error" role="alert">{emailError}</p>}
-      </div>
+        {emailError && <p className="mt-2 text-sm text-error" role="alert">{emailError}</p>}
+      </Card>
     </div>
   )
 }
