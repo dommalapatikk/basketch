@@ -1,68 +1,91 @@
 # basketch
 
-**Swiss weekly grocery deal comparison — Migros vs Coop, at a glance.**
+**Your groceries. Two stores. One smart list.**
 
-> Know which store to visit for what, every weekend. Stop guessing, start saving.
+> Pick your regular items. See which are on sale at Migros or Coop this week. Get a split shopping list that tells you exactly where to buy each. 45 seconds to set up — no app, no account, no login.
 
 ---
 
 ## The Problem
 
-Swiss residents who shop at both Migros and Coop waste time and money because there's no simple way to compare weekly promotions across both stores. You either check both websites manually, or you pick one store and miss savings at the other.
+Every weekend, Swiss shoppers face the same question: **"Should I go to Migros or Coop?"**
 
-## The Solution
+Existing deal sites show you 200+ promotions — but you only buy 15-20 items regularly. The problem isn't "which deals exist." It's **"which of MY products are cheaper where this week."**
 
-basketch fetches weekly promotions from Migros and Coop every Thursday, categorizes them into three shopping buckets, and tells you:
+No tool in Switzerland answers that question today.
 
-**"This week: go to Migros for vegetables, go to Coop for washing powder."**
+## How basketch Works
 
-Three categories, tailored to how you actually shop:
+```
+1. Pick a starter pack       →  Swiss Basics, Indian Kitchen, Mediterranean, or General Mix
+2. Customize your list       →  Remove what you don't buy, search and add what you do
+3. See your comparison       →  Which of YOUR items are on sale, at which store
+4. Get your split list       →  "Buy these at Migros. Buy these at Coop."
+5. Save with email           →  Come back next week — your list is waiting
+```
 
-| Category | What's in it | Why it matters |
-|----------|-------------|---------------|
-| **Fresh** | Vegetables, dairy, meat, fruit, bread | Buy this week where it's cheapest |
-| **Long-life food** | Nuts, chocolate, pasta, rice, coffee | Stock up when on sale |
-| **Non-food** | Washing powder, tissues, shampoo | Buy in bulk for months |
+No app to install. No account to create. No password to remember.
 
-## How It Works
+## What Makes It Different
 
-1. **Every Thursday evening**, a scheduled job fetches current promotions from both stores
-2. Deals are categorized into three buckets and stored in a database
-3. The website shows a side-by-side comparison with a clear weekly verdict
-4. (v2) Create a personal basket of your regular items — see only deals that matter to you
-5. (v3) Get a weekly email: "Your items are on sale at Coop this week"
+| Feature | Rappn | Aktionis | Profital | Bring! | **basketch** |
+|---------|-------|----------|----------|--------|-------------|
+| Personal favorites tracking | Category-level | Wishlist | Stores only | Full lists | **Product-level** |
+| Cross-store comparison | Yes (5 stores) | No | No | No | **Yes (Migros vs Coop)** |
+| Split shopping list | No | No | No | No | **Yes** |
+| No app / no login needed | No (app) | Yes | No (app) | No (app) | **Yes** |
+| Starter pack onboarding | No | No | No | No | **Yes (45 sec)** |
 
 ## Tech Stack
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| Frontend | React + Vite + TypeScript + Tailwind + shadcn/ui | Modern, fast, polished UI components |
-| Database | Supabase (PostgreSQL) | Free tier, REST API, real-time subscriptions |
-| Data Pipeline | Python + GitHub Actions | Best scraping ecosystem, free weekly cron |
+| Frontend | React + Vite + TypeScript | Fast, mobile-first, no app needed |
+| Database | Supabase (PostgreSQL) | Free tier, REST API, row-level security |
+| Data Pipeline | TypeScript + Python + GitHub Actions | Migros API + Coop scraping, weekly cron |
 | Hosting | Vercel | Free, global CDN, auto-deploy from GitHub |
+
+**Total cost: CHF 0/month** — all free tiers.
+
+## Data Pipeline
+
+Every **Wednesday at 22:00 CET**, a scheduled pipeline:
+1. Fetches Migros promotions via [migros-api-wrapper](https://github.com/nickreynolds/migros-api-wrapper) (open source, guest OAuth2)
+2. Scrapes Coop promotions from [aktionis.ch](https://aktionis.ch) (public aggregator)
+3. Categorizes deals into Fresh / Long-life / Non-food
+4. Stores in Supabase — ready for Thursday morning shopping
+
+Verification run at **Thursday 07:00 CET** catches any late updates.
 
 ## Project Documentation
 
-This project is documented as a PM case study:
+This project is built and documented as a PM case study:
 
-- [Product Requirements (PRD)](docs/prd.md) — problem, users, stories, data model, risks
-- [Use Cases](docs/use-cases.md) — structured use cases with acceptance criteria (Given/When/Then)
-- [Architecture Decisions](docs/architecture.md) — tech choices with trade-offs
-- [Delivery Roadmap](docs/roadmap.md) — phased plan across 3 weekends
-
-## Built With
-
-This project was built using [Claude Code](https://claude.ai/code) as the primary development tool — from PRD writing through implementation. AI-assisted development is part of the product process, not a shortcut.
+| Document | What it covers |
+|----------|---------------|
+| [PRD](docs/prd.md) | Problem, users, stories, data model, risks |
+| [Technical Architecture](docs/technical-architecture.md) | System design, modules, data flow, build order |
+| [Use Cases](docs/use-cases.md) | Structured use cases with Given/When/Then acceptance criteria |
+| [Business Model Canvas](docs/business-model-canvas.md) | All 9 BMC blocks, assumptions, differentiation |
+| [Competitive Analysis](docs/competitive-analysis.md) | 18 competitors across Swiss, UK, and international markets |
+| [Coding Standards](docs/coding-standards.md) | Conventions, patterns, testing |
+| [Delivery Roadmap](docs/roadmap.md) | Phased plan |
 
 ## Status
 
-- [x] PRD written
-- [x] Architecture decisions documented
-- [x] Roadmap planned
-- [ ] Phase 0: Data source validation
-- [ ] Phase 1: MVP (weekly deal comparison)
-- [ ] Phase 2: Personal baskets
-- [ ] Phase 3: Notifications
+- [x] PRD, architecture, use cases, competitive analysis
+- [x] Shared types, database schema, starter pack seed data
+- [x] CI/CD pipelines (GitHub Actions)
+- [ ] Migros source module
+- [ ] Coop source module
+- [ ] Categorizer + storage
+- [ ] Frontend: onboarding flow (templates → customize → compare)
+- [ ] Frontend: comparison view + split shopping list
+- [ ] Deploy to Vercel
+
+## Built With
+
+Built using [Claude Code](https://claude.ai/code) — from PRD through implementation. AI-assisted development is part of the product process, not a shortcut.
 
 ## Author
 
@@ -71,4 +94,4 @@ This project was built using [Claude Code](https://claude.ai/code) as the primar
 
 ---
 
-*basketch is a personal project built to solve a real problem and demonstrate product management in practice.*
+*basketch solves a real problem for real shoppers — and documents the entire PM process behind it.*
