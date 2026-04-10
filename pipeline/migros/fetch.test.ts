@@ -69,7 +69,7 @@ describe('normalizeMigrosDeal', () => {
     expect(d.discountPercent).toBe(26)
     expect(d.validFrom).toBe('2026-04-07')
     expect(d.validTo).toBe('2026-04-13')
-    expect(d.imageUrl).toBe('https://image.migros.ch/d/mo-240/abc123/emmi-caffe-latte.png')
+    expect(d.imageUrl).toBe('https://image.migros.ch/d/original/abc123/emmi-caffe-latte.png')
     expect(d.sourceCategory).toBe('Milchgetränke')
     expect(d.sourceUrl).toBe('https://www.migros.ch/de/product/100100300000')
   })
