@@ -28,6 +28,14 @@ export function CompareCard(props: { comparison: FavoriteComparison }) {
           <div className="compare-store-name">Migros</div>
           {migrosDeal ? (
             <>
+              {migrosDeal.image_url && (
+                <img
+                  className="compare-store-img"
+                  src={migrosDeal.image_url}
+                  alt={migrosDeal.product_name}
+                  loading="lazy"
+                />
+              )}
               <div className="compare-store-price">
                 CHF {migrosDeal.sale_price.toFixed(2)}
               </div>
@@ -49,6 +57,14 @@ export function CompareCard(props: { comparison: FavoriteComparison }) {
           <div className="compare-store-name">Coop</div>
           {coopDeal ? (
             <>
+              {coopDeal.image_url && (
+                <img
+                  className="compare-store-img"
+                  src={coopDeal.image_url}
+                  alt={coopDeal.product_name}
+                  loading="lazy"
+                />
+              )}
               <div className="compare-store-price">
                 CHF {coopDeal.sale_price.toFixed(2)}
               </div>

@@ -1,8 +1,6 @@
-// Normalizes raw Migros API promotion responses to UnifiedDeal shape.
+// Normalizes raw Migros API product card responses to UnifiedDeal shape.
 
 import type { UnifiedDeal } from '../../shared/types'
-
-const MIGROS_BASE_URL = 'https://www.migros.ch'
 
 /**
  * Standardise a product name: lowercase, collapse whitespace,
@@ -38,61 +36,107 @@ export function calculateDiscountPercent(
 }
 
 /**
- * Maps a single raw Migros API promotion item to a UnifiedDeal.
- * Returns null if the item cannot be meaningfully converted
- * (e.g. missing name or no usable price).
+ * Resolve a Migros image URL from the rokka CDN format.
+ * The API returns template URLs like "https://image.migros.ch/d/{stack}/hash/name.jpg"
+ * We replace {stack} with a reasonable size.
+ */
+function resolveImageUrl(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+
+  // Try transparent image first, then regular images
+  const url = (r.url as string) ?? null
+  if (!url) return null
+
+  return url.replace('{stack}', 'mo-240')
+}
+
+/**
+ * Extract discount percentage from badges array.
+ * Badges look like: [{ type: "PERCENTAGE_PROMOTION", description: "20%" }]
+ */
+function extractDiscountFromBadges(badges: unknown): number | null {
+  if (!Array.isArray(badges)) return null
+  for (const badge of badges) {
+    if (badge?.type === 'PERCENTAGE_PROMOTION' && typeof badge.description === 'string') {
+      const match = badge.description.match(/(\d+)%/)
+      if (match) return parseInt(match[1]!, 10)
+    }
+  }
+  return null
+}
+
+/**
+ * Maps a single raw Migros product card to a UnifiedDeal.
+ * Product cards come from getProductCards (v4) and have this shape:
+ * { uid, name, title, offer: { price, promotionPrice, badges, promotionDateRange }, images, ... }
+ *
+ * Returns null if the item cannot be meaningfully converted.
  */
 export function normalizeMigrosDeal(raw: unknown): UnifiedDeal | null {
   try {
     if (!raw || typeof raw !== 'object') return null
     const r = raw as Record<string, unknown>
 
-    const name = r.name
-    if (!name || typeof name !== 'string') return null
+    // Use title (includes variant info) or fall back to name
+    const name = (r.title as string) ?? (r.name as string) ?? null
+    if (!name) return null
 
     const offer = r.offer
     if (!offer || typeof offer !== 'object') return null
     const o = offer as Record<string, unknown>
 
+    // New format: offer.price.advertisedValue and offer.promotionPrice.advertisedValue
     const price = o.price as Record<string, unknown> | null | undefined
     const promoPrice = o.promotionPrice as Record<string, unknown> | null | undefined
-    const originalPrice = (price?.value as number) ?? null
-    const salePrice = (promoPrice?.value as number) ?? null
+
+    const originalPrice = typeof price?.advertisedValue === 'number' ? price.advertisedValue : null
+    const salePrice = typeof promoPrice?.advertisedValue === 'number' ? promoPrice.advertisedValue : null
 
     // We need at least one usable price
     if (originalPrice == null && salePrice == null) return null
 
-    // Use sale price if available, otherwise fall back to original
     const effectiveSalePrice = salePrice ?? originalPrice
     if (effectiveSalePrice == null || effectiveSalePrice <= 0) return null
 
     const effectiveOriginalPrice =
       originalPrice != null && originalPrice > 0 ? originalPrice : null
 
-    // Discount: prefer API-provided, then calculate, then null
+    // Discount: prefer badge percentage, then calculate from prices
     let discountPercent: number | null = null
-    if (typeof o.promotionPercentage === 'number' && o.promotionPercentage > 0) {
-      discountPercent = o.promotionPercentage
-    } else {
+    const badges = o.badges as unknown
+    discountPercent = extractDiscountFromBadges(badges)
+    if (discountPercent == null) {
       discountPercent = calculateDiscountPercent(effectiveOriginalPrice, effectiveSalePrice)
     }
 
-    const availability = r.productAvailability as Record<string, unknown> | null | undefined
-    const validFrom = (availability?.startDate as string) ?? new Date().toISOString().slice(0, 10)
-    const validTo = (availability?.endDate as string) ?? null
+    // Dates from promotionDateRange
+    const dateRange = o.promotionDateRange as Record<string, unknown> | null | undefined
+    const validFrom = (dateRange?.startDate as string) ?? new Date().toISOString().slice(0, 10)
+    const validTo = (dateRange?.endDate as string) ?? null
 
-    const image = r.image as Record<string, unknown> | null | undefined
-    const imageUrl = (image?.original as string) ?? null
+    // Image: try imageTransparent first, then first image in images array
+    let imageUrl: string | null = null
+    const imgTransparent = r.imageTransparent as Record<string, unknown> | null | undefined
+    if (imgTransparent) {
+      imageUrl = resolveImageUrl(imgTransparent)
+    }
+    if (!imageUrl) {
+      const images = r.images as Array<Record<string, unknown>> | undefined
+      if (Array.isArray(images) && images.length > 0) {
+        imageUrl = resolveImageUrl(images[0])
+      }
+    }
 
-    const categories = r.categories as Array<Record<string, unknown>> | undefined
+    // Category from breadcrumb
+    const breadcrumb = r.breadcrumb as Array<Record<string, unknown>> | undefined
     const sourceCategory =
-      Array.isArray(categories) && categories.length > 0
-        ? (categories[0]?.name as string) ?? null
+      Array.isArray(breadcrumb) && breadcrumb.length > 0
+        ? (breadcrumb[0]?.name as string) ?? null
         : null
 
-    const productUrls = r.productUrls as Record<string, unknown> | null | undefined
-    const productUrl = (productUrls?.url as string) ?? null
-    const sourceUrl = productUrl ? `${MIGROS_BASE_URL}${productUrl}` : null
+    // Source URL
+    const productUrl = (r.productUrls as string) ?? null
 
     return {
       store: 'migros',
@@ -104,7 +148,7 @@ export function normalizeMigrosDeal(raw: unknown): UnifiedDeal | null {
       validTo,
       imageUrl,
       sourceCategory,
-      sourceUrl,
+      sourceUrl: productUrl,
     }
   } catch (_error) {
     return null

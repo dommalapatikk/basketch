@@ -69,12 +69,12 @@ describe('normalizeMigrosDeal', () => {
     expect(d.discountPercent).toBe(26)
     expect(d.validFrom).toBe('2026-04-07')
     expect(d.validTo).toBe('2026-04-13')
-    expect(d.imageUrl).toBe('https://image.migros.ch/original/abc123.jpg')
+    expect(d.imageUrl).toBe('https://image.migros.ch/d/mo-240/abc123/emmi-caffe-latte.png')
     expect(d.sourceCategory).toBe('Milchgetränke')
     expect(d.sourceUrl).toBe('https://www.migros.ch/de/product/100100300000')
   })
 
-  it('calculates discount when promotionPercentage is null', () => {
+  it('calculates discount when no badge present', () => {
     const raw = fixture.products[1]
     const deal = normalizeMigrosDeal(raw)
 
@@ -93,7 +93,7 @@ describe('normalizeMigrosDeal', () => {
     expect(d.imageUrl).toBeNull()
   })
 
-  it('handles null categories', () => {
+  it('handles empty breadcrumb', () => {
     const raw = fixture.products[2]
     const deal = normalizeMigrosDeal(raw)
 
@@ -102,7 +102,7 @@ describe('normalizeMigrosDeal', () => {
     expect(d.sourceCategory).toBeNull()
   })
 
-  it('handles missing productUrls', () => {
+  it('handles null productUrls', () => {
     const raw = fixture.products[2]
     const deal = normalizeMigrosDeal(raw)
 
@@ -111,11 +111,11 @@ describe('normalizeMigrosDeal', () => {
     expect(d.sourceUrl).toBeNull()
   })
 
-  it('handles deal with no sale price but valid original + percentage', () => {
+  it('handles deal with no sale price but valid original + badge', () => {
     const raw = fixture.products[3]
     const deal = normalizeMigrosDeal(raw)
 
-    // promotionPrice.value is null, but original is 2.6 and percentage is 20
+    // promotionPrice.advertisedValue is null, but original is 2.6 and badge says 20%
     // effectiveSalePrice falls back to originalPrice (2.6)
     expect(deal).not.toBeNull()
     const d = deal as UnifiedDeal
@@ -132,7 +132,7 @@ describe('normalizeMigrosDeal', () => {
   })
 
   it('returns null for missing name', () => {
-    expect(normalizeMigrosDeal({ offer: { price: { value: 1 } } })).toBeNull()
+    expect(normalizeMigrosDeal({ offer: { price: { advertisedValue: 1 } } })).toBeNull()
   })
 
   it('returns null for missing offer', () => {
@@ -143,9 +143,9 @@ describe('normalizeMigrosDeal', () => {
     const raw = {
       name: 'Test Product',
       offer: {
-        price: { value: null },
-        promotionPrice: { value: null },
-        promotionPercentage: null,
+        price: { advertisedValue: null },
+        promotionPrice: { advertisedValue: null },
+        badges: [],
       },
     }
     expect(normalizeMigrosDeal(raw)).toBeNull()

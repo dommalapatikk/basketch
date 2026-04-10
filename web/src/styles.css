@@ -62,6 +62,14 @@ body {
   font-weight: 700;
   color: var(--color-text);
   text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-logo-icon {
+  width: 28px;
+  height: 28px;
 }
 
 .header-nav {
@@ -437,9 +445,37 @@ body {
   font-weight: 600;
 }
 
+.compare-store-img {
+  width: 100%;
+  max-height: 80px;
+  object-fit: contain;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  background: #f9f9f9;
+}
+
 .compare-store-empty {
   color: var(--color-text-muted);
   font-style: italic;
+}
+
+/* Back button */
+.btn-back {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 8px 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.btn-back:hover {
+  color: var(--color-text);
 }
 
 /* Split list headers */

@@ -84,10 +84,20 @@ export function OnboardingPage() {
     }
   }
 
+  function handleBack() {
+    if (step === 'edit') setStep('pick')
+    else if (step === 'save') setStep('edit')
+  }
+
   const stepIndex = step === 'pick' ? 0 : step === 'edit' ? 1 : 2
 
   return (
     <div>
+      {step !== 'pick' && (
+        <button className="btn-back" onClick={handleBack} type="button">
+          &larr; Back
+        </button>
+      )}
       <h1 className="page-title">Set up your list</h1>
       <p className="page-subtitle">
         {step === 'pick' && 'Choose a template to get started fast.'}
