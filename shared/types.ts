@@ -132,6 +132,8 @@ export interface ProductRow {
   is_organic: boolean
   product_group: string | null  // FK to product_groups.id
   source_name: string           // raw product_name from deal
+  regular_price: number | null  // current shelf price (non-promotional)
+  price_updated_at: string | null
   first_seen_at: string
   updated_at: string
 }
@@ -249,10 +251,18 @@ export interface StarterPackRow {
  * Result of matching a favorite item against active deals.
  * Used by the comparison view to build the split shopping list.
  */
+export interface RegularPrice {
+  productName: string
+  price: number
+  store: Store
+}
+
 export interface FavoriteComparison {
   favorite: FavoriteItem
   migrosDeal: DealRow | null
   coopDeal: DealRow | null
+  migrosRegularPrice: RegularPrice | null
+  coopRegularPrice: RegularPrice | null
   recommendation: 'migros' | 'coop' | 'both' | 'none'
 }
 

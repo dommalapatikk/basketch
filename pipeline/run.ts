@@ -10,6 +10,7 @@ import type { UnifiedDeal } from '../shared/types'
 import { categorizeDeal } from './categorize'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals } from './store'
 import { resolveProducts } from './product-resolve'
+import { fetchMigrosRegularPrices } from './migros/fetch-prices'
 import { isValidDealEntry } from './validate'
 
 function readDealsFile(filename: string): UnifiedDeal[] {
@@ -112,6 +113,11 @@ async function main(): Promise<void> {
   if (deactivatedCount > 0) {
     console.log(`[pipeline] [INFO] Deactivated ${deactivatedCount} expired deals`)
   }
+
+  // Fetch regular (shelf) prices for Migros products
+  // This enables price comparison even when no deal exists
+  const priceCount = await fetchMigrosRegularPrices()
+  console.log(`[pipeline] [INFO] Updated ${priceCount} Migros regular prices`)
 
   // Build error log from all failure sources
   const errors: string[] = []

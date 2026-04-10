@@ -5,6 +5,7 @@ import type {
   FavoriteComparison,
   FavoriteItemRow,
   ProductRow,
+  RegularPrice,
 } from '@shared/types'
 
 /**
@@ -156,26 +157,69 @@ export function findBestMatch(
 
 /**
  * Determine recommendation for a single favorite comparison.
+ * When deals exist, compare by discount/price.
+ * When no deals exist, compare regular (shelf) prices.
  */
 export function getRecommendation(
   migrosDeal: DealRow | null,
   coopDeal: DealRow | null,
+  migrosRegularPrice?: RegularPrice | null,
+  coopRegularPrice?: RegularPrice | null,
 ): FavoriteComparison['recommendation'] {
-  if (!migrosDeal && !coopDeal) return 'none'
-  if (!migrosDeal) return 'coop'
-  if (!coopDeal) return 'migros'
+  // If both stores have deals, compare deals
+  if (migrosDeal && coopDeal) {
+    const migrosDiscount = migrosDeal.discount_percent ?? 0
+    const coopDiscount = coopDeal.discount_percent ?? 0
 
-  const migrosDiscount = migrosDeal.discount_percent ?? 0
-  const coopDiscount = coopDeal.discount_percent ?? 0
+    if (migrosDiscount === coopDiscount) {
+      if (migrosDeal.sale_price < coopDeal.sale_price) return 'migros'
+      if (coopDeal.sale_price < migrosDeal.sale_price) return 'coop'
+      return 'both'
+    }
 
-  // Compare sale prices when discounts are equal
-  if (migrosDiscount === coopDiscount) {
-    if (migrosDeal.sale_price < coopDeal.sale_price) return 'migros'
-    if (coopDeal.sale_price < migrosDeal.sale_price) return 'coop'
-    return 'both'
+    return migrosDiscount > coopDiscount ? 'migros' : 'coop'
   }
 
-  return migrosDiscount > coopDiscount ? 'migros' : 'coop'
+  // One store has a deal, the other doesn't
+  if (migrosDeal && !coopDeal) return 'migros'
+  if (!migrosDeal && coopDeal) return 'coop'
+
+  // No deals — compare regular prices if available
+  if (migrosRegularPrice && coopRegularPrice) {
+    if (migrosRegularPrice.price < coopRegularPrice.price) return 'migros'
+    if (coopRegularPrice.price < migrosRegularPrice.price) return 'coop'
+    return 'both'
+  }
+  if (migrosRegularPrice) return 'migros'
+  if (coopRegularPrice) return 'coop'
+
+  return 'none'
+}
+
+/**
+ * Find the cheapest regular (shelf) price for a product group at a given store.
+ * Only considers products that have a regular_price set.
+ */
+export function findRegularPrice(
+  productGroupId: string,
+  store: 'migros' | 'coop',
+  products: ProductRow[],
+): RegularPrice | null {
+  const candidates = products.filter(
+    (p) => p.product_group === productGroupId && p.store === store && p.regular_price != null,
+  )
+
+  if (candidates.length === 0) return null
+
+  // Pick cheapest
+  candidates.sort((a, b) => (a.regular_price ?? Infinity) - (b.regular_price ?? Infinity))
+  const cheapest = candidates[0]!
+
+  return {
+    productName: cheapest.source_name,
+    price: cheapest.regular_price!,
+    store,
+  }
 }
 
 /**
@@ -249,7 +293,16 @@ export function matchFavorites(
       coopDeal = findBestMatch(fav.keyword, coopDeals, matchOptions)
     }
 
-    const recommendation = getRecommendation(migrosDeal, coopDeal)
+    // Look up regular prices when product group is available
+    let migrosRegularPrice: RegularPrice | null = null
+    let coopRegularPrice: RegularPrice | null = null
+
+    if (fav.product_group_id && products && products.length > 0) {
+      migrosRegularPrice = findRegularPrice(fav.product_group_id, 'migros', products)
+      coopRegularPrice = findRegularPrice(fav.product_group_id, 'coop', products)
+    }
+
+    const recommendation = getRecommendation(migrosDeal, coopDeal, migrosRegularPrice, coopRegularPrice)
 
     return {
       favorite: {
@@ -262,6 +315,8 @@ export function matchFavorites(
       },
       migrosDeal,
       coopDeal,
+      migrosRegularPrice,
+      coopRegularPrice,
       recommendation,
     }
   })

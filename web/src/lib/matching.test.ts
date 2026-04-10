@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { DealRow, FavoriteItemRow } from '@shared/types'
 
-import type { ProductRow } from '@shared/types'
+import type { ProductRow, RegularPrice } from '@shared/types'
 
-import { findBestMatch, findBestMatchByProductGroup, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
+import { findBestMatch, findBestMatchByProductGroup, findRegularPrice, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
 
 function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
   return {
@@ -19,6 +19,8 @@ function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
     sub_category: null,
     product_group: null,
     source_name: 'test product',
+    regular_price: null,
+    price_updated_at: null,
     first_seen_at: '2026-04-10T00:00:00Z',
     updated_at: '2026-04-10T00:00:00Z',
     ...overrides,
@@ -326,6 +328,73 @@ describe('getRecommendation', () => {
     const migros = makeDeal({ store: 'migros', discount_percent: 30, sale_price: 2.5 })
     const coop = makeDeal({ store: 'coop', discount_percent: 30, sale_price: 2.5 })
     expect(getRecommendation(migros, coop)).toBe('both')
+  })
+
+  it('compares regular prices when no deals exist', () => {
+    const migrosPrice: RegularPrice = { productName: 'milch 1l', price: 1.50, store: 'migros' }
+    const coopPrice: RegularPrice = { productName: 'milch 1l', price: 1.80, store: 'coop' }
+    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('migros')
+  })
+
+  it('returns coop when coop regular price is cheaper', () => {
+    const migrosPrice: RegularPrice = { productName: 'butter', price: 3.50, store: 'migros' }
+    const coopPrice: RegularPrice = { productName: 'butter', price: 2.90, store: 'coop' }
+    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('coop')
+  })
+
+  it('returns both when regular prices are equal', () => {
+    const migrosPrice: RegularPrice = { productName: 'eier', price: 4.20, store: 'migros' }
+    const coopPrice: RegularPrice = { productName: 'eier', price: 4.20, store: 'coop' }
+    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('both')
+  })
+
+  it('returns migros when only migros has regular price', () => {
+    const migrosPrice: RegularPrice = { productName: 'milch 1l', price: 1.50, store: 'migros' }
+    expect(getRecommendation(null, null, migrosPrice, null)).toBe('migros')
+  })
+
+  it('returns none when no deals and no regular prices', () => {
+    expect(getRecommendation(null, null, null, null)).toBe('none')
+  })
+
+  it('deal always wins over regular price', () => {
+    const deal = makeDeal({ store: 'migros', discount_percent: 20 })
+    const coopPrice: RegularPrice = { productName: 'milch 1l', price: 0.50, store: 'coop' }
+    // Migros has a deal, coop only has a regular price — deal wins
+    expect(getRecommendation(deal, null, null, coopPrice)).toBe('migros')
+  })
+})
+
+describe('findRegularPrice', () => {
+  it('finds cheapest regular price in a product group', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros', regular_price: 1.80 }),
+      makeProduct({ id: 'p2', product_group: 'milk-whole-1l', store: 'migros', regular_price: 1.50, source_name: 'bio milch 1l' }),
+    ]
+
+    const result = findRegularPrice('milk-whole-1l', 'migros', products)
+    expect(result).not.toBeNull()
+    expect(result!.price).toBe(1.50)
+    expect(result!.store).toBe('migros')
+  })
+
+  it('returns null when no products have regular prices', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros', regular_price: null }),
+    ]
+
+    expect(findRegularPrice('milk-whole-1l', 'migros', products)).toBeNull()
+  })
+
+  it('filters by store', () => {
+    const products = [
+      makeProduct({ id: 'p1', product_group: 'milk-whole-1l', store: 'migros', regular_price: 1.50 }),
+      makeProduct({ id: 'p2', product_group: 'milk-whole-1l', store: 'coop', regular_price: 1.80 }),
+    ]
+
+    const result = findRegularPrice('milk-whole-1l', 'coop', products)
+    expect(result!.price).toBe(1.80)
+    expect(result!.store).toBe('coop')
   })
 })
 

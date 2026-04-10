@@ -104,14 +104,22 @@ export function ComparisonPage() {
 
   const migrosItems = comparisons.filter((c) => c.recommendation === 'migros')
   const coopItems = comparisons.filter((c) => c.recommendation === 'coop')
-  const withDeals = comparisons.filter((c) => c.recommendation !== 'none')
-  const noDeals = comparisons.filter((c) => c.recommendation === 'none')
+  const withInfo = comparisons.filter((c) => c.recommendation !== 'none')
+  const noInfo = comparisons.filter((c) => c.recommendation === 'none')
 
-  const migrosTotal = migrosItems.reduce((sum, c) => sum + (c.migrosDeal?.sale_price ?? 0), 0)
-  const coopTotal = coopItems.reduce((sum, c) => sum + (c.coopDeal?.sale_price ?? 0), 0)
+  const migrosTotal = migrosItems.reduce((sum, c) => {
+    if (c.migrosDeal) return sum + c.migrosDeal.sale_price
+    if (c.migrosRegularPrice) return sum + c.migrosRegularPrice.price
+    return sum
+  }, 0)
+  const coopTotal = coopItems.reduce((sum, c) => {
+    if (c.coopDeal) return sum + c.coopDeal.sale_price
+    if (c.coopRegularPrice) return sum + c.coopRegularPrice.price
+    return sum
+  }, 0)
 
   // Calculate total savings (original - sale price for matched deals)
-  const totalSavings = withDeals.reduce((sum, c) => {
+  const totalSavings = withInfo.reduce((sum, c) => {
     const deal = c.recommendation === 'migros' ? c.migrosDeal
       : c.recommendation === 'coop' ? c.coopDeal
         : c.migrosDeal ?? c.coopDeal
@@ -136,7 +144,7 @@ export function ComparisonPage() {
         <div>
           <h1 className="text-2xl font-bold">Your deals this week</h1>
           <p className="mt-1 text-sm text-muted">
-            {comparisons.length} items — {withDeals.length} have deals{noDeals.length > 0 ? `, ${noDeals.length} without` : ''}
+            {comparisons.length} items — {withInfo.length} with prices{noInfo.length > 0 ? `, ${noInfo.length} pending` : ''}
           </p>
         </div>
         <Link to="/onboarding" state={{ favoriteId, editMode: true }} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
@@ -145,7 +153,7 @@ export function ComparisonPage() {
       </div>
 
       {/* Verdict sentence */}
-      {withDeals.length > 0 && (
+      {withInfo.length > 0 && (
         <div className="mb-4 rounded-md border border-border bg-surface p-3 text-center text-sm font-semibold">
           {buildVerdict()}
         </div>
