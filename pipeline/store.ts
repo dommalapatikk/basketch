@@ -19,10 +19,13 @@ const supabase = createClient(
  * Conflict key: (store, product_name, valid_from).
  * Returns the number of deals successfully stored.
  */
-export async function storeDeals(deals: Deal[]): Promise<number> {
+export async function storeDeals(
+  deals: Deal[],
+  productIds?: Map<string, string>,
+): Promise<number> {
   if (deals.length === 0) return 0
 
-  const allRows = deals.map((d) => dealToRow(d))
+  const allRows = deals.map((d) => dealToRow(d, productIds?.get(d.productName)))
 
   // Deduplicate by conflict key (store + product_name + valid_from).
   // Postgres fails when a single batch upserts the same row twice.

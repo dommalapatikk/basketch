@@ -9,6 +9,7 @@ import type { UnifiedDeal } from '../shared/types'
 
 import { categorizeDeal } from './categorize'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals } from './store'
+import { resolveProducts } from './product-resolve'
 import { isValidDealEntry } from './validate'
 
 function readDealsFile(filename: string): UnifiedDeal[] {
@@ -73,8 +74,28 @@ async function main(): Promise<void> {
 
   console.log(`[pipeline] [INFO] Categorized ${categorized.length} deals`)
 
-  // Store deals
-  const storedCount = await storeDeals(categorized)
+  // Resolve products (find or create product rows, get product_id for each deal)
+  const migrosDeals = categorized.filter((d) => d.store === 'migros')
+  const coopDeals = categorized.filter((d) => d.store === 'coop')
+
+  const [migrosProducts, coopProducts] = await Promise.all([
+    resolveProducts(migrosDeals, 'migros'),
+    resolveProducts(coopDeals, 'coop'),
+  ])
+
+  // Merge product ID maps (source_name -> product_id)
+  const productIds = new Map<string, string>()
+  for (const [name, resolved] of migrosProducts) {
+    productIds.set(name, resolved.productId)
+  }
+  for (const [name, resolved] of coopProducts) {
+    productIds.set(name, resolved.productId)
+  }
+
+  console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
+
+  // Store deals with product_id references
+  const storedCount = await storeDeals(categorized, productIds)
 
   // Check for significant storage loss (more than 10% of deals failed to store)
   const storageShortfall = categorized.length - storedCount

@@ -5,47 +5,124 @@
 import type { Category, CategoryRule } from './types'
 
 export const CATEGORY_RULES: CategoryRule[] = [
-  // Fresh / short expiry — buy weekly, go where it's cheapest
+  // Fresh > dairy
+  {
+    keywords: ['milch', 'milk', 'joghurt', 'yogurt', 'quark', 'rahm', 'sahne', 'cream'],
+    category: 'fresh',
+    subCategory: 'dairy',
+  },
+  {
+    keywords: ['käse', 'kaese', 'cheese', 'mozzarella', 'gruyère', 'emmentaler', 'feta'],
+    category: 'fresh',
+    subCategory: 'dairy',
+  },
+  {
+    keywords: ['butter', 'margarine'],
+    category: 'fresh',
+    subCategory: 'dairy',
+  },
+  // Fresh > eggs
+  {
+    keywords: ['eier', 'egg'],
+    category: 'fresh',
+    subCategory: 'eggs',
+  },
+  // Fresh > meat
+  {
+    keywords: ['fleisch', 'meat', 'rind', 'schwein', 'pork', 'hackfleisch'],
+    category: 'fresh',
+    subCategory: 'meat',
+  },
+  // Fresh > poultry
+  {
+    keywords: ['poulet', 'chicken'],
+    category: 'fresh',
+    subCategory: 'poultry',
+  },
+  // Fresh > deli
+  {
+    keywords: ['wurst', 'schinken', 'salami', 'aufschnitt'],
+    category: 'fresh',
+    subCategory: 'deli',
+  },
+  // Fresh > fish
+  {
+    keywords: ['fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp'],
+    category: 'fresh',
+    subCategory: 'fish',
+  },
+  // Fresh > bread
+  {
+    keywords: ['brot', 'bread', 'brötchen', 'zopf', 'toast', 'naan'],
+    category: 'fresh',
+    subCategory: 'bread',
+  },
+  // Fresh > vegetables
   {
     keywords: [
       'gemüse', 'gemuese', 'vegetable',
-      'frucht', 'früchte', 'obst', 'fruit', 'beeren', 'erdbeeren',
-      'milch', 'milk', 'joghurt', 'yogurt', 'quark', 'rahm', 'sahne', 'cream',
-      'käse', 'kaese', 'cheese', 'mozzarella', 'gruyère', 'emmentaler',
-      'butter', 'margarine',
-      'eier', 'ei', 'egg',
-      'fleisch', 'meat', 'poulet', 'chicken', 'rind', 'schwein', 'pork', 'hackfleisch',
-      'wurst', 'schinken', 'salami', 'aufschnitt',
-      'fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp',
-      'brot', 'bread', 'brötchen', 'zopf', 'toast',
-      'salat', 'salad', 'rucola', 'spinat',
-      'tofu', 'hummus',
-      'frisch', 'fresh',
+      'tomaten', 'zwiebeln', 'kartoffeln', 'knoblauch', 'ingwer',
+      'spinat', 'peperoni', 'zucchetti', 'aubergine', 'gurke', 'karotten', 'rüebli',
+      'champignons', 'pilze',
+      'salat', 'salad', 'rucola',
     ],
     category: 'fresh',
+    subCategory: 'vegetables',
   },
-
-  // Non-food / household — stock up for months when discounted
+  // Fresh > fruit
   {
     keywords: [
-      'waschmittel', 'waschpulver', 'detergent',
-      'reinigung', 'reiniger', 'putzmittel', 'cleaning',
-      'pflege', 'körperpflege',
-      'hygiene', 'hygieneprodukt',
-      'haushalt', 'household',
-      'papier', 'toilettenpapier', 'taschentücher', 'küchenpapier', 'tempo',
+      'frucht', 'früchte', 'obst', 'fruit', 'beeren', 'erdbeeren',
+      'bananen', 'äpfel', 'apfel', 'himbeeren', 'heidelbeeren',
+    ],
+    category: 'fresh',
+    subCategory: 'fruit',
+  },
+  // Fresh > ready meals
+  {
+    keywords: ['tofu', 'hummus', 'frisch', 'fresh'],
+    category: 'fresh',
+    subCategory: 'ready-meals',
+  },
+
+  // Non-food > laundry
+  {
+    keywords: ['waschmittel', 'waschpulver', 'detergent', 'weichspüler', 'softener', 'persil'],
+    category: 'non-food',
+    subCategory: 'laundry',
+  },
+  // Non-food > cleaning
+  {
+    keywords: ['reinigung', 'reiniger', 'putzmittel', 'cleaning', 'geschirrspüler', 'abwaschmittel', 'dish', 'swiffer'],
+    category: 'non-food',
+    subCategory: 'cleaning',
+  },
+  // Non-food > personal care
+  {
+    keywords: [
+      'pflege', 'körperpflege', 'hygiene', 'hygieneprodukt',
       'shampoo', 'duschgel', 'shower', 'seife', 'soap',
       'zahnpasta', 'zahnbürste', 'toothpaste', 'mundwasser',
-      'deodorant', 'deo',
-      'windeln', 'diaper',
-      'müllsack', 'abfallsack', 'garbage',
-      'geschirrspüler', 'abwaschmittel', 'dish',
-      'weichspüler', 'softener',
-      'batterien', 'battery',
-      'glühbirne', 'lampe',
-      'persil', 'swiffer', 'nivea', 'elmex',
+      'deodorant', 'deo', 'nivea', 'elmex',
     ],
     category: 'non-food',
+    subCategory: 'personal-care',
+  },
+  // Non-food > paper goods
+  {
+    keywords: ['papier', 'toilettenpapier', 'taschentücher', 'küchenpapier', 'tempo'],
+    category: 'non-food',
+    subCategory: 'paper-goods',
+  },
+  // Non-food > household
+  {
+    keywords: [
+      'haushalt', 'household', 'windeln', 'diaper',
+      'müllsack', 'abfallsack', 'garbage',
+      'batterien', 'battery', 'glühbirne', 'lampe',
+    ],
+    category: 'non-food',
+    subCategory: 'household',
   },
 
   // Everything else falls through to 'long-life' default

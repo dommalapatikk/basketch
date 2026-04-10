@@ -27,6 +27,7 @@ export interface UnifiedDeal {
  */
 export interface Deal extends UnifiedDeal {
   category: Category
+  subCategory?: string | null
 }
 
 /**
@@ -45,6 +46,7 @@ export interface DealRow {
   image_url: string | null
   source_category: string | null
   source_url: string | null
+  product_id: string | null
   is_active: boolean
   fetched_at: string
   created_at: string
@@ -96,12 +98,57 @@ export interface WeeklyVerdict {
 export interface CategoryRule {
   keywords: string[]
   category: Category
+  subCategory?: string
+}
+
+// ============================================================
+// Product identity types (product data architecture)
+// ============================================================
+
+/**
+ * Product group — links equivalent products across stores.
+ * E.g., "milk-whole-1l" groups Migros Vollmilch and Coop Milch.
+ */
+export interface ProductGroupRow {
+  id: string              // slug: "milk-whole-1l"
+  label: string           // "Whole Milk (1L)"
+  category: Category
+  sub_category: string | null
+  search_keywords: string[]
+  created_at: string
+}
+
+/**
+ * Product — one real-world product at a specific store.
+ * Has stable identity across weeks (unlike deals which are per-week).
+ */
+export interface ProductRow {
+  id: string
+  canonical_name: string
+  brand: string | null
+  store: Store
+  category: Category
+  sub_category: string | null
+  is_organic: boolean
+  product_group: string | null  // FK to product_groups.id
+  source_name: string           // raw product_name from deal
+  first_seen_at: string
+  updated_at: string
+}
+
+/**
+ * Metadata extracted from a product name during pipeline processing.
+ */
+export interface ProductMetadata {
+  brand: string | null
+  isOrganic: boolean
+  subCategory: string | null
 }
 
 /**
  * Converts a Deal (camelCase) to a DealRow-compatible object (snake_case) for Supabase upsert.
  */
-export function dealToRow(deal: Deal): Omit<DealRow, 'id' | 'fetched_at' | 'created_at' | 'updated_at'> {
+export function dealToRow(deal: Deal, productId?: string | null): Omit<DealRow, 'id' | 'fetched_at' | 'created_at' | 'updated_at'> {
   return {
     store: deal.store,
     product_name: deal.productName,
@@ -114,6 +161,7 @@ export function dealToRow(deal: Deal): Omit<DealRow, 'id' | 'fetched_at' | 'crea
     image_url: deal.imageUrl,
     source_category: deal.sourceCategory,
     source_url: deal.sourceUrl,
+    product_id: productId ?? null,
     is_active: true,
   }
 }
@@ -178,6 +226,7 @@ export interface FavoriteItemRow {
   category: Category
   exclude_terms: string[] | null
   prefer_terms: string[] | null
+  product_group_id: string | null
   created_at: string
 }
 

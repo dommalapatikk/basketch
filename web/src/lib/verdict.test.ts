@@ -20,6 +20,7 @@ function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
     image_url: null,
     source_category: null,
     source_url: null,
+    product_id: null,
     is_active: true,
     fetched_at: '2026-04-10T00:00:00Z',
     created_at: '2026-04-10T00:00:00Z',

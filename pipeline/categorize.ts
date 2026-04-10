@@ -13,6 +13,7 @@ export function categorizeDeal(deal: UnifiedDeal): Deal {
   const sourceCatLower = deal.sourceCategory?.toLowerCase() ?? ''
 
   let matchedCategory = DEFAULT_CATEGORY
+  let matchedSubCategory: string | null = null
 
   for (const rule of CATEGORY_RULES) {
     const found = rule.keywords.some(
@@ -20,6 +21,7 @@ export function categorizeDeal(deal: UnifiedDeal): Deal {
     )
     if (found) {
       matchedCategory = rule.category
+      matchedSubCategory = rule.subCategory ?? null
       break
     }
   }
@@ -40,5 +42,6 @@ export function categorizeDeal(deal: UnifiedDeal): Deal {
     ...deal,
     discountPercent,
     category: matchedCategory,
+    subCategory: matchedSubCategory,
   }
 }
