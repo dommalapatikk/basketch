@@ -16,7 +16,7 @@ export function EmailCapture(props: {
 
   async function handleSave() {
     const trimmed = email.trim()
-    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
       setError('Please enter a valid email address')
       return
     }

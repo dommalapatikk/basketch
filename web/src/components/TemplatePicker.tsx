@@ -2,7 +2,6 @@ import { useState } from 'react'
 
 import type { StarterPackRow } from '@shared/types'
 import { useStarterPacks } from '../lib/hooks'
-import { Badge } from './ui/Badge'
 import { Button } from './ui/Button'
 
 export function TemplatePicker(props: {
@@ -35,6 +34,7 @@ export function TemplatePicker(props: {
   }
 
   function handleSelect(pack: StarterPackRow) {
+    if (selectedId) return // Prevent double-clicks while loading
     setSelectedId(pack.id)
     props.onSelect(pack)
   }
@@ -46,21 +46,21 @@ export function TemplatePicker(props: {
         Choose a template to pre-fill your list. You can add or remove items next.
       </p>
       <div className="grid grid-cols-2 gap-3 max-[400px]:grid-cols-1">
-        {packs.map((pack, index) => (
+        {packs.map((pack) => (
           <button
             key={pack.id}
             className={`cursor-pointer rounded-md border-2 p-4 text-center transition-colors ${
               selectedId === pack.id
                 ? 'border-accent bg-accent-light'
-                : 'border-border bg-surface hover:border-accent'
+                : selectedId
+                  ? 'border-border bg-surface opacity-50 cursor-not-allowed'
+                  : 'border-border bg-surface hover:border-accent'
             }`}
             onClick={() => handleSelect(pack)}
+            disabled={!!selectedId}
             type="button"
           >
-            {index === 0 && (
-              <Badge variant="accent">Recommended</Badge>
-            )}
-            <div className="mt-2 text-base font-semibold">{pack.label}</div>
+            <div className="text-base font-semibold">{pack.label}</div>
             {pack.description && (
               <div className="mt-1 text-xs text-muted">{pack.description}</div>
             )}
@@ -71,6 +71,11 @@ export function TemplatePicker(props: {
           </button>
         ))}
       </div>
+      {props.onSkip && (
+        <Button variant="outline" fullWidth className="mt-4" onClick={props.onSkip} disabled={!!selectedId} type="button">
+          Build my own list
+        </Button>
+      )}
     </div>
   )
 }

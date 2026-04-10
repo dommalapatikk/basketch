@@ -35,6 +35,12 @@ export function FavoritesEditor(props: {
   }
 
   async function handleAdd(keyword: string, label: string, category: Category) {
+    // Prevent duplicate keywords
+    const normalizedKeyword = keyword.toLowerCase().trim()
+    if (props.items.some((i) => i.keyword.toLowerCase().trim() === normalizedKeyword)) {
+      return
+    }
+
     const item = await addFavoriteItem(props.favoriteId, { keyword, label, category })
     if (item) {
       props.onItemsChange([...props.items, item])
@@ -77,7 +83,7 @@ export function FavoritesEditor(props: {
                 type="button"
                 aria-label={`Remove ${item.label}`}
               >
-                {removing.has(item.id) ? '...' : 'x'}
+                {removing.has(item.id) ? '\u00B7\u00B7\u00B7' : '\u00D7'}
               </button>
             </li>
           ))}

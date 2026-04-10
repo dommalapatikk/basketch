@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
 import { addFavoriteItemsBatch, createFavorite } from '../lib/queries'
-import { useFavoriteItems } from '../lib/hooks'
+import { useFavoriteItems, usePageTitle } from '../lib/hooks'
 import { Button } from '../components/ui/Button'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { FavoritesEditor } from '../components/FavoritesEditor'
@@ -18,6 +18,7 @@ export function OnboardingPage() {
   const queryClient = useQueryClient()
   const editState = location.state as { favoriteId?: string; editMode?: boolean } | null
 
+  usePageTitle('Set up your list')
   const [step, setStep] = useState<Step>(editState?.editMode ? 'edit' : 'pick')
   const [favoriteId, setFavoriteId] = useState<string | null>(editState?.favoriteId ?? null)
   const [items, setItems] = useState<FavoriteItemRow[]>([])
@@ -41,13 +42,17 @@ export function OnboardingPage() {
     setActionLoading(true)
     setError(null)
 
-    const id = await createFavorite()
+    // Reuse existing favorite if we already have one (prevents orphaning items)
+    let id = favoriteId
     if (!id) {
-      setError('Could not create your list. Please try again.')
-      setActionLoading(false)
-      return
+      id = await createFavorite()
+      if (!id) {
+        setError('Could not create your list. Please try again.')
+        setActionLoading(false)
+        return
+      }
+      setFavoriteId(id)
     }
-    setFavoriteId(id)
 
     const imported = await addFavoriteItemsBatch(
       id,
@@ -108,8 +113,16 @@ export function OnboardingPage() {
   }
 
   function handleBack() {
-    if (step === 'edit') setStep('pick')
-    else if (step === 'save') setStep('edit')
+    if (step === 'edit') {
+      if (editState?.editMode && editState.favoriteId) {
+        // Return to comparison page in edit mode
+        navigate(`/compare/${editState.favoriteId}`)
+      } else {
+        setStep('pick')
+      }
+    } else if (step === 'save') {
+      setStep('edit')
+    }
   }
 
   const stepIndex = step === 'pick' ? 0 : step === 'edit' ? 1 : 2
@@ -132,14 +145,20 @@ export function OnboardingPage() {
         {step === 'save' && 'Save your list to access it anytime.'}
       </p>
 
-      <div className="mb-6 flex gap-2" role="group" aria-label={`Step ${stepIndex + 1} of 3`}>
+      <div
+        className="mb-6 flex gap-2"
+        role="progressbar"
+        aria-valuenow={stepIndex + 1}
+        aria-valuemin={1}
+        aria-valuemax={3}
+        aria-label={`Step ${stepIndex + 1} of 3`}
+      >
         {[0, 1, 2].map((i) => (
           <div
             key={i}
             className={`h-1 flex-1 rounded-sm ${
               i < stepIndex ? 'bg-success' : i === stepIndex ? 'bg-accent' : 'bg-border'
             }`}
-            aria-label={`Step ${i + 1}${i < stepIndex ? ' (done)' : i === stepIndex ? ' (current)' : ''}`}
           />
         ))}
       </div>
@@ -154,12 +173,7 @@ export function OnboardingPage() {
       )}
 
       {!loading && step === 'pick' && (
-        <div>
-          <TemplatePicker onSelect={handlePackSelect} onSkip={handleSkipTemplate} />
-          <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipTemplate} type="button">
-            Build my own list
-          </Button>
-        </div>
+        <TemplatePicker onSelect={handlePackSelect} onSkip={handleSkipTemplate} />
       )}
 
       {!loading && step === 'edit' && favoriteId && (

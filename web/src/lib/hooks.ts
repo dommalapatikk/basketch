@@ -1,6 +1,16 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchActiveDeals, fetchFavoriteItems, fetchProductsWithGroups, fetchStarterPacks } from './queries'
+
+const BASE_TITLE = 'basketch'
+
+export function usePageTitle(subtitle?: string) {
+  useEffect(() => {
+    document.title = subtitle ? `${subtitle} | ${BASE_TITLE}` : `${BASE_TITLE} — Migros or Coop this week?`
+    return () => { document.title = `${BASE_TITLE} — Migros or Coop this week?` }
+  }, [subtitle])
+}
 
 export function useActiveDeals() {
   return useQuery({

@@ -1,6 +1,8 @@
+import { usePageTitle } from '../lib/hooks'
 import { Card } from '../components/ui/Card'
 
 export function AboutPage() {
+  usePageTitle('About')
   return (
     <div>
       <h1 className="mb-2 text-2xl font-bold">About basketch</h1>

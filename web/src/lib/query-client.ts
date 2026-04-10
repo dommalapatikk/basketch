@@ -4,7 +4,7 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60 * 60 * 1000, // 1 hour — data changes weekly
-      retry: 1,
+      retry: 2,
     },
   },
 })

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
-import { useActiveDeals, useFavoriteItems, useProductsWithGroups } from '../lib/hooks'
+import { useActiveDeals, useFavoriteItems, usePageTitle, useProductsWithGroups } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
 import { Button, buttonVariants } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { SplitList } from '../components/SplitList'
 
 export function ComparisonPage() {
+  usePageTitle('Your deals')
   const { favoriteId } = useParams<{ favoriteId: string }>()
   const [copied, setCopied] = useState(false)
 
@@ -38,6 +39,16 @@ export function ComparisonPage() {
 
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      // Fallback: select a temporary input for manual copy
+      const input = document.createElement('input')
+      input.value = window.location.href
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })

@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
+import { usePageTitle } from '../lib/hooks'
 import { lookupFavoriteByEmail } from '../lib/queries'
 import { Button, buttonVariants } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 
 export function HomePage() {
+  usePageTitle()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -14,19 +16,23 @@ export function HomePage() {
 
   async function handleEmailLookup() {
     const trimmed = email.trim()
-    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
       setEmailError('Please enter a valid email address')
       return
     }
 
     setSearching(true)
     setEmailError(null)
-    const favoriteId = await lookupFavoriteByEmail(trimmed)
-
-    if (favoriteId) {
-      navigate(`/compare/${favoriteId}`)
-    } else {
-      setEmailError('No list found for this email. Try creating a new one.')
+    try {
+      const favoriteId = await lookupFavoriteByEmail(trimmed)
+      if (favoriteId) {
+        navigate(`/compare/${favoriteId}`)
+      } else {
+        setEmailError('No list found for this email. Try creating a new one.')
+      }
+    } catch {
+      setEmailError('Something went wrong. Please try again.')
+    } finally {
       setSearching(false)
     }
   }

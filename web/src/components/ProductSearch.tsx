@@ -40,7 +40,11 @@ export function ProductSearch(props: {
   }
 
   function handleSelect(deal: DealRow) {
-    props.onSelect(query.trim().toLowerCase(), deal.product_name, deal.category)
+    // Use the search query as keyword (what the user intended to search for),
+    // but only if it's at least 3 chars. Otherwise fall back to product name.
+    const kw = query.trim().toLowerCase()
+    const keyword = kw.length >= 3 ? kw : deal.product_name.toLowerCase()
+    props.onSelect(keyword, deal.product_name, deal.category)
   }
 
   function handleAddCustom() {
