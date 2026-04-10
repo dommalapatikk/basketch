@@ -22,7 +22,20 @@ const supabase = createClient(
 export async function storeDeals(deals: Deal[]): Promise<number> {
   if (deals.length === 0) return 0
 
-  const rows = deals.map((d) => dealToRow(d))
+  const allRows = deals.map((d) => dealToRow(d))
+
+  // Deduplicate by conflict key (store + product_name + valid_from).
+  // Postgres fails when a single batch upserts the same row twice.
+  // Keep the entry with the highest discount.
+  const deduped = new Map<string, (typeof allRows)[number]>()
+  for (const row of allRows) {
+    const key = `${row.store}|${row.product_name}|${row.valid_from}`
+    const existing = deduped.get(key)
+    if (!existing || (row.discount_percent ?? 0) > (existing.discount_percent ?? 0)) {
+      deduped.set(key, row)
+    }
+  }
+  const rows = [...deduped.values()]
   let storedCount = 0
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
