@@ -1,26 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import type { DealRow, WeeklyVerdict } from '../../../shared/types'
-import { fetchActiveDeals, lookupFavoriteByEmail } from '../lib/queries'
-import { computeWeeklyVerdict } from '../lib/verdict'
-import { VerdictBanner } from '../components/VerdictBanner'
+import { lookupFavoriteByEmail } from '../lib/queries'
 
 export function HomePage() {
   const navigate = useNavigate()
-  const [verdict, setVerdict] = useState<WeeklyVerdict | null>(null)
-  const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
-
-  useEffect(() => {
-    fetchActiveDeals().then((deals: DealRow[]) => {
-      const todayStr = new Date().toISOString().slice(0, 10)
-      setVerdict(computeWeeklyVerdict(deals, todayStr))
-      setLoading(false)
-    })
-  }, [])
 
   async function handleEmailLookup() {
     const trimmed = email.trim()
@@ -90,8 +77,6 @@ export function HomePage() {
         </div>
         {emailError && <p className="text-sm mt-8 text-error" role="alert">{emailError}</p>}
       </div>
-
-      {!loading && <div className="mt-24"><VerdictBanner verdict={verdict} /></div>}
     </div>
   )
 }
