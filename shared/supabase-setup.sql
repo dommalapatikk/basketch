@@ -202,7 +202,7 @@ INSERT INTO starter_packs (name, label, description, items, sort_order) VALUES
     {"keyword": "poulet", "label": "Chicken", "category": "fresh", "excludeTerms": ["chips", "bouillon", "geschmack", "aroma", "gewürz", "zweifel", "chörbli"], "preferTerms": ["pouletbrust", "pouletflügeli", "pouletschnitzel"]},
     {"keyword": "tomaten", "label": "Tomatoes", "category": "fresh", "excludeTerms": ["erde", "hauert", "gnocchi", "gewürz"], "preferTerms": ["tomaten ", "cherry", "rispentomaten", "pelati", "tomatenpüree"]},
     {"keyword": "zwiebeln", "label": "Onions", "category": "fresh"},
-    {"keyword": "kartoffeln", "label": "Potatoes", "category": "fresh"},
+    {"keyword": "kartoffeln", "label": "Potatoes", "category": "fresh", "excludeTerms": ["süsskartoffel", "cubes", "chips", "gratin", "rösti", "stock"], "preferTerms": ["kartoffeln", "festkochend", "mehligkochend"]},
     {"keyword": "pasta", "label": "Pasta", "category": "long-life"},
     {"keyword": "reis", "label": "Rice", "category": "long-life"},
     {"keyword": "kaffee", "label": "Coffee", "category": "long-life", "excludeTerms": ["rahm", "glace"]},
@@ -230,7 +230,7 @@ INSERT INTO starter_packs (name, label, description, items, sort_order) VALUES
     {"keyword": "kichererbsen", "label": "Chickpeas", "category": "long-life"},
     {"keyword": "spinat", "label": "Spinach", "category": "fresh", "excludeTerms": ["tortelloni", "ravioli", "pizza", "quiche", "lasagne", "plätzli"], "preferTerms": ["blattspinat", "spinat "]},
     {"keyword": "peperoni", "label": "Bell Peppers", "category": "fresh"},
-    {"keyword": "kartoffeln", "label": "Potatoes", "category": "fresh"},
+    {"keyword": "kartoffeln", "label": "Potatoes", "category": "fresh", "excludeTerms": ["süsskartoffel", "cubes", "chips", "gratin", "rösti", "stock"], "preferTerms": ["kartoffeln", "festkochend", "mehligkochend"]},
     {"keyword": "naan", "label": "Naan Bread", "category": "fresh"},
     {"keyword": "öl", "label": "Cooking Oil", "category": "long-life", "excludeTerms": ["flecken", "beckmann", "reinig", "pflege", "piadina", "brot"], "preferTerms": ["sonnenblumenöl", "rapsöl", "frittieröl", "olivenöl"]}
   ]'::jsonb,
