@@ -4,6 +4,7 @@ import type {
   Category,
   DealRow,
   FavoriteItemRow,
+  ProductRow,
   StarterPackRow,
   Store,
 } from '@shared/types'
@@ -252,4 +253,20 @@ export async function findBestDeal(
     return null
   }
   return data as DealRow
+}
+
+/**
+ * Fetch all products that have a product_group assigned.
+ * Used by the matching engine to resolve product-group-based favorites.
+ */
+export async function fetchProductsWithGroups(): Promise<ProductRow[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .not('product_group', 'is', null)
+
+  if (error) {
+    throw new Error(`[queries] fetchProductsWithGroups: ${error.message}`)
+  }
+  return data as ProductRow[]
 }

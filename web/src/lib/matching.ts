@@ -4,6 +4,7 @@ import type {
   DealRow,
   FavoriteComparison,
   FavoriteItemRow,
+  ProductRow,
 } from '@shared/types'
 
 /**
@@ -178,23 +179,73 @@ export function getRecommendation(
 }
 
 /**
+ * Find the best deal for a product group at a given store.
+ * Matches deals by product_id — deals must have a product_id that
+ * maps to a product in the given product group.
+ */
+export function findBestMatchByProductGroup(
+  productGroupId: string,
+  storeDeals: DealRow[],
+  products: ProductRow[],
+): DealRow | null {
+  // Find all product IDs in this group for this store's deals
+  const groupProductIds = new Set(
+    products
+      .filter((p) => p.product_group === productGroupId)
+      .map((p) => p.id),
+  )
+
+  if (groupProductIds.size === 0) return null
+
+  // Find deals that reference products in this group
+  const matched = storeDeals
+    .filter((d) => d.product_id != null && groupProductIds.has(d.product_id))
+    .filter((d) => (d.discount_percent ?? 0) > 0)
+
+  if (matched.length === 0) return null
+
+  // Best deal = highest discount
+  matched.sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))
+  return matched[0]!
+}
+
+/**
  * Match all favorite items against active deals and produce comparisons.
  * This is the core function that powers the split shopping list.
+ *
+ * Two matching paths:
+ * 1. Product group path: if favorite has product_group_id, match by product group (exact)
+ * 2. Keyword path: fallback for favorites without product_group_id (fuzzy)
+ *
+ * Rule: if product_group_id is set, ONLY use product group matching.
+ * No fallback to keyword — if no deals exist in the group, show "no deals."
  */
 export function matchFavorites(
   favorites: FavoriteItemRow[],
   deals: DealRow[],
+  products?: ProductRow[],
 ): FavoriteComparison[] {
   const migrosDeals = deals.filter((d) => d.store === 'migros')
   const coopDeals = deals.filter((d) => d.store === 'coop')
 
   return favorites.map((fav) => {
-    const matchOptions = {
-      excludeTerms: fav.exclude_terms,
-      preferTerms: fav.prefer_terms,
+    let migrosDeal: DealRow | null = null
+    let coopDeal: DealRow | null = null
+
+    if (fav.product_group_id && products && products.length > 0) {
+      // Product group matching — exact, no fallback
+      migrosDeal = findBestMatchByProductGroup(fav.product_group_id, migrosDeals, products)
+      coopDeal = findBestMatchByProductGroup(fav.product_group_id, coopDeals, products)
+    } else {
+      // Keyword matching — legacy fallback
+      const matchOptions = {
+        excludeTerms: fav.exclude_terms,
+        preferTerms: fav.prefer_terms,
+      }
+      migrosDeal = findBestMatch(fav.keyword, migrosDeals, matchOptions)
+      coopDeal = findBestMatch(fav.keyword, coopDeals, matchOptions)
     }
-    const migrosDeal = findBestMatch(fav.keyword, migrosDeals, matchOptions)
-    const coopDeal = findBestMatch(fav.keyword, coopDeals, matchOptions)
+
     const recommendation = getRecommendation(migrosDeal, coopDeal)
 
     return {

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchActiveDeals, fetchFavoriteItems, fetchStarterPacks } from './queries'
+import { fetchActiveDeals, fetchFavoriteItems, fetchProductsWithGroups, fetchStarterPacks } from './queries'
 
 export function useActiveDeals() {
   return useQuery({
@@ -21,5 +21,12 @@ export function useStarterPacks() {
   return useQuery({
     queryKey: ['starter-packs'],
     queryFn: fetchStarterPacks,
+  })
+}
+
+export function useProductsWithGroups() {
+  return useQuery({
+    queryKey: ['products', 'with-groups'],
+    queryFn: fetchProductsWithGroups,
   })
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
-import { useActiveDeals, useFavoriteItems } from '../lib/hooks'
+import { useActiveDeals, useFavoriteItems, useProductsWithGroups } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
 import { Button, buttonVariants } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -23,12 +23,17 @@ export function ComparisonPage() {
     error: dealsError,
   } = useActiveDeals()
 
+  const {
+    data: products,
+    isLoading: productsLoading,
+  } = useProductsWithGroups()
+
   const comparisons = useMemo(() => {
     if (!items?.length || !deals?.length) return []
-    return matchFavorites(items, deals)
-  }, [items, deals])
+    return matchFavorites(items, deals, products)
+  }, [items, deals, products])
 
-  const loading = itemsLoading || dealsLoading
+  const loading = itemsLoading || dealsLoading || productsLoading
   const error = itemsError || dealsError
 
   function handleCopyLink() {
