@@ -48,7 +48,7 @@ function resolveImageUrl(raw: unknown): string | null {
   const url = (r.url as string) ?? null
   if (!url) return null
 
-  return url.replace('{stack}', 'mo-240')
+  return url.replace('{stack}', 'original')
 }
 
 /**

@@ -25,9 +25,51 @@ function escapeRegex(str: string): string {
 }
 
 /**
+ * Score how relevant a keyword match is to a product name.
+ * Higher = more relevant. Prioritizes products where the keyword
+ * is the main subject, not a modifier in a compound or multi-word name.
+ *
+ * Scoring:
+ * - 4: keyword is one of the first 2 words ("milch 1l", "bio milch 1l")
+ * - 3: keyword is a standalone word later in the name ("schokolade milch nuss")
+ * - 2: keyword is end of a compound word ("vollmilch 1l")
+ * - 1: keyword appears as substring only (fallback)
+ */
+export function matchRelevance(keyword: string, productName: string): number {
+  const kw = keyword.toLowerCase()
+  const name = productName.toLowerCase()
+  const words = name.split(/[\s·,]+/).filter(Boolean)
+
+  // Check if keyword is the first word or part of the first word
+  // "milch 1l" → first word IS milch → 4
+  // "vollmilch 1l" → first word ENDS with milch → 4
+  // "bio milch 1l" → second word IS milch and first word is a qualifier → 4
+  const firstWord = words[0] ?? ''
+  if (firstWord === kw || firstWord.endsWith(kw)) return 4
+
+  // Check if keyword is second word AND first word is a common qualifier
+  const qualifiers = new Set(['bio', 'naturaplan', 'prix', 'garantie', 'm-budget', 'coop', 'migros', 'aha!', 'free', 'from'])
+  const secondWord = words[1] ?? ''
+  if ((secondWord === kw || secondWord.endsWith(kw)) && qualifiers.has(firstWord)) return 4
+
+  // Check if keyword is a standalone word anywhere
+  const standalonePattern = new RegExp(`(^|\\s)${escapeRegex(kw)}(\\s|\\d|$)`, 'i')
+  if (standalonePattern.test(name)) return 3
+
+  // Check if keyword is at end of a compound word (e.g., "vollmilch")
+  if (keywordMatches(kw, name)) return 2
+
+  // Substring match (e.g., "milch" in "milchschokolade")
+  if (name.includes(kw)) return 1
+
+  return 0
+}
+
+/**
  * Find the best deal matching a keyword for a given store.
- * Uses word-boundary-aware matching to reduce false positives.
- * Returns the deal with the highest discount.
+ * Uses relevance-weighted scoring: products where the keyword is the
+ * main subject rank higher than products where it's a modifier.
+ * Among equally relevant matches, picks the highest discount.
  */
 export function findBestMatch(
   keyword: string,
@@ -36,23 +78,23 @@ export function findBestMatch(
   const normalized = keyword.toLowerCase().trim()
   if (!normalized) return null
 
-  // Try word-boundary matching first
-  let matches = storeDeals.filter((d) =>
-    keywordMatches(normalized, d.product_name.toLowerCase()),
-  )
+  // Score all deals by relevance
+  const scored = storeDeals
+    .map((d) => ({
+      deal: d,
+      relevance: matchRelevance(normalized, d.product_name),
+    }))
+    .filter((s) => s.relevance > 0)
 
-  // Fall back to substring if no boundary match (better to over-match than miss)
-  if (matches.length === 0) {
-    matches = storeDeals.filter((d) =>
-      d.product_name.toLowerCase().includes(normalized),
-    )
-  }
+  if (scored.length === 0) return null
 
-  if (matches.length === 0) return null
+  // Sort by relevance first (higher = better), then by discount (higher = better)
+  scored.sort((a, b) => {
+    if (a.relevance !== b.relevance) return b.relevance - a.relevance
+    return (b.deal.discount_percent ?? 0) - (a.deal.discount_percent ?? 0)
+  })
 
-  return matches.reduce((best, d) =>
-    (d.discount_percent ?? 0) > (best.discount_percent ?? 0) ? d : best,
-  )
+  return scored[0]!.deal
 }
 
 /**

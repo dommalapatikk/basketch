@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DealRow, FavoriteItemRow } from '../../../shared/types'
 
-import { findBestMatch, getRecommendation, keywordMatches, matchFavorites, splitShoppingList } from './matching'
+import { findBestMatch, getRecommendation, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
 
 function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
   return {
@@ -73,6 +73,53 @@ describe('findBestMatch', () => {
   it('matches case-insensitively', () => {
     const deals = [makeDeal({ product_name: 'Vollmilch Bio 1L' })]
     expect(findBestMatch('MILCH', deals)).not.toBeNull()
+  })
+
+  it('prefers standalone keyword match over compound match with higher discount', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'milch 1l', discount_percent: 20 }),
+      makeDeal({ id: 'd2', product_name: 'schokolade milch nuss 12x100g', discount_percent: 44 }),
+    ]
+    // "milch 1l" is a standalone match (relevance 3) and should beat
+    // "schokolade milch nuss" even though chocolate has higher discount
+    const result = findBestMatch('milch', deals)
+    expect(result!.id).toBe('d1')
+  })
+
+  it('among equally relevant matches, picks highest discount', () => {
+    const deals = [
+      makeDeal({ id: 'd1', product_name: 'milch bio 1l', discount_percent: 15 }),
+      makeDeal({ id: 'd2', product_name: 'milch uht 1l', discount_percent: 30 }),
+    ]
+    const result = findBestMatch('milch', deals)
+    expect(result!.id).toBe('d2')
+  })
+})
+
+describe('matchRelevance', () => {
+  it('scores keyword in first 2 words as 4', () => {
+    expect(matchRelevance('milch', 'milch 1l')).toBe(4)
+    expect(matchRelevance('milch', 'bio milch 1l')).toBe(4)
+  })
+
+  it('scores standalone keyword later in name as 3', () => {
+    expect(matchRelevance('milch', 'schokolade milch nuss 12x100g')).toBe(3)
+  })
+
+  it('scores end-of-compound in first 2 words as 4', () => {
+    expect(matchRelevance('milch', 'vollmilch 1l')).toBe(4)
+  })
+
+  it('scores end-of-compound later in name as 2', () => {
+    expect(matchRelevance('milch', 'bio premium vollmilch 1l')).toBe(2)
+  })
+
+  it('scores substring match as 1', () => {
+    expect(matchRelevance('milch', 'milchschokolade 200g')).toBe(1)
+  })
+
+  it('scores no match as 0', () => {
+    expect(matchRelevance('milch', 'butter 250g')).toBe(0)
   })
 })
 
