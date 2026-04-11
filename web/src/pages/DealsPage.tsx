@@ -111,7 +111,14 @@ export function DealsPage() {
   if (error) {
     return (
       <div className="rounded-md bg-error-light p-6 text-center text-error">
-        Could not load deals
+        <p>Could not load deals</p>
+        <button
+          className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90 min-h-[44px]"
+          onClick={() => window.location.reload()}
+          type="button"
+        >
+          Try again
+        </button>
       </div>
     )
   }
@@ -131,7 +138,7 @@ export function DealsPage() {
         aria-label="Filter by category"
       >
         <button
-          className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors ${
+          className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
             activeCategory === 'all'
               ? 'bg-accent text-white'
               : 'bg-surface border border-border hover:border-accent'
@@ -149,7 +156,7 @@ export function DealsPage() {
           return (
             <button
               key={cat.id}
-              className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors ${
+              className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                 activeCategory === cat.id
                   ? 'bg-accent text-white'
                   : 'bg-surface border border-border hover:border-accent'

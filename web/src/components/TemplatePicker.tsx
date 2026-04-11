@@ -49,7 +49,7 @@ export function TemplatePicker(props: {
         {packs.map((pack) => (
           <button
             key={pack.id}
-            className={`cursor-pointer rounded-lg border-2 p-4 text-center transition-colors ${
+            className={`cursor-pointer rounded-lg border-2 p-4 text-center transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
               selectedId === pack.id
                 ? 'border-accent bg-accent-light shadow-md'
                 : selectedId

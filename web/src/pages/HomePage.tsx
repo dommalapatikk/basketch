@@ -60,20 +60,20 @@ export function HomePage() {
         </div>
 
         {/* How it works */}
-        <div className="mt-8 grid grid-cols-3 gap-2 text-center text-xs text-muted">
-          <div>
+        <ol className="mt-8 grid grid-cols-3 gap-2 text-center text-xs text-muted list-none pl-0">
+          <li>
             <div className="mb-1 text-base font-semibold text-current">1</div>
             <div>Pick your regular items</div>
-          </div>
-          <div>
+          </li>
+          <li>
             <div className="mb-1 text-base font-semibold text-current">2</div>
             <div>We check both stores</div>
-          </div>
-          <div>
+          </li>
+          <li>
             <div className="mb-1 text-base font-semibold text-current">3</div>
             <div>Split list: buy where it's cheaper</div>
-          </div>
-        </div>
+          </li>
+        </ol>
       </div>
 
       {storedFavoriteId && (
@@ -81,7 +81,7 @@ export function HomePage() {
           <p className="text-sm font-medium">You have an existing list</p>
           <Link
             to={`/compare/${storedFavoriteId}`}
-            className="mt-2 inline-block rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white no-underline hover:opacity-90"
+            className="mt-2 inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white no-underline hover:opacity-90 min-h-[44px]"
           >
             View my deals
           </Link>
