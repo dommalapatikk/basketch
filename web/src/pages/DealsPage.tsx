@@ -131,9 +131,10 @@ export function DealsPage() {
       </p>
 
       {/* Category pills */}
+      <div className={`mb-4${pillsOverflow ? ' pill-scroll-fade' : ''}`}>
       <div
         ref={pillsRef}
-        className={`mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar${pillsOverflow ? ' pill-scroll-fade' : ''}`}
+        className="flex gap-2 overflow-x-auto pb-2 no-scrollbar"
         role="radiogroup"
         aria-label="Filter by category"
       >
@@ -170,6 +171,7 @@ export function DealsPage() {
             </button>
           )
         })}
+      </div>
       </div>
 
       {/* Deals list */}
