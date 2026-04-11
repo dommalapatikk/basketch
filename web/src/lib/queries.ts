@@ -381,26 +381,62 @@ export async function searchProducts(
     const groupProductIds = new Set(groupProducts.map((p) => p.id))
     const dealsForGroup = groupDeals.filter((d) => d.product_id && groupProductIds.has(d.product_id))
 
-    const migrosDeals = dealsForGroup.filter((d) => d.store === 'migros')
-    const coopDeals = dealsForGroup.filter((d) => d.store === 'coop')
+    // Build a deal lookup by product_id
+    const dealByProductId = new Map<string, DealRow>()
+    for (const d of dealsForGroup) {
+      if (d.product_id && !dealByProductId.has(d.product_id)) {
+        dealByProductId.set(d.product_id, d)
+      }
+    }
 
-    const migrosRegular = groupProducts
-      .filter((p) => p.store === 'migros' && p.regular_price != null)
-      .sort((a, b) => (a.regular_price ?? Infinity) - (b.regular_price ?? Infinity))[0]
-    const coopRegular = groupProducts
-      .filter((p) => p.store === 'coop' && p.regular_price != null)
-      .sort((a, b) => (a.regular_price ?? Infinity) - (b.regular_price ?? Infinity))[0]
+    // Show individual products within the group (up to 4 per store)
+    // Score each product by relevance to the search keyword
+    const scoredProducts = groupProducts
+      .filter((p) => p.regular_price != null || dealByProductId.has(p.id))
+      .map((p) => ({
+        product: p,
+        score: matchRelevance(normalized, p.source_name),
+        deal: dealByProductId.get(p.id) ?? null,
+      }))
+      .sort((a, b) => {
+        // Deals first, then by relevance, then by price
+        const aHasDeal = a.deal ? 1 : 0
+        const bHasDeal = b.deal ? 1 : 0
+        if (aHasDeal !== bHasDeal) return bHasDeal - aHasDeal
+        if (a.score !== b.score) return b.score - a.score
+        return (a.product.regular_price ?? Infinity) - (b.product.regular_price ?? Infinity)
+      })
+      .slice(0, 8) // up to 8 individual products per group
 
-    results.push({
-      productGroup: group,
-      migrosDeal: migrosDeals[0] ?? null,
-      coopDeal: coopDeals[0] ?? null,
-      migrosRegularPrice: migrosRegular?.regular_price ?? null,
-      coopRegularPrice: coopRegular?.regular_price ?? null,
-      label: group.label,
-      category: group.category,
-      relevance,
-    })
+    if (scoredProducts.length > 0) {
+      for (const { product, deal } of scoredProducts) {
+        results.push({
+          productGroup: group,
+          migrosDeal: product.store === 'migros' ? deal : null,
+          coopDeal: product.store === 'coop' ? deal : null,
+          migrosRegularPrice: product.store === 'migros' ? product.regular_price : null,
+          coopRegularPrice: product.store === 'coop' ? product.regular_price : null,
+          label: product.source_name
+            .split(/\s+/)
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' '),
+          category: group.category,
+          relevance,
+        })
+      }
+    } else {
+      // No products in group — show group header with no data
+      results.push({
+        productGroup: group,
+        migrosDeal: null,
+        coopDeal: null,
+        migrosRegularPrice: null,
+        coopRegularPrice: null,
+        label: group.label,
+        category: group.category,
+        relevance,
+      })
+    }
   }
 
   // Phase 3: Fallback — deals not covered by product groups
@@ -435,5 +471,5 @@ export async function searchProducts(
     return bHasDeal - aHasDeal
   })
 
-  return results.slice(0, 15)
+  return results.slice(0, 20)
 }
