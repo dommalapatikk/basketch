@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import type { BrowseCategory, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
@@ -39,7 +39,7 @@ export function DealsPage() {
   usePageTitle('Browse Deals')
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
-  const pillsRef = useRef<HTMLDivElement>(null)
+
 
   // Map deals to browse categories via sub_category matching
   const categorizedDeals = useMemo(() => {
@@ -122,7 +122,6 @@ export function DealsPage() {
 
       {/* Category pills */}
       <div
-        ref={pillsRef}
         className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar"
         role="radiogroup"
         aria-label="Filter by category"
