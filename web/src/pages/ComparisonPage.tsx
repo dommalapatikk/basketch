@@ -142,7 +142,7 @@ export function ComparisonPage() {
     <div>
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Your deals this week</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Your deals this week</h1>
           <p className="mt-1 text-sm text-muted">
             {comparisons.length} items — {withInfo.length} with prices{noInfo.length > 0 ? `, ${noInfo.length} pending` : ''}
           </p>
@@ -154,7 +154,7 @@ export function ComparisonPage() {
 
       {/* Verdict sentence */}
       {withInfo.length > 0 && (
-        <div className="mb-4 rounded-md border border-border bg-surface p-3 text-center text-sm font-semibold">
+        <div className="mb-4 rounded-md bg-accent-light border border-accent/20 p-4 text-center text-sm font-semibold">
           {buildVerdict()}
         </div>
       )}
@@ -188,6 +188,22 @@ export function ComparisonPage() {
           </div>
         </div>
       )}
+
+      {(() => {
+        const savingsEstimate = withInfo.reduce((sum, c) => {
+          if (c.migrosDeal && c.coopDeal) {
+            return sum + Math.abs(c.migrosDeal.sale_price - c.coopDeal.sale_price)
+          }
+          return sum
+        }, 0)
+        if (savingsEstimate <= 0) return null
+        return (
+          <div className="mb-4 rounded-md bg-success-light p-3 text-center">
+            <div className="text-xs font-semibold uppercase tracking-wide text-success">Estimated savings by splitting</div>
+            <div className="mt-0.5 text-2xl font-bold text-success">CHF {savingsEstimate.toFixed(2)}</div>
+          </div>
+        )
+      })()}
 
       <SplitList comparisons={comparisons} />
     </div>

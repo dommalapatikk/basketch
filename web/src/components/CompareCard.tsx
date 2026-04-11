@@ -23,7 +23,7 @@ function DealColumn(props: {
         <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide">{storeName}</div>
         {deal.image_url && (
           <img
-            className="mb-1.5 max-h-[120px] w-full rounded object-contain bg-gray-50"
+            className="mb-1.5 max-h-[80px] w-full rounded object-contain bg-gray-50"
             src={deal.image_url}
             alt={deal.product_name}
             loading="lazy"
@@ -79,7 +79,7 @@ export function CompareCard(props: { comparison: FavoriteComparison }) {
   const tag = REC_TAGS[recommendation]
 
   return (
-    <div className="mb-2 rounded-md border border-border bg-surface p-3">
+    <div className="mb-3 rounded-md border border-border bg-surface p-3">
       <div className="mb-2 flex items-center justify-between">
         <strong>{favorite.label}</strong>
         <Badge variant={tag.variant}>{tag.label}</Badge>

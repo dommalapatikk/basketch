@@ -15,6 +15,7 @@ export function FavoritesEditor(props: {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<Set<string>>(new Set())
+  const [duplicateMsg, setDuplicateMsg] = useState<string | null>(null)
 
   function invalidateItems() {
     queryClient.invalidateQueries({ queryKey: ['favorites', props.favoriteId, 'items'] })
@@ -38,6 +39,8 @@ export function FavoritesEditor(props: {
     // Prevent duplicate keywords
     const normalizedKeyword = keyword.toLowerCase().trim()
     if (props.items.some((i) => i.keyword.toLowerCase().trim() === normalizedKeyword)) {
+      setDuplicateMsg(`"${label}" is already in your list`)
+      setTimeout(() => setDuplicateMsg(null), 2500)
       return
     }
 
@@ -57,6 +60,12 @@ export function FavoritesEditor(props: {
           {adding ? 'Cancel' : '+ Add item'}
         </Button>
       </div>
+
+      {duplicateMsg && (
+        <div className="mb-3 rounded-md bg-warning/10 p-2.5 text-center text-sm text-warning" role="status">
+          {duplicateMsg}
+        </div>
+      )}
 
       {adding && (
         <Card className="mb-4">

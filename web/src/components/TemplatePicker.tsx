@@ -49,12 +49,12 @@ export function TemplatePicker(props: {
         {packs.map((pack) => (
           <button
             key={pack.id}
-            className={`cursor-pointer rounded-md border-2 p-4 text-center transition-colors ${
+            className={`cursor-pointer rounded-lg border-2 p-4 text-center transition-colors ${
               selectedId === pack.id
-                ? 'border-accent bg-accent-light'
+                ? 'border-accent bg-accent-light shadow-md'
                 : selectedId
                   ? 'border-border bg-surface opacity-50 cursor-not-allowed'
-                  : 'border-border bg-surface hover:border-accent'
+                  : 'border-border bg-surface hover:border-accent hover:shadow-md'
             }`}
             onClick={() => handleSelect(pack)}
             disabled={!!selectedId}

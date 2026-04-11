@@ -52,6 +52,7 @@ export function OnboardingPage() {
         return
       }
       setFavoriteId(id)
+      localStorage.setItem('basketch_favoriteId', id)
     }
 
     const imported = await addFavoriteItemsBatch(
@@ -89,6 +90,7 @@ export function OnboardingPage() {
     createFavorite().then((id) => {
       if (id) {
         setFavoriteId(id)
+        localStorage.setItem('basketch_favoriteId', id)
         setStep('edit')
       } else {
         setError('Could not create your list. Please try again.')
@@ -139,7 +141,7 @@ export function OnboardingPage() {
           &larr; Back
         </button>
       )}
-      <h1 className="mb-2 text-2xl font-bold">Set up your list</h1>
+      <h1 className="mb-2 text-2xl font-bold tracking-tight">Set up your list</h1>
       <p className="mb-6 text-sm text-muted">
         {step === 'pick' && 'Choose a template to get started fast.'}
         {step === 'edit' && 'Add, remove, or search for products.'}
@@ -157,7 +159,7 @@ export function OnboardingPage() {
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className={`h-1 flex-1 rounded-sm ${
+            className={`h-1.5 flex-1 rounded-sm ${
               i < stepIndex ? 'bg-success' : i === stepIndex ? 'bg-accent' : 'bg-border'
             }`}
           />
@@ -193,9 +195,9 @@ export function OnboardingPage() {
       {!loading && step === 'save' && favoriteId && (
         <div>
           <EmailCapture favoriteId={favoriteId} onSaved={handleEmailSaved} />
-          <Button variant="outline" fullWidth className="mt-4" onClick={handleSkipEmail} type="button">
+          <button className="mt-4 w-full py-2 text-center text-sm text-muted underline hover:text-current" onClick={handleSkipEmail} type="button">
             Continue without saving
-          </Button>
+          </button>
           <p className="mt-2 text-center text-xs text-muted">
             You can still bookmark the next page to return later.
           </p>

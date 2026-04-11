@@ -106,21 +106,22 @@ export function DealsPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">Browse Deals</h1>
+      <h1 className="mb-2 text-2xl font-bold tracking-tight">Browse Deals</h1>
       <p className="mb-4 text-sm text-muted">
         {deals?.length ?? 0} active deals across Migros and Coop
       </p>
 
       {/* Category pills */}
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar pill-scroll-fade">
         <button
-          className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
+          className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors ${
             activeCategory === 'all'
               ? 'bg-accent text-white'
               : 'bg-surface border border-border hover:border-accent'
           }`}
           onClick={() => setActiveCategory('all')}
           type="button"
+          aria-pressed={activeCategory === 'all'}
         >
           All ({deals?.length ?? 0})
         </button>
@@ -130,13 +131,14 @@ export function DealsPage() {
           return (
             <button
               key={cat.id}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
+              className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors ${
                 activeCategory === cat.id
                   ? 'bg-accent text-white'
                   : 'bg-surface border border-border hover:border-accent'
               }`}
               onClick={() => setActiveCategory(cat.id)}
               type="button"
+              aria-pressed={activeCategory === cat.id}
             >
               {cat.emoji} {cat.label} ({count})
             </button>
@@ -153,7 +155,7 @@ export function DealsPage() {
             <DealCard key={deal.id} deal={deal} />
           ))}
           {filteredDeals.length > 50 && (
-            <p className="py-3 text-center text-xs text-muted">
+            <p className="py-4 text-center text-sm text-muted">
               Showing top 50 of {filteredDeals.length} deals
             </p>
           )}

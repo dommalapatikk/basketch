@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { usePageTitle } from '../lib/hooks'
 import { Card } from '../components/ui/Card'
 
@@ -44,6 +45,12 @@ export function AboutPage() {
           Kiran Dommalapati — a weekend shopper tired of checking two websites.
         </p>
       </Card>
+
+      <div className="mt-8 text-center">
+        <Link to="/onboarding" className="inline-block rounded-md bg-accent px-6 py-3 text-sm font-semibold text-white no-underline hover:opacity-90">
+          Get started — build your list
+        </Link>
+      </div>
     </div>
   )
 }

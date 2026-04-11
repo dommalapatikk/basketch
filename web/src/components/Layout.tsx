@@ -29,7 +29,7 @@ export function Layout() {
           </Link>
           <nav className="flex gap-4">
             <NavLink to="/deals">Deals</NavLink>
-            <NavLink to="/onboarding">New List</NavLink>
+            <NavLink to="/onboarding">My List</NavLink>
             <NavLink to="/about">About</NavLink>
           </nav>
         </div>

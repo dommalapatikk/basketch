@@ -10,6 +10,7 @@ import { Input } from '../components/ui/Input'
 export function HomePage() {
   usePageTitle()
   const navigate = useNavigate()
+  const storedFavoriteId = typeof window !== 'undefined' ? localStorage.getItem('basketch_favoriteId') : null
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
@@ -43,8 +44,8 @@ export function HomePage() {
 
   return (
     <div>
-      <div className="py-8 text-center">
-        <h1 className="text-3xl font-extrabold leading-tight">
+      <div className="py-10 text-center">
+        <h1 className="text-3xl font-extrabold leading-tight tracking-tight">
           Migros or Coop<br />
           this week?
         </h1>
@@ -54,10 +55,38 @@ export function HomePage() {
         </p>
         <div className="mt-6">
           <Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>
-            Build my shopping list
+            Get started — 30 seconds
           </Link>
         </div>
+
+        {/* How it works */}
+        <div className="mt-8 grid grid-cols-3 gap-3 text-center text-xs text-muted">
+          <div>
+            <div className="mb-1 text-base font-semibold text-current">1</div>
+            <div>Pick your regular items</div>
+          </div>
+          <div>
+            <div className="mb-1 text-base font-semibold text-current">2</div>
+            <div>We check both stores</div>
+          </div>
+          <div>
+            <div className="mb-1 text-base font-semibold text-current">3</div>
+            <div>Split list: buy where it's cheaper</div>
+          </div>
+        </div>
       </div>
+
+      {storedFavoriteId && (
+        <div className="mt-6 rounded-md border border-accent/30 bg-accent-light p-4 text-center">
+          <p className="text-sm font-medium">You have an existing list</p>
+          <Link
+            to={`/compare/${storedFavoriteId}`}
+            className="mt-2 inline-block rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white no-underline hover:opacity-90"
+          >
+            View my deals
+          </Link>
+        </div>
+      )}
 
       <Card className="mt-6">
         <h3 className="mb-3 text-lg font-semibold">Already have a list?</h3>
@@ -85,6 +114,8 @@ export function HomePage() {
         </div>
         {emailError && <p className="mt-2 text-sm text-error" role="alert">{emailError}</p>}
       </Card>
+
+      <p className="mt-6 text-center text-xs text-muted">No account needed. No tracking. Just deals.</p>
     </div>
   )
 }
