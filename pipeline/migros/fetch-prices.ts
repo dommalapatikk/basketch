@@ -67,7 +67,17 @@ async function searchRegularPrices(
       }
     }
 
-    if (uids.length === 0) return []
+    if (uids.length === 0) {
+      console.log(`[migros-prices] [DEBUG] No UIDs found for "${keyword}". Response keys: ${searchResponse ? Object.keys(searchResponse).join(', ') : 'null'}`)
+      // Log a sample of the response structure
+      if (searchResponse && typeof searchResponse === 'object') {
+        for (const key of Object.keys(searchResponse)) {
+          const val = (searchResponse as Record<string, unknown>)[key]
+          console.log(`[migros-prices] [DEBUG]   key "${key}": type=${typeof val}, isArray=${Array.isArray(val)}, length=${Array.isArray(val) ? val.length : 'n/a'}`)
+        }
+      }
+      return []
+    }
 
     // Limit to first 20 results per keyword (most relevant)
     const limitedUids = uids.slice(0, 20)
@@ -311,6 +321,10 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
 
         // Add to lookup so we don't try to create duplicates
         productLookup.set(result.sourceName, 'pending')
+      }
+
+      if (searchCount <= 3 || searchCount % 20 === 0) {
+        console.log(`[migros-prices] [DEBUG] Keyword "${keyword}": ${results.length} results, ${updates.length} updates total, ${newProducts.length} new products total`)
       }
 
       // Rate limiting: small delay between searches
