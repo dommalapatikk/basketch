@@ -45,13 +45,36 @@ Simulate each use case by reading the code:
 - UC-7: Share link
   - Does the share URL work for a new visitor?
 
-### Phase 4: Visual & Display Check
-Read component code and CSS to verify:
-- Are images actually rendered (check img src binding)?
+### Phase 4: Visual & CSS Interaction Audit
+Don't just check if code exists — reason about how CSS properties interact at runtime.
+
+**Layout & overflow:**
+- For every `overflow-x-auto` container: does it have enough padding so content isn't clipped by sibling CSS effects (mask-image, gradients, shadows)?
+- For every `mask-image` or `clip-path`: trace what content falls under the mask. Will real text/buttons be hidden?
+- For every `flex` or `grid` container: does `min-w-0` or `shrink-0` prevent text truncation where needed?
+- For every `line-clamp-*`: is the clamp appropriate for the content length? Would important info (like price) be cut?
+
+**Touch & interaction:**
+- Are ALL interactive elements (buttons, links, inputs) at least 44x44px touch target? Check both explicit sizing AND padding. A 12px text button with 16px padding = 44px — acceptable. A 12px text button with 4px padding = 20px — fail.
+- Do hover states have equivalent focus-visible states for keyboard users?
+- Can horizontal scroll containers be scrolled on all devices (touch, trackpad, keyboard)?
+
+**Responsive layout:**
+- Read every Tailwind class with a viewport prefix (sm:, md:, lg:). What's the layout at 320px (smallest phone)?
+- For `grid-cols-*` without responsive prefixes: will columns be too narrow on small screens?
+- For `text-3xl`, `text-2xl` etc. on mobile: does the text fit in one line, or does it break awkwardly?
+
+**Visual correctness:**
+- Are images rendered with correct aspect ratios (object-contain vs object-cover)?
 - Are prices formatted correctly (CHF, 2 decimal places)?
-- Do empty states show helpful messages?
-- Are touch targets >= 44px?
-- Does the layout break on narrow viewports?
+- Do empty states show helpful messages (not blank screens)?
+- Do loading states have spinners/skeletons (not frozen UI)?
+- Are error states recoverable (retry button, not dead end)?
+
+**CSS class conflicts:**
+- Are there competing utility classes on the same element (e.g., both `p-4` and `px-2`)?
+- Do custom CSS classes in styles.css conflict with Tailwind utilities?
+- Are `@theme` CSS variables actually used where referenced?
 
 ### Phase 5: Edge Cases
 Test scenarios real users hit:
@@ -95,6 +118,14 @@ Tested by: QA Tester Agent
 - [Positive finding]
 ```
 
+### Phase 6: Accessibility Audit
+- Does every `<img>` have a meaningful `alt` (not empty, not "image")?
+- Does every form input have a visible or `sr-only` `<label>`?
+- Are `aria-pressed`, `aria-expanded`, `aria-label` used correctly on interactive elements?
+- Is there a logical focus order (no `tabindex > 0`)?
+- Do color contrasts meet WCAG AA? (Check `text-muted` on `bg-surface` — is it at least 4.5:1?)
+- Are status messages (`role="status"`, `role="alert"`) used for dynamic feedback?
+
 ## Important Rules
 - Always run from the repo root: `/Users/kiran/ClaudeCode/basketch`
 - Use `supabase db query --linked` for database queries
@@ -102,3 +133,6 @@ Tested by: QA Tester Agent
 - Read actual source code, don't assume
 - Be honest — flag everything, even if it was just fixed
 - Test with real data from the database, not mock data
+- **Never say PASS without evidence** — for every check, state what you examined and what you found
+- **Trace CSS interactions** — when a component uses overflow + mask/clip/shadow, reason about the visual result at 320px, 375px, and 768px widths
+- **Check padding math** — if a mask fades 40px and the container has 0px right padding, that's 40px of clipped content. Flag it.

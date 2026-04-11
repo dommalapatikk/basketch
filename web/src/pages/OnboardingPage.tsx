@@ -85,6 +85,7 @@ export function OnboardingPage() {
   }
 
   function handleSkipTemplate() {
+    if (actionLoading) return
     setActionLoading(true)
     setError(null)
     createFavorite().then((id) => {
@@ -155,6 +156,7 @@ export function OnboardingPage() {
         aria-valuemin={1}
         aria-valuemax={3}
         aria-label={`Step ${stepIndex + 1} of 3`}
+        aria-valuetext={`Step ${stepIndex + 1}: ${step === 'pick' ? 'Choose template' : step === 'edit' ? 'Edit list' : 'Save'}`}
       >
         {[0, 1, 2].map((i) => (
           <div
@@ -171,7 +173,7 @@ export function OnboardingPage() {
       {loading && (
         <div className="py-12 text-center text-muted">
           Setting up...
-          <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+          <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
         </div>
       )}
 
@@ -195,7 +197,7 @@ export function OnboardingPage() {
       {!loading && step === 'save' && favoriteId && (
         <div>
           <EmailCapture favoriteId={favoriteId} onSaved={handleEmailSaved} />
-          <button className="mt-4 w-full py-2 text-center text-sm text-muted underline hover:text-current" onClick={handleSkipEmail} type="button">
+          <button className="mt-4 flex min-h-[44px] w-full items-center justify-center text-center text-sm text-muted underline hover:text-current" onClick={handleSkipEmail} type="button">
             Continue without saving
           </button>
           <p className="mt-2 text-center text-xs text-muted">

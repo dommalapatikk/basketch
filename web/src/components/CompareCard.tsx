@@ -30,7 +30,7 @@ function DealColumn(props: {
           />
         )}
         <div className="text-lg font-bold">
-          CHF {deal.sale_price.toFixed(2)}
+          CHF {(deal.sale_price ?? 0).toFixed(2)}
         </div>
         {deal.original_price != null && deal.original_price > deal.sale_price && (
           <div className="text-xs text-muted line-through">

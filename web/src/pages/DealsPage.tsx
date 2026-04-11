@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { BrowseCategory, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
@@ -21,7 +21,7 @@ function DealCard(props: { deal: DealRow }) {
       <div className="min-w-0 flex-1">
         <div className="line-clamp-2 text-sm font-medium">{deal.product_name}</div>
         <div className="mt-0.5 flex items-baseline gap-2">
-          <span className="text-base font-bold">CHF {deal.sale_price.toFixed(2)}</span>
+          <span className="text-base font-bold">{deal.sale_price === 0 ? 'Free' : `CHF ${(deal.sale_price ?? 0).toFixed(2)}`}</span>
           {deal.original_price != null && deal.original_price > deal.sale_price && (
             <span className="text-xs text-muted line-through">CHF {deal.original_price.toFixed(2)}</span>
           )}
@@ -39,6 +39,8 @@ export function DealsPage() {
   usePageTitle('Browse Deals')
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
+  const pillsRef = useRef<HTMLDivElement>(null)
+  const [pillsOverflow, setPillsOverflow] = useState(false)
 
   // Map deals to browse categories via sub_category matching
   const categorizedDeals = useMemo(() => {
@@ -87,11 +89,21 @@ export function DealsPage() {
     return counts
   }, [categorizedDeals])
 
+  useEffect(() => {
+    const el = pillsRef.current
+    if (!el) return
+    const check = () => setPillsOverflow(el.scrollWidth > el.clientWidth)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [categoryCounts])
+
   if (isLoading) {
     return (
       <div className="py-12 text-center text-muted">
         Loading deals...
-        <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+        <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
       </div>
     )
   }
@@ -112,7 +124,12 @@ export function DealsPage() {
       </p>
 
       {/* Category pills */}
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar pill-scroll-fade">
+      <div
+        ref={pillsRef}
+        className={`mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar${pillsOverflow ? ' pr-10 pill-scroll-fade' : ''}`}
+        role="radiogroup"
+        aria-label="Filter by category"
+      >
         <button
           className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors ${
             activeCategory === 'all'
@@ -121,7 +138,8 @@ export function DealsPage() {
           }`}
           onClick={() => setActiveCategory('all')}
           type="button"
-          aria-pressed={activeCategory === 'all'}
+          role="radio"
+          aria-checked={activeCategory === 'all'}
         >
           All ({deals?.length ?? 0})
         </button>
@@ -138,7 +156,8 @@ export function DealsPage() {
               }`}
               onClick={() => setActiveCategory(cat.id)}
               type="button"
-              aria-pressed={activeCategory === cat.id}
+              role="radio"
+              aria-checked={activeCategory === cat.id}
             >
               {cat.emoji} {cat.label} ({count})
             </button>

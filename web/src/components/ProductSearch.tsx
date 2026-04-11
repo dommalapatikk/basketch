@@ -94,13 +94,13 @@ export function ProductSearch(props: {
       )}
 
       {results.length > 0 && (
-        <ul className="list-none">
+        <ul className="list-none" aria-label="Search results">
           {results.map((deal) => (
             <li key={`${deal.store}-${deal.product_name}`} className="flex items-center justify-between border-b border-border py-2.5 last:border-b-0">
               <div>
                 <div className="font-medium">{deal.product_name}</div>
                 <div className="text-xs text-muted">
-                  CHF {deal.sale_price.toFixed(2)}
+                  CHF {(deal.sale_price ?? 0).toFixed(2)}
                   {deal.discount_percent ? ` (-${deal.discount_percent}%)` : ''}
                   {' | '}{deal.store}
                 </div>

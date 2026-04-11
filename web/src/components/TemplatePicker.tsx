@@ -15,7 +15,7 @@ export function TemplatePicker(props: {
     return (
       <div className="py-12 text-center text-muted">
         Loading starter packs...
-        <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+        <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
       </div>
     )
   }

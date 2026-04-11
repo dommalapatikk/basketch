@@ -62,7 +62,7 @@ export function FavoritesEditor(props: {
       </div>
 
       {duplicateMsg && (
-        <div className="mb-3 rounded-md bg-warning/10 p-2.5 text-center text-sm text-warning" role="status">
+        <div className="mb-3 rounded-md bg-warning/10 p-2.5 text-center text-sm text-warning" role="alert">
           {duplicateMsg}
         </div>
       )}
@@ -78,7 +78,7 @@ export function FavoritesEditor(props: {
           Add your first product to see this week's best deals.
         </div>
       ) : (
-        <ul className="list-none">
+        <ul className="list-none" aria-label="Your favorite items">
           {props.items.map((item) => (
             <li key={item.id} className="flex items-center justify-between border-b border-border py-2.5 last:border-b-0">
               <div>

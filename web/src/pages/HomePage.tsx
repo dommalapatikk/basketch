@@ -60,7 +60,7 @@ export function HomePage() {
         </div>
 
         {/* How it works */}
-        <div className="mt-8 grid grid-cols-3 gap-3 text-center text-xs text-muted">
+        <div className="mt-8 grid grid-cols-3 gap-2 text-center text-xs text-muted">
           <div>
             <div className="mb-1 text-base font-semibold text-current">1</div>
             <div>Pick your regular items</div>

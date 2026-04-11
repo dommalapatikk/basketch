@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 function NavLink(props: { to: string; children: React.ReactNode }) {
   const { pathname } = useLocation()
   const isActive = pathname === props.to || pathname.startsWith(props.to + '/')
+    || (props.to === '/onboarding' && pathname.startsWith('/compare/'))
 
   return (
     <Link

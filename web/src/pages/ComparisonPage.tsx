@@ -71,12 +71,13 @@ export function ComparisonPage() {
     return (
       <div className="py-12 text-center text-muted">
         Loading your deals...
-        <div className="mx-auto mt-3 size-6 rounded-full border-3 border-border border-t-accent animate-spin" />
+        <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
       </div>
     )
   }
 
   if (error || !favoriteId) {
+    if (typeof window !== 'undefined') localStorage.removeItem('basketch_favoriteId')
     return (
       <div>
         <div className="rounded-md bg-error-light p-6 text-center text-error">
@@ -153,6 +154,12 @@ export function ComparisonPage() {
       </div>
 
       {/* Verdict sentence */}
+      {withInfo.length === 0 && comparisons.length > 0 && (
+        <div className="mb-4 rounded-md bg-accent-light border border-accent/20 p-4 text-center text-sm">
+          No deals matched your items this week. Check back next Wednesday when new promotions start.
+        </div>
+      )}
+
       {withInfo.length > 0 && (
         <div className="mb-4 rounded-md bg-accent-light border border-accent/20 p-4 text-center text-sm font-semibold">
           {buildVerdict()}
@@ -161,7 +168,7 @@ export function ComparisonPage() {
 
       {/* Bookmark/share prompt — prominent for first-time visitors */}
       <Card className="mb-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted">Bookmark this page to check deals next week.</p>
           <div className="flex shrink-0 gap-2">
             <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
@@ -177,7 +184,7 @@ export function ComparisonPage() {
       {(migrosItems.length > 0 || coopItems.length > 0) && (
         <div className="mb-4 grid grid-cols-2 gap-2">
           <div className="rounded-md bg-migros-light p-3 text-center">
-            <div className="text-xs font-semibold uppercase tracking-wide text-migros">Migros</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-migros-text">Migros</div>
             <div className="mt-0.5 text-xl font-bold">CHF {migrosTotal.toFixed(2)}</div>
             <div className="text-xs text-muted">{migrosItems.length} item{migrosItems.length !== 1 ? 's' : ''}</div>
           </div>
