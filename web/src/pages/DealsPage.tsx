@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { BrowseCategory, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
@@ -39,7 +39,31 @@ export function DealsPage() {
   usePageTitle('Browse Deals')
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollRight, setCanScrollRight] = useState(false)
 
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    checkScroll()
+    el.addEventListener('scroll', checkScroll, { passive: true })
+    const ro = new ResizeObserver(checkScroll)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', checkScroll)
+      ro.disconnect()
+    }
+  }, [checkScroll])
+
+  function scrollPillsRight() {
+    scrollRef.current?.scrollBy({ left: 150, behavior: 'smooth' })
+  }
 
   // Map deals to browse categories via sub_category matching
   const categorizedDeals = useMemo(() => {
@@ -121,8 +145,10 @@ export function DealsPage() {
       </p>
 
       {/* Category pills */}
+      <div className="relative mb-4">
       <div
-        className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar"
+        ref={scrollRef}
+        className={`flex gap-2 overflow-x-auto pb-2 no-scrollbar ${canScrollRight ? 'pr-10' : ''}`}
         role="radiogroup"
         aria-label="Filter by category"
       >
@@ -159,6 +185,19 @@ export function DealsPage() {
             </button>
           )
         })}
+      </div>
+      {canScrollRight && (
+        <button
+          type="button"
+          onClick={scrollPillsRight}
+          className="absolute right-0 top-0 flex h-[44px] w-10 items-center justify-center bg-gradient-to-l from-bg via-bg/90 to-transparent"
+          aria-label="Scroll categories right"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-muted">
+            <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
       </div>
 
       {/* Deals list */}
