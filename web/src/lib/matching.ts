@@ -66,10 +66,37 @@ export function isPreferred(
  */
 const QUALIFIERS = new Set(['bio', 'naturaplan', 'prix', 'garantie', 'm-budget', 'm-classic', 'coop', 'migros', 'aha!', 'free', 'from', 'optigal'])
 
+/**
+ * Suffixes that change a product's fundamental form.
+ * "tomatenpüree" is NOT "tomaten" — the suffix "püree" changes the product.
+ * "milchschokolade" is NOT "milch" — the suffix "schokolade" changes the product.
+ * "kartoffelstock" is NOT "kartoffel" — the suffix "stock" changes the product.
+ */
+const FORM_CHANGING_SUFFIXES = new Set([
+  'püree', 'puree', 'sauce', 'mark', 'sugo', 'stock', 'konzentrat', 'paste',
+  'gratin', 'cubes', 'nuggets', 'frites', 'chips', 'wedges', 'kroketten',
+  'schokolade', 'branche', 'drink', 'pudding', 'eis', 'glacé', 'glace',
+  'ketchup', 'senf', 'essig', 'sirup',
+])
+
+/**
+ * Check if a word is a compound where the suffix changes the product form.
+ * Returns true if kw starts the word but the remainder is a form-changing suffix.
+ */
+function isFormChangingCompound(kw: string, word: string): boolean {
+  if (!word.startsWith(kw) || word.length <= kw.length) return false
+  const suffix = word.slice(kw.length)
+  return FORM_CHANGING_SUFFIXES.has(suffix)
+}
+
 export function matchRelevance(keyword: string, productName: string): number {
   const kw = keyword.toLowerCase()
   const name = productName.toLowerCase()
   const words = name.split(/[\s·,]+/).filter(Boolean)
+
+  // Early reject: if keyword starts a compound word but suffix changes the product form,
+  // this is NOT the same product (e.g., "tomatenpüree" is not "tomaten")
+  if (words.some((w) => isFormChangingCompound(kw, w))) return 0
 
   // Check if keyword is the first word or part of the first word
   // "milch 1l" → first word IS milch → 4

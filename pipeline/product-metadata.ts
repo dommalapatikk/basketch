@@ -1,7 +1,7 @@
 // Extracts structured metadata from product names: brand, organic flag, sub-category.
 // Quantity/unit extraction is deferred to a later sprint (high regex risk, low priority).
 
-import type { ProductMetadata } from '../shared/types'
+import type { ProductForm, ProductMetadata } from '../shared/types'
 import { CATEGORY_RULES } from '../shared/category-rules'
 
 /**
@@ -75,6 +75,64 @@ export function detectSubCategory(productName: string, sourceCategory: string | 
 }
 
 /**
+ * Detect the product form (raw, processed, ready-meal, canned, frozen, dried).
+ * Default: 'raw' (unprocessed).
+ */
+const FORM_INDICATORS: { form: ProductForm; keywords: string[] }[] = [
+  {
+    form: 'ready-meal',
+    keywords: ['cubes', 'nuggets', 'gratin', 'rösti', 'fertig', 'ready',
+      'convenience', 'mikrowelle', 'aufwärmen', 'bratfertig', 'backfertig',
+      'knusperli', 'crispy', 'cordon bleu', 'stäbchen'],
+  },
+  {
+    form: 'frozen',
+    keywords: ['tiefkühl', 'tiefgefroren', 'frozen', 'tk-', 'frites', 'wedges'],
+  },
+  {
+    form: 'canned',
+    keywords: ['dose', 'konserve', 'pelati', 'in eigenem saft', 'eingelegt'],
+  },
+  {
+    form: 'processed',
+    keywords: ['püree', 'puree', 'sauce', 'mark', 'konzentrat', 'sugo',
+      'passata', 'ketchup', 'senf', 'stock', 'paste', 'sirup',
+      'geräuchert', 'räucher', 'gepökelt', 'mariniert'],
+  },
+  {
+    form: 'dried',
+    keywords: ['getrocknet', 'getrocknete', 'dörr', 'gedörrt'],
+  },
+]
+
+export function detectProductForm(productName: string): ProductForm {
+  const nameLower = productName.toLowerCase()
+  for (const { form, keywords } of FORM_INDICATORS) {
+    if (keywords.some((kw) => nameLower.includes(kw))) return form
+  }
+  return 'raw'
+}
+
+/**
+ * Detect meat cut from product name.
+ */
+const MEAT_CUTS: { cut: string; keywords: string[] }[] = [
+  { cut: 'breast', keywords: ['brust', 'brustfilet', 'brustschnitzel'] },
+  { cut: 'wings', keywords: ['flügeli', 'flügel', 'wings'] },
+  { cut: 'thigh', keywords: ['schenkel', 'oberschenkel'] },
+  { cut: 'minced', keywords: ['hackfleisch', 'gehacktes'] },
+  { cut: 'schnitzel', keywords: ['schnitzel'] },
+]
+
+export function detectMeatCut(productName: string): string | null {
+  const nameLower = productName.toLowerCase()
+  for (const { cut, keywords } of MEAT_CUTS) {
+    if (keywords.some((kw) => nameLower.includes(kw))) return cut
+  }
+  return null
+}
+
+/**
  * Extract all available metadata from a product name.
  */
 export function extractProductMetadata(
@@ -85,5 +143,6 @@ export function extractProductMetadata(
     brand: extractBrand(productName),
     isOrganic: isOrganic(productName),
     subCategory: detectSubCategory(productName, sourceCategory),
+    productForm: detectProductForm(productName),
   }
 }

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { extractBrand, isOrganic, detectSubCategory, extractProductMetadata } from './product-metadata'
+import { detectMeatCut, detectProductForm, extractBrand, isOrganic, detectSubCategory, extractProductMetadata } from './product-metadata'
 
 describe('extractBrand', () => {
   it('detects Migros own brands', () => {
@@ -103,6 +103,7 @@ describe('extractProductMetadata', () => {
     expect(meta.brand).toBe('Naturaplan')
     expect(meta.isOrganic).toBe(true)
     expect(meta.subCategory).toBe('dairy')
+    expect(meta.productForm).toBe('raw')
   })
 
   it('handles product with no metadata', () => {
@@ -110,5 +111,71 @@ describe('extractProductMetadata', () => {
     expect(meta.brand).toBeNull()
     expect(meta.isOrganic).toBe(false)
     expect(meta.subCategory).toBeNull()
+    expect(meta.productForm).toBe('raw')
+  })
+
+  it('detects product form for processed products', () => {
+    const meta = extractProductMetadata('tomatenpüree 3x200g', null)
+    expect(meta.productForm).toBe('processed')
+  })
+})
+
+describe('detectProductForm', () => {
+  it('detects raw products', () => {
+    expect(detectProductForm('tomaten cherry 250g')).toBe('raw')
+    expect(detectProductForm('pouletbrust 500g')).toBe('raw')
+    expect(detectProductForm('kartoffeln festkochend')).toBe('raw')
+  })
+
+  it('detects processed products', () => {
+    expect(detectProductForm('tomatenpüree 3x200g')).toBe('processed')
+    expect(detectProductForm('tomatensauce basilikum')).toBe('processed')
+    expect(detectProductForm('tomatenmark 70g')).toBe('processed')
+    expect(detectProductForm('ketchup heinz 500ml')).toBe('processed')
+    expect(detectProductForm('räucherlachs 200g')).toBe('processed')
+  })
+
+  it('detects ready meals', () => {
+    expect(detectProductForm('kartoffel smoky cubes 300g')).toBe('ready-meal')
+    expect(detectProductForm('chicken nuggets 500g')).toBe('ready-meal')
+    expect(detectProductForm('kartoffelgratin 400g')).toBe('ready-meal')
+    expect(detectProductForm('rösti 500g')).toBe('ready-meal')
+  })
+
+  it('detects frozen products', () => {
+    expect(detectProductForm('pommes frites 1kg')).toBe('frozen')
+    expect(detectProductForm('tiefkühl gemüse 450g')).toBe('frozen')
+  })
+
+  it('detects canned products', () => {
+    expect(detectProductForm('pelati 400g')).toBe('canned')
+  })
+
+  it('detects dried products', () => {
+    expect(detectProductForm('getrocknete tomaten 100g')).toBe('dried')
+  })
+})
+
+describe('detectMeatCut', () => {
+  it('detects breast', () => {
+    expect(detectMeatCut('pouletbrust 500g')).toBe('breast')
+    expect(detectMeatCut('pouletbrustfilet bio')).toBe('breast')
+  })
+
+  it('detects wings', () => {
+    expect(detectMeatCut('pouletflügeli 1kg')).toBe('wings')
+  })
+
+  it('detects thigh', () => {
+    expect(detectMeatCut('pouletschenkel')).toBe('thigh')
+  })
+
+  it('detects minced', () => {
+    expect(detectMeatCut('hackfleisch rind 500g')).toBe('minced')
+  })
+
+  it('returns null for non-meat or unrecognized', () => {
+    expect(detectMeatCut('tomaten cherry')).toBeNull()
+    expect(detectMeatCut('vollmilch 1l')).toBeNull()
   })
 })

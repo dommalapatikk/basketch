@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 
 import type { Deal, ProductMetadata, Store } from '../shared/types'
 import { extractProductMetadata } from './product-metadata'
+import { assignProductGroup } from './product-group-assign'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -62,6 +63,8 @@ export async function resolveProducts(
     category: string
     sub_category: string | null
     is_organic: boolean
+    product_form: string
+    product_group: string | null
     source_name: string
   }[] = []
 
@@ -77,6 +80,9 @@ export async function resolveProducts(
     } else {
       // Extract metadata for new product
       const meta: ProductMetadata = extractProductMetadata(sourceName, deal.sourceCategory)
+
+      // Auto-assign product group
+      const groupAssignment = assignProductGroup(sourceName)
 
       // Build canonical name: strip brand prefix if found
       let canonicalName = deal.productName
@@ -99,6 +105,8 @@ export async function resolveProducts(
         category: deal.category,
         sub_category: meta.subCategory ?? deal.subCategory ?? null,
         is_organic: meta.isOrganic,
+        product_form: groupAssignment?.productForm ?? meta.productForm,
+        product_group: groupAssignment?.groupId ?? null,
         source_name: sourceName,
       })
     }

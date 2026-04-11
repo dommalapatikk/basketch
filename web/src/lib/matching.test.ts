@@ -265,8 +265,15 @@ describe('matchRelevance', () => {
   it('scores start-of-compound in first word as 4', () => {
     expect(matchRelevance('poulet', 'pouletbrust 500g')).toBe(4)
     expect(matchRelevance('poulet', 'pouletflügeli 1kg')).toBe(4)
-    expect(matchRelevance('milch', 'milchdrink 500ml')).toBe(4)
-    expect(matchRelevance('tomaten', 'tomatenpüree 3x200g')).toBe(4)
+  })
+
+  it('scores 0 for form-changing compounds (different product)', () => {
+    expect(matchRelevance('milch', 'milchdrink 500ml')).toBe(0)
+    expect(matchRelevance('tomaten', 'tomatenpüree 3x200g')).toBe(0)
+    expect(matchRelevance('milch', 'milchschokolade 200g')).toBe(0)
+    expect(matchRelevance('kartoffel', 'kartoffelstock 500g')).toBe(0)
+    expect(matchRelevance('kartoffel', 'kartoffelgratin 400g')).toBe(0)
+    expect(matchRelevance('tomaten', 'tomatensauce basilikum')).toBe(0)
   })
 
   it('scores start-of-compound with qualifier prefix as 4', () => {
@@ -274,8 +281,9 @@ describe('matchRelevance', () => {
     expect(matchRelevance('poulet', 'm-classic pouletbrustschnitzel mariniert')).toBe(4)
   })
 
-  it('scores start-of-compound later in name as 2', () => {
-    expect(matchRelevance('tomaten', 'barilla tomatensauce basilikum 3x400g')).toBe(2)
+  it('scores start-of-compound later in name as 2 (non-form-changing)', () => {
+    // "premium" is not a qualifier, so pouletbrust as 3rd+ word gets lower score
+    expect(matchRelevance('poulet', 'swiss premium pouletbrust 500g')).toBe(2)
   })
 
   it('scores end-of-compound later in name as 2', () => {

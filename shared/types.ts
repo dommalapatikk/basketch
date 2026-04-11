@@ -141,10 +141,13 @@ export interface ProductRow {
 /**
  * Metadata extracted from a product name during pipeline processing.
  */
+export type ProductForm = 'raw' | 'processed' | 'ready-meal' | 'canned' | 'frozen' | 'dried'
+
 export interface ProductMetadata {
   brand: string | null
   isOrganic: boolean
   subCategory: string | null
+  productForm: ProductForm
 }
 
 /**
