@@ -133,7 +133,7 @@ export function DealsPage() {
       {/* Category pills */}
       <div
         ref={pillsRef}
-        className={`mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar${pillsOverflow ? ' pr-10 pill-scroll-fade' : ''}`}
+        className={`mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar${pillsOverflow ? ' pill-scroll-fade' : ''}`}
         role="radiogroup"
         aria-label="Filter by category"
       >
