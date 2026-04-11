@@ -49,21 +49,7 @@ body {
   scrollbar-width: none;
 }
 
-/* Scroll fade hint for horizontal pill containers */
-.pill-scroll-fade {
-  position: relative;
-}
-.pill-scroll-fade::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 40px;
-  background: linear-gradient(to right, transparent, var(--color-bg));
-  pointer-events: none;
-  z-index: 1;
-}
+
 
 /* Safe area for bottom nav on notched phones */
 .safe-area-bottom {

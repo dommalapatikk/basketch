@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import type { BrowseCategory, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
@@ -40,7 +40,6 @@ export function DealsPage() {
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
   const pillsRef = useRef<HTMLDivElement>(null)
-  const [pillsOverflow, setPillsOverflow] = useState(false)
 
   // Map deals to browse categories via sub_category matching
   const categorizedDeals = useMemo(() => {
@@ -89,15 +88,6 @@ export function DealsPage() {
     return counts
   }, [categorizedDeals])
 
-  useEffect(() => {
-    const el = pillsRef.current
-    if (!el) return
-    const check = () => setPillsOverflow(el.scrollWidth > el.clientWidth)
-    check()
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [categoryCounts])
 
   if (isLoading) {
     return (
@@ -131,10 +121,9 @@ export function DealsPage() {
       </p>
 
       {/* Category pills */}
-      <div className={`mb-4${pillsOverflow ? ' pill-scroll-fade' : ''}`}>
       <div
         ref={pillsRef}
-        className="flex gap-2 overflow-x-auto pb-2 no-scrollbar"
+        className="mb-4 flex gap-2 overflow-x-auto pb-2 no-scrollbar"
         role="radiogroup"
         aria-label="Filter by category"
       >
@@ -171,7 +160,6 @@ export function DealsPage() {
             </button>
           )
         })}
-      </div>
       </div>
 
       {/* Deals list */}
