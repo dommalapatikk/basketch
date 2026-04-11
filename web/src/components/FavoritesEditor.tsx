@@ -35,7 +35,7 @@ export function FavoritesEditor(props: {
     })
   }
 
-  async function handleAdd(keyword: string, label: string, category: Category) {
+  async function handleAdd(keyword: string, label: string, category: Category, productGroupId?: string) {
     // Prevent duplicate keywords
     const normalizedKeyword = keyword.toLowerCase().trim()
     if (props.items.some((i) => i.keyword.toLowerCase().trim() === normalizedKeyword)) {
@@ -44,7 +44,7 @@ export function FavoritesEditor(props: {
       return
     }
 
-    const item = await addFavoriteItem(props.favoriteId, { keyword, label, category })
+    const item = await addFavoriteItem(props.favoriteId, { keyword, label, category, productGroupId })
     if (item) {
       props.onItemsChange([...props.items, item])
       invalidateItems()

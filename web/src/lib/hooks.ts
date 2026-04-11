@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchActiveDeals, fetchFavoriteItems, fetchProductsWithGroups, fetchStarterPacks } from './queries'
+import { fetchActiveDeals, fetchAllProductGroups, fetchFavoriteItems, fetchProductsWithGroups, fetchStarterPacks } from './queries'
 
 const BASE_TITLE = 'basketch'
 
@@ -38,5 +38,13 @@ export function useProductsWithGroups() {
   return useQuery({
     queryKey: ['products', 'with-groups'],
     queryFn: fetchProductsWithGroups,
+  })
+}
+
+export function useProductGroups() {
+  return useQuery({
+    queryKey: ['product-groups'],
+    queryFn: fetchAllProductGroups,
+    staleTime: 1000 * 60 * 30,  // 30 min — groups rarely change
   })
 }

@@ -1,15 +1,17 @@
 import { useState } from 'react'
 
-import type { Category, DealRow } from '@shared/types'
-import { searchDeals } from '../lib/queries'
+import type { Category, SearchResult } from '@shared/types'
+import { searchProducts } from '../lib/queries'
+import { useProductGroups } from '../lib/hooks'
 import { Button } from './ui/Button'
 import { Input } from './ui/Input'
 
 export function ProductSearch(props: {
-  onSelect: (keyword: string, label: string, category: Category) => void
+  onSelect: (keyword: string, label: string, category: Category, productGroupId?: string) => void
 }) {
+  const { data: allGroups } = useProductGroups()
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<DealRow[]>([])
+  const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
 
@@ -19,18 +21,8 @@ export function ProductSearch(props: {
 
     setSearching(true)
     setSearched(false)
-    const deals = await searchDeals(trimmed)
-
-    // Deduplicate by product name, keeping best discount
-    const seen = new Map<string, DealRow>()
-    for (const deal of deals) {
-      const existing = seen.get(deal.product_name)
-      if (!existing || (deal.discount_percent ?? 0) > (existing.discount_percent ?? 0)) {
-        seen.set(deal.product_name, deal)
-      }
-    }
-
-    setResults(Array.from(seen.values()).slice(0, 10))
+    const searchResults = await searchProducts(trimmed, allGroups ?? [])
+    setResults(searchResults)
     setSearching(false)
     setSearched(true)
   }
@@ -39,12 +31,10 @@ export function ProductSearch(props: {
     if (e.key === 'Enter') handleSearch()
   }
 
-  function handleSelect(deal: DealRow) {
-    // Use the search query as keyword (what the user intended to search for),
-    // but only if it's at least 3 chars. Otherwise fall back to product name.
+  function handleSelect(result: SearchResult) {
     const kw = query.trim().toLowerCase()
-    const keyword = kw.length >= 3 ? kw : deal.product_name.toLowerCase()
-    props.onSelect(keyword, deal.product_name, deal.category)
+    const keyword = kw.length >= 3 ? kw : result.label.toLowerCase()
+    props.onSelect(keyword, result.label, result.category, result.productGroup?.id)
   }
 
   function handleAddCustom() {
@@ -76,36 +66,39 @@ export function ProductSearch(props: {
         </Button>
       </div>
 
-      {results.length > 0 && (
-        <p className="mb-2 text-sm text-muted">
-          Matching keyword: <strong>{query.trim().toLowerCase()}</strong>
-        </p>
-      )}
-
       {searched && results.length === 0 && (
         <div>
           <p className="mb-2 text-sm text-muted">
-            No current deals found for "{query.trim()}". You can still add it to track future deals.
+            No products found for &ldquo;{query.trim()}&rdquo;. You can still add it to track future deals.
           </p>
           <Button variant="outline" size="sm" onClick={handleAddCustom} type="button">
-            Add "{query.trim()}" to my list
+            Add &ldquo;{query.trim()}&rdquo; to my list
           </Button>
         </div>
       )}
 
       {results.length > 0 && (
         <ul className="list-none" aria-label="Search results">
-          {results.map((deal) => (
-            <li key={`${deal.store}-${deal.product_name}`} className="flex items-center justify-between border-b border-border py-2.5 last:border-b-0">
-              <div>
-                <div className="font-medium">{deal.product_name}</div>
-                <div className="text-xs text-muted">
-                  CHF {(deal.sale_price ?? 0).toFixed(2)}
-                  {deal.discount_percent ? ` (-${deal.discount_percent}%)` : ''}
-                  {' | '}{deal.store}
+          {results.map((result, i) => (
+            <li key={result.productGroup?.id ?? `deal-${i}`} className="flex items-center justify-between gap-2 border-b border-border py-2.5 last:border-b-0">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{result.label}</div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                  <StorePrice
+                    store="Migros"
+                    deal={result.migrosDeal}
+                    regularPrice={result.migrosRegularPrice}
+                    colorClass="text-migros-text"
+                  />
+                  <StorePrice
+                    store="Coop"
+                    deal={result.coopDeal}
+                    regularPrice={result.coopRegularPrice}
+                    colorClass="text-coop"
+                  />
                 </div>
               </div>
-              <Button size="sm" onClick={() => handleSelect(deal)} type="button">
+              <Button size="sm" onClick={() => handleSelect(result)} type="button">
                 Add
               </Button>
             </li>
@@ -113,5 +106,41 @@ export function ProductSearch(props: {
         </ul>
       )}
     </div>
+  )
+}
+
+function StorePrice(props: {
+  store: string
+  deal: SearchResult['migrosDeal']
+  regularPrice: number | null
+  colorClass: string
+}) {
+  const { store, deal, regularPrice, colorClass } = props
+
+  if (deal) {
+    return (
+      <span className={colorClass}>
+        <span className="font-semibold">{store}</span>{' '}
+        CHF {(deal.sale_price ?? 0).toFixed(2)}
+        {deal.discount_percent != null && deal.discount_percent > 0 && (
+          <span className="ml-0.5 text-success">-{deal.discount_percent}%</span>
+        )}
+      </span>
+    )
+  }
+
+  if (regularPrice != null) {
+    return (
+      <span className="text-muted">
+        <span className="font-semibold">{store}</span>{' '}
+        CHF {regularPrice.toFixed(2)} <span className="italic">regular</span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-muted">
+      <span className="font-semibold">{store}</span> —
+    </span>
   )
 }

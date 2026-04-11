@@ -4,10 +4,13 @@ import type {
   Category,
   DealRow,
   FavoriteItemRow,
+  ProductGroupRow,
   ProductRow,
+  SearchResult,
   StarterPackRow,
   Store,
 } from '@shared/types'
+import { matchRelevance, isExcluded } from './matching'
 
 import { supabase } from './supabase'
 
@@ -269,4 +272,168 @@ export async function fetchProductsWithGroups(): Promise<ProductRow[]> {
     throw new Error(`[queries] fetchProductsWithGroups: ${error.message}`)
   }
   return data as ProductRow[]
+}
+
+/**
+ * Fetch all product groups (~70 rows). Meant to be cached by react-query.
+ */
+export async function fetchAllProductGroups(): Promise<ProductGroupRow[]> {
+  const { data, error } = await supabase
+    .from('product_groups')
+    .select('*')
+
+  if (error) {
+    throw new Error(`[queries] fetchAllProductGroups: ${error.message}`)
+  }
+  return data as ProductGroupRow[]
+}
+
+/**
+ * Fetch products belonging to any of the given product group IDs.
+ */
+async function fetchProductsByGroups(groupIds: string[]): Promise<ProductRow[]> {
+  if (groupIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .in('product_group', groupIds)
+
+  if (error) {
+    console.error('[queries] fetchProductsByGroups:', error.message)
+    return []
+  }
+  return data as ProductRow[]
+}
+
+/**
+ * Fetch active deals linked to specific product IDs.
+ */
+async function fetchActiveDealsForProducts(productIds: string[]): Promise<DealRow[]> {
+  if (productIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('deals')
+    .select('*')
+    .eq('is_active', true)
+    .or(`valid_to.is.null,valid_to.gte.${today()}`)
+    .in('product_id', productIds)
+    .order('discount_percent', { ascending: false })
+
+  if (error) {
+    console.error('[queries] fetchActiveDealsForProducts:', error.message)
+    return []
+  }
+  return data as DealRow[]
+}
+
+/**
+ * Search products across product groups, products table, and deals.
+ * Uses matchRelevance for scoring and returns results from both stores.
+ *
+ * @param keyword — the user's search term (e.g., "bananen")
+ * @param allGroups — all product groups (cached, passed in from hook)
+ */
+export async function searchProducts(
+  keyword: string,
+  allGroups: ProductGroupRow[],
+): Promise<SearchResult[]> {
+  const normalized = keyword.toLowerCase().trim()
+  if (!normalized) return []
+
+  // Phase 1: Find matching product groups via search_keywords
+  const groupMatches: { group: ProductGroupRow; relevance: number }[] = []
+  for (const group of allGroups) {
+    let bestRelevance = 0
+    for (const kw of group.search_keywords) {
+      const r1 = matchRelevance(normalized, kw)
+      const r2 = matchRelevance(kw, normalized)
+      bestRelevance = Math.max(bestRelevance, r1, r2)
+    }
+    // Also check group label
+    bestRelevance = Math.max(bestRelevance, matchRelevance(normalized, group.label.toLowerCase()))
+
+    if (bestRelevance >= 2) {
+      const excluded = group.exclude_keywords?.some(
+        (ek) => ek && normalized.includes(ek.toLowerCase()),
+      )
+      if (!excluded) {
+        groupMatches.push({ group, relevance: bestRelevance })
+      }
+    }
+  }
+  groupMatches.sort((a, b) => b.relevance - a.relevance)
+  const topGroups = groupMatches.slice(0, 5)
+
+  // Phase 2: Fetch products + deals for matched groups
+  const groupIds = topGroups.map((g) => g.group.id)
+  const [products, rawDeals] = await Promise.all([
+    fetchProductsByGroups(groupIds),
+    searchDeals(normalized),  // also fetch deal-only fallback
+  ])
+
+  const productIds = products.map((p) => p.id)
+  const groupDeals = await fetchActiveDealsForProducts(productIds)
+
+  const results: SearchResult[] = []
+  const coveredProductIds = new Set(products.map((p) => p.id))
+
+  for (const { group, relevance } of topGroups) {
+    const groupProducts = products.filter((p) => p.product_group === group.id)
+    const groupProductIds = new Set(groupProducts.map((p) => p.id))
+    const dealsForGroup = groupDeals.filter((d) => d.product_id && groupProductIds.has(d.product_id))
+
+    const migrosDeals = dealsForGroup.filter((d) => d.store === 'migros')
+    const coopDeals = dealsForGroup.filter((d) => d.store === 'coop')
+
+    const migrosRegular = groupProducts
+      .filter((p) => p.store === 'migros' && p.regular_price != null)
+      .sort((a, b) => (a.regular_price ?? Infinity) - (b.regular_price ?? Infinity))[0]
+    const coopRegular = groupProducts
+      .filter((p) => p.store === 'coop' && p.regular_price != null)
+      .sort((a, b) => (a.regular_price ?? Infinity) - (b.regular_price ?? Infinity))[0]
+
+    results.push({
+      productGroup: group,
+      migrosDeal: migrosDeals[0] ?? null,
+      coopDeal: coopDeals[0] ?? null,
+      migrosRegularPrice: migrosRegular?.regular_price ?? null,
+      coopRegularPrice: coopRegular?.regular_price ?? null,
+      label: group.label,
+      category: group.category,
+      relevance,
+    })
+  }
+
+  // Phase 3: Fallback — deals not covered by product groups
+  const seenNames = new Set<string>()
+  for (const deal of rawDeals) {
+    if (deal.product_id && coveredProductIds.has(deal.product_id)) continue
+    if (seenNames.has(deal.product_name)) continue
+    seenNames.add(deal.product_name)
+
+    const relevance = matchRelevance(normalized, deal.product_name)
+    if (relevance < 2) continue
+
+    if (isExcluded(deal.product_name, topGroups[0]?.group.exclude_keywords)) continue
+
+    results.push({
+      productGroup: null,
+      migrosDeal: deal.store === 'migros' ? deal : null,
+      coopDeal: deal.store === 'coop' ? deal : null,
+      migrosRegularPrice: null,
+      coopRegularPrice: null,
+      label: deal.product_name,
+      category: deal.category,
+      relevance,
+    })
+  }
+
+  // Sort: relevance first, then prefer results with deals
+  results.sort((a, b) => {
+    if (a.relevance !== b.relevance) return b.relevance - a.relevance
+    const aHasDeal = (a.migrosDeal || a.coopDeal) ? 1 : 0
+    const bHasDeal = (b.migrosDeal || b.coopDeal) ? 1 : 0
+    return bHasDeal - aHasDeal
+  })
+
+  return results.slice(0, 15)
 }

@@ -154,6 +154,8 @@ export interface ProductGroupRow {
   category: Category
   sub_category: string | null
   search_keywords: string[]
+  exclude_keywords: string[]
+  product_form: string | null
   created_at: string
 }
 
@@ -315,4 +317,24 @@ export interface ProductSearchResult {
   productName: string
   category: Category
   store: Store
+}
+
+/**
+ * Unified search result combining product group data, deals, and regular prices.
+ * Used by ProductSearch to show results from both stores.
+ */
+export interface SearchResult {
+  /** The product group that matched, if any */
+  productGroup: ProductGroupRow | null
+  /** Active deals per store */
+  migrosDeal: DealRow | null
+  coopDeal: DealRow | null
+  /** Regular shelf prices per store (fallback when no deal) */
+  migrosRegularPrice: number | null
+  coopRegularPrice: number | null
+  /** Display label */
+  label: string
+  category: Category
+  /** Relevance score for sorting (from matchRelevance) */
+  relevance: number
 }
