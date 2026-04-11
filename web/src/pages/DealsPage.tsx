@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import type { BrowseCategory, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
@@ -39,31 +39,6 @@ export function DealsPage() {
   usePageTitle('Browse Deals')
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const [canScrollRight, setCanScrollRight] = useState(false)
-
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4)
-  }, [])
-
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    checkScroll()
-    el.addEventListener('scroll', checkScroll, { passive: true })
-    const ro = new ResizeObserver(checkScroll)
-    ro.observe(el)
-    return () => {
-      el.removeEventListener('scroll', checkScroll)
-      ro.disconnect()
-    }
-  }, [checkScroll])
-
-  function scrollPillsRight() {
-    scrollRef.current?.scrollBy({ left: 150, behavior: 'smooth' })
-  }
 
   // Map deals to browse categories via sub_category matching
   const categorizedDeals = useMemo(() => {
@@ -145,59 +120,44 @@ export function DealsPage() {
       </p>
 
       {/* Category pills */}
-      <div className="relative mb-4">
-        <div
-          ref={scrollRef}
-          className={`flex gap-2 overflow-x-auto pb-2 no-scrollbar ${canScrollRight ? 'pr-10' : ''}`}
-          role="radiogroup"
-          aria-label="Filter by category"
+      <div
+        className="mb-4 flex flex-wrap gap-2"
+        role="radiogroup"
+        aria-label="Filter by category"
+      >
+        <button
+          className={`rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+            activeCategory === 'all'
+              ? 'bg-accent text-white'
+              : 'bg-surface border border-border hover:border-accent'
+          }`}
+          onClick={() => setActiveCategory('all')}
+          type="button"
+          role="radio"
+          aria-checked={activeCategory === 'all'}
         >
-          <button
-            className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-              activeCategory === 'all'
-                ? 'bg-accent text-white'
-                : 'bg-surface border border-border hover:border-accent'
-            }`}
-            onClick={() => setActiveCategory('all')}
-            type="button"
-            role="radio"
-            aria-checked={activeCategory === 'all'}
-          >
-            All ({deals?.length ?? 0})
-          </button>
-          {BROWSE_CATEGORIES.map((cat) => {
-            const count = categoryCounts.get(cat.id) ?? 0
-            if (count === 0) return null
-            return (
-              <button
-                key={cat.id}
-                className={`shrink-0 rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                  activeCategory === cat.id
-                    ? 'bg-accent text-white'
-                    : 'bg-surface border border-border hover:border-accent'
-                }`}
-                onClick={() => setActiveCategory(cat.id)}
-                type="button"
-                role="radio"
-                aria-checked={activeCategory === cat.id}
-              >
-                {cat.emoji} {cat.label} ({count})
-              </button>
-            )
-          })}
-        </div>
-        {canScrollRight && (
-          <button
-            type="button"
-            onClick={scrollPillsRight}
-            className="absolute right-0 top-0 flex h-[44px] w-10 items-center justify-center bg-gradient-to-l from-bg via-bg/90 to-transparent focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-            aria-label="Scroll categories right"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-muted">
-              <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        )}
+          All ({deals?.length ?? 0})
+        </button>
+        {BROWSE_CATEGORIES.map((cat) => {
+          const count = categoryCounts.get(cat.id) ?? 0
+          if (count === 0) return null
+          return (
+            <button
+              key={cat.id}
+              className={`rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                activeCategory === cat.id
+                  ? 'bg-accent text-white'
+                  : 'bg-surface border border-border hover:border-accent'
+              }`}
+              onClick={() => setActiveCategory(cat.id)}
+              type="button"
+              role="radio"
+              aria-checked={activeCategory === cat.id}
+            >
+              {cat.emoji} {cat.label} ({count})
+            </button>
+          )
+        })}
       </div>
 
       {/* Deals list */}
