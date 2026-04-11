@@ -41,43 +41,33 @@ async function searchRegularPrices(
       { leshopch: token },
     )
 
-    // Extract product UIDs from search results
+    // Extract product IDs from search results.
+    // The API returns { productIds: string[], ... } — not products/items.
     const uids: number[] = []
-    const products = searchResponse?.products ?? searchResponse?.items ?? []
+    const resp = searchResponse as Record<string, unknown> | null
 
-    if (Array.isArray(products)) {
-      for (const item of products) {
-        const uid = item?.uid ?? item?.id
-        if (typeof uid === 'number') {
-          uids.push(uid)
-        }
+    // Primary path: productIds array (string IDs like "123456")
+    const productIds = resp?.productIds
+    if (Array.isArray(productIds)) {
+      for (const id of productIds) {
+        const num = typeof id === 'number' ? id : Number(id)
+        if (!isNaN(num) && num > 0) uids.push(num)
       }
     }
 
-    // Also check if results are nested under a different key
-    if (uids.length === 0 && searchResponse && typeof searchResponse === 'object') {
-      for (const key of Object.keys(searchResponse)) {
-        const val = (searchResponse as Record<string, unknown>)[key]
-        if (Array.isArray(val) && val.length > 0 && val[0]?.uid) {
-          for (const item of val) {
-            if (typeof item.uid === 'number') uids.push(item.uid)
-          }
-          break
-        }
-      }
-    }
-
+    // Fallback: products/items array with uid/id properties
     if (uids.length === 0) {
-      console.log(`[migros-prices] [DEBUG] No UIDs found for "${keyword}". Response keys: ${searchResponse ? Object.keys(searchResponse).join(', ') : 'null'}`)
-      // Log a sample of the response structure
-      if (searchResponse && typeof searchResponse === 'object') {
-        for (const key of Object.keys(searchResponse)) {
-          const val = (searchResponse as Record<string, unknown>)[key]
-          console.log(`[migros-prices] [DEBUG]   key "${key}": type=${typeof val}, isArray=${Array.isArray(val)}, length=${Array.isArray(val) ? val.length : 'n/a'}`)
+      const products = resp?.products ?? resp?.items
+      if (Array.isArray(products)) {
+        for (const item of products) {
+          const uid = item?.uid ?? item?.id
+          const num = typeof uid === 'number' ? uid : Number(uid)
+          if (!isNaN(num) && num > 0) uids.push(num)
         }
       }
-      return []
     }
+
+    if (uids.length === 0) return []
 
     // Limit to first 20 results per keyword (most relevant)
     const limitedUids = uids.slice(0, 20)
@@ -221,14 +211,16 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
       productLookup.set(p.source_name, p.id)
     }
 
-    // Collect all unique keywords, mapped to their group IDs
+    // Collect ONE keyword per group (the first/primary keyword).
+    // This keeps API calls under ~83 (one per group) instead of 204.
     const keywordToGroupIds = new Map<string, string[]>()
     for (const group of groups) {
       const keywords: string[] = group.search_keywords ?? []
-      for (const kw of keywords) {
-        const existing = keywordToGroupIds.get(kw) ?? []
+      if (keywords.length > 0) {
+        const primary = keywords[0]!
+        const existing = keywordToGroupIds.get(primary) ?? []
         existing.push(group.id)
-        keywordToGroupIds.set(kw, existing)
+        keywordToGroupIds.set(primary, existing)
       }
     }
 
@@ -327,10 +319,8 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
         console.log(`[migros-prices] [DEBUG] Keyword "${keyword}": ${results.length} results, ${updates.length} updates total, ${newProducts.length} new products total`)
       }
 
-      // Rate limiting: small delay between searches
-      if (searchCount % 5 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
+      // Rate limiting: 1.5s between every request to avoid 429s
+      await new Promise((resolve) => setTimeout(resolve, 1500))
     }
 
     // Apply updates to existing products
