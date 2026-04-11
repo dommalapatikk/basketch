@@ -6,6 +6,45 @@ export type Store = 'migros' | 'coop'
 export type Category = 'fresh' | 'long-life' | 'non-food'
 
 /**
+ * Browse categories for the frontend — modeled after rappn.ch structure.
+ * Maps to combinations of category + sub_category in the database.
+ */
+export type BrowseCategory =
+  | 'fruits-vegetables'
+  | 'meat-fish'
+  | 'dairy'
+  | 'bakery'
+  | 'snacks-sweets'
+  | 'pasta-rice-cereals'
+  | 'drinks'
+  | 'ready-meals-frozen'
+  | 'ingredients-spices'
+  | 'home'
+  | 'beauty-hygiene'
+  | 'all'
+
+export interface BrowseCategoryInfo {
+  id: BrowseCategory
+  label: string
+  emoji: string
+  subCategories: string[]  // matches sub_category values in DB
+}
+
+export const BROWSE_CATEGORIES: BrowseCategoryInfo[] = [
+  { id: 'fruits-vegetables', label: 'Fruits & Vegetables', emoji: '🥬', subCategories: ['fruit', 'vegetables'] },
+  { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'deli', 'fish'] },
+  { id: 'dairy', label: 'Dairy & Eggs', emoji: '🧀', subCategories: ['dairy', 'eggs'] },
+  { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread'] },
+  { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['chocolate', 'snacks'] },
+  { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'] },
+  { id: 'drinks', label: 'Drinks', emoji: '☕', subCategories: ['drinks', 'coffee-tea'] },
+  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals'] },
+  { id: 'ingredients-spices', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'] },
+  { id: 'home', label: 'Home & Cleaning', emoji: '🧹', subCategories: ['cleaning', 'laundry', 'paper-goods', 'household'] },
+  { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['personal-care'] },
+]
+
+/**
  * Raw deal from a source, before categorization.
  * Both Migros (TS) and Coop (Python) normalize to this shape.
  */

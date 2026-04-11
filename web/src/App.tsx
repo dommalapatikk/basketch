@@ -7,6 +7,7 @@ import { Layout } from './components/Layout'
 import { HomePage } from './pages/HomePage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { ComparisonPage } from './pages/ComparisonPage'
+import { DealsPage } from './pages/DealsPage'
 import { AboutPage } from './pages/AboutPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -19,6 +20,7 @@ export function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<HomePage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/deals" element={<DealsPage />} />
             <Route path="/compare/:favoriteId" element={<ComparisonPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="*" element={<NotFoundPage />} />

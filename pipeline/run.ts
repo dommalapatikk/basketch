@@ -69,11 +69,14 @@ async function main(): Promise<void> {
     `[pipeline] [INFO] Read ${migrosRaw.length} Migros deals, ${coopRaw.length} Coop deals`,
   )
 
-  // Categorize all deals
+  // Categorize all deals and filter out 0% discount entries (not real deals)
   const allRaw = [...migrosRaw, ...coopRaw]
-  const categorized = allRaw.map((deal) => categorizeDeal(deal))
+  const categorized = allRaw
+    .map((deal) => categorizeDeal(deal))
+    .filter((d) => (d.discountPercent ?? 0) > 0)
 
-  console.log(`[pipeline] [INFO] Categorized ${categorized.length} deals`)
+  const filtered = allRaw.length - categorized.length
+  console.log(`[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with 0% discount)`)
 
   // Resolve products (find or create product rows, get product_id for each deal)
   const migrosDeals = categorized.filter((d) => d.store === 'migros')
