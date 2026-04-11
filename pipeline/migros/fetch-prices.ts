@@ -1,10 +1,13 @@
 // Fetches regular (non-promotional) shelf prices for Migros products.
 // Uses searchProduct API to find products by keyword, then getProductCards for prices.
+// Also CREATES new product rows for products not yet in the database.
 
 import 'dotenv/config'
 
 import { createClient } from '@supabase/supabase-js'
 import { MigrosAPI } from 'migros-api-wrapper'
+
+import { assignProductGroup } from '../product-group-assign'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -17,6 +20,7 @@ interface PriceResult {
   sourceName: string
   regularPrice: number
   imageUrl: string | null
+  category: string | null
 }
 
 /**
@@ -52,7 +56,6 @@ async function searchRegularPrices(
 
     // Also check if results are nested under a different key
     if (uids.length === 0 && searchResponse && typeof searchResponse === 'object') {
-      // Try to find products in any array property
       for (const key of Object.keys(searchResponse)) {
         const val = (searchResponse as Record<string, unknown>)[key]
         if (Array.isArray(val) && val.length > 0 && val[0]?.uid) {
@@ -137,16 +140,32 @@ function extractRegularPrice(raw: unknown): PriceResult | null {
     imageUrl = imgTransparent.url.replace('{stack}', 'original')
   }
 
-  return { sourceName, regularPrice, imageUrl }
+  // Category from breadcrumbs
+  const breadcrumbs = r.breadcrumbs as Array<{ name?: string }> | null | undefined
+  const category = breadcrumbs?.[0]?.name?.toLowerCase() ?? null
+
+  return { sourceName, regularPrice, imageUrl, category }
+}
+
+/**
+ * Check if a product name should be excluded from a group based on exclude_keywords.
+ */
+function isExcludedByGroup(
+  sourceName: string,
+  excludeKeywords: string[],
+): boolean {
+  if (!excludeKeywords || excludeKeywords.length === 0) return false
+  const name = sourceName.toLowerCase()
+  return excludeKeywords.some((ek) => ek && name.includes(ek.toLowerCase()))
 }
 
 /**
  * Fetch regular prices for all Migros products that belong to a product group.
  * Strategy:
- * 1. Load all product groups with their search keywords
+ * 1. Load all product groups with their search keywords + exclude keywords
  * 2. For each group, search Migros by keyword
- * 3. Match results to existing products by source_name
- * 4. Update regular_price in the products table
+ * 3. Match results to existing products by source_name → update regular_price
+ * 4. For unmatched results → CREATE new product rows with regular_price + product_group
  */
 export async function fetchMigrosRegularPrices(): Promise<number> {
   try {
@@ -160,14 +179,20 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
 
     console.log('[migros-prices] [INFO] Guest token acquired')
 
-    // Load product groups with search keywords
+    // Load product groups with search keywords AND exclude keywords
     const { data: groups, error: groupError } = await supabase
       .from('product_groups')
-      .select('id, search_keywords')
+      .select('id, search_keywords, exclude_keywords, category, product_form')
 
     if (groupError || !groups) {
       console.error('[migros-prices] [ERROR] Failed to load product groups:', groupError?.message)
       return 0
+    }
+
+    // Build lookup: groupId → group data
+    const groupLookup = new Map<string, typeof groups[0]>()
+    for (const g of groups) {
+      groupLookup.set(g.id, g)
     }
 
     // Load existing Migros products
@@ -186,33 +211,106 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
       productLookup.set(p.source_name, p.id)
     }
 
-    // Collect all unique keywords across all groups
-    const keywordToGroups = new Map<string, string[]>()
+    // Collect all unique keywords, mapped to their group IDs
+    const keywordToGroupIds = new Map<string, string[]>()
     for (const group of groups) {
       const keywords: string[] = group.search_keywords ?? []
       for (const kw of keywords) {
-        const existing = keywordToGroups.get(kw) ?? []
+        const existing = keywordToGroupIds.get(kw) ?? []
         existing.push(group.id)
-        keywordToGroups.set(kw, existing)
+        keywordToGroupIds.set(kw, existing)
       }
     }
 
-    // Search for each unique keyword (deduplicated to minimize API calls)
-    const uniqueKeywords = [...keywordToGroups.keys()]
+    const uniqueKeywords = [...keywordToGroupIds.keys()]
     console.log(`[migros-prices] [INFO] Searching ${uniqueKeywords.length} keywords across ${groups.length} product groups`)
 
     const updates: { id: string; regular_price: number }[] = []
+    const newProducts: {
+      source_name: string
+      canonical_name: string
+      store: 'migros'
+      category: string
+      product_group: string
+      product_form: string
+      regular_price: number
+      price_updated_at: string
+      brand: string | null
+      is_organic: boolean
+      sub_category: string | null
+    }[] = []
     let searchCount = 0
 
     for (const keyword of uniqueKeywords) {
+      const groupIds = keywordToGroupIds.get(keyword) ?? []
       const results = await searchRegularPrices(keyword, token)
       searchCount++
 
       for (const result of results) {
+        // Check if product already exists
         const productId = productLookup.get(result.sourceName)
         if (productId) {
           updates.push({ id: productId, regular_price: result.regularPrice })
+          continue
         }
+
+        // New product — check which group it belongs to using exclude_keywords
+        let assignedGroupId: string | null = null
+        let assignedGroup: typeof groups[0] | null = null
+
+        for (const gid of groupIds) {
+          const group = groupLookup.get(gid)
+          if (!group) continue
+          if (!isExcludedByGroup(result.sourceName, group.exclude_keywords ?? [])) {
+            assignedGroupId = gid
+            assignedGroup = group
+            break
+          }
+        }
+
+        // Also try the pipeline's regex-based assignment as fallback
+        if (!assignedGroupId) {
+          const ruleAssignment = assignProductGroup(result.sourceName)
+          if (ruleAssignment) {
+            assignedGroupId = ruleAssignment.groupId
+            assignedGroup = groupLookup.get(ruleAssignment.groupId) ?? null
+          }
+        }
+
+        if (!assignedGroupId || !assignedGroup) continue
+
+        // Don't add duplicates within this batch
+        if (newProducts.some((p) => p.source_name === result.sourceName)) continue
+
+        // Basic metadata extraction
+        const nameLower = result.sourceName.toLowerCase()
+        const isOrganic = nameLower.includes('bio ') || nameLower.includes('naturaplan')
+        const brand = nameLower.startsWith('m-budget') ? 'M-Budget'
+          : nameLower.startsWith('m-classic') ? 'M-Classic'
+            : nameLower.startsWith('aha!') ? 'aha!'
+              : null
+
+        const canonicalName = result.sourceName
+          .split(/\s+/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ')
+
+        newProducts.push({
+          source_name: result.sourceName,
+          canonical_name: canonicalName,
+          store: 'migros',
+          category: assignedGroup.category ?? 'fresh',
+          product_group: assignedGroupId,
+          product_form: assignedGroup.product_form ?? 'raw',
+          regular_price: result.regularPrice,
+          price_updated_at: new Date().toISOString(),
+          brand,
+          is_organic: isOrganic,
+          sub_category: null,
+        })
+
+        // Add to lookup so we don't try to create duplicates
+        productLookup.set(result.sourceName, 'pending')
       }
 
       // Rate limiting: small delay between searches
@@ -221,22 +319,15 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
       }
     }
 
-    if (updates.length === 0) {
-      console.log('[migros-prices] [INFO] No price updates to apply')
-      return 0
-    }
-
-    // Deduplicate updates (same product may match multiple keywords)
+    // Apply updates to existing products
     const deduped = new Map<string, number>()
     for (const u of updates) {
       const existing = deduped.get(u.id)
-      // Keep the lower price if duplicate (more conservative)
       if (existing == null || u.regular_price < existing) {
         deduped.set(u.id, u.regular_price)
       }
     }
 
-    // Batch update products with regular prices
     const now = new Date().toISOString()
     let updatedCount = 0
 
@@ -252,10 +343,33 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
     }
 
     console.log(
-      `[migros-prices] [INFO] Updated ${updatedCount} of ${deduped.size} Migros products with regular prices`,
+      `[migros-prices] [INFO] Updated ${updatedCount} of ${deduped.size} existing Migros products`,
     )
 
-    return updatedCount
+    // Create new products
+    let createdCount = 0
+    if (newProducts.length > 0) {
+      // Batch insert in groups of 100
+      for (let i = 0; i < newProducts.length; i += 100) {
+        const batch = newProducts.slice(i, i + 100)
+        const { error: insertError, data: inserted } = await supabase
+          .from('products')
+          .upsert(batch, { onConflict: 'store,source_name' })
+          .select('id')
+
+        if (insertError) {
+          console.error(`[migros-prices] [ERROR] Batch insert failed:`, insertError.message)
+        } else {
+          createdCount += inserted?.length ?? 0
+        }
+      }
+
+      console.log(
+        `[migros-prices] [INFO] Created ${createdCount} new Migros products with regular prices`,
+      )
+    }
+
+    return updatedCount + createdCount
   } catch (error) {
     console.error(
       '[migros-prices] [ERROR] Failed to fetch prices:',
