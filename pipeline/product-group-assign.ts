@@ -23,7 +23,7 @@ export const GROUP_RULES: GroupRule[] = [
   {
     groupId: 'milk-whole-1l',
     mustMatch: [/\b(milch|milk|vollmilch|halbfettmilch)\b/i],
-    mustNotMatch: [/schoko/i, /kokos/i, /mandel/i, /hafer/i, /soja/i, /reis/i, /drink/i, /pudding/i, /dessert/i, /glace/i, /shake/i, /caramel/i, /branche/i],
+    mustNotMatch: [/schoko/i, /kokos/i, /mandel/i, /hafer/i, /soja/i, /reis/i, /drink/i, /pudding/i, /dessert/i, /glace/i, /shake/i, /caramel/i, /branche/i, /pralin/i, /kägi/i, /alpes/i],
     productForm: 'raw',
   },
   {
