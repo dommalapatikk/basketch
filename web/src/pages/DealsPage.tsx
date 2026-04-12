@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react'
 
-import type { BrowseCategory, DealRow } from '@shared/types'
+import type { BrowseCategory, DealRow, Store } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
 import { useActiveDeals, usePageTitle } from '../lib/hooks'
-import { Card } from '../components/ui/Card'
 
 function DealCard(props: { deal: DealRow }) {
   const { deal } = props
@@ -29,8 +28,43 @@ function DealCard(props: { deal: DealRow }) {
             <span className="text-xs font-semibold text-success">-{deal.discount_percent}%</span>
           )}
         </div>
-        <div className="mt-0.5 text-xs text-muted capitalize">{deal.store}</div>
       </div>
+    </div>
+  )
+}
+
+function StoreSection(props: { store: Store; deals: DealRow[] }) {
+  const { store, deals } = props
+  const isMigros = store === 'migros'
+
+  return (
+    <div className="rounded-md border border-border bg-surface overflow-hidden">
+      <div className={`flex items-center gap-2 px-4 py-2.5 ${
+        isMigros ? 'bg-migros-light' : 'bg-coop-light'
+      }`}>
+        <span className={`size-3 rounded-full ${
+          isMigros ? 'bg-migros' : 'bg-coop'
+        }`} />
+        <span className={`text-sm font-semibold ${
+          isMigros ? 'text-migros-text' : 'text-coop'
+        }`}>
+          {isMigros ? 'Migros' : 'Coop'}
+        </span>
+        <span className="text-xs text-muted">
+          ({deals.length} deal{deals.length !== 1 ? 's' : ''})
+        </span>
+      </div>
+      {deals.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-muted">
+          No {isMigros ? 'Migros' : 'Coop'} deals in this category
+        </div>
+      ) : (
+        <div className="px-4">
+          {deals.map((deal) => (
+            <DealCard key={deal.id} deal={deal} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -160,20 +194,28 @@ export function DealsPage() {
         })}
       </div>
 
-      {/* Deals list */}
+      {/* Deals grouped by store */}
       {filteredDeals.length === 0 ? (
         <div className="py-12 text-center text-muted">No deals in this category</div>
       ) : (
-        <Card>
-          {filteredDeals.slice(0, 50).map((deal) => (
-            <DealCard key={deal.id} deal={deal} />
-          ))}
-          {filteredDeals.length > 50 && (
-            <p className="py-4 text-center text-sm text-muted">
-              Showing top 50 of {filteredDeals.length} deals
-            </p>
-          )}
-        </Card>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {(() => {
+            const migrosDeals = filteredDeals.filter((d) => d.store === 'migros')
+            const coopDeals = filteredDeals.filter((d) => d.store === 'coop')
+            const migrosFirst = migrosDeals.length >= coopDeals.length
+            return migrosFirst ? (
+              <>
+                <StoreSection store="migros" deals={migrosDeals} />
+                <StoreSection store="coop" deals={coopDeals} />
+              </>
+            ) : (
+              <>
+                <StoreSection store="coop" deals={coopDeals} />
+                <StoreSection store="migros" deals={migrosDeals} />
+              </>
+            )
+          })()}
+        </div>
       )}
     </div>
   )
