@@ -131,7 +131,7 @@ function DealComparisonCard(props: { comparison: DealComparison }) {
           deal={coopDeal}
           storeName="Coop"
           bgClass="bg-coop-light"
-          textClass="text-coop"
+          textClass="text-coop-text"
           isWinner={recommendation === 'coop'}
         />
       </div>
