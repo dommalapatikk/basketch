@@ -1,9 +1,13 @@
 // Matching logic: pairs each favorite item with best Migros and Coop deals.
 
 import type {
+  Category,
+  DealComparison,
+  DealComparisonResult,
   DealRow,
   FavoriteComparison,
   FavoriteItemRow,
+  ProductGroupRow,
   ProductRow,
   RegularPrice,
 } from '@shared/types'
@@ -347,6 +351,177 @@ export function matchFavorites(
       recommendation,
     }
   })
+}
+
+/**
+ * Build side-by-side deal comparisons across Migros and Coop.
+ *
+ * Two-tier matching:
+ * - Tier 1: Match deals via product_group. For each group with deals at BOTH
+ *   stores, pick the best deal per store (highest discount_percent).
+ * - Tier 2: For remaining unmatched deals, use matchRelevance() to find
+ *   name-similar deals across stores. Threshold: relevance >= 3.
+ *
+ * Recommendation: compare sale_price — lower wins. If equal, 'both'.
+ */
+export function buildDealComparisons(
+  deals: DealRow[],
+  products: ProductRow[],
+  productGroups: ProductGroupRow[],
+): DealComparisonResult {
+  const migrosDeals = deals.filter((d) => d.store === 'migros')
+  const coopDeals = deals.filter((d) => d.store === 'coop')
+
+  // Build product_id -> product_group lookup
+  const productToGroup = new Map<string, string>()
+  for (const p of products) {
+    if (p.product_group) {
+      productToGroup.set(p.id, p.product_group)
+    }
+  }
+
+  // Build product_group label lookup
+  const groupLabelMap = new Map<string, ProductGroupRow>()
+  for (const g of productGroups) {
+    groupLabelMap.set(g.id, g)
+  }
+
+  // Tier 1: Group deals by product_group
+  const migrosGroupDeals = new Map<string, DealRow[]>()
+  const coopGroupDeals = new Map<string, DealRow[]>()
+  const matchedDealIds = new Set<string>()
+
+  for (const deal of migrosDeals) {
+    if (!deal.product_id) continue
+    const groupId = productToGroup.get(deal.product_id)
+    if (!groupId) continue
+    const arr = migrosGroupDeals.get(groupId) ?? []
+    arr.push(deal)
+    migrosGroupDeals.set(groupId, arr)
+  }
+
+  for (const deal of coopDeals) {
+    if (!deal.product_id) continue
+    const groupId = productToGroup.get(deal.product_id)
+    if (!groupId) continue
+    const arr = coopGroupDeals.get(groupId) ?? []
+    arr.push(deal)
+    coopGroupDeals.set(groupId, arr)
+  }
+
+  // Find groups with deals at BOTH stores
+  const matched: DealComparison[] = []
+  const allGroupIds = new Set([...migrosGroupDeals.keys(), ...coopGroupDeals.keys()])
+
+  for (const groupId of allGroupIds) {
+    const mDeals = migrosGroupDeals.get(groupId)
+    const cDeals = coopGroupDeals.get(groupId)
+    if (!mDeals || !cDeals) continue
+
+    // Pick best deal per store (highest discount)
+    const bestMigros = [...mDeals].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))[0]!
+    const bestCoop = [...cDeals].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))[0]!
+
+    const group = groupLabelMap.get(groupId)
+    const label = group?.label ?? bestMigros.product_name
+    const category: Category | null = group?.category ?? bestMigros.category ?? null
+
+    let recommendation: DealComparison['recommendation'] = 'both'
+    if (bestMigros.sale_price < bestCoop.sale_price) recommendation = 'migros'
+    else if (bestCoop.sale_price < bestMigros.sale_price) recommendation = 'coop'
+
+    matched.push({
+      id: `pg-${groupId}`,
+      label,
+      matchType: 'product-group',
+      category,
+      migrosDeal: bestMigros,
+      coopDeal: bestCoop,
+      recommendation,
+    })
+
+    // Mark these deals as matched
+    for (const d of mDeals) matchedDealIds.add(d.id)
+    for (const d of cDeals) matchedDealIds.add(d.id)
+  }
+
+  // Tier 2: Name-similarity matching for remaining unmatched deals
+  const unmatchedMigros = migrosDeals.filter((d) => !matchedDealIds.has(d.id))
+  const unmatchedCoop = coopDeals.filter((d) => !matchedDealIds.has(d.id))
+
+  const tier2MatchedMigrosIds = new Set<string>()
+  const tier2MatchedCoopIds = new Set<string>()
+
+  for (const mDeal of unmatchedMigros) {
+    if (tier2MatchedMigrosIds.has(mDeal.id)) continue
+
+    let bestMatch: DealRow | null = null
+    let bestRelevance = 0
+
+    for (const cDeal of unmatchedCoop) {
+      if (tier2MatchedCoopIds.has(cDeal.id)) continue
+
+      // Check both directions for name similarity
+      const r1 = matchRelevance(mDeal.product_name, cDeal.product_name)
+      const r2 = matchRelevance(cDeal.product_name, mDeal.product_name)
+      const relevance = Math.max(r1, r2)
+
+      if (relevance >= 3 && relevance > bestRelevance) {
+        bestRelevance = relevance
+        bestMatch = cDeal
+      }
+    }
+
+    if (bestMatch) {
+      tier2MatchedMigrosIds.add(mDeal.id)
+      tier2MatchedCoopIds.add(bestMatch.id)
+
+      // Use shorter name as label
+      const label = mDeal.product_name.length <= bestMatch.product_name.length
+        ? mDeal.product_name
+        : bestMatch.product_name
+
+      let recommendation: DealComparison['recommendation'] = 'both'
+      if (mDeal.sale_price < bestMatch.sale_price) recommendation = 'migros'
+      else if (bestMatch.sale_price < mDeal.sale_price) recommendation = 'coop'
+
+      matched.push({
+        id: `ns-${mDeal.id}-${bestMatch.id}`,
+        label,
+        matchType: 'name-similarity',
+        category: mDeal.category ?? null,
+        migrosDeal: mDeal,
+        coopDeal: bestMatch,
+        recommendation,
+      })
+    }
+  }
+
+  // Sort matched: product-group first, then by best discount
+  matched.sort((a, b) => {
+    if (a.matchType !== b.matchType) {
+      return a.matchType === 'product-group' ? -1 : 1
+    }
+    const aDiscount = Math.max(
+      a.migrosDeal?.discount_percent ?? 0,
+      a.coopDeal?.discount_percent ?? 0,
+    )
+    const bDiscount = Math.max(
+      b.migrosDeal?.discount_percent ?? 0,
+      b.coopDeal?.discount_percent ?? 0,
+    )
+    return bDiscount - aDiscount
+  })
+
+  // Final unmatched
+  const finalUnmatchedMigros = unmatchedMigros.filter((d) => !tier2MatchedMigrosIds.has(d.id))
+  const finalUnmatchedCoop = unmatchedCoop.filter((d) => !tier2MatchedCoopIds.has(d.id))
+
+  return {
+    matched,
+    unmatchedMigros: finalUnmatchedMigros,
+    unmatchedCoop: finalUnmatchedCoop,
+  }
 }
 
 /**
