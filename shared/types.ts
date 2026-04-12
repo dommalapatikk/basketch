@@ -320,6 +320,29 @@ export interface ProductSearchResult {
 }
 
 /**
+ * A side-by-side comparison of equivalent deals at Migros and Coop.
+ * Built from product-group matching or name-similarity matching.
+ */
+export interface DealComparison {
+  id: string
+  label: string
+  matchType: 'product-group' | 'name-similarity'
+  category: Category | null
+  migrosDeal: DealRow | null
+  coopDeal: DealRow | null
+  recommendation: 'migros' | 'coop' | 'both'
+}
+
+/**
+ * Result of building deal comparisons from all active deals.
+ */
+export interface DealComparisonResult {
+  matched: DealComparison[]
+  unmatchedMigros: DealRow[]
+  unmatchedCoop: DealRow[]
+}
+
+/**
  * Unified search result combining product group data, deals, and regular prices.
  * Used by ProductSearch to show results from both stores.
  */

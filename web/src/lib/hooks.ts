@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
+import { buildDealComparisons } from './matching'
 import { fetchActiveDeals, fetchAllProductGroups, fetchFavoriteItems, fetchProductsWithGroups, fetchStarterPacks } from './queries'
 
 const BASE_TITLE = 'basketch'
@@ -47,4 +48,22 @@ export function useProductGroups() {
     queryFn: fetchAllProductGroups,
     staleTime: 1000 * 60 * 30,  // 30 min — groups rarely change
   })
+}
+
+export function useDealComparisons() {
+  const { data: deals, isLoading: dealsLoading, error: dealsError } = useActiveDeals()
+  const { data: products, isLoading: productsLoading, error: productsError } = useProductsWithGroups()
+  const { data: productGroups, isLoading: groupsLoading, error: groupsError } = useProductGroups()
+
+  const comparisons = useMemo(() => {
+    if (!deals || !products || !productGroups) return null
+    return buildDealComparisons(deals, products, productGroups)
+  }, [deals, products, productGroups])
+
+  return {
+    data: comparisons,
+    deals,
+    isLoading: dealsLoading || productsLoading || groupsLoading,
+    error: dealsError || productsError || groupsError,
+  }
 }
