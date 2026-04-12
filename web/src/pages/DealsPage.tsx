@@ -36,6 +36,8 @@ function DealCard(props: { deal: DealRow }) {
 function StoreSection(props: { store: Store; deals: DealRow[] }) {
   const { store, deals } = props
   const isMigros = store === 'migros'
+  const [showAll, setShowAll] = useState(false)
+  const visibleDeals = showAll ? deals : deals.slice(0, 50)
 
   return (
     <div className="rounded-md border border-border bg-surface overflow-hidden">
@@ -45,11 +47,11 @@ function StoreSection(props: { store: Store; deals: DealRow[] }) {
         <span className={`size-3 rounded-full ${
           isMigros ? 'bg-migros' : 'bg-coop'
         }`} />
-        <span className={`text-sm font-semibold ${
-          isMigros ? 'text-migros-text' : 'text-coop'
+        <h2 className={`text-sm font-semibold ${
+          isMigros ? 'text-migros' : 'text-coop'
         }`}>
           {isMigros ? 'Migros' : 'Coop'}
-        </span>
+        </h2>
         <span className="text-xs text-muted">
           ({deals.length} deal{deals.length !== 1 ? 's' : ''})
         </span>
@@ -60,9 +62,18 @@ function StoreSection(props: { store: Store; deals: DealRow[] }) {
         </div>
       ) : (
         <div className="px-4">
-          {deals.map((deal) => (
+          {visibleDeals.map((deal) => (
             <DealCard key={deal.id} deal={deal} />
           ))}
+          {!showAll && deals.length > 50 && (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="w-full py-3 text-center text-sm font-medium text-accent hover:underline min-h-[44px]"
+            >
+              Show all {deals.length} deals
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -74,7 +85,7 @@ export function DealsPage() {
   const { data: deals, isLoading, error } = useActiveDeals()
   const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
 
-  // Map deals to browse categories via sub_category matching
+  // Split deals by store via sub_category matching
   const categorizedDeals = useMemo(() => {
     if (!deals) return new Map<BrowseCategory, DealRow[]>()
 
@@ -121,6 +132,15 @@ export function DealsPage() {
     return counts
   }, [categorizedDeals])
 
+  // Split filtered deals by store, ordered by deal count
+  const { firstStore, secondStore } = useMemo(() => {
+    const migros = filteredDeals.filter((d) => d.store === 'migros')
+    const coop = filteredDeals.filter((d) => d.store === 'coop')
+    if (migros.length >= coop.length) {
+      return { firstStore: { store: 'migros' as Store, deals: migros }, secondStore: { store: 'coop' as Store, deals: coop } }
+    }
+    return { firstStore: { store: 'coop' as Store, deals: coop }, secondStore: { store: 'migros' as Store, deals: migros } }
+  }, [filteredDeals])
 
   if (isLoading) {
     return (
@@ -199,22 +219,8 @@ export function DealsPage() {
         <div className="py-12 text-center text-muted">No deals in this category</div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {(() => {
-            const migrosDeals = filteredDeals.filter((d) => d.store === 'migros')
-            const coopDeals = filteredDeals.filter((d) => d.store === 'coop')
-            const migrosFirst = migrosDeals.length >= coopDeals.length
-            return migrosFirst ? (
-              <>
-                <StoreSection store="migros" deals={migrosDeals} />
-                <StoreSection store="coop" deals={coopDeals} />
-              </>
-            ) : (
-              <>
-                <StoreSection store="coop" deals={coopDeals} />
-                <StoreSection store="migros" deals={migrosDeals} />
-              </>
-            )
-          })()}
+          <StoreSection store={firstStore.store} deals={firstStore.deals} />
+          <StoreSection store={secondStore.store} deals={secondStore.deals} />
         </div>
       )}
     </div>
