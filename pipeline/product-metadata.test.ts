@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { detectMeatCut, detectProductForm, extractBrand, isOrganic, detectSubCategory, extractProductMetadata } from './product-metadata'
+import { detectMeatCut, detectProductForm, extractBrand, extractQuantity, isOrganic, detectSubCategory, extractProductMetadata } from './product-metadata'
 
 describe('extractBrand', () => {
   it('detects Migros own brands', () => {
@@ -88,8 +88,12 @@ describe('detectSubCategory', () => {
     expect(detectSubCategory('nivea duschgel 250ml', null)).toBe('personal-care')
   })
 
-  it('returns null for long-life products without specific sub-category', () => {
-    expect(detectSubCategory('chips original 170g', null)).toBeNull()
+  it('detects snacks sub-category for chips', () => {
+    expect(detectSubCategory('chips original 170g', null)).toBe('snacks')
+  })
+
+  it('returns null for products without specific sub-category', () => {
+    expect(detectSubCategory('random product xyz', null)).toBeNull()
   })
 
   it('uses sourceCategory as fallback', () => {
@@ -97,18 +101,108 @@ describe('detectSubCategory', () => {
   })
 })
 
+describe('extractQuantity', () => {
+  describe('single quantities', () => {
+    it('extracts grams', () => {
+      expect(extractQuantity('Barilla Spaghetti 500g')).toEqual({ quantity: 500, unit: 'g' })
+    })
+
+    it('extracts kilograms', () => {
+      expect(extractQuantity('Kartoffeln festkochend 2.5kg')).toEqual({ quantity: 2.5, unit: 'kg' })
+    })
+
+    it('extracts litres', () => {
+      expect(extractQuantity('Vollmilch 1l')).toEqual({ quantity: 1, unit: 'l' })
+    })
+
+    it('extracts millilitres', () => {
+      expect(extractQuantity('Duschgel 250ml')).toEqual({ quantity: 250, unit: 'ml' })
+    })
+
+    it('extracts centilitres', () => {
+      expect(extractQuantity('Rivella rot 50cl')).toEqual({ quantity: 50, unit: 'cl' })
+    })
+
+    it('extracts decilitres', () => {
+      expect(extractQuantity('Rahm 2dl')).toEqual({ quantity: 2, unit: 'dl' })
+    })
+
+    it('handles decimal with comma', () => {
+      expect(extractQuantity('Olivenöl 0,5l')).toEqual({ quantity: 0.5, unit: 'l' })
+    })
+
+    it('handles "liter" spelled out', () => {
+      expect(extractQuantity('Wasser 1.5 liter')).toEqual({ quantity: 1.5, unit: 'l' })
+    })
+
+    it('normalises "gr" to "g"', () => {
+      expect(extractQuantity('Reis 500gr')).toEqual({ quantity: 500, unit: 'g' })
+    })
+  })
+
+  describe('multi-pack quantities', () => {
+    it('parses "2x 1.5L"', () => {
+      const result = extractQuantity('Persil Gel 2x 1.5L')
+      expect(result).toEqual({ quantity: 3, unit: 'l' })
+    })
+
+    it('parses "3x200g"', () => {
+      const result = extractQuantity('Joghurt 3x200g')
+      expect(result).toEqual({ quantity: 600, unit: 'g' })
+    })
+
+    it('parses "6x 330ml"', () => {
+      const result = extractQuantity('Coca-Cola 6x 330ml')
+      expect(result).toEqual({ quantity: 1.98, unit: 'l' })
+    })
+
+    it('parses "4x250g" converting to kg', () => {
+      const result = extractQuantity('Butter 4x250g')
+      expect(result).toEqual({ quantity: 1, unit: 'kg' })
+    })
+  })
+
+  describe('piece counts', () => {
+    it('parses "6 Stück"', () => {
+      expect(extractQuantity('Eier 6 Stück')).toEqual({ quantity: 6, unit: 'pcs' })
+    })
+
+    it('parses "10 stk"', () => {
+      expect(extractQuantity('Weggli 10 stk')).toEqual({ quantity: 10, unit: 'pcs' })
+    })
+
+    it('parses "24 Rollen"', () => {
+      expect(extractQuantity('Hakle Toilettenpapier 24 Rollen')).toEqual({ quantity: 24, unit: 'pcs' })
+    })
+  })
+
+  describe('no quantity', () => {
+    it('returns null for products without quantity', () => {
+      expect(extractQuantity('Bio Pouletbrust')).toBeNull()
+    })
+
+    it('returns null for empty string', () => {
+      expect(extractQuantity('')).toBeNull()
+    })
+  })
+})
+
 describe('extractProductMetadata', () => {
-  it('extracts all metadata at once', () => {
+  it('extracts all metadata at once including quantity', () => {
     const meta = extractProductMetadata('naturaplan bio vollmilch 1l', 'milch')
     expect(meta.brand).toBe('Naturaplan')
+    expect(meta.quantity).toBe(1)
+    expect(meta.unit).toBe('l')
     expect(meta.isOrganic).toBe(true)
     expect(meta.subCategory).toBe('dairy')
     expect(meta.productForm).toBe('raw')
   })
 
   it('handles product with no metadata', () => {
-    const meta = extractProductMetadata('chips original 170g', null)
+    const meta = extractProductMetadata('random product xyz', null)
     expect(meta.brand).toBeNull()
+    expect(meta.quantity).toBeNull()
+    expect(meta.unit).toBeNull()
     expect(meta.isOrganic).toBe(false)
     expect(meta.subCategory).toBeNull()
     expect(meta.productForm).toBe('raw')
@@ -117,6 +211,8 @@ describe('extractProductMetadata', () => {
   it('detects product form for processed products', () => {
     const meta = extractProductMetadata('tomatenpüree 3x200g', null)
     expect(meta.productForm).toBe('processed')
+    expect(meta.quantity).toBe(600)
+    expect(meta.unit).toBe('g')
   })
 })
 

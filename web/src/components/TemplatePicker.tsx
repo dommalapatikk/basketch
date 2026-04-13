@@ -8,7 +8,7 @@ export function TemplatePicker(props: {
   onSelect: (pack: StarterPackRow) => void
   onSkip?: () => void
 }) {
-  const { data: packs, isLoading, error } = useStarterPacks()
+  const { data: packs, loading: isLoading, error } = useStarterPacks()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   if (isLoading) {

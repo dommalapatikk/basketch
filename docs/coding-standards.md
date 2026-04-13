@@ -1,8 +1,9 @@
 # Coding Standards: basketch
 
-**Version:** 1.0
-**Date:** 9 April 2026
+**Version:** 2.0
+**Date:** 12 April 2026
 **Scope:** All code in the basketch repository (pipeline, frontend, shared)
+**Aligned with:** Technical Architecture v2.1, PRD v2.0
 
 These standards apply to every contributor -- human or AI. When in doubt: readable beats clever, consistent beats perfect.
 
@@ -127,9 +128,13 @@ basketch/
 │   │   │   └── coop-page-1.html
 │   │   └── requirements.txt
 │   │
-│   ├── categorize.ts
+│   ├── metadata.ts              # Brand/quantity/organic extraction (pure function)
+│   ├── metadata.test.ts
+│   ├── resolve-product.ts       # Product identity resolution (find/create in products table)
+│   ├── resolve-product.test.ts
+│   ├── categorize.ts            # Category + sub-category assignment
 │   ├── categorize.test.ts
-│   ├── store.ts
+│   ├── store.ts                 # Supabase upsert logic
 │   ├── store.test.ts
 │   ├── run.ts                   # Pipeline entry point
 │   ├── package.json
@@ -140,36 +145,52 @@ basketch/
 │   │   ├── main.tsx
 │   │   ├── App.tsx
 │   │   ├── lib/
-│   │   │   ├── supabase.ts
-│   │   │   ├── queries.ts
-│   │   │   └── verdict.ts
+│   │   │   ├── supabase.ts      # Supabase client instance
+│   │   │   ├── queries.ts       # ALL Supabase queries (single file)
+│   │   │   ├── use-cached-query.ts  # Custom fetch+cache hook (replaces React Query)
+│   │   │   ├── verdict.ts       # Verdict calculation logic
+│   │   │   └── og-tags.ts       # OG tag config (shared between middleware + react-helmet)
 │   │   ├── components/
-│   │   │   ├── ui/              # shadcn/ui primitives
+│   │   │   ├── ui/              # shadcn/ui primitives (do not modify)
 │   │   │   ├── VerdictBanner.tsx
+│   │   │   ├── VerdictCard.tsx  # Wordle card (shareable verdict image)
 │   │   │   ├── CategorySection.tsx
+│   │   │   ├── CategoryFilterPills.tsx
 │   │   │   ├── DealCard.tsx
+│   │   │   ├── StoreGroup.tsx
 │   │   │   ├── StoreBadge.tsx
-│   │   │   └── DataWarning.tsx
+│   │   │   ├── ShareButton.tsx  # Web Share API + clipboard fallback
+│   │   │   ├── EmailLookup.tsx  # Email return path on home page
+│   │   │   ├── DataWarning.tsx
+│   │   │   └── CoopStatusMessage.tsx  # Two-tier Coop status display
 │   │   ├── pages/
 │   │   │   ├── Home.tsx
-│   │   │   └── About.tsx
+│   │   │   ├── Deals.tsx        # Browse all deals by sub-category
+│   │   │   ├── Onboarding.tsx
+│   │   │   ├── Compare.tsx      # Personalized favorites comparison
+│   │   │   ├── About.tsx
+│   │   │   └── NotFound.tsx     # 404 page
 │   │   └── index.css
+│   ├── middleware.ts             # Vercel Middleware (OG tags for crawlers)
 │   ├── public/
+│   │   └── og-image.png         # 1200x630px social preview image
 │   ├── index.html
 │   ├── vite.config.ts
 │   ├── tailwind.config.ts
+│   ├── vercel.json
 │   ├── tsconfig.json            # Extends ../../tsconfig.base.json
 │   └── package.json
 │
 ├── shared/                      # Shared types (imported by pipeline + web)
-│   ├── types.ts
-│   └── category-rules.ts
+│   ├── types.ts                 # All type definitions + BROWSE_CATEGORIES constant
+│   └── category-rules.ts       # Category + sub-category keyword rules
 │
 ├── docs/                        # PM documentation
 │   ├── prd.md
 │   ├── use-cases.md
-│   ├── technical-architecture.md
-│   ├── architecture-challenge.md
+│   ├── technical-architecture-v2.md
+│   ├── architecture-challenge-v2.md
+│   ├── architecture-challenge-v2.1.md
 │   ├── coding-standards.md      # This file
 │   └── roadmap.md
 │
@@ -216,9 +237,9 @@ export function DealCard({ deal, showStoreBadge = true }: DealCardProps) {
 }
 ```
 
-**State management:** No global state library for MVP. Use:
+**State management:** No global state library. Use:
 - `useState` for local UI state (expanded/collapsed, selected tab)
-- Data fetching hook (see Section 4) for server state
+- `useCachedQuery` hook for server state (see Section 4)
 - Props drilling for 1-2 levels. If deeper, refactor to composition.
 
 **shadcn/ui usage:**
@@ -237,6 +258,114 @@ return <ActualContent data={data} />
 ```tsx
 const cardClasses = 'rounded-lg border p-4 shadow-sm'
 ```
+
+### 3.1 Accessibility (WCAG 2.1 AA)
+
+All components must meet WCAG 2.1 AA. These are build requirements, not QA findings.
+
+**Contrast ratios:**
+
+| Element | Color | Contrast against white | Usage rule |
+|---------|-------|----------------------|-----------|
+| Migros orange | #FF6600 | 3.13:1 (fails AA normal text) | Use for backgrounds/badges with dark text only |
+| Migros text on white | #CC5200 | 4.6:1 (passes AA) | Use when orange text must appear on white |
+| Coop red | #E10A0A | ~4.0:1 (passes large text only) | Use for backgrounds/badges with white/dark text |
+| Coop text on white | #B80909 | Passes AA for normal text | Use when red text must appear on white |
+
+**Touch targets:** 44x44px minimum on all buttons, links, filter pills, deal cards.
+
+**Keyboard navigation:** Tab navigation through all interactive elements. Enter/Space to activate. Visible focus ring (2px solid, offset) on all interactive elements. Use `focus-visible` not `focus`.
+
+**Screen readers:**
+- Semantic HTML: `<nav>`, `<main>`, `<section>`, `<article>` -- not `<div>` everywhere.
+- `aria-label` on icon-only buttons (e.g., share button, copy button).
+- Store identity via `aria-label`, not just color. Example: `<span class="bg-migros" aria-label="Migros">` is wrong. Use `<span class="bg-migros">Migros</span>` with visible text.
+
+**No color-only information:** Store-colored elements always include a text label ("Migros", "Coop"). A colorblind user must be able to tell which store a deal belongs to from text alone.
+
+### 3.2 Store Color Convention
+
+Store colors are a core UX differentiator. Use consistently across all components.
+
+```tsx
+// Store color constants (define once in a shared location)
+const STORE_COLORS = {
+  migros: {
+    bg: '#FF6600',        // Badge/card backgrounds (dark text on top)
+    text: '#CC5200',      // Orange text on white backgrounds (WCAG AA)
+    label: 'Migros',
+  },
+  coop: {
+    bg: '#E10A0A',        // Badge/card backgrounds
+    text: '#B80909',      // Red text on white backgrounds (WCAG AA)
+    label: 'Coop',
+  },
+} as const
+```
+
+Every component that shows store identity (deal cards, verdict banners, category headers, split lists) must use these colors consistently. All neutral UI uses grey/white.
+
+### 3.3 Two-Tier Coop Status Messages
+
+The favorites comparison page must distinguish between two Coop states when a favorite item has no active Coop deal. This is a product-level pattern, not a one-off. Use it wherever Coop deal status is displayed on the comparison page.
+
+| Tier | Condition | Message | When to use |
+|------|-----------|---------|-------------|
+| **Tier 1** (confident) | Coop product exists in `products` table (has been seen in a promotion before) | "Not on promotion at Coop this week" | We know this product exists at Coop, it is just not on sale |
+| **Tier 2** (honest) | Coop product has NEVER been seen in `products` table | "No Coop data yet" | We have never seen this product at Coop |
+
+**Implementation:** The `getComparisonForFavorites` query function returns a `coopProductKnown: boolean` flag per item. The component uses this flag:
+
+```tsx
+// In the comparison item component
+function CoopStatus({ coopDeal, coopProductKnown }: { coopDeal: Deal | null, coopProductKnown: boolean }) {
+  if (coopDeal) return <DealCard deal={coopDeal} />
+  if (coopProductKnown) return <span>Not on promotion at Coop this week</span>
+  return <span>No Coop data yet</span>
+}
+```
+
+**Coop transparency label:** The comparison page always shows a permanent one-line label at the top: "Coop: showing promotions found. Not all Coop products are tracked yet."
+
+**Migros is always confident:** Migros has full catalog access, so it always shows either the deal or "Not on promotion at Migros this week". Never "No Migros data yet".
+
+### 3.4 Verdict Card (Wordle Card)
+
+The verdict card is the **primary growth mechanism** (WhatsApp screenshot sharing). It has specific coding patterns.
+
+**Rendering:** HTML/CSS with fixed dimensions. Use CSS `aspect-ratio`, large fonts (18px+ body, 24px+ headings), solid background colors. No gradients or fine borders that compress poorly in WhatsApp.
+
+**"Copy card" button -- lazy-load html2canvas:**
+```tsx
+async function handleCopyCard(cardRef: React.RefObject<HTMLDivElement>) {
+  // Lazy-load html2canvas -- do NOT import at top of file
+  const { default: html2canvas } = await import('html2canvas')
+
+  const canvas = await html2canvas(cardRef.current!)
+  const blob = await new Promise<Blob>((resolve) =>
+    canvas.toBlob((b) => resolve(b!), 'image/png')
+  )
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blob })
+    ])
+    // Show "Card copied!" toast
+  } catch {
+    // Fallback: download as file
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'basketch-verdict.png'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+}
+```
+
+**Why lazy-load:** `html2canvas` is ~40KB. Loading it eagerly would push the initial JS bundle over the 100KB gzipped target. Lazy-loading via `import()` on button click keeps the initial load fast for the < 2s mobile target.
+
+**Accessibility:** The card element must have an `aria-label` describing the verdict in text form. The "Copy card" button must have clear button text ("Copy verdict card"), not just an icon.
 
 ---
 
@@ -266,28 +395,102 @@ export const supabase = createClient(
 )
 ```
 
-### Data Fetching (Frontend)
+### Data Fetching (Frontend) -- `useCachedQuery` Hook
 
-**Decision pending:** React Query vs custom localStorage+fetch hook.
-
-Whichever approach is chosen, all data fetching must go through typed query functions in `web/src/lib/queries.ts`. Components never call `supabase.from()` directly.
+**Decision (ADR-005):** Custom `useCachedQuery` hook with `localStorage` caching. React Query is not used -- it adds 13KB for a problem that barely exists (data changes once per week).
 
 ```typescript
-// queries.ts -- the only file that touches Supabase in the frontend
+// web/src/lib/use-cached-query.ts
+function useCachedQuery<T>(key: string, fetcher: () => Promise<T>, staleMinutes = 60) {
+  // 1. Check localStorage for cached data + timestamp
+  // 2. If cache is fresh (< staleMinutes old), return cached data
+  // 3. Otherwise, fetch from Supabase, cache result, return data
+  // 4. Handle loading/error states with useState
+  // Returns: { data: T | null, isLoading: boolean, error: Error | null }
+}
+```
+
+**Usage in components:**
+```tsx
+function DealsPage() {
+  const { data: deals, isLoading, error } = useCachedQuery(
+    'deals-fresh',
+    () => getDealsByCategory('fresh')
+  )
+
+  if (isLoading) return <Skeleton />
+  if (error) return <ErrorMessage error={error} />
+  return <DealsList deals={deals!} />
+}
+```
+
+**Rules:**
+- All data fetching goes through typed query functions in `web/src/lib/queries.ts`. Components never call `supabase.from()` directly.
+- The `useCachedQuery` hook is the only way components fetch data. Do not use raw `useEffect` + `fetch`.
+- Cache stale time: 60 minutes (default). Data changes weekly, so 1-hour caching is conservative.
+
+### Query Functions
+
+All in `web/src/lib/queries.ts` -- the only file that touches Supabase in the frontend:
+
+```typescript
 export async function getActiveDeals(): Promise<Deal[]> { ... }
 export async function getDealsByCategory(category: Category): Promise<Deal[]> { ... }
+export async function getDealsBySubCategory(subCategory: string): Promise<Deal[]> { ... }
+export async function getDealsBrowse(browseCategory: string): Promise<Deal[]> { ... }
 export async function getLatestPipelineRun(): Promise<PipelineRun | null> { ... }
+export async function getStarterPacks(): Promise<StarterPack[]> { ... }
+export async function searchProducts(query: string): Promise<SearchResult[]> { ... }
+export async function saveFavorites(items: FavoriteItem[], email?: string): Promise<string> { ... }
+export async function getFavoritesByEmail(email: string): Promise<Favorite | null> { ... }
+export async function getFavoriteById(favoriteId: string): Promise<Favorite | null> { ... }
+export async function getComparisonForFavorites(favoriteId: string): Promise<FavoriteComparison[]> { ... }
+export async function getProductGroups(): Promise<ProductGroupRow[]> { ... }
 ```
+
+### Date Filter Safety Net
+
+All frontend deal queries must include a date filter to prevent showing expired deals if the pipeline fails to mark them inactive:
+
+```typescript
+const today = new Date().toISOString().split('T')[0]
+const { data } = await supabase
+  .from('deals')
+  .select('*')
+  .eq('is_active', true)
+  .gte('valid_to', today)  // Safety net: only show deals still valid
+  .order('discount_percent', { ascending: false })
+```
+
+### Browse Category Mapping
+
+The deals browsing page uses 11 browse categories that map to 23 DB sub-categories. This mapping is defined once in `shared/types.ts` as the `BROWSE_CATEGORIES` constant:
+
+| Browse Category | DB `sub_category` values |
+|----------------|--------------------------|
+| Fruits & Vegetables | `fruit`, `vegetables` |
+| Meat & Fish | `meat`, `poultry`, `fish` |
+| Dairy & Eggs | `dairy`, `eggs` |
+| Bakery | `bread` |
+| Snacks & Sweets | `snacks`, `chocolate` |
+| Pasta, Rice & More | `pasta-rice` |
+| Drinks | `drinks`, `coffee-tea` |
+| Ready Meals & Frozen | `ready-meals`, `frozen`, `deli` |
+| Pantry & Canned | `canned`, `condiments` |
+| Home & Cleaning | `cleaning`, `laundry`, `paper-goods`, `household` |
+| Beauty & Hygiene | `personal-care` |
+
+Deals with `sub_category = null` (unmapped products) appear only in the "All" view. Do not create a separate category for them.
 
 ### Type Safety
 
 - All Supabase responses must be typed. Use the `DealRow` interface for raw database rows, then map to `Deal` for application use.
 - The `Deal` interface (camelCase) is for application logic. The `DealRow` interface (snake_case) is for database interaction. Map between them explicitly.
-- `discount_percent` must be non-null after pipeline processing. If the source provides no discount, calculate it from `original_price` and `sale_price`. If neither is available, exclude the deal.
+- `discount_percent` is NOT NULL in the database. The pipeline calculates it from `original_price` and `sale_price` if the source does not provide it. Deals without a calculable discount are excluded entirely.
 
 ### Caching
 
-- Frontend: cache Supabase responses for 1 hour (data changes weekly)
+- Frontend: `useCachedQuery` with `localStorage` + 1-hour stale time (data changes weekly)
 - Pipeline: no caching -- always fetch fresh data from sources
 
 ---
@@ -312,6 +515,34 @@ Rules:
 - Return an empty array on failure. Never throw. The pipeline must continue with other sources.
 - Log errors with context: what failed, what data was being processed, what to check.
 - Every field in `UnifiedDeal` must be present (use `null` for missing optional fields, not `undefined`).
+
+### Pipeline Data Flow (v2.1)
+
+The pipeline runs these steps in order:
+
+```
+Raw API/HTML
+  --> normalize (lowercase, collapse whitespace, standardize units)
+  --> extract metadata (brand, quantity, unit, organic flag) via metadata.ts
+  --> categorize (category + sub_category) via categorize.ts
+  --> resolve product (find/create in products table) via resolve-product.ts
+  --> upsert deal with product_id via store.ts
+  --> log pipeline run
+```
+
+### Metadata Extraction
+
+`pipeline/metadata.ts` is a **pure function** -- no side effects, no Supabase calls. Returns `ProductMetadata` from a product name string.
+
+```typescript
+export function extractMetadata(productName: string, store: Store): ProductMetadata
+```
+
+| Field | Method |
+|-------|--------|
+| brand | Match against hardcoded Swiss brand list (M-Budget, Naturaplan, Prix Garantie, etc.) |
+| quantity + unit | Regex for amounts, multi-packs, piece counts |
+| is_organic | Name contains "bio", "naturaplan", "demeter", "knospe", "organic" |
 
 ### Product Name Normalisation
 
@@ -339,6 +570,7 @@ Examples:
 [migros] [WARN] Empty response on page 6 — stopping pagination
 [coop] [ERROR] Failed to parse deal card (url=https://aktionis.ch/products/123, error=missing price element)
 [storage] [INFO] Upserted 287 deals (142 migros, 145 coop)
+[products] [INFO] Products: 5 new, 120 updated, 3 auto-matched to groups
 ```
 
 Levels: `INFO` (normal operation), `WARN` (unexpected but recovered), `ERROR` (failed but pipeline continues).
@@ -356,10 +588,14 @@ Access via `process.env` (pipeline) or `import.meta.env` (frontend). Never hardc
 | Layer | What to test | Tool | Priority |
 |-------|-------------|------|----------|
 | Pipeline: source parsing | API/HTML response parsing, normalisation to UnifiedDeal | Vitest / pytest | High |
-| Pipeline: categoriser | Keyword matching, edge cases, default category | Vitest | High |
+| Pipeline: metadata extraction | Brand, quantity, organic detection across 30+ fixture names | Vitest | High |
+| Pipeline: categoriser | Keyword matching, sub-category assignment, edge cases, default category | Vitest | High |
+| Pipeline: product resolver | Find/create logic, product_group matching | Vitest (mock Supabase) | Medium |
 | Pipeline: storage | Upsert logic, conflict handling, expiry marking | Vitest (mock Supabase) | Medium |
-| Frontend: verdict logic | Score calculation, tie detection, edge cases | Vitest | High |
-| Frontend: queries | Query construction, response mapping | Vitest (mock Supabase) | Medium |
+| Frontend: verdict logic | Score calculation, tie detection, minimum threshold, edge cases | Vitest | High |
+| Frontend: useCachedQuery | Cache hit/miss, stale detection, error handling | Vitest | Medium |
+| Frontend: queries | Query construction, response mapping, date filter safety net | Vitest (mock Supabase) | Medium |
+| Frontend: two-tier Coop status | Tier 1 vs Tier 2 message selection based on `coopProductKnown` | Vitest | Medium |
 | Frontend: components | Rendering with mock data | Vitest + Testing Library | Low |
 
 ### What NOT to Test
@@ -413,8 +649,9 @@ cd web && npx vitest
 
 - **Error boundaries:** One at the page level. Catches rendering errors and shows a fallback UI.
 - **Data fetch errors:** Show a user-friendly message ("Could not load deals. Please try again later.") -- never raw error objects or stack traces.
-- **Stale data warning:** If `pipeline_runs.run_at` is more than 8 days old, show a banner: "Deals may be outdated -- last updated [date]."
+- **Stale data warning:** If `pipeline_runs.run_at` is more than 7 days old, show an amber banner: "Deals may be outdated -- last updated [date]."
 - **Partial data:** If only one store has data, show deals for that store with a note: "[Store] data unavailable this week."
+- **Empty browse category:** If a store has zero deals in a selected category, show "No [Store] deals in this category this week" in that store's column/section. Do not collapse the empty column.
 
 ### Supabase Errors
 
@@ -544,15 +781,23 @@ When Claude Code writes code for basketch:
 
 5. **Handle all three states.** Every data-fetching component must handle loading, error, and success states.
 
-6. **Run tests before reporting done.** After writing code, run `npx vitest run` (or `python -m pytest`) and confirm tests pass.
+6. **Use `useCachedQuery` for data fetching.** Do not use React Query, raw `useEffect` + `fetch`, or direct Supabase calls in components.
 
-7. **One module at a time.** Follow the AC/DC loop: build one module, self-verify, get reviewed, fix issues, then move to the next.
+7. **Run tests before reporting done.** After writing code, run `npx vitest run` (or `python -m pytest`) and confirm tests pass.
 
-8. **If a standard conflicts with a user request,** follow the user request and note the deviation in a comment.
+8. **One module at a time.** Follow the AC/DC loop: build one module, self-verify, get reviewed, fix issues, then move to the next.
 
-9. **Never commit `.env` files or secrets.** Check `.gitignore` before committing.
+9. **If a standard conflicts with a user request,** follow the user request and note the deviation in a comment.
 
-10. **Preserve existing patterns.** If the codebase already uses a pattern (e.g., a specific error handling style), follow it -- do not introduce a competing pattern.
+10. **Never commit `.env` files or secrets.** Check `.gitignore` before committing.
+
+11. **Preserve existing patterns.** If the codebase already uses a pattern (e.g., a specific error handling style), follow it -- do not introduce a competing pattern.
+
+12. **Accessibility is a build requirement.** 44px touch targets, `focus-visible` rings, semantic HTML, WCAG AA contrast -- these are not optional. Check them during self-verification.
+
+13. **Lazy-load heavy libraries.** `html2canvas` and similar large dependencies must be loaded via dynamic `import()` on user action, not at page load.
+
+14. **Two-tier Coop status.** On the comparison page, always check `coopProductKnown` before displaying Coop status. Never show "Not on promotion" when the correct message is "No Coop data yet".
 
 ---
 
@@ -582,8 +827,8 @@ Before reporting a module as done, the builder must pass all four:
 |------|-------|
 | 1. Compiles | `npx tsc --noEmit` (TypeScript) or `python -c "import module"` (Python) |
 | 2. Tests pass | `npx vitest run` or `python -m pytest` |
-| 3. Standards | File naming, import order, export pattern, error handling match this document |
-| 4. Architecture | Module boundary, interface, and data flow match `technical-architecture.md` |
+| 3. Standards | File naming, import order, export pattern, error handling, accessibility match this document |
+| 4. Architecture | Module boundary, interface, and data flow match `technical-architecture-v2.md` |
 
 ### Rules
 

@@ -8,7 +8,7 @@ from bs4 import Tag
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://aktionis.ch"
+SITE_ROOT = "https://aktionis.ch"
 
 
 def normalize_product_name(raw: str) -> str:
@@ -167,7 +167,7 @@ def normalize_coop_deal(raw_data: dict) -> dict | None:
 
         # Source URL
         href = raw_data.get("href")
-        source_url = f"{BASE_URL}{href}" if href else None
+        source_url = f"{SITE_ROOT}{href}" if href else None
 
         return {
             "store": "coop",

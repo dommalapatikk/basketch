@@ -8,7 +8,8 @@ import type {
   WeeklyVerdict,
 } from '@shared/types'
 
-import { TIE_THRESHOLD, VERDICT_WEIGHTS } from '@shared/category-rules'
+import { TIE_THRESHOLD, MIN_DEALS_FOR_VERDICT } from '@shared/types'
+import { VERDICT_WEIGHTS } from '@shared/category-rules'
 
 const ALL_CATEGORIES: Category[] = ['fresh', 'long-life', 'non-food']
 
@@ -48,6 +49,7 @@ export function averageDiscount(deals: DealRow[]): number {
 /**
  * Score a store's deals within a category (0-100 scale).
  * Weighted combination of deal count and average discount.
+ * Formula: 40% deal count + 60% avg discount depth.
  */
 export function scoreStore(
   storeDeals: DealRow[],
@@ -74,22 +76,43 @@ export function scoreStore(
 
 /**
  * Compute verdict for a single category.
+ * If either store has fewer than MIN_DEALS_FOR_VERDICT deals,
+ * winner is 'tie' with both scores at 0 (insufficient data).
  */
 export function computeCategoryVerdict(
   category: Category,
   migrosDeals: DealRow[],
   coopDeals: DealRow[],
 ): CategoryVerdict {
-  const maxDeals = Math.max(migrosDeals.length, coopDeals.length)
   const migrosAvg = averageDiscount(migrosDeals)
   const coopAvg = averageDiscount(coopDeals)
+
+  // Insufficient data: need MIN_DEALS_FOR_VERDICT from BOTH stores
+  if (migrosDeals.length < MIN_DEALS_FOR_VERDICT || coopDeals.length < MIN_DEALS_FOR_VERDICT) {
+    return {
+      category,
+      winner: 'tie',
+      migrosScore: 0,
+      coopScore: 0,
+      migrosDeals: migrosDeals.length,
+      coopDeals: coopDeals.length,
+      migrosAvgDiscount: migrosAvg,
+      coopAvgDiscount: coopAvg,
+    }
+  }
+
+  const maxDeals = Math.max(migrosDeals.length, coopDeals.length)
   const maxAvgDiscount = Math.max(migrosAvg, coopAvg)
 
   const migrosScore = scoreStore(migrosDeals, maxDeals, maxAvgDiscount)
   const coopScore = scoreStore(coopDeals, maxDeals, maxAvgDiscount)
 
   let winner: Store | 'tie' = 'tie'
-  if (Math.abs(migrosScore - coopScore) <= TIE_THRESHOLD) {
+  const diff = Math.abs(migrosScore - coopScore)
+  const maxScore = Math.max(migrosScore, coopScore)
+  const relativeDiff = maxScore > 0 ? diff / maxScore : 0
+
+  if (relativeDiff <= TIE_THRESHOLD) {
     winner = 'tie'
   } else if (migrosScore > coopScore) {
     winner = 'migros'
@@ -143,4 +166,20 @@ export function computeWeeklyVerdict(
     dataFreshness,
     lastUpdated: new Date().toISOString(),
   }
+}
+
+/**
+ * Calculate the overall verdict across all categories.
+ * Convenience wrapper used by components.
+ */
+export function calculateVerdict(deals: DealRow[]): WeeklyVerdict {
+  const now = new Date()
+  // Find the most recent Thursday (deals week start)
+  const day = now.getDay()
+  const diff = (day + 3) % 7 // days since last Thursday
+  const thursday = new Date(now)
+  thursday.setDate(now.getDate() - diff)
+  const weekOf = thursday.toISOString().slice(0, 10)
+
+  return computeWeeklyVerdict(deals, weekOf)
 }

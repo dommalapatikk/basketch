@@ -1,22 +1,76 @@
 # Product Requirements Document: basketch
 
 **Author:** Kiran Dommalapati
-**Version:** 1.0
-**Date:** 9 April 2026
+**Version:** 2.0
+**Date:** 12 April 2026
 **Status:** Draft
 
 ---
 
 ## 1. Problem Statement
 
-Swiss residents who shop at both Migros and Coop have no easy way to know which store has better deals this week for the items they actually buy. Every weekend, you either:
+Swiss residents who shop at both Migros and Coop have no easy way to know which store has the best promotions this week for the items they actually buy. Every weekend, you either:
 - Check both websites manually (time-consuming)
-- Pick one store and hope for the best (miss savings)
-- Buy everything at one store out of habit (overpay on items the other store has on sale)
+- Pick one store and hope for the best (miss promotions at the other)
+- Buy everything at one store out of habit (miss deals the other store has this week)
 
-The result: you overspend on groceries because comparing weekly promotions across two stores is tedious.
+The result: you miss weekly promotions because comparing them across two stores is tedious.
 
-Existing deal sites like aktionis.ch and Rappn show everyone the same 200+ deals — but shoppers only care about their 15-20 regular items. The problem is not "which deals exist" but "which of MY products are cheaper where this week."
+Existing deal sites like aktionis.ch and Rappn show everyone the same 200+ deals — but shoppers only care about their 15-20 regular items. The problem is not "which deals exist" but "which of MY products are on promotion this week, and where."
+
+---
+
+## 1b. Value Proposition
+
+### The Promise
+
+> **"Your weekly promotions, compared. Migros vs Coop."**
+
+basketch shows you which of your regular grocery items are on promotion this week — and at which store — before you leave the house. Setup once in 60 seconds, check every week in 30 seconds.
+
+### What basketch IS
+
+A **promotions comparison tool**. It answers: "Which of MY items are on sale this week, and where?"
+
+- See your regular items matched against this week's Migros and Coop promotions
+- Get a weekly verdict: "More fresh deals at Migros, more household deals at Coop"
+- Browse all promotions by category, grouped by store
+- Know before Saturday morning where to go for what
+
+### What basketch is NOT
+
+A **price comparison tool**. It does NOT answer: "Which store is cheaper overall for milk?"
+
+basketch does not compare regular shelf prices across stores. It compares weekly promotions only.
+
+### Why Promotions, Not Prices (Strategic Product Decision)
+
+This is a deliberate product choice based on data reality and user value:
+
+**Data reality:**
+- Coop's regular prices are not publicly available (aktionis.ch provides promotional items only, coop.ch blocks automated access)
+- Migros regular prices ARE available, but showing them without Coop equivalents would be misleading and unfair
+- Both stores' promotional data is available in the same format — the comparison is fair and verifiable
+
+**Why this is better for the user:**
+1. **Regular prices are stable and learnable.** You already know roughly what Migros milk costs. You don't need a tool for information that doesn't change.
+2. **Promotions change every week and are unpredictable.** You cannot know this week's deals without checking. This is the information asymmetry a tool resolves.
+3. **Promotions drive the weekly store decision.** Nobody switches stores because Migros milk is 5 Rappen cheaper every week. People switch because Coop has 40% off chicken THIS WEEK. The promotion is the trigger.
+4. **The comparison is fair.** Both data sources provide promotional data (sale price, original price, discount %, validity dates, images). No asterisks. No "data may be incomplete" disclaimers.
+
+**What this means for the product:**
+- Every claim basketch makes is verifiable by the user
+- "On sale at Migros: milk (-25%)" is a fact, not an inference
+- Trust is built through precision, not through promising more than the data supports
+- Swiss consumers respect honesty over hype — this positioning fits the market
+
+### The Tagline Options
+
+| Language | Audience |
+|----------|---------|
+| "Your weekly promotions, compared." | English UI |
+| "Migros und Coop Aktionen — auf einen Blick." | German (future) |
+| "What's on sale before you shop." | Casual/social sharing |
 
 ---
 
@@ -28,30 +82,20 @@ Existing deal sites like aktionis.ch and Rappn show everyone the same 200+ deals
 - Lives in a Swiss city (Bern, Zurich, Basel)
 - Shops once or twice a week, usually Saturday
 - Buys a mix of fresh food, pantry staples, and household items
-- Willing to visit both Migros and Coop if the savings justify it
+- Willing to visit both Migros and Coop if the promotions justify it
 - Does not want to install an app or create an account
 
-**Scale:** 10-50 users initially (friends and word of mouth).
+**Scale:** 10-50 users (Kiran + friends in Bern). A real product for a tiny audience, documented like a portfolio project.
 
-**Region:** Bern only (MVP). Expandable to Zurich, Basel, and other Swiss regions later.
+**Region:** Bern only (V1). Expandable to Zurich, Basel, and other Swiss regions later.
 
 ---
 
 ## 3. User Stories
 
-### Epic 1: Personal Favorites (MVP)
+### Epic 1: Weekly Verdict & Deals Browsing (First-Visit Experience)
 
-**US-1:** As a shopper, I want to quickly set up my regular products using a starter pack template (Indian Kitchen, Swiss Basics, etc.), so I don't have to add items one by one.
-
-**US-2:** As a shopper, I want to see which of MY favorite items are on sale this week and at which store, so I know where to buy each item.
-
-**US-3:** As a shopper, I want a split shopping list ("buy these at Migros, buy these at Coop"), so I can go to each store with a clear list.
-
-**US-4:** As a shopper, I want to save my favorites with my email address (no password), so I can access them from any device next week.
-
-**US-5:** As a shopper, I want to search for products and add/remove them from my favorites, so my list stays up to date.
-
-### Epic 2: Weekly Deals Overview (v2)
+The verdict and deals browsing are the **aha moment** — they work for everyone on day one, require zero setup, and use symmetric data from both stores. This is what Sarah sees first.
 
 **US-6:** As a shopper, I want to see this week's best deals from Migros and Coop side by side, so I can decide which store to visit for each category.
 
@@ -59,9 +103,94 @@ Existing deal sites like aktionis.ch and Rappn show everyone the same 200+ deals
 
 **US-8:** As a shopper, I want to see the discount percentage and original price, so I can judge if a deal is worth acting on.
 
-**US-9:** As a shopper, I want a simple weekly verdict ("Go to Migros for vegetables, Coop for household"), so I get the answer in 5 seconds without scrolling.
+**US-9:** As a shopper, I want a simple weekly verdict ("More vegetable promotions at Migros, more household deals at Coop"), so I know where the promotions are in 5 seconds without scrolling.
 
-### Epic 3: Notifications (v3 - future)
+**US-12:** As a shopper, I want to browse all deals by granular sub-category (e.g., Dairy & Eggs, Drinks, Snacks & Sweets), with Migros and Coop deals grouped separately, so I can compare what each store offers in a specific product area.
+
+### Epic 2: Personal Favorites (Retention Feature)
+
+Favorites are the **retention moment** — they become powerful after the user already trusts the verdict and has the weekly habit. Favorites require setup and depend on asymmetric data (Migros full catalog, Coop promotions only), so they are layered on after the first-visit experience.
+
+**US-1:** As a shopper, I want to quickly set up my regular products using a starter pack template, so I don't have to add items one by one.
+
+**Starter Pack Templates (5 packs):**
+
+| # | Pack Name | Target Segment | Coverage |
+|---|-----------|---------------|----------|
+| 1 | Swiss Basics | Default Swiss household | 30% |
+| 2 | Indian Kitchen | Indian expat or enthusiast | 5% |
+| 3 | Mediterranean | Italian-style cooking (mainstream in CH) | 15% |
+| 4 | Studentenküche | Students, budget-first | 15% |
+| 5 | Familientisch | Families with children | 15% |
+
+Each pack contains 15-16 items with specific product keywords. See `docs/starter-pack-research.md` for full item lists. Users can also build a custom list from scratch via search.
+
+**Pre-launch requirement:** Run the pipeline 2-3 weeks before sharing with friends to accumulate Coop product history. Validate every starter pack item against actual promotional data. If more than 3 items in a pack have zero Coop history, swap them for items that do.
+
+**US-2:** As a shopper, I want to see which of MY favorite items are on promotion this week and at which store, so I know what's on sale where.
+
+**US-3:** As a shopper, I want a split shopping list ("on sale at Migros: milk, bread / on sale at Coop: cheese, yogurt"), so I can go to each store knowing what's on promotion there.
+
+**US-4:** As a shopper, I want to save my favorites via a unique bookmarkable URL or email address, so I can access them next week without creating an account.
+
+**Dual return paths (both primary):**
+- **Direct URL** (`/compare/:favoriteId`) — stable, unguessable (UUID-based), works across devices. For users who bookmark or share the link.
+- **Email lookup** — enter the email saved during onboarding to retrieve the comparison. For users who clear browsers, switch devices, or don't use bookmarks.
+Both paths are equally supported. Neither is a fallback.
+
+**US-5:** As a shopper, I want to search for products and add/remove them from my favorites, so my list stays up to date.
+
+**Coop data transparency (two-tier status messages):**
+
+Because Coop data is promotional-only, the favorites comparison must communicate what we know honestly:
+
+| Situation | Migros shows | Coop shows |
+|-----------|-------------|-----------|
+| Item on sale at both | Sale price + discount % | Sale price + discount % |
+| Item on sale at Migros only, Coop product known | Sale price + discount % | "Not on promotion at Coop this week" |
+| Item on sale at Migros only, Coop product unknown | Sale price + discount % | "No Coop data yet" |
+| Item on sale at Coop only | "Not on promotion at Migros this week" | Sale price + discount % |
+| Neither on sale, Coop known | "Not on promotion this week" | "Not on promotion this week" |
+| Neither on sale, Coop unknown | "Not on promotion this week" | "No Coop data yet" |
+
+Plus a permanent one-line label on the favorites comparison page: "Coop: showing promotions found. Not all Coop products are tracked yet."
+
+Coop coverage improves naturally: ~60% at launch (after 2-3 pipeline runs), ~80% by week 4, ~90%+ by week 12.
+
+**Verdict Calculation:**
+- **Formula:** 40% deal count + 60% average discount depth per category per store
+- **Tie threshold:** If stores are within 5% of each other, verdict is "It's a tie"
+- **Per-category verdicts:** Each of the 3 categories (Fresh, Long-life, Non-food) gets its own winner
+- **Overall verdict:** Summarizes category winners in one sentence
+
+**Verdict Display States:**
+| State | Display |
+|-------|---------|
+| Normal | "More fresh deals at Migros, more household deals at Coop this week" — store names in store colors (Migros orange, Coop red) |
+| Tie | "Similar promotions at both stores this week" |
+| Stale data (> 7 days) | Verdict shown + amber warning: "Deals may be outdated — last updated [date]" |
+| Partial data (one store missing) | "Partial data — [store] unavailable this week" |
+| No data | Verdict banner not shown |
+| Minimum threshold | If a category has fewer than 3 deals from a store, show "Not enough data" instead of a verdict for that category |
+
+**Deals Browsing Page (`/deals`):**
+- 11 browsable sub-categories: Fruits & Vegetables, Meat & Fish, Dairy & Eggs, Bakery, Snacks & Sweets, Pasta/Rice & More, Drinks, Ready Meals & Frozen, Pantry & Canned, Home & Cleaning, Beauty & Hygiene (plus "All")
+- Deals grouped by store within each category (desktop: side-by-side columns; mobile: stacked sections)
+- Sorted by discount % descending within each store group
+- Category filter via pill-style toggles
+- 50-deal display cap per store group, with "Show more" expansion
+
+**Verdict transparency:** Show a one-line explanation under the verdict: "Based on 12 Migros deals (avg 28% off) vs 8 Coop deals (avg 22% off)." Users must be able to verify why the verdict was reached. A black-box verdict erodes trust.
+
+**Verdict card (shareable "Wordle card"):** The verdict must also render as a standalone visual card optimized for WhatsApp screenshot sharing. The card must:
+- Be self-contained (readable without visiting basketch)
+- Show store name, category, deal count, and avg discount per category
+- Include basketch.ch branding
+- Be readable after WhatsApp image compression
+- Include a "Copy card" button for easy sharing
+- See `docs/whatsapp-sharing-guide.md` for the full concept
+
+### Epic 3: Notifications (future)
 
 **US-10:** As a shopper, I want to receive an email every Thursday evening with my personalized deals, so I'm prepared before the weekend.
 
@@ -84,21 +213,41 @@ Existing deal sites like aktionis.ch and Rappn show everyone the same 200+ deals
 ```
 basketch.ch (or basketch.vercel.app)
 |
-+-- / (Home)
-|   +-- Weekly Verdict: "This week: Migros wins for Fresh, Coop wins for Household"
-|   +-- Three category cards (Fresh / Long-life / Non-food)
-|   +-- Each card: top deals from both stores, side by side
++-- / (Home — first-visit experience, zero setup required)
+|   +-- Weekly Promotions Verdict banner + shareable Wordle card
+|   +-- Verdict explanation line ("Based on X deals, avg Y% off")
+|   +-- Three category cards (Fresh / Long-life / Non-food) with top deals
+|   +-- "Track your items" CTA → links to /onboarding
+|   +-- "Already have a list?" email lookup (returning users)
 |
-+-- /basket/[id] (Personal basket - v2)
-|   +-- User's selected items
-|   +-- Which are on sale this week, at which store
-|   +-- Edit basket button
-|   +-- Add email for notifications
++-- /deals (browse all promotions, zero setup)
+|   +-- Browse all deals by sub-category (11 categories + "All")
+|   +-- Migros vs Coop grouped per category
+|   +-- Category filter pills
+|
++-- /onboarding (favorites setup — after user trusts the verdict)
+|   +-- Starter pack template selection (5 packs + custom)
+|   +-- Item customization (remove/add/search)
+|   +-- 30-item soft cap with nudge
+|   +-- Redirects to /compare/:favoriteId on completion
+|
++-- /compare/:favoriteId (personalized comparison — retention hook)
+|   +-- Personalized comparison with this week's promotions
+|   +-- Split list: "On sale at Migros" / "On sale at Coop" / "No deals"
+|   +-- Two-tier Coop status messages (see Epic 2)
+|   +-- Coop transparency label
+|   +-- "Save this list" with copy/share URL + email save
+|   +-- Data freshness indicator
 |
 +-- /about
-    +-- How it works
-    +-- Data sources
-    +-- Built by Kiran Dommalapati
+|   +-- How it works
+|   +-- Data sources (transparency)
+|   +-- Built by Kiran Dommalapati
+|
++-- /* (404)
+    +-- "Page not found" message
+    +-- Link back to home
+    +-- Consistent header/footer
 ```
 
 ---
@@ -125,14 +274,42 @@ Both Migros and Coop operate on a **Thursday → Wednesday** weekly deal cycle.
 
 ### Data Model (Supabase tables)
 
-**deals**
-- id, store (migros/coop), product_name, category (fresh/long-life/non-food), original_price, sale_price, discount_percent, valid_from, valid_to, image_url, fetched_at
+**products** (stable product identity across weeks)
+- id, store (migros/coop), canonical_name (normalized), source_name (raw from API)
+- brand (extracted: M-Budget, Naturaplan, Prix Garantie, etc.)
+- quantity, unit (parsed: "1l", "250g", "4x150g")
+- category (fresh/long-life/non-food), sub_category (dairy, meat, drinks, cleaning, etc.)
+- is_organic (detected from: bio, naturaplan, demeter, knospe)
+- product_group_id (FK — links equivalent products across stores)
+- regular_price (non-promotional shelf price, when available)
+- first_seen_at, updated_at
 
-**baskets** (v2)
-- id, name, created_at, email (optional)
+**product_groups** (cross-store matching reference data)
+- id, name (e.g., "milk-whole-1l"), display_name ("Whole Milk 1L")
+- search_keywords (array — for favorites matching)
+- category, sub_category
+- ~30-40 groups initially, seeded from starter pack items
 
-**basket_items** (v2)
-- basket_id, product_keyword, category
+**deals** (weekly promotions — one row per product per week)
+- id, product_id (FK), store (migros/coop)
+- product_name, category, sub_category
+- original_price, sale_price, discount_percent (non-null, calculated if missing)
+- valid_from, valid_to, image_url, fetched_at
+
+**baskets**- id (UUID, unguessable), name, created_at, email (optional)
+
+**basket_items**- basket_id, product_group_id (preferred) or product_keyword (fallback), category
+
+**Sub-categories** (15-20 flat, not hierarchical):
+dairy, meat, poultry, fish, bread, fruit, vegetables, eggs, deli, ready-meals, pasta-rice, canned, drinks, snacks, chocolate, coffee-tea, condiments, frozen, cleaning, laundry, personal-care, paper-goods, household
+
+**Pipeline metadata extraction** (runs during weekly fetch):
+- Brand extraction from product name
+- Quantity + unit parsing (regex)
+- Organic detection (keyword list)
+- Sub-category assignment (keyword rules)
+
+See `docs/product-data-architecture.md` for full schema, migration plan, and matching logic.
 
 ### Data Pipeline
 
@@ -143,24 +320,56 @@ Both Migros and Coop operate on a **Thursday → Wednesday** weekly deal cycle.
 
 ---
 
+## 6b. Data Scope and Limitations (Transparency)
+
+basketch compares **weekly promotions**, not regular shelf prices. This is a deliberate product choice, not a limitation.
+
+| What basketch compares | What basketch does NOT compare |
+|------------------------|-------------------------------|
+| Promotional/sale prices from both stores | Regular shelf prices across stores |
+| Discount percentages (% off) from both stores | "Which store is cheaper overall for milk" |
+| Number and depth of promotions per category | Full product catalogs (Coop catalog not available) |
+| Which of YOUR items are on promotion this week | Which store has the lowest regular price |
+
+**Why promotions, not prices:**
+- Regular prices are **stable and learnable** — you already know Migros milk costs ~CHF 1.80
+- Promotions **change every week** and are unpredictable — that's where a tool adds value
+- Promotions are the **trigger for store-switching** — nobody changes stores for 5 Rappen, but 40% off chicken changes the plan
+- The comparison is **fair and verifiable** — both sources provide promotional data in the same format
+
+**Data asymmetry (documented for transparency):**
+- **Migros:** Full catalog + regular prices + promotional prices available (via migros-api-wrapper)
+- **Coop:** Promotional items only available (via aktionis.ch) — no regular prices, no full catalog, no source categories
+- Migros regular prices are NOT shown in the UI because showing them without Coop equivalents would be misleading
+
+See `docs/data-capability-analysis.md` for the full technical analysis of each data source.
+
+---
+
 ## 7. Non-Functional Requirements
 
 | Requirement | Target |
 |-------------|--------|
 | **Load time** | < 2 seconds on 4G |
 | **Mobile-first** | Works on phone browser, no app needed |
+| **Store identity through color** | Migros = orange (#FF6600), Coop = red (#E10A0A). Users must never need to read text to know which store a deal belongs to. Color is the primary differentiator across deal cards, verdict banners, category headers, and split lists. All other UI colors are neutral. |
+| **Accessibility (WCAG 2.1 AA)** | 4.5:1 contrast ratio for normal text, 3:1 for large text. 44x44px minimum touch targets. All interactive elements keyboard accessible. Focus states visible. Screen reader support (aria-labels on buttons, semantic HTML). No information conveyed by color alone — store-colored elements must also have text labels. |
+| **Social sharing (OG meta tags)** | All pages must include Open Graph tags (`og:title`, `og:description`, `og:url`, `og:image`) for WhatsApp/social link previews. Without these, shared links appear as bare URLs — breaking the WhatsApp growth channel. Social preview image: 1200x630px with basketch branding. Also: `twitter:card`, `canonical`, `theme-color`, `apple-touch-icon`. |
+| **Data freshness visibility** | Every page showing deals must display when data was last updated (e.g., "Deals updated: Thu 10 Apr"). If data is > 7 days old, show amber warning: "Deals may be outdated — last updated [date]". If one store's data is missing: "[Store] data unavailable this week". Users must always know how fresh the data is. |
 | **No login** | Baskets accessed via unique URL, no account creation |
 | **Cost** | CHF 0/month (all free tiers) |
 | **Privacy** | No tracking beyond basic analytics. No personal data stored except optional email. |
 | **Availability** | Best-effort (free hosting). Acceptable downtime. |
-| **Language** | English UI (MVP). German product names from source data. German UI added later if demand exists. |
+| **Language** | English UI (V1). German product names from source data. German UI added later if demand exists. |
 
 ---
 
 ## 8. Success Metrics
 
 ### North Star Metric
-**Personalized comparisons viewed** — unique users who see their favorites comparison in a distinct week. This captures core value delivered: showing you which of YOUR items are on sale where.
+**Weekly comparison rate** — % of active baskets that viewed a comparison this week. This captures retention and core value delivery: are people coming back to check their promotions?
+
+Formula: (baskets that viewed a comparison this week) / (total baskets created) × 100. Target: 50%+ after month 2.
 
 ### Activation Metric
 **User adds 5+ favorites and views first personalized comparison.**
@@ -183,8 +392,24 @@ Both Migros and Coop operate on a **Thursday → Wednesday** weekly deal cycle.
 |--------|--------|-------|
 | Baskets created | 10+ | Phase 2 |
 | Email subscribers | 5+ | Phase 3 |
-| Unprompted shares | 2-3 friends sharing with others | Organic — watch for it |
+| Unprompted shares | 2-3 friends sharing verdict cards in WhatsApp groups | Organic — watch for it |
+| Verdict screenshots shared | 5+/week in WhatsApp groups | Track via "Copy card" button usage |
 | SEO organic visitors | 50+/week | 3 months post-launch |
+
+### Kill Criteria (Annie Duke Framework)
+
+Define in advance what evidence would make us stop, pivot, or change course:
+
+| Signal | Threshold | Action |
+|--------|-----------|--------|
+| Data quality | < 70% of deals correctly categorized after keyword rules | Pause frontend work, fix pipeline first |
+| Friends beta retention | < 3 out of 10 friends return in week 2 | Investigate — is it the product or the habit? |
+| PMF survey | < 20% "Very Disappointed" | Pivot: either comparison is not useful, or favorites matching is wrong |
+| Verdict trust | 3+ users say "the verdict felt wrong" | Revisit formula before iterating on features |
+| Pipeline reliability | 2+ consecutive weeks of failed fetches | Fix infrastructure before adding features |
+| Onboarding drop-off | > 60% of visitors leave before selecting a starter pack | Redesign onboarding �� templates may not resonate |
+| Coop false negatives | 3+ users report Coop had a deal basketch missed | Investigate Coop scraping coverage. If data is correct, improve UI messaging. If data is wrong, fix pipeline. |
+| Favorites ignored | 80%+ traffic to /deals vs /compare after week 4 | Favorites concept may not resonate — consider making /deals the primary experience |
 
 ---
 
@@ -206,10 +431,10 @@ Both Migros and Coop operate on a **Thursday → Wednesday** weekly deal cycle.
 |------|-----------|--------|-----------|
 | Migros API requires auth/key we can't get | ~~Medium~~ Resolved | ~~High~~ | Using migros-api-wrapper (open source) with guest OAuth2 tokens instead of search-api.migros.ch. |
 | Coop blocks scraping | ~~High~~ Resolved | ~~High~~ | Using aktionis.ch (public aggregator) instead. No direct scraping of coop.ch. |
-| Low user adoption | Medium | Low | This is a portfolio project — value is in the PM process, not user count |
+| Low user adoption | Medium | Low | This is a real product for a tiny audience. If 5 friends use it weekly, it's a success. The PM documentation demonstrates the skill regardless. |
 | Data categorization is wrong | Medium | Medium | Start with manual category mapping for top 100 products, automate later |
 | Supermarket changes promotion schedule | Low | Low | Adjust cron job timing |
-| Regular (non-deal) prices unavailable for Coop and Migros | High | High — V1 limited to deal-only comparison, cannot show "which store is cheaper overall" | V1 ships as deal tracker on favorites. Frame value as "which of MY items are on sale where." Investigate regular price sources for V2 (Migros product API, manual collection for top 50 items, user-contributed prices). Do not promise full price comparison until data exists. |
+| Coop regular prices unavailable | High | High — cannot show "which store is cheaper overall," only "which store has promotions" | basketch is a promotions comparison tool, not a price comparison tool. This is a deliberate product choice: promotions change weekly (unpredictable), regular prices are stable (learnable). The tool's value is in the unpredictable information. Migros regular prices are available via API but showing them without Coop equivalents would be misleading. |
 
 ---
 
@@ -228,15 +453,24 @@ Both Migros and Coop operate on a **Thursday → Wednesday** weekly deal cycle.
 
 ## 12. Open Questions
 
-### Resolved (Phase 0)
+### Resolved
 
 | # | Question | Answer | Date |
 |---|----------|--------|------|
 | 1 | Does `search-api.migros.ch/discounts` return useful data without auth? | No — requires client key. Using migros-api-wrapper (open source, guest OAuth2) instead. | 9 Apr 2026 |
 | 2 | Can we intercept Coop's internal API? | Not viable — DataDome blocks all automated access. Using aktionis.ch (public aggregator since 2006) instead. | 9 Apr 2026 |
 | 5 | Should the UI be German-first or English-first? | English UI for MVP. German product names come from source data. German UI later if demand exists. | 9 Apr 2026 |
+| 6 | Verdict weighting: deal count vs discount depth? | 40% deal count / 60% average discount depth. Tie threshold: 5%. | 12 Apr 2026 |
+| 7 | How many starter packs? | 5 packs: Swiss Basics, Indian Kitchen, Mediterranean, Studentenküche, Familientisch. Custom list via search also available. | 12 Apr 2026 |
+| 8 | Is deals browsing page separate phase? | No — build everything together. No phasing. | 12 Apr 2026 |
+| 9 | Primary return path: email or URL? | Both are primary. URL for bookmarkers, email for users who clear browsers or switch devices. Neither is a fallback. | 12 Apr 2026 |
+| 10 | Should verdict show explanation? | Yes — show deal count + avg discount under verdict. Minimum 3 deals per store per category before showing verdict. | 12 Apr 2026 |
+| 11 | Growth strategy: SEO or WhatsApp? | Both. SEO is long-term (weekly content, German keywords). WhatsApp verdict card ("Wordle card") is immediate sharing. No conflict, zero extra cost. | 12 Apr 2026 |
+| 12 | German UI? | No — friends don't speak German well. English UI is correct for this audience. | 12 Apr 2026 |
+| 13 | Portfolio project or real product? | Both: "A real product for a tiny audience, documented like a portfolio project." | 12 Apr 2026 |
+| 14 | Value proposition: prices or promotions? | Promotions only. basketch compares weekly promotions, not regular prices. This is a deliberate product choice (Coop regular prices unavailable, promotions are the weekly decision trigger). | 12 Apr 2026 |
 
 ### Still Open
 
 3. How do we accurately categorize products into the 3 buckets? (Migros/Coop category taxonomy may not match ours) — To resolve during M0 (data pipeline build).
-4. Is `basketch.ch` domain available? (Check at nic.ch) — Low priority, using basketch.vercel.app for MVP.
+4. Is `basketch.ch` domain available? (Check at nic.ch) — Low priority, using basketch.vercel.app.

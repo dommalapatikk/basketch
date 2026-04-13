@@ -1,4 +1,12 @@
-# Architecture Challenge: basketch
+# Architecture Challenge: basketch (v1.0 — Historical)
+
+> **Note (12 April 2026):** This challenge applies to Technical Architecture v1.0 (9 April 2026), before the PRD v2.0 restructure. Key changes since this review:
+> - Verdict-first feature sequencing (verdict = aha moment, favorites = retention)
+> - Value proposition pivot from "cheaper" to "on promotion"
+> - 5 starter packs (not 8)
+> - No MVP phasing — build everything together
+> - Two-tier Coop status messages
+> - See `technical-architecture-v2.md` for the current architecture and `pm-coach-review-specs-v2.md` for resolution of challenges C1-C4.
 
 **Challenger:** Architect Challenger Agent
 **Date:** 9 April 2026

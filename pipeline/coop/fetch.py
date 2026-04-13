@@ -1,9 +1,7 @@
 # Fetches current Coop promotions from aktionis.ch and outputs normalized UnifiedDeal dicts as JSON.
 
-import json
 import logging
 import sys
-from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
@@ -108,8 +106,7 @@ def fetch_coop_deals(max_pages: int = MAX_PAGES) -> list[dict]:
 
 
 if __name__ == "__main__":
-    deals = fetch_coop_deals()
-    output_path = Path(__file__).parent / "coop-deals.json"
-    output_path.write_text(json.dumps(deals, indent=2, ensure_ascii=False))
-    logger.info("[coop] [INFO] Wrote %d deals to %s", len(deals), output_path)
-    sys.exit(0 if deals else 1)
+    # Prefer main.py as the entry point. This block is for quick standalone testing.
+    from main import main
+
+    sys.exit(main())

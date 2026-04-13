@@ -17,6 +17,8 @@ function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
     store: 'migros',
     category: 'fresh',
     sub_category: null,
+    quantity: null,
+    unit: null,
     product_group: null,
     source_name: 'test product',
     regular_price: null,
@@ -33,6 +35,7 @@ function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
     store: 'migros',
     product_name: 'test product',
     category: 'fresh',
+    sub_category: null,
     original_price: 5.0,
     sale_price: 3.5,
     discount_percent: 30,
@@ -339,25 +342,25 @@ describe('getRecommendation', () => {
   })
 
   it('compares regular prices when no deals exist', () => {
-    const migrosPrice: RegularPrice = { productName: 'milch 1l', price: 1.50, store: 'migros' }
-    const coopPrice: RegularPrice = { productName: 'milch 1l', price: 1.80, store: 'coop' }
+    const migrosPrice: RegularPrice = { productId: 'p1', productName: 'milch 1l', price: 1.50, store: 'migros' }
+    const coopPrice: RegularPrice = { productId: 'p2', productName: 'milch 1l', price: 1.80, store: 'coop' }
     expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('migros')
   })
 
   it('returns coop when coop regular price is cheaper', () => {
-    const migrosPrice: RegularPrice = { productName: 'butter', price: 3.50, store: 'migros' }
-    const coopPrice: RegularPrice = { productName: 'butter', price: 2.90, store: 'coop' }
+    const migrosPrice: RegularPrice = { productId: 'p3', productName: 'butter', price: 3.50, store: 'migros' }
+    const coopPrice: RegularPrice = { productId: 'p4', productName: 'butter', price: 2.90, store: 'coop' }
     expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('coop')
   })
 
   it('returns both when regular prices are equal', () => {
-    const migrosPrice: RegularPrice = { productName: 'eier', price: 4.20, store: 'migros' }
-    const coopPrice: RegularPrice = { productName: 'eier', price: 4.20, store: 'coop' }
+    const migrosPrice: RegularPrice = { productId: 'p5', productName: 'eier', price: 4.20, store: 'migros' }
+    const coopPrice: RegularPrice = { productId: 'p6', productName: 'eier', price: 4.20, store: 'coop' }
     expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('both')
   })
 
   it('returns migros when only migros has regular price', () => {
-    const migrosPrice: RegularPrice = { productName: 'milch 1l', price: 1.50, store: 'migros' }
+    const migrosPrice: RegularPrice = { productId: 'p1', productName: 'milch 1l', price: 1.50, store: 'migros' }
     expect(getRecommendation(null, null, migrosPrice, null)).toBe('migros')
   })
 
@@ -367,7 +370,7 @@ describe('getRecommendation', () => {
 
   it('deal always wins over regular price', () => {
     const deal = makeDeal({ store: 'migros', discount_percent: 20 })
-    const coopPrice: RegularPrice = { productName: 'milch 1l', price: 0.50, store: 'coop' }
+    const coopPrice: RegularPrice = { productId: 'p7', productName: 'milch 1l', price: 0.50, store: 'coop' }
     // Migros has a deal, coop only has a regular price — deal wins
     expect(getRecommendation(deal, null, null, coopPrice)).toBe('migros')
   })

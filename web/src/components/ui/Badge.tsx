@@ -9,7 +9,7 @@ const badgeVariants = cva(
     variants: {
       variant: {
         migros: 'bg-migros-light text-migros-text',
-        coop: 'bg-coop-light text-coop',
+        coop: 'bg-coop-light text-coop-text',
         both: 'bg-success-light text-success',
         none: 'bg-gray-100 text-muted',
         accent: 'bg-accent text-white text-xs uppercase tracking-wide',

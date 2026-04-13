@@ -1,121 +1,180 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 
-import { usePageTitle } from '../lib/hooks'
-import { lookupFavoriteByEmail } from '../lib/queries'
-import { Button, buttonVariants } from '../components/ui/Button'
+import type { Category, DealRow } from '@shared/types'
+import { useActiveDeals, usePageTitle } from '../lib/hooks'
+import { calculateVerdict } from '../lib/verdict'
+import { VerdictBanner } from '../components/VerdictBanner'
+import { VerdictCard } from '../components/VerdictCard'
+import { CategorySection } from '../components/CategorySection'
+import { EmailLookup } from '../components/EmailLookup'
+import { DataFreshness } from '../components/DataFreshness'
+import { LoadingState } from '../components/LoadingState'
+import { ErrorState } from '../components/ErrorState'
+import { buttonVariants } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
-import { Input } from '../components/ui/Input'
+import { fetchLatestPipelineRun } from '../lib/queries'
+import { useCachedQuery } from '../lib/use-cached-query'
+
+function dealsByCategory(deals: DealRow[], category: Category): DealRow[] {
+  return deals.filter((d) => d.category === category)
+}
 
 export function HomePage() {
   usePageTitle()
-  const navigate = useNavigate()
-  const storedFavoriteId = typeof window !== 'undefined' ? localStorage.getItem('basketch_favoriteId') : null
-  const [email, setEmail] = useState('')
-  const [emailError, setEmailError] = useState<string | null>(null)
-  const [searching, setSearching] = useState(false)
 
-  async function handleEmailLookup() {
-    const trimmed = email.trim()
-    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) {
-      setEmailError('Please enter a valid email address')
-      return
-    }
+  const { data: deals, loading, error, refetch } = useActiveDeals()
+  const { data: pipelineRun } = useCachedQuery(
+    'pipeline-run:latest',
+    fetchLatestPipelineRun,
+    60,
+  )
 
-    setSearching(true)
-    setEmailError(null)
-    try {
-      const favoriteId = await lookupFavoriteByEmail(trimmed)
-      if (favoriteId) {
-        navigate(`/compare/${favoriteId}`)
-      } else {
-        setEmailError('No list found for this email. Try creating a new one.')
-      }
-    } catch {
-      setEmailError('Something went wrong. Please try again.')
-    } finally {
-      setSearching(false)
-    }
-  }
+  const storedFavoriteId = typeof window !== 'undefined'
+    ? localStorage.getItem('basketch_favoriteId')
+    : null
 
-  function handleEmailKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') handleEmailLookup()
-  }
+  const verdict = useMemo(() => {
+    if (!deals || deals.length === 0) return null
+    return calculateVerdict(deals)
+  }, [deals])
+
+  const freshDeals = useMemo(() => dealsByCategory(deals ?? [], 'fresh'), [deals])
+  const longLifeDeals = useMemo(() => dealsByCategory(deals ?? [], 'long-life'), [deals])
+  const nonFoodDeals = useMemo(() => dealsByCategory(deals ?? [], 'non-food'), [deals])
+
+  const migrosDeals = useMemo(() => ({
+    fresh: freshDeals.filter((d) => d.store === 'migros'),
+    longLife: longLifeDeals.filter((d) => d.store === 'migros'),
+    nonFood: nonFoodDeals.filter((d) => d.store === 'migros'),
+  }), [freshDeals, longLifeDeals, nonFoodDeals])
+
+  const coopDeals = useMemo(() => ({
+    fresh: freshDeals.filter((d) => d.store === 'coop'),
+    longLife: longLifeDeals.filter((d) => d.store === 'coop'),
+    nonFood: nonFoodDeals.filter((d) => d.store === 'coop'),
+  }), [freshDeals, longLifeDeals, nonFoodDeals])
 
   return (
     <div>
-      <div className="py-10 text-center">
-        <h1 className="text-3xl font-extrabold leading-tight tracking-tight">
-          Migros or Coop<br />
-          this week?
+      {/* Hero section — always renders (no data dependency) */}
+      <section className="py-8 text-center">
+        <h1 className="text-[28px] font-extrabold leading-tight tracking-tight">
+          Which store has better promotions this week?
         </h1>
         <p className="mt-2 text-base text-muted">
-          See which of your regular items are on sale at each store.
-          Split your shopping and save.
+          Your weekly Migros vs Coop deals, compared in 5 seconds.
         </p>
-        <div className="mt-6">
-          <Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>
-            Get started — 30 seconds
-          </Link>
-        </div>
+      </section>
 
-        {/* How it works */}
-        <ol className="mt-8 grid grid-cols-3 gap-2 text-center text-xs text-muted list-none pl-0">
-          <li>
-            <div className="mb-1 text-base font-semibold text-current">1</div>
-            <div>Pick your regular items</div>
-          </li>
-          <li>
-            <div className="mb-1 text-base font-semibold text-current">2</div>
-            <div>We check both stores</div>
-          </li>
-          <li>
-            <div className="mb-1 text-base font-semibold text-current">3</div>
-            <div>Split list: buy where it's cheaper</div>
-          </li>
-        </ol>
+      {/* Loading state */}
+      {loading && <LoadingState message="Loading this week's deals..." />}
+
+      {/* Error state */}
+      {error && !loading && (
+        <ErrorState
+          message="Could not load this week's deals. Please try again later."
+          onRetry={refetch}
+        />
+      )}
+
+      {/* No data at all */}
+      {!loading && !error && deals && deals.length === 0 && (
+        <Card className="text-center">
+          <p className="text-sm text-muted">
+            No deals available yet. Check back Thursday evening when new promotions are published.
+          </p>
+        </Card>
+      )}
+
+      {/* Success state — verdict + categories */}
+      {!loading && !error && verdict && (
+        <>
+          {/* Weekly Verdict Banner */}
+          <section className="mb-4">
+            <VerdictBanner verdict={verdict} />
+          </section>
+
+          {/* 3 Category Snapshot Cards */}
+          <section className="mb-4 space-y-3">
+            {verdict.categories[0] && (
+              <CategorySection
+                verdict={verdict.categories[0]}
+                migrosDeals={migrosDeals.fresh}
+                coopDeals={coopDeals.fresh}
+              />
+            )}
+            {verdict.categories[1] && (
+              <CategorySection
+                verdict={verdict.categories[1]}
+                migrosDeals={migrosDeals.longLife}
+                coopDeals={coopDeals.longLife}
+              />
+            )}
+            {verdict.categories[2] && (
+              <CategorySection
+                verdict={verdict.categories[2]}
+                migrosDeals={migrosDeals.nonFood}
+                coopDeals={coopDeals.nonFood}
+              />
+            )}
+          </section>
+
+          {/* Wordle Verdict Card (below category cards) */}
+          <section className="mb-6">
+            <VerdictCard verdict={verdict} />
+          </section>
+        </>
+      )}
+
+      {/* Browse all deals CTA */}
+      <div className="mb-4">
+        <Link
+          to="/deals"
+          className={buttonVariants({ fullWidth: true })}
+        >
+          Browse all deals
+        </Link>
       </div>
 
+      {/* Returning user banner (conditional) */}
       {storedFavoriteId && (
-        <div className="mt-6 rounded-md border border-accent/30 bg-accent-light p-4 text-center">
-          <p className="text-sm font-medium">You have an existing list</p>
-          <Link
-            to={`/compare/${storedFavoriteId}`}
-            className="mt-2 inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white no-underline hover:opacity-90 min-h-[44px]"
-          >
-            View my deals
-          </Link>
+        <div className="mb-4 rounded-md border-l-4 border-accent bg-surface p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Welcome back.</span>
+            <Link
+              to={`/compare/${storedFavoriteId}`}
+              className="inline-flex min-h-[44px] items-center text-sm font-semibold text-accent no-underline hover:underline"
+            >
+              View your deals &rarr;
+            </Link>
+          </div>
         </div>
       )}
 
-      <Card className="mt-6">
-        <h3 className="mb-3 text-lg font-semibold">Already have a list?</h3>
-        <p className="mb-2 text-sm text-muted">
-          Enter the email you saved, or use the bookmark/link you saved last time.
+      {/* Track your items section */}
+      <section className="mb-4">
+        <h2 className="mb-1 text-xl font-bold">Track your regular items</h2>
+        <p className="mb-3 text-sm text-muted">
+          Get a personal comparison every week. Setup in 60 seconds.
         </p>
-        <div className="flex gap-2">
-          <label htmlFor="email-lookup" className="sr-only">Email address</label>
-          <Input
-            id="email-lookup"
-            type="email"
-            placeholder="your@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={handleEmailKeyDown}
-            className="flex-1"
-          />
-          <Button
-            onClick={handleEmailLookup}
-            disabled={searching}
-            type="button"
-          >
-            {searching ? 'Searching...' : 'Find my list'}
-          </Button>
-        </div>
-        {emailError && <p className="mt-2 text-sm text-error" role="alert">{emailError}</p>}
-      </Card>
+        <Link
+          to="/onboarding"
+          className={buttonVariants({ variant: 'outline', fullWidth: true })}
+        >
+          Set up my list
+        </Link>
+      </section>
 
-      <p className="mt-6 text-center text-xs text-muted">No account needed. No tracking. Just deals.</p>
+      {/* Email lookup */}
+      <section className="mb-6">
+        <EmailLookup />
+      </section>
+
+      {/* Data freshness */}
+      <div className="text-center">
+        <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
+      </div>
     </div>
   )
 }

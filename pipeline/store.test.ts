@@ -26,7 +26,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 // Must import after mocking
-const { storeDeals, logPipelineRun, deactivateExpiredDeals } = await import('./store')
+const { storeDeals, logPipelineRun, deactivateExpiredDeals, normalizeProductName } = await import('./store')
 
 function makeDeal(index: number): Deal {
   return {
@@ -90,15 +90,27 @@ describe('storeDeals', () => {
     expect(mockUpsert).toHaveBeenCalledTimes(3)
   })
 
-  it('converts Deal to snake_case row format', async () => {
+  it('converts Deal to snake_case row format with normalised name', async () => {
     const deals = [makeDeal(0)]
     await storeDeals(deals)
 
     const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    // product name should be normalised (lowercase, trimmed)
     expect(upsertedRows[0]).toHaveProperty('product_name', 'product 0')
     expect(upsertedRows[0]).toHaveProperty('sale_price', 8)
     expect(upsertedRows[0]).toHaveProperty('is_active', true)
     expect(upsertedRows[0]).not.toHaveProperty('productName')
+  })
+
+  it('normalises product names before upsert', async () => {
+    const deal: Deal = {
+      ...makeDeal(0),
+      productName: '  Vollmilch   1 Liter  ',
+    }
+    await storeDeals([deal])
+
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows[0]).toHaveProperty('product_name', 'vollmilch 1 l')
   })
 })
 
@@ -124,6 +136,40 @@ describe('deactivateExpiredDeals', () => {
 
     const count = await deactivateExpiredDeals()
     expect(count).toBe(0)
+  })
+})
+
+describe('normalizeProductName', () => {
+  it('lowercases the name', () => {
+    expect(normalizeProductName('Vollmilch 1L')).toBe('vollmilch 1l')
+  })
+
+  it('collapses multiple spaces', () => {
+    expect(normalizeProductName('barilla   spaghetti   500g')).toBe('barilla spaghetti 500g')
+  })
+
+  it('trims whitespace', () => {
+    expect(normalizeProductName('  milch 1l  ')).toBe('milch 1l')
+  })
+
+  it('collapses tabs and newlines', () => {
+    expect(normalizeProductName('milch\t1l\n')).toBe('milch 1l')
+  })
+
+  it('standardises "liter" to "l"', () => {
+    expect(normalizeProductName('Wasser 1.5 Liter')).toBe('wasser 1.5 l')
+  })
+
+  it('standardises "gr" to "g"', () => {
+    expect(normalizeProductName('Reis 500gr')).toBe('reis 500g')
+  })
+
+  it('standardises "stk" to "stück"', () => {
+    expect(normalizeProductName('Eier 6 stk')).toBe('eier 6 stück')
+  })
+
+  it('standardises "pcs" to "stück"', () => {
+    expect(normalizeProductName('Weggli 10 pcs')).toBe('weggli 10 stück')
   })
 })
 

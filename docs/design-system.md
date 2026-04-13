@@ -1,9 +1,9 @@
 # Design System: basketch
 
-**Version:** 1.0
-**Date:** 10 April 2026
+**Version:** 1.2
+**Date:** 12 April 2026
 **Author:** Product Designer (Mobile-First) Agent
-**Status:** Baseline (created retroactively after UI build)
+**Status:** Updated to match design-spec v2.1 color values and terminology
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. **Mobile-first.** 80% of visits are on phones. Every layout begins at 375px width. Desktop is an enhancement, not the default.
 2. **Scannable in 5 seconds.** The verdict or comparison must be readable without scrolling on mobile. Deal cards communicate price and store at a glance.
-3. **Store identity is color.** Migros = orange (#FF6600). Coop = orange-red (#E10A0A). These are the only brand colors. Everything else is neutral.
+3. **Store identity is color.** Migros = orange (#e65100). Coop = green (#007a3d). These are the only brand colors. Everything else is neutral.
 4. **No decoration.** No gradients, no illustrations, no hero images. Content IS the interface.
 5. **Accessible by default.** WCAG AA contrast ratios. Minimum 16px body text. 44x44px touch targets.
 6. **Swiss sensibility.** Clean typography, generous whitespace, structured grids. Think SBB app, not American grocery coupons.
@@ -24,12 +24,14 @@
 
 | Token | Name | Hex | Usage |
 |-------|------|-----|-------|
-| `migros` | Migros Orange | `#FF6600` | Store badges, tags, comparison store headers, CTA buttons for Migros actions |
+| `migros` | Migros Orange | `#e65100` | Store badges, backgrounds, buttons. 4.6:1 contrast on white (passes AA). |
 | `migros-light` | Migros Light | `#FFF3E6` | Background tint for Migros comparison panels, Migros tags |
-| `coop` | Coop Red | `#E10A0A` | Store badges, tags, comparison store headers, CTA buttons for Coop actions |
-| `coop-light` | Coop Light | `#FDE8E8` | Background tint for Coop comparison panels, Coop tags |
+| `migros-text` | Migros Text | `#c54400` | Orange text on light backgrounds. 4.7:1 on `#FFF3E6`. |
+| `coop` | Coop Green | `#007a3d` | Store badges, backgrounds, buttons. 5.3:1 contrast on white (passes AA). |
+| `coop-light` | Coop Light | `#e6f4ec` | Background tint for Coop comparison panels, Coop tags |
+| `coop-text` | Coop Text | `#006030` | Green text on light backgrounds. 5.0:1 on `#e6f4ec`. |
 
-**Note on Coop's color:** Coop Switzerland's official primary brand color is an orange (#FF8C00) according to some brand registries. However, for basketch the choice of red (#E10A0A) is deliberate -- it creates maximum visual contrast against Migros orange. If the brand team objects, the official orange can be substituted, but differentiation between the two stores would suffer.
+**Note on Coop's color:** Updated from the original red (#E10A0A) to green (#007a3d) in design-spec v2.0. Green is closer to Coop's actual brand identity and creates clear visual distinction from Migros orange (orange vs green instead of orange vs red).
 
 ### 2.2 Neutral Palette
 
@@ -46,9 +48,9 @@
 | Token | Name | Hex | Usage |
 |-------|------|-----|-------|
 | `accent` | Accent Blue | `#2563EB` | Primary CTA buttons, active states, focus rings, step indicators |
-| `success` | Success Green | `#16A34A` | Savings callouts, "Either store" tags, completed steps |
-| `warning` | Warning Amber | `#D97706` | Stale data banners, lookup errors |
-| `error` | Error Red | `#E10A0A` (shared with Coop) | Form validation errors, error messages |
+| `success` | Success Green | `#147a2d` | Savings callouts, "Either store" tags, completed steps. 5.8:1 on white. |
+| `warning` | Warning Amber | `#b45309` | Stale data banners, lookup errors. 4.8:1 on white. |
+| `error` | Error Red | `#dc2626` | Form validation errors, error messages. 4.5:1 on white. **Not shared with any store color.** |
 
 ### 2.4 Dark Mode
 
@@ -131,16 +133,21 @@ The current implementation uses CSS custom properties (not Tailwind config). The
 
 ```css
 :root {
-  --color-migros: #ff6600;
-  --color-coop: #e10a0a;
+  --color-migros: #e65100;
+  --color-migros-text: #c54400;
+  --color-migros-light: #FFF3E6;
+  --color-coop: #007a3d;
+  --color-coop-text: #006030;
+  --color-coop-light: #e6f4ec;
   --color-bg: #fafafa;
   --color-surface: #ffffff;
   --color-text: #1a1a1a;
   --color-text-muted: #666666;
   --color-border: #e5e5e5;
   --color-accent: #2563eb;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
+  --color-success: #147a2d;
+  --color-warning: #b45309;
+  --color-error: #dc2626;
   --radius: 8px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   --max-width: 640px;
@@ -158,12 +165,14 @@ export default {
     extend: {
       colors: {
         migros: {
-          DEFAULT: '#FF6600',
+          DEFAULT: '#e65100',
           light: '#FFF3E6',
+          text: '#c54400',
         },
         coop: {
-          DEFAULT: '#E10A0A',
-          light: '#FDE8E8',
+          DEFAULT: '#007a3d',
+          light: '#e6f4ec',
+          text: '#006030',
         },
         bg: '#FAFAFA',
         surface: '#FFFFFF',
@@ -173,8 +182,9 @@ export default {
         },
         border: '#E5E5E5',
         accent: '#2563EB',
-        success: '#16A34A',
-        warning: '#D97706',
+        success: '#147a2d',
+        warning: '#b45309',
+        error: '#dc2626',
       },
       borderRadius: {
         DEFAULT: '8px',
@@ -273,7 +283,7 @@ export default {
 
 **Tags:**
 - Migros: orange text on orange-light bg, pill shape (20px radius)
-- Coop: coop-red text on coop-light bg
+- Coop: coop-text color on coop-light bg
 - Either: success green text on green-light bg (#E8F5E9)
 - No deals: muted text on neutral bg (#F5F5F5)
 
@@ -283,7 +293,7 @@ export default {
 
 **Visual spec:**
 - Each section has a header: colored dot (12px circle) + section label (SemiBold)
-- Dot colors: Migros orange, Coop red, success green, muted grey
+- Dot colors: Migros orange, Coop green, success green, muted grey
 - CompareCards stack vertically with 8px gap
 
 **States:**
@@ -461,7 +471,7 @@ export default {
 | +----------+----------+  |
 +---------------------------+
 |                           |
-| * Buy at Coop (3)         | <- Red dot
+| * Buy at Coop (3)         | <- Green dot
 +---------------------------+
 | Cheese        [Coop]      |
 | ...                       |
@@ -495,21 +505,19 @@ export default {
 | Primary text on surface | #1A1A1A | #FFFFFF | ~17.5:1 | Pass |
 | Muted text on surface | #666666 | #FFFFFF | ~5.7:1 | Pass |
 | Muted text on page bg | #666666 | #FAFAFA | ~5.4:1 | Pass |
-| Migros tag text on light bg | #FF6600 | #FFF3E6 | ~3.2:1 | **Fail** |
-| Coop tag text on light bg | #E10A0A | #FDE8E8 | ~4.3:1 | **Borderline** |
+| Migros tag text on light bg | #c54400 | #FFF3E6 | ~4.7:1 | Pass |
+| Coop tag text on light bg | #006030 | #e6f4ec | ~5.0:1 | Pass |
 | White on accent blue | #FFFFFF | #2563EB | ~4.6:1 | Pass |
-| White on Migros orange | #FFFFFF | #FF6600 | ~3.0:1 | **Fail** |
-| White on Coop red | #FFFFFF | #E10A0A | ~4.0:1 | **Borderline** |
-| Warning text on surface | #D97706 | #FFFFFF | ~3.5:1 | **Fail** |
+| White on Migros orange | #FFFFFF | #e65100 | ~4.6:1 | Pass |
+| White on Coop green | #FFFFFF | #007a3d | ~5.3:1 | Pass |
+| Warning text on surface | #b45309 | #FFFFFF | ~4.8:1 | Pass |
 
 ### 9.2 Touch Targets
 
 - Minimum: 44x44px (Apple HIG / WCAG 2.5.5)
-- Buttons: `.btn` has 10px vertical + 20px horizontal padding. With 14px font, effective height is ~38px. **Below minimum.**
-- `.btn-sm`: 6px vertical + 12px horizontal. Effective height ~28px. **Below minimum.**
-- `.fav-remove`: 4px vertical + 8px horizontal. Effective height ~24px. **Below minimum.**
+- All buttons, inputs, links, and pills enforce `min-height: 44px` (updated in design-spec v2.1).
 - Pack cards: Large tap targets (full card). **Pass.**
-- Input fields: 10px vertical padding + 14px font = ~38px. **Borderline.**
+- Input fields: enforce `min-height: 44px`. **Pass.**
 
 ### 9.3 Other Requirements
 

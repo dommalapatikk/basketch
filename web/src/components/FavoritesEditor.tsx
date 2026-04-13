@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 
 import type { Category, FavoriteItemRow } from '@shared/types'
 import { addFavoriteItem, removeFavoriteItem } from '../lib/queries'
@@ -12,21 +11,16 @@ export function FavoritesEditor(props: {
   items: FavoriteItemRow[]
   onItemsChange: (items: FavoriteItemRow[]) => void
 }) {
-  const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<Set<string>>(new Set())
   const [duplicateMsg, setDuplicateMsg] = useState<string | null>(null)
-
-  function invalidateItems() {
-    queryClient.invalidateQueries({ queryKey: ['favorites', props.favoriteId, 'items'] })
-  }
 
   async function handleRemove(itemId: string) {
     setRemoving((prev) => new Set(prev).add(itemId))
     const success = await removeFavoriteItem(itemId)
     if (success) {
       props.onItemsChange(props.items.filter((i) => i.id !== itemId))
-      invalidateItems()
+      // Cache will refresh on next navigation (useCachedQuery stale time)
     }
     setRemoving((prev) => {
       const next = new Set(prev)
@@ -47,7 +41,7 @@ export function FavoritesEditor(props: {
     const item = await addFavoriteItem(props.favoriteId, { keyword, label, category, productGroupId })
     if (item) {
       props.onItemsChange([...props.items, item])
-      invalidateItems()
+      // Cache will refresh on next navigation (useCachedQuery stale time)
     }
     setAdding(false)
   }

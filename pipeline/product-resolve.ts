@@ -1,5 +1,10 @@
 // Resolves deals to products: finds or creates a product row for each deal,
 // then returns a map of source_name -> product_id.
+//
+// Known limitation: regular_price is not updated for existing products here.
+// Migros regular prices are fetched separately by migros/fetch-prices.ts.
+// Coop regular prices (deal.originalPrice) are not captured on the product row —
+// only stored on the deal row itself. This is acceptable for MVP.
 
 import 'dotenv/config'
 
@@ -62,6 +67,8 @@ export async function resolveProducts(
     store: Store
     category: string
     sub_category: string | null
+    quantity: number | null
+    unit: string | null
     is_organic: boolean
     product_form: string
     product_group: string | null
@@ -104,6 +111,8 @@ export async function resolveProducts(
         store,
         category: deal.category,
         sub_category: meta.subCategory ?? deal.subCategory ?? null,
+        quantity: meta.quantity,
+        unit: meta.unit,
         is_organic: meta.isOrganic,
         product_form: groupAssignment?.productForm ?? meta.productForm,
         product_group: groupAssignment?.groupId ?? null,

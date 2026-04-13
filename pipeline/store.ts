@@ -1,4 +1,5 @@
 // Supabase storage: upserts deals, logs pipeline runs, deactivates expired deals.
+// Product names are normalised before upsert (lowercase, collapse whitespace, standardise units).
 
 import 'dotenv/config'
 
@@ -8,6 +9,46 @@ import type { Deal, PipelineRun } from '../shared/types'
 import { dealToRow } from '../shared/types'
 
 const BATCH_SIZE = 100
+
+/**
+ * Build a composite key for product ID lookups: "store|productName".
+ * Used by storeDeals (this file) and run.ts when merging resolved product IDs.
+ * Keep these two usages in sync.
+ */
+export function productLookupKey(store: string, productName: string): string {
+  return `${store}|${productName}`
+}
+
+// ============================================================
+// Product name normalisation
+// ============================================================
+
+/** Unit standardisation map: variant -> canonical. */
+const UNIT_MAP: [RegExp, string][] = [
+  [/\bliter\b/gi, 'l'],
+  [/\blitre\b/gi, 'l'],
+  [/(\d)gr\b/gi, '$1g'],
+  [/\bstk\b/gi, 'Stück'],
+  [/\bpcs\b/gi, 'Stück'],
+]
+
+/**
+ * Normalise a product name for consistent upsert matching:
+ * - lowercase
+ * - collapse multiple whitespace to single space
+ * - standardise unit abbreviations
+ * - trim leading/trailing whitespace
+ */
+export function normalizeProductName(name: string): string {
+  let result = name.toLowerCase().trim()
+  // Collapse multiple whitespace (including tabs, newlines) to single space
+  result = result.replace(/\s+/g, ' ')
+  // Standardise units
+  for (const [pattern, replacement] of UNIT_MAP) {
+    result = result.replace(pattern, replacement.toLowerCase())
+  }
+  return result.trim()
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -25,7 +66,12 @@ export async function storeDeals(
 ): Promise<number> {
   if (deals.length === 0) return 0
 
-  const allRows = deals.map((d) => dealToRow(d, productIds?.get(`${d.store}|${d.productName}`)))
+  const allRows = deals.map((d) => {
+    const row = dealToRow(d, productIds?.get(productLookupKey(d.store, d.productName)))
+    // Normalise product name for consistent upsert matching
+    row.product_name = normalizeProductName(row.product_name)
+    return row
+  })
 
   // Deduplicate by conflict key (store + product_name + valid_from).
   // Postgres fails when a single batch upserts the same row twice.

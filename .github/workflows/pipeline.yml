@@ -2,11 +2,12 @@ name: Weekly Deal Pipeline
 
 on:
   schedule:
-    # Primary: Wednesday 21:00 UTC (22:00 CET) — after both stores publish
-    - cron: "0 21 * * 3"
-    # Verification: Thursday 06:00 UTC — catch late updates before peak shopping
-    - cron: "0 6 * * 4"
-  workflow_dispatch: # Allow manual trigger
+    - cron: '17 21 * * 3'  # Wednesday 21:17 UTC (after both stores publish, off-peak minute)
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
 jobs:
   fetch-migros:
@@ -17,7 +18,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: pipeline/package-lock.json
 
@@ -28,11 +29,13 @@ jobs:
         run: cd pipeline && npx tsx migros/fetch.ts
 
       - name: Upload Migros deals artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: migros-deals
           path: pipeline/migros-deals.json
           retention-days: 7
+          if-no-files-found: ignore
 
   fetch-coop:
     name: Fetch Coop Deals
@@ -42,7 +45,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.13'
 
       - name: Install dependencies
         run: pip install -r pipeline/coop/requirements.txt
@@ -51,11 +54,13 @@ jobs:
         run: cd pipeline/coop && python3 fetch.py
 
       - name: Upload Coop deals artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coop-deals
           path: pipeline/coop/coop-deals.json
           retention-days: 7
+          if-no-files-found: ignore
 
   process-and-store:
     name: Categorize & Store Deals
@@ -67,7 +72,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: pipeline/package-lock.json
 
@@ -78,37 +83,68 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: migros-deals
-          path: pipeline/
+          path: artifacts/migros-deals/
         continue-on-error: true
 
       - name: Download Coop deals
         uses: actions/download-artifact@v4
         with:
           name: coop-deals
-          path: pipeline/
+          path: artifacts/coop-deals/
         continue-on-error: true
 
       - name: Check artifacts exist
         run: |
-          echo "Migros: $([ -f pipeline/migros-deals.json ] && echo 'found' || echo 'MISSING')"
-          echo "Coop: $([ -f pipeline/coop-deals.json ] && echo 'found' || echo 'MISSING')"
+          echo "Migros: $([ -f artifacts/migros-deals/migros-deals.json ] && echo 'found' || echo 'MISSING')"
+          echo "Coop: $([ -f artifacts/coop-deals/coop-deals.json ] && echo 'found' || echo 'MISSING')"
+
+      - name: Validate Coop JSON contract
+        if: needs.fetch-coop.result == 'success'
+        run: |
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            const data = JSON.parse(readFileSync('artifacts/coop-deals/coop-deals.json', 'utf8'));
+            if (!Array.isArray(data)) { console.error('Coop output is not an array'); process.exit(1); }
+            const required = ['name', 'store', 'priceCurrent', 'discountPercent'];
+            for (const deal of data.slice(0, 5)) {
+              for (const field of required) {
+                if (deal[field] === undefined) {
+                  console.error('Missing field: ' + field + ' in deal: ' + deal.name);
+                  process.exit(1);
+                }
+              }
+            }
+            console.log('Coop JSON contract valid (' + data.length + ' deals)');
+          "
 
       - name: Categorize and store
-        run: cd pipeline && npx tsx run.ts
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: >
+          cd pipeline && npx tsx run.ts
+          --migros-file=../artifacts/migros-deals/migros-deals.json
+          --coop-file=../artifacts/coop-deals/coop-deals.json
+          --migros-status=${{ needs.fetch-migros.result }}
+          --coop-status=${{ needs.fetch-coop.result }}
 
   keep-alive:
     name: Supabase Keep-Alive
     runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase to prevent auto-pause
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/" \
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/rpc/select_1" \
+            -X POST \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "204" ]; then
+            echo "Keep-alive ping OK (HTTP $STATUS)"
+          else
+            # Fallback: simple GET to /rest/v1/ endpoint
+            FALLBACK=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${SUPABASE_URL}/rest/v1/" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+            echo "Keep-alive fallback ping (HTTP $FALLBACK)"
+          fi

@@ -11,4 +11,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'html2canvas': ['html2canvas'],
+        },
+      },
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: false,
+  },
 })

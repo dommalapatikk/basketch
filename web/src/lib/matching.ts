@@ -247,6 +247,7 @@ export function findRegularPrice(
   const cheapest = candidates[0]!
 
   return {
+    productId: cheapest.id,
     productName: cheapest.source_name,
     price: cheapest.regular_price!,
     store,
@@ -335,19 +336,27 @@ export function matchFavorites(
 
     const recommendation = getRecommendation(migrosDeal, coopDeal, migrosRegularPrice, coopRegularPrice)
 
+    // Determine coopProductKnown: if no Coop deal and there's a Coop regular price,
+    // we know the product exists at Coop (just not on promotion).
+    const coopProductKnown = !coopDeal && coopRegularPrice !== null
+
     return {
       favorite: {
         id: fav.id,
-        favoriteId: fav.favorite_id,
+        basketId: fav.favorite_id,
         keyword: fav.keyword,
         label: fav.label,
         category: fav.category,
+        excludeTerms: fav.exclude_terms,
+        preferTerms: fav.prefer_terms,
+        productGroupId: fav.product_group_id,
         createdAt: fav.created_at,
       },
       migrosDeal,
       coopDeal,
       migrosRegularPrice,
       coopRegularPrice,
+      coopProductKnown,
       recommendation,
     }
   })

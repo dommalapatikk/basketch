@@ -424,7 +424,7 @@ basketch **is** trying to answer one question that no Swiss tool answers today:
 
 **Positioning statement:**
 
-*basketch is the personal grocery comparison for Swiss households who shop at Migros and Coop. Tell us what you buy. Every week, we tell you where it's cheaper and give you a split shopping list. No app. No login. 45 seconds to start.*
+*basketch is the personal promotions comparison for Swiss households who shop at Migros and Coop. Tell us what you buy. Every week, we show you where your items are on sale and give you a split shopping list. No app. No login. 45 seconds to start.*
 
 This positions basketch in a category of one. Competitors can be mapped on two axes:
 

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
 import { addFavoriteItemsBatch, createFavorite } from '../lib/queries'
@@ -9,32 +8,32 @@ import { Button } from '../components/ui/Button'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { FavoritesEditor } from '../components/FavoritesEditor'
 import { EmailCapture } from '../components/EmailCapture'
+import { LoadingState } from '../components/LoadingState'
 
 type Step = 'pick' | 'edit' | 'save'
 
 export function OnboardingPage() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const queryClient = useQueryClient()
-  const editState = location.state as { favoriteId?: string; editMode?: boolean } | null
+  const [searchParams] = useSearchParams()
+  const editId = searchParams.get('edit')
 
   usePageTitle('Set up your list')
-  const [step, setStep] = useState<Step>(editState?.editMode ? 'edit' : 'pick')
-  const [favoriteId, setFavoriteId] = useState<string | null>(editState?.favoriteId ?? null)
+  const [step, setStep] = useState<Step>(editId ? 'edit' : 'pick')
+  const [favoriteId, setFavoriteId] = useState<string | null>(editId ?? null)
   const [items, setItems] = useState<FavoriteItemRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
-  // Use React Query for loading existing items in edit mode
-  const editFavoriteId = editState?.editMode ? editState.favoriteId : undefined
-  const { data: existingItems, isLoading: editItemsLoading } = useFavoriteItems(editFavoriteId)
+  // Load existing items in edit mode
+  const editFavoriteId = editId ?? undefined
+  const { data: existingItems, loading: editItemsLoading } = useFavoriteItems(editFavoriteId)
 
-  // Sync React Query data into local state when it arrives
+  // Sync existing items into local state
   useEffect(() => {
-    if (existingItems && existingItems.length > 0 && items.length === 0 && editState?.editMode) {
+    if (existingItems && existingItems.length > 0 && items.length === 0 && editId) {
       setItems(existingItems)
     }
-  }, [existingItems, editState?.editMode, items.length])
+  }, [existingItems, editId, items.length])
 
   const loading = actionLoading || editItemsLoading
 
@@ -42,7 +41,6 @@ export function OnboardingPage() {
     setActionLoading(true)
     setError(null)
 
-    // Reuse existing favorite if we already have one (prevents orphaning items)
     let id = favoriteId
     if (!id) {
       id = await createFavorite()
@@ -79,7 +77,6 @@ export function OnboardingPage() {
     }
 
     setItems(imported)
-    queryClient.invalidateQueries({ queryKey: ['favorites', id, 'items'] })
     setActionLoading(false)
     setStep('edit')
   }
@@ -118,9 +115,8 @@ export function OnboardingPage() {
 
   function handleBack() {
     if (step === 'edit') {
-      if (editState?.editMode && editState.favoriteId) {
-        // Return to comparison page in edit mode
-        navigate(`/compare/${editState.favoriteId}`)
+      if (editId) {
+        navigate(`/compare/${editId}`)
       } else {
         setStep('pick')
       }
@@ -130,52 +126,63 @@ export function OnboardingPage() {
   }
 
   const stepIndex = step === 'pick' ? 0 : step === 'edit' ? 1 : 2
+  const subtitles = [
+    'Pick items you buy regularly. We\'ll compare deals for you.',
+    'Remove what you don\'t buy. Add anything missing.',
+    'Save your list so you can check it every week.',
+  ]
+
+  // 30-item warning
+  const itemCountWarning = items.length >= 30 && items.length < 40
+    ? 'Lists work best with your top 20-30 items. Focus on what you buy every week.'
+    : items.length >= 40
+      ? 'Maximum 40 items reached.'
+      : null
 
   return (
     <div>
       {step !== 'pick' && (
         <button
-          className="mb-2 inline-flex min-h-[44px] cursor-pointer items-center gap-1 border-none bg-transparent py-2 text-sm text-muted hover:text-current"
+          className="mb-2 inline-flex min-h-[44px] cursor-pointer items-center gap-1 border-none bg-transparent py-2 text-sm text-muted hover:text-current focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           onClick={handleBack}
           type="button"
         >
           &larr; Back
         </button>
       )}
-      <h1 className="mb-2 text-2xl font-bold tracking-tight">Set up your list</h1>
-      <p className="mb-6 text-sm text-muted">
-        {step === 'pick' && 'Choose a template to get started fast.'}
-        {step === 'edit' && 'Add, remove, or search for products.'}
-        {step === 'save' && 'Save your list to access it anytime.'}
-      </p>
+      <h1 className="mb-1 text-2xl font-bold tracking-tight">Set up your list</h1>
+      <p className="mb-4 text-sm text-muted">{subtitles[stepIndex]}</p>
 
+      {/* Step progress bar */}
       <div
-        className="mb-6 flex gap-2"
+        className="mb-6 flex gap-1"
         role="progressbar"
         aria-valuenow={stepIndex + 1}
         aria-valuemin={1}
         aria-valuemax={3}
         aria-label={`Step ${stepIndex + 1} of 3`}
-        aria-valuetext={`Step ${stepIndex + 1}: ${step === 'pick' ? 'Choose template' : step === 'edit' ? 'Edit list' : 'Save'}`}
+        aria-valuetext={`Step ${stepIndex + 1}: ${step === 'pick' ? 'Choose a starter pack' : step === 'edit' ? 'Edit list' : 'Save'}`}
       >
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className={`h-1.5 flex-1 rounded-sm ${
+            className={`h-1 flex-1 rounded-sm ${
               i < stepIndex ? 'bg-success' : i === stepIndex ? 'bg-accent' : 'bg-border'
             }`}
+            aria-label={`Step ${i + 1}: ${
+              i === 0 ? 'Choose a starter pack' : i === 1 ? 'Edit list' : 'Save'
+            }${i < stepIndex ? ' (completed)' : i === stepIndex ? ' (current)' : ''}`}
           />
         ))}
       </div>
 
-      {error && <div className="mb-4 rounded-md bg-error-light p-6 text-center text-error" role="alert">{error}</div>}
-
-      {loading && (
-        <div className="py-12 text-center text-muted">
-          Setting up...
-          <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
+      {error && (
+        <div className="mb-4 rounded-md bg-error-light p-4 text-center text-sm text-error" role="alert">
+          {error}
         </div>
       )}
+
+      {loading && <LoadingState message="Setting up..." />}
 
       {!loading && step === 'pick' && (
         <TemplatePicker onSelect={handlePackSelect} onSkip={handleSkipTemplate} />
@@ -188,21 +195,52 @@ export function OnboardingPage() {
             items={items}
             onItemsChange={setItems}
           />
-          <Button fullWidth className="mt-6" onClick={handleDoneEditing} disabled={items.length === 0} type="button">
-            Compare deals ({items.length} items)
-          </Button>
+
+          {itemCountWarning && (
+            <div className="mt-3 rounded-md bg-warning-light p-3 text-sm text-warning" role="alert">
+              {itemCountWarning}
+            </div>
+          )}
+
+          <div className="mt-6 flex gap-3">
+            <Button
+              variant="outline"
+              onClick={handleBack}
+              type="button"
+            >
+              Back
+            </Button>
+            <Button
+              fullWidth
+              onClick={handleDoneEditing}
+              disabled={items.length === 0}
+              type="button"
+            >
+              Next — compare deals ({items.length} items)
+            </Button>
+          </div>
         </div>
       )}
 
       {!loading && step === 'save' && favoriteId && (
         <div>
           <EmailCapture favoriteId={favoriteId} onSaved={handleEmailSaved} />
-          <button className="mt-4 flex min-h-[44px] w-full items-center justify-center text-center text-sm text-muted underline hover:text-current" onClick={handleSkipEmail} type="button">
-            Continue without saving
-          </button>
           <p className="mt-2 text-center text-xs text-muted">
-            You can still bookmark the next page to return later.
+            Or just bookmark the link on the next page.
           </p>
+          <div className="mt-4 flex gap-3">
+            <Button variant="outline" onClick={handleBack} type="button">
+              Back
+            </Button>
+            <Button
+              variant="ghost"
+              fullWidth
+              onClick={handleSkipEmail}
+              type="button"
+            >
+              Skip &rarr;
+            </Button>
+          </div>
         </div>
       )}
     </div>

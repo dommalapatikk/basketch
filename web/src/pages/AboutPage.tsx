@@ -1,53 +1,64 @@
 import { Link } from 'react-router-dom'
+
 import { usePageTitle } from '../lib/hooks'
 import { Card } from '../components/ui/Card'
+import { buttonVariants } from '../components/ui/Button'
 
 export function AboutPage() {
   usePageTitle('About')
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">About basketch</h1>
+      <h1 className="mb-4 text-2xl font-bold">About basketch</h1>
 
       <Card>
         <h2 className="mb-3 text-lg font-semibold">How it works</h2>
-        <ol className="list-decimal space-y-1 pl-5 leading-relaxed">
+        <ol className="list-decimal space-y-2 pl-5 text-base leading-loose">
           <li>Every Wednesday evening, we fetch this week's promotions from Migros and Coop.</li>
-          <li>You pick a starter pack or build your own list of regular items.</li>
-          <li>We match your items against active deals from both stores.</li>
-          <li>You get a split shopping list: what to buy where.</li>
+          <li>We categorise every deal into Fresh, Long-life, or Non-food and calculate a weekly verdict.</li>
+          <li>You see the verdict instantly. Browse all deals, or track your regular items for a personal comparison.</li>
         </ol>
       </Card>
 
       <Card className="mt-4">
         <h2 className="mb-3 text-lg font-semibold">Data sources</h2>
-        <ul className="list-disc space-y-1 pl-5 leading-relaxed">
-          <li><strong>Migros</strong> — Official product API via migros-api-wrapper</li>
-          <li><strong>Coop</strong> — Public deal aggregator aktionis.ch</li>
+        <ul className="list-disc space-y-2 pl-5 text-base leading-loose">
+          <li><strong>Migros promotions:</strong> via the Migros API (open source wrapper)</li>
+          <li><strong>Coop promotions:</strong> via aktionis.ch (public deal aggregator since 2006)</li>
         </ul>
-        <p className="mt-2 text-sm text-muted">
-          Only publicly available data is used. No scraping of bot-protected sites.
-          Deal data is refreshed weekly.
+        <p className="mt-3 text-sm text-muted">
+          We only use publicly available data. No scraping of protected websites. Deal data is refreshed weekly.
+        </p>
+      </Card>
+
+      <Card className="mt-4">
+        <h2 className="mb-3 text-lg font-semibold">What we compare</h2>
+        <p className="text-base leading-relaxed">
+          basketch compares weekly promotions, not regular shelf prices.
+          Promotions change every week and are the reason you might switch stores.
+          Regular prices are stable — you already know what milk costs.
         </p>
       </Card>
 
       <Card className="mt-4">
         <h2 className="mb-3 text-lg font-semibold">Privacy</h2>
-        <p className="text-sm">
-          basketch stores only your favorites list and optional email address.
-          No tracking, no ads, no personal data sold. Your email is used solely to
-          retrieve your list — nothing else.
-        </p>
+        <ul className="list-disc space-y-2 pl-5 text-base leading-loose">
+          <li>No account required</li>
+          <li>No tracking cookies</li>
+          <li>Email is optional and only used to find your list</li>
+          <li>We use Vercel Analytics (anonymous page view counts, no personal data)</li>
+        </ul>
       </Card>
 
       <Card className="mt-4">
         <h2 className="mb-3 text-lg font-semibold">Built by</h2>
-        <p className="text-sm">
-          Kiran Dommalapati — a weekend shopper tired of checking two websites.
+        <p className="text-base leading-relaxed">
+          Kiran Dommalapati, Bern.
+          A real product for a tiny audience, documented like a portfolio project.
         </p>
       </Card>
 
       <div className="mt-8 text-center">
-        <Link to="/onboarding" className="inline-block rounded-md bg-accent px-6 py-3 text-sm font-semibold text-white no-underline hover:opacity-90">
+        <Link to="/onboarding" className={buttonVariants()}>
           Get started — build your list
         </Link>
       </div>

@@ -33,6 +33,16 @@ For each keyword in the starter pack templates, test the matching logic:
   - Would a human say "yes, this is milk" for the milk keyword?
   - Flag any keyword where the match is a different product type
 
+### Phase 2b: Product Group Assignment Validation
+After any pipeline run or data migration, verify assignments are correct:
+- For each product group, query all products and check: does every product name make sense for this group?
+- Specifically test for known problem patterns:
+  - Substring false positives (e.g., "Granatapfel" matching "apfel", "Gala" pasta matching "Gala" apple)
+  - Baby food / snacks / cosmetics ending up in food groups
+  - Brand names triggering wrong group matches
+- Test with real user search queries: bananen, milch, brot, eier, butter, poulet, reis, pasta, käse, joghurt
+- Flag any product where a human would say "this doesn't belong here"
+
 ### Phase 3: User Flow Walkthrough
 Simulate each use case by reading the code:
 - UC-1: First visit → template → edit → email → comparison
@@ -56,6 +66,7 @@ Don't just check if code exists — reason about how CSS properties interact at 
 
 **Touch & interaction:**
 - Are ALL interactive elements (buttons, links, inputs) at least 44x44px touch target? Check both explicit sizing AND padding. A 12px text button with 16px padding = 44px — acceptable. A 12px text button with 4px padding = 20px — fail.
+- Do ALL interactive elements have `focus-visible:ring-*` styling for keyboard users?
 - Do hover states have equivalent focus-visible states for keyboard users?
 - Can horizontal scroll containers be scrolled on all devices (touch, trackpad, keyboard)?
 
@@ -126,6 +137,30 @@ Tested by: QA Tester Agent
 - Do color contrasts meet WCAG AA? (Check `text-muted` on `bg-surface` — is it at least 4.5:1?)
 - Are status messages (`role="status"`, `role="alert"`) used for dynamic feedback?
 
+## Resolution Loop
+
+Your test findings feed into a **closed loop** with the Builder. Bugs don't get filed and forgotten — they get fixed and re-tested.
+
+```
+You test ──→ Findings (bugs, issues, concerns)
+                    │
+        For EACH finding:
+                    │
+          Builder ACCEPTS ──→ Fixes the bug ──→ You re-test ONLY the fix
+          Builder DISAGREES ──→ Technical: Tech Lead decides / Product: PM decides
+          Both AGREE to discard ──→ Documented and closed (e.g., known limitation)
+                    │
+          Loop until zero open bugs ──→ Module passes QA
+```
+
+### Your responsibilities in the loop:
+- **Re-test only the fixed items** — don't re-run the entire test suite
+- **Verify the fix didn't introduce regressions** in related functionality
+- If the fix is correct, close the bug. If it introduced new issues, flag them — new loop iteration
+- **Tech Lead decides technical disagreements. PM decides product disagreements.**
+
+---
+
 ## Important Rules
 - Always run from the repo root: `/Users/kiran/ClaudeCode/basketch`
 - Use `supabase db query --linked` for database queries
@@ -136,3 +171,4 @@ Tested by: QA Tester Agent
 - **Never say PASS without evidence** — for every check, state what you examined and what you found
 - **Trace CSS interactions** — when a component uses overflow + mask/clip/shadow, reason about the visual result at 320px, 375px, and 768px widths
 - **Check padding math** — if a mask fades 40px and the container has 0px right padding, that's 40px of clipped content. Flag it.
+- **After any data change, test with real searches** — don't just count rows. Query "bananen", "milch", "brot", "eier" and check the results make sense to a human.

@@ -51,12 +51,33 @@ The VP Product **blocks** the release if:
 
 ---
 
-## Post-Review
+## Resolution Loop
 
+Your review feeds into the Quality Gate's **closed resolution loop**:
+
+```
+You review ──→ Findings (Blocks/Flags)
+                    │
+                    ▼
+    Quality Gate presents to PM + team
+                    │
+        For EACH Block:
+                    │
+          Team ACCEPTS ──→ Responsible agent fixes ──→ You re-review ONLY the fix
+          Team DISAGREES ──→ SPADE ──→ Tech Lead decides technical / PM decides product
+          Both AGREE to discard ──→ Documented and closed
+                    │
+          Loop until zero open blocks ──→ Your verdict: Approve
+```
+
+### Your responsibilities in the loop:
 1. Produce a written review with SBI format (Situation, Behavior, Impact) for each finding
-2. For any block: schedule a 24-hour sync with PM to discuss resolution
-3. For flags: document with owner and suggested deadline
-4. Work with PM Coach if strategic questions arise during review
+2. For blocks: specify exactly what's wrong and what "fixed" looks like
+3. **Re-review only the fixed items** — don't re-review the entire release
+4. If the fix is correct, close the block. If it introduced new issues, flag them — new loop iteration
+5. For flags: document with owner and suggested deadline
+6. Work with PM Coach if strategic questions arise during review
+7. **Tech Lead decides** technical disagreements. **PM decides** product disagreements. You advise, you don't veto
 
 ---
 

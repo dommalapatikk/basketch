@@ -8,7 +8,8 @@ import path from 'node:path'
 import type { UnifiedDeal } from '../shared/types'
 
 import { categorizeDeal } from './categorize'
-import { storeDeals, logPipelineRun, deactivateExpiredDeals } from './store'
+import { extractProductMetadata } from './product-metadata'
+import { storeDeals, logPipelineRun, deactivateExpiredDeals, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
 import { fetchMigrosRegularPrices } from './migros/fetch-prices'
 import { isValidDealEntry } from './validate'
@@ -53,9 +54,10 @@ async function main(): Promise<void> {
   // Artifacts are downloaded to pipeline/ by CI, but Coop writes to coop/ subdirectory.
   // Check both locations for Coop deals.
   const migrosRaw = readDealsFile('migros-deals.json')
-  const coopRaw = readDealsFile('coop-deals.json').length > 0
-    ? readDealsFile('coop-deals.json')
-    : readDealsFile('coop/coop-deals.json')
+  let coopRaw = readDealsFile('coop-deals.json')
+  if (coopRaw.length === 0) {
+    coopRaw = readDealsFile('coop/coop-deals.json')
+  }
 
   const migrosStatus = migrosRaw.length > 0 ? 'success' : 'failed'
   const coopStatus = coopRaw.length > 0 ? 'success' : 'failed'
@@ -69,8 +71,29 @@ async function main(): Promise<void> {
     `[pipeline] [INFO] Read ${migrosRaw.length} Migros deals, ${coopRaw.length} Coop deals`,
   )
 
-  // Categorize all deals and filter out 0% discount entries (not real deals)
+  // Step 1: Normalize product names (lowercase, collapse whitespace, standardise units)
   const allRaw = [...migrosRaw, ...coopRaw]
+  for (const deal of allRaw) {
+    deal.productName = normalizeProductName(deal.productName)
+  }
+  console.log(`[pipeline] [INFO] Normalised ${allRaw.length} product names`)
+
+  // Step 2: Extract metadata (brand, quantity, unit, organic flag)
+  // Metadata is used downstream by product resolver; log summary here for visibility
+  let organicCount = 0
+  let brandCount = 0
+  let quantityCount = 0
+  for (const deal of allRaw) {
+    const meta = extractProductMetadata(deal.productName, deal.sourceCategory)
+    if (meta.isOrganic) organicCount++
+    if (meta.brand) brandCount++
+    if (meta.quantity != null) quantityCount++
+  }
+  console.log(
+    `[pipeline] [INFO] Metadata: ${brandCount} brands, ${quantityCount} quantities, ${organicCount} organic`,
+  )
+
+  // Step 3: Categorize all deals and filter out 0% discount entries (not real deals)
   const categorized = allRaw
     .map((deal) => categorizeDeal(deal))
     .filter((d) => (d.discountPercent ?? 0) > 0)
@@ -91,10 +114,10 @@ async function main(): Promise<void> {
   // Keyed by store to prevent cross-store name collisions
   const productIds = new Map<string, string>()
   for (const [name, resolved] of migrosProducts) {
-    productIds.set(`migros|${name}`, resolved.productId)
+    productIds.set(productLookupKey('migros', name), resolved.productId)
   }
   for (const [name, resolved] of coopProducts) {
-    productIds.set(`coop|${name}`, resolved.productId)
+    productIds.set(productLookupKey('coop', name), resolved.productId)
   }
 
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)

@@ -1,10 +1,13 @@
-# Tests for Coop scraper: normalization, HTML parsing, and edge cases.
+# Tests for Coop scraper: normalization, HTML parsing, HTTP mocking, and edge cases.
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from bs4 import BeautifulSoup
 
+from fetch import fetch_coop_deals, fetch_page
 from normalize import (
     calculate_discount_percent,
     normalize_coop_deal,
@@ -301,3 +304,180 @@ class TestEndToEnd:
             assert len(deal["productName"]) > 0
             assert isinstance(deal["salePrice"], float)
             assert deal["salePrice"] > 0
+
+
+# ── HTTP layer tests (mocked) ─────────────────────────────────────
+
+
+class TestFetchPage:
+    def test_happy_path_returns_deals(self) -> None:
+        """Mock a successful HTTP response with fixture HTML."""
+        html_path = FIXTURES_DIR / "coop-page-1.html"
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = html_path.read_text()
+
+        with patch("fetch.requests.get", return_value=mock_response) as mock_get:
+            result = fetch_page(1)
+            mock_get.assert_called_once()
+            assert len(result) > 0
+            assert result[0]["name"] is not None
+
+    def test_network_error_returns_empty_list(self) -> None:
+        """A network failure should return empty list, not raise."""
+        with patch(
+            "fetch.requests.get",
+            side_effect=requests.ConnectionError("DNS failed"),
+        ):
+            result = fetch_page(1)
+            assert result == []
+
+    def test_timeout_returns_empty_list(self) -> None:
+        """A timeout should return empty list, not raise."""
+        with patch(
+            "fetch.requests.get",
+            side_effect=requests.Timeout("Request timed out"),
+        ):
+            result = fetch_page(1)
+            assert result == []
+
+    def test_non_200_returns_empty_list(self) -> None:
+        """A 404 or 500 response should return empty list."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        with patch("fetch.requests.get", return_value=mock_response):
+            result = fetch_page(1)
+            assert result == []
+
+    def test_empty_html_returns_empty_list(self) -> None:
+        """HTML with no deal cards should return empty list."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "<html><body><p>No deals today</p></body></html>"
+
+        with patch("fetch.requests.get", return_value=mock_response):
+            result = fetch_page(1)
+            assert result == []
+
+
+class TestFetchCoopDeals:
+    def test_happy_path_paginates(self) -> None:
+        """fetch_coop_deals should paginate until empty page."""
+        html_path = FIXTURES_DIR / "coop-page-1.html"
+        fixture_html = html_path.read_text()
+
+        call_count = 0
+
+        def mock_get(*args: object, **kwargs: object) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            resp.status_code = 200
+            # Return deals on page 1, empty on page 2
+            if call_count == 1:
+                resp.text = fixture_html
+            else:
+                resp.text = "<html><body></body></html>"
+            return resp
+
+        with patch("fetch.requests.get", side_effect=mock_get):
+            deals = fetch_coop_deals(max_pages=5)
+            assert len(deals) > 0
+            # Should have stopped after page 2 (empty)
+            assert call_count == 2
+
+    def test_network_failure_returns_empty_list(self) -> None:
+        """Total network failure should return empty list, not raise."""
+        with patch(
+            "fetch.requests.get",
+            side_effect=requests.ConnectionError("Network down"),
+        ):
+            deals = fetch_coop_deals(max_pages=3)
+            assert deals == []
+
+    def test_all_deals_have_camel_case_keys(self) -> None:
+        """Every deal from fetch_coop_deals must use camelCase keys."""
+        html_path = FIXTURES_DIR / "coop-page-1.html"
+        fixture_html = html_path.read_text()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = fixture_html
+
+        empty_response = MagicMock()
+        empty_response.status_code = 200
+        empty_response.text = "<html><body></body></html>"
+
+        with patch(
+            "fetch.requests.get", side_effect=[mock_response, empty_response]
+        ):
+            deals = fetch_coop_deals(max_pages=5)
+            assert len(deals) > 0
+
+            expected_keys = {
+                "store",
+                "productName",
+                "originalPrice",
+                "salePrice",
+                "discountPercent",
+                "validFrom",
+                "validTo",
+                "imageUrl",
+                "sourceCategory",
+                "sourceUrl",
+            }
+            for deal in deals:
+                assert set(deal.keys()) == expected_keys
+
+    def test_zero_deals_is_success(self) -> None:
+        """0 deals should return empty list (not an error)."""
+        empty_response = MagicMock()
+        empty_response.status_code = 200
+        empty_response.text = "<html><body></body></html>"
+
+        with patch("fetch.requests.get", return_value=empty_response):
+            deals = fetch_coop_deals(max_pages=1)
+            assert deals == []
+
+
+# ── Main entry point tests ─────────────────────────────────────────
+
+
+class TestMain:
+    def test_main_stdout(self) -> None:
+        """main() should write JSON to stdout and return 0."""
+        from main import main
+
+        empty_response = MagicMock()
+        empty_response.status_code = 200
+        empty_response.text = "<html><body></body></html>"
+
+        with (
+            patch("fetch.requests.get", return_value=empty_response),
+            patch("sys.argv", ["main.py"]),
+        ):
+            exit_code = main()
+            assert exit_code == 0
+
+    def test_main_file_output(self, tmp_path: Path) -> None:
+        """main() should write JSON to a file when path is given."""
+        import json
+
+        from main import main
+
+        empty_response = MagicMock()
+        empty_response.status_code = 200
+        empty_response.text = "<html><body></body></html>"
+
+        output_file = tmp_path / "deals.json"
+
+        with (
+            patch("fetch.requests.get", return_value=empty_response),
+            patch("sys.argv", ["main.py", str(output_file)]),
+        ):
+            exit_code = main()
+            assert exit_code == 0
+            assert output_file.exists()
+            data = json.loads(output_file.read_text())
+            assert isinstance(data, list)

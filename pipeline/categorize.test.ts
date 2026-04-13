@@ -68,7 +68,7 @@ describe('categorizeDeal', () => {
         sourceCategory: 'Frische Milchprodukte',
       })
       const result = categorizeDeal(deal)
-      // 'frisch' keyword matches sourceCategory
+      // 'milch' in sourceCategory matches dairy rule -> fresh
       expect(result.category).toBe('fresh')
     })
 
@@ -110,10 +110,39 @@ describe('categorizeDeal', () => {
     })
   })
 
+  describe('sub_category assignment', () => {
+    it.each([
+      ['Vollmilch 1L', 'dairy'],
+      ['Gruyère AOC 200g', 'dairy'],
+      ['Poulet Brust', 'poultry'],
+      ['Hackfleisch 500g', 'meat'],
+      ['Rispentomaten 500g', 'vegetables'],
+      ['Bananen 1kg', 'fruit'],
+      ['Barilla Spaghetti 500g', 'pasta-rice'],
+      ['Persil Waschmittel Gel', 'laundry'],
+      ['Head & Shoulders Shampoo', 'personal-care'],
+      ['Hakle Toilettenpapier 24 Rollen', 'paper-goods'],
+      ['Chips Original 170g', 'snacks'],
+      ['Lindt Lindor 200g', 'chocolate'],
+      ['Rivella rot 50cl', 'drinks'],
+      ['Nescafé Kaffee Gold 200g', 'coffee-tea'],
+    ])('assigns sub_category "%s" -> %s', (productName, expectedSub) => {
+      const deal = makeDeal({ productName })
+      const result = categorizeDeal(deal)
+      expect(result.subCategory).toBe(expectedSub)
+    })
+
+    it('assigns null sub_category for unmatched products', () => {
+      const deal = makeDeal({ productName: 'unknown product xyz' })
+      const result = categorizeDeal(deal)
+      expect(result.subCategory).toBeNull()
+    })
+  })
+
   describe('first match wins', () => {
     it('matches fresh before non-food for a product with both keywords', () => {
-      // 'frisch' is in fresh rules, checked first
-      const deal = makeDeal({ productName: 'frisch shampoo' })
+      // 'milch' is in fresh > dairy rules, checked before non-food
+      const deal = makeDeal({ productName: 'milch seife set' })
       const result = categorizeDeal(deal)
       expect(result.category).toBe('fresh')
     })

@@ -1,257 +1,171 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
-import type { BrowseCategory, DealComparison, DealRow } from '@shared/types'
+import type { BrowseCategory, Category, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
-import { useDealComparisons, usePageTitle } from '../lib/hooks'
-import { Badge } from '../components/ui/Badge'
 
-// ── Inline sub-components ──────────────────────────────────────────
+const TOP_LEVEL_CATEGORIES: Category[] = ['fresh', 'long-life', 'non-food']
 
-function DealCard(props: { deal: DealRow }) {
-  const { deal } = props
+const TOP_LEVEL_LABELS: Record<Category, string> = {
+  'fresh': 'Fresh',
+  'long-life': 'Long-life',
+  'non-food': 'Non-food / Household',
+}
+import { useActiveDeals, usePageTitle } from '../lib/hooks'
+import { fetchLatestPipelineRun } from '../lib/queries'
+import { useCachedQuery } from '../lib/use-cached-query'
+import { DataFreshness } from '../components/DataFreshness'
+import { DealCard } from '../components/DealCard'
+import { LoadingState } from '../components/LoadingState'
+import { ErrorState } from '../components/ErrorState'
+import { StaleBanner } from '../components/StaleBanner'
 
-  return (
-    <div className="flex gap-3 border-b border-border py-3 last:border-b-0">
-      {deal.image_url && (
-        <img
-          className="size-16 shrink-0 rounded object-contain bg-gray-50"
-          src={deal.image_url}
-          alt={deal.product_name}
-          loading="lazy"
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="line-clamp-2 text-sm font-medium">{deal.product_name}</div>
-        <div className="mt-0.5 flex items-baseline gap-2">
-          <span className="whitespace-nowrap text-base font-bold">
-            {deal.sale_price === 0 ? 'Free' : `CHF ${(deal.sale_price ?? 0).toFixed(2)}`}
-          </span>
-          {deal.original_price != null && deal.original_price > deal.sale_price && (
-            <span className="whitespace-nowrap text-xs text-muted line-through">
-              CHF {deal.original_price.toFixed(2)}
-            </span>
-          )}
-          {deal.discount_percent != null && deal.discount_percent > 0 && (
-            <span className="text-xs font-semibold text-success">-{deal.discount_percent}%</span>
-          )}
-        </div>
-      </div>
-    </div>
-  )
+const INITIAL_SHOW = 50
+
+function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boolean {
+  if (deal.sub_category && subCategories.includes(deal.sub_category)) return true
+  return false
 }
 
-function DealComparisonColumn(props: {
-  deal: DealRow | null
-  storeName: string
-  bgClass: string
-  textClass: string
-  isWinner: boolean
-}) {
-  const { deal, storeName, bgClass, textClass, isWinner } = props
-
-  if (!deal) {
-    return (
-      <div className={`rounded-md p-3 ${bgClass}`}>
-        <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${textClass}`}>
-          {storeName}
-        </div>
-        <div className="py-4 text-center text-sm italic text-muted">No deal</div>
-      </div>
-    )
+function dealMatchesBrowseCategory(deal: DealRow, categoryId: BrowseCategory | Category): boolean {
+  if (categoryId === 'all') return true
+  // Support top-level categories (fresh, long-life, non-food)
+  if (TOP_LEVEL_CATEGORIES.includes(categoryId as Category)) {
+    return deal.category === categoryId
   }
-
-  return (
-    <div className={`rounded-md p-3 ${bgClass} ${isWinner ? 'ring-2 ring-success' : ''}`}>
-      <div className="mb-1 flex items-center justify-between">
-        <span className={`text-xs font-semibold uppercase tracking-wide ${textClass}`}>
-          {storeName}
-        </span>
-        {isWinner && (
-          <Badge variant="both">Best</Badge>
-        )}
-      </div>
-      {deal.image_url && (
-        <img
-          className="mb-2 max-h-[80px] w-full rounded object-contain bg-gray-50"
-          src={deal.image_url}
-          alt={deal.product_name}
-          loading="lazy"
-        />
-      )}
-      <div className="truncate text-lg font-bold">
-        {deal.sale_price === 0 ? 'Free' : `CHF ${(deal.sale_price ?? 0).toFixed(2)}`}
-      </div>
-      {deal.original_price != null && deal.original_price > deal.sale_price && (
-        <div className="whitespace-nowrap text-xs text-muted line-through">
-          was CHF {deal.original_price.toFixed(2)}
-        </div>
-      )}
-      {deal.discount_percent != null && deal.discount_percent > 0 && (
-        <div className="text-xs font-semibold text-success">
-          -{deal.discount_percent}%
-        </div>
-      )}
-      <div className="mt-1 line-clamp-2 text-xs text-muted">
-        {deal.product_name}
-      </div>
-    </div>
-  )
+  const cat = BROWSE_CATEGORIES.find((c) => c.id === categoryId)
+  if (!cat) return false
+  return matchDealToSubCategories(deal, cat.subCategories)
 }
 
-function DealComparisonCard(props: { comparison: DealComparison }) {
-  const { label, matchType, migrosDeal, coopDeal, recommendation } = props.comparison
-
-  const recTag = recommendation === 'migros'
-    ? { variant: 'migros' as const, label: 'Migros wins' }
-    : recommendation === 'coop'
-      ? { variant: 'coop' as const, label: 'Coop wins' }
-      : { variant: 'both' as const, label: 'Same price' }
-
-  return (
-    <div className="rounded-md border border-border bg-surface p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <strong className="line-clamp-1 text-sm">{label}</strong>
-          {matchType === 'name-similarity' && (
-            <span className="text-xs text-muted"> (similar name)</span>
-          )}
-        </div>
-        <Badge variant={recTag.variant}>{recTag.label}</Badge>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <DealComparisonColumn
-          deal={migrosDeal}
-          storeName="Migros"
-          bgClass="bg-migros-light"
-          textClass="text-migros-text"
-          isWinner={recommendation === 'migros'}
-        />
-        <DealComparisonColumn
-          deal={coopDeal}
-          storeName="Coop"
-          bgClass="bg-coop-light"
-          textClass="text-coop-text"
-          isWinner={recommendation === 'coop'}
-        />
-      </div>
-    </div>
-  )
-}
-
-function CollapsibleDealSection(props: {
-  title: string
+function StoreDealSection(props: {
+  store: 'migros' | 'coop'
+  categoryLabel: string
   deals: DealRow[]
-  defaultOpen?: boolean
 }) {
-  const { title, deals, defaultOpen = false } = props
-  const [isOpen, setIsOpen] = useState(defaultOpen)
-  const [showAll, setShowAll] = useState(false)
-  const visibleDeals = showAll ? deals : deals.slice(0, 50)
-
-  if (deals.length === 0) return null
+  const { store, categoryLabel, deals } = props
+  const [showCount, setShowCount] = useState(INITIAL_SHOW)
+  const visibleDeals = deals.slice(0, showCount)
+  const remaining = deals.length - showCount
+  const storeName = store === 'migros' ? 'Migros' : 'Coop'
+  const headerColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
 
   return (
-    <div className="rounded-md border border-border bg-surface overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-      >
-        <span>{title} ({deals.length} deal{deals.length !== 1 ? 's' : ''})</span>
-        <span className="text-muted">{isOpen ? '\u25B2' : '\u25BC'}</span>
-      </button>
-      {isOpen && (
-        <div className="border-t border-border px-4">
+    <section
+      role="region"
+      aria-label={`${storeName} deals`}
+    >
+      <div className="mb-3">
+        <h2 className={`text-base font-bold uppercase tracking-wide ${headerColor}`}>
+          {storeName} — {categoryLabel}
+        </h2>
+        <p className="text-sm text-muted">
+          {deals.length} deal{deals.length !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      {deals.length === 0 ? (
+        <div className="rounded-md border border-border bg-surface p-6 text-center text-sm italic text-muted">
+          No {storeName} deals in {categoryLabel.toLowerCase()} this week
+        </div>
+      ) : (
+        <div className="space-y-2">
           {visibleDeals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} />
+            <DealCard key={deal.id} deal={deal} store={store} />
           ))}
-          {!showAll && deals.length > 50 && (
+          {remaining > 0 && (
             <button
               type="button"
-              onClick={() => setShowAll(true)}
-              className="w-full py-3 text-center text-sm font-medium text-accent hover:underline min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
+              className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
             >
-              Show all {deals.length} deals
+              Show more {storeName} deals ({remaining} left)
             </button>
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
-// ── Category matching (kept from original) ─────────────────────────
+export function DealsPage() {
+  usePageTitle('This Week\'s Deals')
+  const { data: deals, loading, error, refetch } = useActiveDeals()
+  const { data: pipelineRun } = useCachedQuery(
+    'pipeline-run:latest',
+    fetchLatestPipelineRun,
+    60,
+  )
+  const [searchParams, setSearchParams] = useSearchParams()
+  const pillContainerRef = useRef<HTMLDivElement>(null)
+  const [showFade, setShowFade] = useState(true)
 
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  fruit: ['apfel', 'äpfel', 'banane', 'erdbeere', 'himbeere', 'heidelbeere', 'beeren', 'kiwi', 'mango', 'orange', 'trauben', 'birne', 'ananas', 'melone'],
-  vegetables: ['tomaten', 'kartoffel', 'zwiebel', 'karotten', 'rüebli', 'salat', 'gurke', 'peperoni', 'zucch', 'aubergine', 'spinat', 'broccoli', 'blumenkohl', 'lauch', 'champignon', 'pilze', 'spargel'],
-  meat: ['hackfleisch', 'rinds', 'schwein', 'kalb', 'lamm', 'steak', 'filet', 'entrecôte'],
-  poultry: ['poulet', 'chicken', 'trut', 'poul'],
-  deli: ['salami', 'schinken', 'wurst', 'cervelat', 'bratwurst', 'wienerli', 'bresaola', 'prosciutto'],
-  fish: ['lachs', 'salmon', 'thunfisch', 'crevetten', 'shrimp', 'garnelen', 'fisch', 'forelle', 'dorsch', 'pangasius'],
-  dairy: ['milch', 'joghurt', 'jogurt', 'käse', 'butter', 'rahm', 'quark', 'mozzarella', 'feta', 'gruyère', 'emmentaler', 'mascarpone', 'ricotta', 'cream'],
-  eggs: ['eier', 'freiland'],
-  bread: ['brot', 'toast', 'zopf', 'weggli', 'bürli', 'ciabatta', 'focaccia', 'baguette', 'naan', 'brötchen'],
-  chocolate: ['schokolade', 'praline', 'branche'],
-  snacks: ['chips', 'müesli', 'nüsse', 'mandeln', 'erdnüsse', 'cashew', 'guezli', 'cookie', 'kekse', 'cracker'],
-  'pasta-rice': ['pasta', 'spaghetti', 'penne', 'fusilli', 'rigatoni', 'reis', 'basmati', 'risotto', 'couscous', 'mehl'],
-  drinks: ['wein', 'bier', 'prosecco', 'saft', 'sirup', 'mineral', 'wasser', 'cola', 'rivella', 'energy'],
-  'coffee-tea': ['kaffee', 'espresso', 'tee', 'cappuccino'],
-  'ready-meals': ['pizza', 'lasagne', 'nuggets', 'rösti', 'gratin', 'fertig', 'convenience', 'cubes', 'tiefkühl', 'frites', 'glace', 'glacé'],
-  canned: ['pelati', 'passata', 'dose', 'konserve', 'tomatenpüree', 'tomatensauce', 'kokosmilch', 'linsen', 'kichererbsen', 'bohnen', 'oliven'],
-  condiments: ['olivenöl', 'sonnenblumenöl', 'rapsöl', 'zucker', 'senf', 'ketchup', 'essig', 'sauce', 'gewürz'],
-  cleaning: ['reiniger', 'putzmittel', 'abwaschmittel', 'geschirrspül'],
-  laundry: ['waschmittel', 'waschpulver', 'weichspüler'],
-  'paper-goods': ['toilettenpapier', 'wc-papier', 'küchenpapier', 'taschentücher', 'tempo'],
-  household: ['kerze', 'sack', 'müll', 'frischhalte', 'alufolie'],
-  'personal-care': ['shampoo', 'duschgel', 'zahnpasta', 'zahncreme', 'deo', 'deodorant', 'creme', 'seife', 'lotion'],
-}
+  // Read category from URL or default to 'all'
+  const urlCategory = searchParams.get('category') as BrowseCategory | Category | null
+  const validCategories: (BrowseCategory | Category)[] = [
+    'all',
+    ...BROWSE_CATEGORIES.map((c) => c.id),
+    ...TOP_LEVEL_CATEGORIES,
+  ]
+  const activeCategory: BrowseCategory | Category = urlCategory && validCategories.includes(urlCategory)
+    ? urlCategory
+    : 'all'
 
-function matchDealToCategory(deal: DealRow, subCategories: string[]): boolean {
-  const name = deal.product_name.toLowerCase()
-  for (const subCat of subCategories) {
-    const keywords = CATEGORY_KEYWORDS[subCat]
-    if (keywords && keywords.some((kw) => name.includes(kw))) {
-      return true
+  function setActiveCategory(cat: BrowseCategory | Category) {
+    if (cat === 'all') {
+      setSearchParams({})
+    } else {
+      setSearchParams({ category: cat })
     }
   }
-  return false
-}
 
-function dealMatchesBrowseCategory(deal: DealRow, categoryId: BrowseCategory): boolean {
-  if (categoryId === 'all') return true
-  const cat = BROWSE_CATEGORIES.find((c) => c.id === categoryId)
-  if (!cat) return false
-  return matchDealToCategory(deal, cat.subCategories)
-}
+  // Check scroll fade
+  useEffect(() => {
+    const container = pillContainerRef.current
+    if (!container) return
 
-function comparisonMatchesBrowseCategory(
-  comparison: DealComparison,
-  categoryId: BrowseCategory,
-): boolean {
-  if (categoryId === 'all') return true
-  // Check either deal
-  if (comparison.migrosDeal && dealMatchesBrowseCategory(comparison.migrosDeal, categoryId)) return true
-  if (comparison.coopDeal && dealMatchesBrowseCategory(comparison.coopDeal, categoryId)) return true
-  return false
-}
+    function handleScroll() {
+      if (!container) return
+      const atEnd = container.scrollLeft + container.clientWidth >= container.scrollWidth - 2
+      setShowFade(!atEnd)
+    }
 
-// ── Main page component ────────────────────────────────────────────
+    handleScroll()
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [deals])
 
-export function DealsPage() {
-  usePageTitle('Browse Deals')
-  const { data: comparisons, deals, isLoading, error } = useDealComparisons()
-  const [activeCategory, setActiveCategory] = useState<BrowseCategory>('all')
+  // Filter deals by active category
+  const filteredDeals = useMemo(() => {
+    if (!deals) return { migros: [] as DealRow[], coop: [] as DealRow[] }
+    const filtered = activeCategory === 'all'
+      ? deals
+      : deals.filter((d) => dealMatchesBrowseCategory(d, activeCategory))
+    return {
+      migros: filtered.filter((d) => d.store === 'migros'),
+      coop: filtered.filter((d) => d.store === 'coop'),
+    }
+  }, [deals, activeCategory])
 
-  // Category counts based on all deals (for pill badges)
+  // Category label for headers
+  const activeCategoryLabel = activeCategory === 'all'
+    ? 'All Categories'
+    : TOP_LEVEL_LABELS[activeCategory as Category]
+      ?? BROWSE_CATEGORIES.find((c) => c.id === activeCategory)?.label
+      ?? 'All Categories'
+
+  // Check stale data (> 7 days)
+  const isStale = pipelineRun
+    ? (Date.now() - new Date(pipelineRun.run_at).getTime()) > 7 * 24 * 60 * 60 * 1000
+    : false
+
+  // Category counts for pill badges
   const categoryCounts = useMemo(() => {
     if (!deals) return new Map<BrowseCategory, number>()
-
     const counts = new Map<BrowseCategory, number>()
     for (const deal of deals) {
       for (const cat of BROWSE_CATEGORIES) {
-        if (matchDealToCategory(deal, cat.subCategories)) {
+        if (matchDealToSubCategories(deal, cat.subCategories)) {
           counts.set(cat.id, (counts.get(cat.id) ?? 0) + 1)
           break
         }
@@ -260,134 +174,161 @@ export function DealsPage() {
     return counts
   }, [deals])
 
-  // Filter comparisons and unmatched deals by active category
-  const filtered = useMemo(() => {
-    if (!comparisons) return { matched: [], unmatchedMigros: [], unmatchedCoop: [] }
+  const totalDeals = deals?.length ?? 0
+  const hasResults = filteredDeals.migros.length > 0 || filteredDeals.coop.length > 0
 
-    if (activeCategory === 'all') return comparisons
+  // Roving tabindex keyboard handling
+  function handlePillKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const container = pillContainerRef.current
+    if (!container) return
+    const pills = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const currentIndex = pills.indexOf(e.currentTarget)
 
-    return {
-      matched: comparisons.matched.filter((c) => comparisonMatchesBrowseCategory(c, activeCategory)),
-      unmatchedMigros: comparisons.unmatchedMigros.filter((d) => dealMatchesBrowseCategory(d, activeCategory)),
-      unmatchedCoop: comparisons.unmatchedCoop.filter((d) => dealMatchesBrowseCategory(d, activeCategory)),
+    let nextIndex = -1
+    if (e.key === 'ArrowRight') {
+      nextIndex = currentIndex < pills.length - 1 ? currentIndex + 1 : 0
+    } else if (e.key === 'ArrowLeft') {
+      nextIndex = currentIndex > 0 ? currentIndex - 1 : pills.length - 1
     }
-  }, [comparisons, activeCategory])
 
-  if (isLoading) {
+    if (nextIndex >= 0) {
+      e.preventDefault()
+      pills[nextIndex]?.focus()
+      pills[nextIndex]?.click()
+    }
+  }
+
+  if (loading) {
     return (
-      <div className="py-12 text-center text-muted">
-        Loading deals...
-        <div className="mx-auto mt-3 size-6 rounded-full border-[3px] border-border border-t-accent animate-spin" />
+      <div>
+        <h1 className="mb-1 text-2xl font-bold tracking-tight">This week's deals</h1>
+        <LoadingState message="Loading deals..." />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="rounded-md bg-error-light p-6 text-center text-error">
-        <p>Could not load deals</p>
-        <button
-          className="mt-3 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-          onClick={() => window.location.reload()}
-          type="button"
-        >
-          Try again
-        </button>
+      <div>
+        <h1 className="mb-4 text-2xl font-bold tracking-tight">This week's deals</h1>
+
+        {/* Category pills — visible but disabled on error per design spec 2.7 */}
+        <div className="relative mb-4">
+          <div className="no-scrollbar flex gap-2 overflow-x-auto py-1" role="tablist" aria-label="Filter by category">
+            <button
+              className="shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] border border-border bg-pill-bg text-muted opacity-50 cursor-not-allowed"
+              type="button"
+              role="tab"
+              aria-selected={false}
+              tabIndex={-1}
+              disabled
+            >
+              All
+            </button>
+            {BROWSE_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                className="shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm min-h-[44px] border border-border bg-pill-bg text-muted opacity-50 cursor-not-allowed"
+                type="button"
+                role="tab"
+                aria-selected={false}
+                tabIndex={-1}
+                disabled
+              >
+                {cat.emoji} {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <ErrorState message="Could not load deals. Please try again later." onRetry={refetch} />
       </div>
     )
   }
 
-  const totalDeals = deals?.length ?? 0
-  const hasResults = filtered.matched.length > 0 || filtered.unmatchedMigros.length > 0 || filtered.unmatchedCoop.length > 0
-
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold tracking-tight">Browse Deals</h1>
-      <p className="mb-1 text-sm text-muted">
-        {totalDeals} active deals across Migros and Coop
-      </p>
-      {comparisons && (
-        <p className="mb-4 text-sm text-muted">
-          {comparisons.matched.length} comparable product{comparisons.matched.length !== 1 ? 's' : ''} found
-        </p>
-      )}
-
-      {/* Category pills */}
-      <div
-        className="mb-4 flex flex-wrap gap-2"
-        role="radiogroup"
-        aria-label="Filter by category"
-      >
-        <button
-          className={`rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-            activeCategory === 'all'
-              ? 'bg-accent text-white'
-              : 'bg-surface border border-border hover:border-accent'
-          }`}
-          onClick={() => setActiveCategory('all')}
-          type="button"
-          role="radio"
-          aria-checked={activeCategory === 'all'}
-        >
-          All ({totalDeals})
-        </button>
-        {BROWSE_CATEGORIES.map((cat) => {
-          const count = categoryCounts.get(cat.id) ?? 0
-          if (count === 0) return null
-          return (
-            <button
-              key={cat.id}
-              className={`rounded-full px-4 py-2.5 text-sm transition-colors min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                activeCategory === cat.id
-                  ? 'bg-accent text-white'
-                  : 'bg-surface border border-border hover:border-accent'
-              }`}
-              onClick={() => setActiveCategory(cat.id)}
-              type="button"
-              role="radio"
-              aria-checked={activeCategory === cat.id}
-            >
-              {cat.emoji} {cat.label} ({count})
-            </button>
-          )
-        })}
+      <h1 className="mb-1 text-2xl font-bold tracking-tight">This week's deals</h1>
+      <div className="mb-1">
+        <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
       </div>
 
-      {/* Content */}
-      {!hasResults ? (
-        <div className="py-12 text-center text-muted">No deals in this category</div>
-      ) : (
-        <div className="space-y-6">
-          {/* Matched comparisons */}
-          {filtered.matched.length > 0 && (
-            <div>
-              <h2 className="mb-3 text-lg font-semibold">
-                Side-by-side comparisons ({filtered.matched.length})
-              </h2>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {filtered.matched.map((comparison) => (
-                  <DealComparisonCard key={comparison.id} comparison={comparison} />
-                ))}
-              </div>
-            </div>
-          )}
+      {isStale && pipelineRun && (
+        <div className="mb-3">
+          <StaleBanner lastUpdated={pipelineRun.run_at} />
+        </div>
+      )}
 
-          {/* Unmatched sections */}
-          {(filtered.unmatchedCoop.length > 0 || filtered.unmatchedMigros.length > 0) && (
-            <div className="space-y-3">
-              <h2 className="text-lg font-semibold">Store exclusives</h2>
-              <CollapsibleDealSection
-                title="Only at Coop"
-                deals={filtered.unmatchedCoop}
-                defaultOpen={filtered.matched.length < 5}
-              />
-              <CollapsibleDealSection
-                title="Only at Migros"
-                deals={filtered.unmatchedMigros}
-                defaultOpen={filtered.matched.length < 5}
-              />
-            </div>
-          )}
+      {/* Category pills — horizontal scroll */}
+      <div className="relative mb-4">
+        <div
+          ref={pillContainerRef}
+          className="no-scrollbar flex gap-2 overflow-x-auto py-1"
+          role="tablist"
+          aria-label="Filter by category"
+        >
+          <button
+            className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+              activeCategory === 'all'
+                ? 'bg-pill-active-bg text-pill-active-text'
+                : 'border border-border bg-pill-bg text-current hover:border-accent'
+            }`}
+            onClick={() => setActiveCategory('all')}
+            onKeyDown={handlePillKeyDown}
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'all'}
+            tabIndex={activeCategory === 'all' ? 0 : -1}
+          >
+            All ({totalDeals})
+          </button>
+          {BROWSE_CATEGORIES.map((cat) => {
+            const count = categoryCounts.get(cat.id) ?? 0
+            return (
+              <button
+                key={cat.id}
+                className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  activeCategory === cat.id
+                    ? 'bg-pill-active-bg text-pill-active-text'
+                    : 'border border-border bg-pill-bg text-current hover:border-accent'
+                }`}
+                onClick={() => setActiveCategory(cat.id)}
+                onKeyDown={handlePillKeyDown}
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === cat.id}
+                tabIndex={activeCategory === cat.id ? 0 : -1}
+              >
+                {cat.emoji} {cat.label}{count > 0 ? ` (${count})` : ''}
+              </button>
+            )
+          })}
+        </div>
+        {showFade && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-bg to-transparent" />
+        )}
+      </div>
+
+      {/* Content: both stores empty */}
+      {!hasResults && (
+        <div className="py-12 text-center text-sm text-muted">
+          No deals in {activeCategoryLabel.toLowerCase()} this week. Try another category.
+        </div>
+      )}
+
+      {/* Content: store sections */}
+      {hasResults && (
+        <div className="space-y-8 md:grid md:grid-cols-2 md:gap-6 md:space-y-0">
+          <StoreDealSection
+            store="migros"
+            categoryLabel={activeCategoryLabel}
+            deals={filteredDeals.migros}
+          />
+          <StoreDealSection
+            store="coop"
+            categoryLabel={activeCategoryLabel}
+            deals={filteredDeals.coop}
+          />
         </div>
       )}
     </div>

@@ -1,8 +1,6 @@
 import { lazy, Suspense } from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
-import { queryClient } from './lib/query-client'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 
@@ -16,7 +14,6 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ defa
 export function App() {
   return (
     <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Suspense fallback={<div className="py-12 text-center text-muted">Loading...</div>}>
           <Routes>
@@ -31,7 +28,6 @@ export function App() {
           </Routes>
         </Suspense>
       </BrowserRouter>
-    </QueryClientProvider>
     </ErrorBoundary>
   )
 }
