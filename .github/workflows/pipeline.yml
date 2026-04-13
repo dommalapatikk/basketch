@@ -105,7 +105,7 @@ jobs:
             import { readFileSync } from 'node:fs';
             const data = JSON.parse(readFileSync('artifacts/coop-deals/coop-deals.json', 'utf8'));
             if (!Array.isArray(data)) { console.error('Coop output is not an array'); process.exit(1); }
-            const required = ['name', 'store', 'priceCurrent', 'discountPercent'];
+            const required = ['productName', 'store', 'salePrice', 'discountPercent'];
             for (const deal of data.slice(0, 5)) {
               for (const field of required) {
                 if (deal[field] === undefined) {
