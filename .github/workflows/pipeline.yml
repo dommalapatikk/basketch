@@ -51,7 +51,7 @@ jobs:
         run: pip install -r pipeline/coop/requirements.txt
 
       - name: Fetch Coop deals
-        run: cd pipeline/coop && python3 fetch.py
+        run: cd pipeline/coop && python3 main.py coop-deals.json
 
       - name: Upload Coop deals artifact
         if: always()
