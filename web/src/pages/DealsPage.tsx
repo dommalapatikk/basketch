@@ -420,7 +420,7 @@ export function DealsPage() {
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => toggleStore(store)}
-                  className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-2 bg-white"
+                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white"
                   style={isActive
                     ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                     : { color: meta.hexText, borderColor: meta.hexText }}
