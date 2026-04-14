@@ -339,7 +339,7 @@ export function DealsPage() {
         <div className="relative mb-3">
           <div
             ref={pillContainerRef}
-            className="no-scrollbar flex gap-2 overflow-x-auto py-1"
+            className="no-scrollbar flex gap-2 overflow-x-auto py-1 pr-8"
             data-tier="browse"
             role="tablist"
             aria-label="Filter by sub-category"

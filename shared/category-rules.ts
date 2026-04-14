@@ -69,6 +69,7 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'calgon': { category: 'non-food', subCategory: 'cleaning' },
   'dr.beckmann': { category: 'non-food', subCategory: 'cleaning' },
   'dr. beckmann': { category: 'non-food', subCategory: 'cleaning' },
+  'satrap': { category: 'non-food', subCategory: 'household' },
   'plenty': { category: 'non-food', subCategory: 'paper-goods' },
   // Personal care brands
   'nivea': { category: 'non-food', subCategory: 'personal-care' },
@@ -117,7 +118,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
     subCategory: 'dairy',
   },
   {
-    keywords: ['käse', 'kaese', 'cheese', 'mozzarella', 'gruyère', 'emmentaler', 'feta'],
+    keywords: ['käse', 'kaese', 'cheese', 'mozzarella', 'gruyère', 'emmentaler', 'feta', 'parmigiano', 'parmesan', 'pecorino', 'mascarpone', 'ricotta', 'brie', 'camembert'],
     category: 'fresh',
     subCategory: 'dairy',
   },
@@ -407,6 +408,7 @@ const WHOLE_WORD_KEYWORDS = new Set([
   'lauch',  // "bärlauchschnitzel" is meat, not vegetables
   'speck',  // "bratspeck" as ingredient shouldn't trigger deli
   'tea',    // "steak" contains "tea"
+  'egg',    // "leggero" contains "egg"
   'reis',   // "preiselbeer" contains "reis"
 ])
 
