@@ -310,7 +310,7 @@ export function DealsPage() {
       </div>
 
       {/* ── Tier 2: Browse category pills ── */}
-      {inferredTopLevel !== 'all' && visibleBrowseCategories.length > 0 && (
+      {visibleBrowseCategories.length > 0 && (
         <div className="mb-3">
           <div
             className="flex flex-wrap gap-2 py-1"
@@ -332,7 +332,7 @@ export function DealsPage() {
                   : 'border border-border bg-pill-bg text-current hover:border-accent'
               }`}
             >
-              All {topLevelLabel} ({topLevelCounts.get(inferredTopLevel) ?? 0})
+              {inferredTopLevel === 'all' ? `All (${totalDeals})` : `All ${topLevelLabel} (${topLevelCounts.get(inferredTopLevel) ?? 0})`}
             </button>
             {visibleBrowseCategories.map((cat) => {
               const count = browseCounts.get(cat.id) ?? 0
@@ -378,10 +378,10 @@ export function DealsPage() {
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => toggleStore(store)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                     isActive
                       ? `${meta.colorBg} text-white`
-                      : 'border border-border bg-pill-bg text-current hover:border-accent'
+                      : `border-2 border-current ${meta.colorText} bg-white`
                   }`}
                 >
                   {meta.label} ({count})

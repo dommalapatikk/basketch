@@ -129,7 +129,12 @@ export function DealCard(props: DealCardProps) {
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="line-clamp-1 text-sm font-semibold">{deal.product_name}</div>
+        <div className="flex items-center gap-1.5">
+          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${storeColor}`}>
+            {STORE_META[store].label}
+          </span>
+          <span className="line-clamp-1 text-sm font-semibold">{deal.product_name}</span>
+        </div>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="text-base font-bold">
             CHF {deal.sale_price.toFixed(2)}

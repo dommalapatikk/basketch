@@ -75,7 +75,8 @@ describe('DealCard', () => {
     const { container } = render(
       <DealCard deal={makeDeal({ discount_percent: 0 })} store="migros" />
     )
-    expect(container.querySelector('.bg-migros')).toBeNull()
+    // Discount badge has rounded-full class; store label badge does not
+    expect(container.querySelector('.bg-migros.rounded-full')).toBeNull()
   })
 
   it('renders image fallback letter for Migros', () => {

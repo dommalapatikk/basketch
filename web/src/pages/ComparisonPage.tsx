@@ -237,10 +237,10 @@ export function ComparisonPage() {
               key={store}
               type="button"
               onClick={() => toggleStore(store)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
                 active
                   ? `${meta.colorBg} text-white`
-                  : 'bg-gray-100 text-muted hover:bg-gray-200'
+                  : `border-2 border-current ${meta.colorText} bg-white`
               }`}
               aria-pressed={active}
             >
