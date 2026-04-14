@@ -11,11 +11,12 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'non-food', label: 'Non-food' },
 ]
 
-import { useActiveDeals, useBasketId, useBasketItems, usePageTitle } from '../lib/hooks'
+import { useActiveDeals, useBasketId, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { DataFreshness } from '../components/DataFreshness'
 import { DealCard } from '../components/DealCard'
+import { DealCompareRow } from '../components/DealCompareRow'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
@@ -29,12 +30,16 @@ function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boole
 export function DealsPage() {
   usePageTitle('This Week\'s Deals')
   const { data: deals, loading, error, refetch } = useActiveDeals()
+  const { data: comparisons } = useDealComparisons()
   const { data: pipelineRun } = useCachedQuery(
     'pipeline-run:latest',
     fetchLatestPipelineRun,
     60,
   )
   const [searchParams, setSearchParams] = useSearchParams()
+
+  // View mode: 'list' (flat deals) or 'compare' (side-by-side)
+  const [viewMode, setViewMode] = useState<'list' | 'compare'>('compare')
 
   // Basket for "add to list" buttons
   const { basketId } = useBasketId()
@@ -221,6 +226,19 @@ export function DealsPage() {
   const isStoreFilterActive = !allStoresSelected
   const isFilterActive = isCategoryFilterActive || isStoreFilterActive
 
+  // Filtered comparisons for side-by-side view
+  const filteredComparisons = useMemo(() => {
+    if (!comparisons) return []
+    return comparisons.matched.filter((c) => {
+      // Must have deals in at least 2 selected stores
+      const matchedStores = (Object.keys(c.storeDeals) as Store[]).filter((s) => activeStores.has(s))
+      if (matchedStores.length < 2) return false
+      // Category filter
+      if (inferredTopLevel !== 'all' && c.category !== inferredTopLevel) return false
+      return true
+    })
+  }, [comparisons, activeStores, inferredTopLevel])
+
   const visibleDeals = filteredDeals.slice(0, showCount)
   const remaining = filteredDeals.length - showCount
 
@@ -265,7 +283,29 @@ export function DealsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">This week's deals</h1>
+      <div className="mb-1 flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">This week's deals</h1>
+        <div className="flex rounded-full border border-border bg-surface p-0.5">
+          <button
+            type="button"
+            onClick={() => setViewMode('compare')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              viewMode === 'compare' ? 'bg-accent text-white' : 'text-muted hover:text-current'
+            }`}
+          >
+            Compare
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              viewMode === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-current'
+            }`}
+          >
+            All deals
+          </button>
+        </div>
+      </div>
       <div className="mb-3">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
       </div>
@@ -410,35 +450,61 @@ export function DealsPage() {
         </div>
       )}
 
-      {/* Content: empty */}
-      {!hasResults && (
-        <div className="py-12 text-center text-sm text-muted">
-          No deals in {activeLabel.toLowerCase()} this week. Try another category or store.
-        </div>
-      )}
-
-      {/* Content: flat deal grid, sorted by discount % */}
-      {hasResults && (
-        <div className="space-y-2">
-          {visibleDeals.map((deal) => (
-            <DealCard
-              key={deal.id}
-              deal={deal}
-              store={deal.store}
-              basketItems={basketItems ?? undefined}
-              onItemAdded={refetchBasket}
-            />
-          ))}
-          {remaining > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
-              className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-            >
-              Show more deals ({remaining} left)
-            </button>
+      {/* Content */}
+      {viewMode === 'compare' ? (
+        /* ── Compare view: side-by-side matched deals ── */
+        filteredComparisons.length > 0 ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted">{filteredComparisons.length} products found at multiple stores</p>
+            {filteredComparisons.slice(0, showCount).map((comp) => (
+              <DealCompareRow key={comp.id} comparison={comp} />
+            ))}
+            {filteredComparisons.length > showCount && (
+              <button
+                type="button"
+                onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
+                className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px]"
+              >
+                Show more ({filteredComparisons.length - showCount} left)
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="py-12 text-center text-sm text-muted">
+            No matching products found across selected stores. Try selecting more stores above.
+          </div>
+        )
+      ) : (
+        /* ── List view: flat deal grid ── */
+        <>
+          {!hasResults && (
+            <div className="py-12 text-center text-sm text-muted">
+              No deals in {activeLabel.toLowerCase()} this week. Try another category or store.
+            </div>
           )}
-        </div>
+          {hasResults && (
+            <div className="space-y-2">
+              {visibleDeals.map((deal) => (
+                <DealCard
+                  key={deal.id}
+                  deal={deal}
+                  store={deal.store}
+                  basketItems={basketItems ?? undefined}
+                  onItemAdded={refetchBasket}
+                />
+              ))}
+              {remaining > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
+                  className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px]"
+                >
+                  Show more deals ({remaining} left)
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
