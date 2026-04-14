@@ -573,11 +573,12 @@ export interface SearchResult {
 export function dealToRow(
   deal: Deal,
   productId?: string | null,
-): Omit<DealRow, 'id' | 'fetched_at' | 'created_at' | 'updated_at' | 'sub_category'> {
+): Omit<DealRow, 'id' | 'fetched_at' | 'created_at' | 'updated_at'> {
   return {
     store: deal.store,
     product_name: deal.productName,
     category: deal.category,
+    sub_category: deal.subCategory ?? null,
     original_price: deal.originalPrice,
     sale_price: deal.salePrice,
     discount_percent: deal.discountPercent ?? 0,

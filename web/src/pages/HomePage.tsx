@@ -1,11 +1,8 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { Category, DealRow } from '@shared/types'
 import { useActiveDeals, usePageTitle } from '../lib/hooks'
 import { calculateVerdict } from '../lib/verdict'
-import { VerdictBanner } from '../components/VerdictBanner'
-import { VerdictCard } from '../components/VerdictCard'
 import { CategorySection } from '../components/CategorySection'
 import { EmailLookup } from '../components/EmailLookup'
 import { DataFreshness } from '../components/DataFreshness'
@@ -16,8 +13,56 @@ import { Card } from '../components/ui/Card'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 
-function dealsByCategory(deals: DealRow[], category: Category): DealRow[] {
-  return deals.filter((d) => d.category === category)
+function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
+  const { verdict } = props
+  const winners = verdict.categories.filter((c) => c.winner !== 'tie')
+  const totalDeals = verdict.categories.reduce((s, c) => s + c.migrosDeals + c.coopDeals, 0)
+
+  if (winners.length === 0) {
+    return (
+      <p className="text-base font-semibold">
+        Similar promotions at both stores this week
+      </p>
+    )
+  }
+
+  // Check if one store sweeps all categories
+  const uniqueWinners = new Set(winners.map((c) => c.winner))
+  if (uniqueWinners.size === 1 && winners.length === verdict.categories.length) {
+    const store = winners[0]!.winner as 'migros' | 'coop'
+    const storeName = store === 'migros' ? 'Migros' : 'Coop'
+    const storeColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
+    return (
+      <>
+        <p className="text-base font-semibold">
+          <span className={`font-bold ${storeColor}`}>{storeName}</span> leads across the board
+        </p>
+        <p className="mt-1 text-xs text-muted">Based on {totalDeals} deals compared</p>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <p className="text-base font-semibold">
+        {winners.map((c, i) => {
+          const store = c.winner as 'migros' | 'coop'
+          const storeName = store === 'migros' ? 'Migros' : 'Coop'
+          const storeColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
+          const catLabel = c.category === 'fresh' ? 'Fresh'
+            : c.category === 'long-life' ? 'Long-life'
+            : 'Household'
+          return (
+            <span key={c.category}>
+              {i > 0 && ', '}
+              <span className={`font-bold ${storeColor}`}>{storeName}</span> for {catLabel}
+            </span>
+          )
+        })}
+      </p>
+      <p className="mt-1 text-xs text-muted">Based on {totalDeals} deals compared</p>
+    </>
+  )
 }
 
 export function HomePage() {
@@ -39,140 +84,87 @@ export function HomePage() {
     return calculateVerdict(deals)
   }, [deals])
 
-  const freshDeals = useMemo(() => dealsByCategory(deals ?? [], 'fresh'), [deals])
-  const longLifeDeals = useMemo(() => dealsByCategory(deals ?? [], 'long-life'), [deals])
-  const nonFoodDeals = useMemo(() => dealsByCategory(deals ?? [], 'non-food'), [deals])
-
-  const migrosDeals = useMemo(() => ({
-    fresh: freshDeals.filter((d) => d.store === 'migros'),
-    longLife: longLifeDeals.filter((d) => d.store === 'migros'),
-    nonFood: nonFoodDeals.filter((d) => d.store === 'migros'),
-  }), [freshDeals, longLifeDeals, nonFoodDeals])
-
-  const coopDeals = useMemo(() => ({
-    fresh: freshDeals.filter((d) => d.store === 'coop'),
-    longLife: longLifeDeals.filter((d) => d.store === 'coop'),
-    nonFood: nonFoodDeals.filter((d) => d.store === 'coop'),
-  }), [freshDeals, longLifeDeals, nonFoodDeals])
-
   return (
     <div>
-      {/* Hero section — always renders (no data dependency) */}
-      <section className="py-8 text-center">
-        <h1 className="text-[28px] font-extrabold leading-tight tracking-tight">
-          Which store has better promotions this week?
-        </h1>
-        <p className="mt-2 text-base text-muted">
-          Your weekly Migros vs Coop deals, compared in 5 seconds.
-        </p>
-      </section>
+      {/* Headline */}
+      <h1 className="py-4 text-center text-2xl font-extrabold leading-tight tracking-tight">
+        Which store wins this week?
+      </h1>
 
-      {/* Loading state */}
-      {loading && <LoadingState message="Loading this week's deals..." />}
+      {/* Loading */}
+      {loading && <LoadingState message="Loading deals..." />}
 
-      {/* Error state */}
+      {/* Error */}
       {error && !loading && (
         <ErrorState
-          message="Could not load this week's deals. Please try again later."
+          message="Could not load deals. Please try again later."
           onRetry={refetch}
         />
       )}
 
-      {/* No data at all */}
+      {/* No data */}
       {!loading && !error && deals && deals.length === 0 && (
         <Card className="text-center">
           <p className="text-sm text-muted">
-            No deals available yet. Check back Thursday evening when new promotions are published.
+            No deals yet. Check back Thursday evening.
           </p>
         </Card>
       )}
 
-      {/* Success state — verdict + categories */}
+      {/* Verdict + categories */}
       {!loading && !error && verdict && (
         <>
-          {/* Weekly Verdict Banner */}
-          <section className="mb-4">
-            <VerdictBanner verdict={verdict} />
+          {/* Verdict answer */}
+          <section className="mb-3 rounded-md border border-border bg-surface p-4">
+            <VerdictLine verdict={verdict} />
           </section>
 
-          {/* 3 Category Snapshot Cards */}
-          <section className="mb-4 space-y-3">
-            {verdict.categories[0] && (
-              <CategorySection
-                verdict={verdict.categories[0]}
-                migrosDeals={migrosDeals.fresh}
-                coopDeals={coopDeals.fresh}
-              />
-            )}
-            {verdict.categories[1] && (
-              <CategorySection
-                verdict={verdict.categories[1]}
-                migrosDeals={migrosDeals.longLife}
-                coopDeals={coopDeals.longLife}
-              />
-            )}
-            {verdict.categories[2] && (
-              <CategorySection
-                verdict={verdict.categories[2]}
-                migrosDeals={migrosDeals.nonFood}
-                coopDeals={coopDeals.nonFood}
-              />
-            )}
-          </section>
-
-          {/* Wordle Verdict Card (below category cards) */}
-          <section className="mb-6">
-            <VerdictCard verdict={verdict} />
-          </section>
+          {/* Category rows */}
+          <div className="mb-4 rounded-md border border-border bg-surface">
+            {verdict.categories.map((cat) => (
+              <CategorySection key={cat.category} verdict={cat} />
+            ))}
+          </div>
         </>
       )}
 
-      {/* Browse all deals CTA */}
-      <div className="mb-4">
-        <Link
-          to="/deals"
-          className={buttonVariants({ fullWidth: true })}
-        >
+      {/* Primary CTA */}
+      <div className="mb-6">
+        <Link to="/deals" className={buttonVariants({ fullWidth: true })}>
           Browse all deals
         </Link>
       </div>
 
-      {/* Returning user banner (conditional) */}
-      {storedFavoriteId && (
-        <div className="mb-4 rounded-md border-l-4 border-accent bg-surface p-4">
+      {/* Personalisation — one compact section */}
+      <section className="mb-4 rounded-md border border-border bg-surface p-4">
+        {storedFavoriteId ? (
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Welcome back.</span>
+            <span className="text-sm">Your personal comparison is ready.</span>
             <Link
               to={`/compare/${storedFavoriteId}`}
-              className="inline-flex min-h-[44px] items-center text-sm font-semibold text-accent no-underline hover:underline"
+              className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
             >
-              View your deals &rarr;
+              View &rarr;
             </Link>
           </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <span className="text-sm">Track your regular items for a personal comparison.</span>
+            <Link
+              to="/onboarding"
+              className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
+            >
+              Set up &rarr;
+            </Link>
+          </div>
+        )}
+        <div className="mt-3 border-t border-border pt-3">
+          <EmailLookup />
         </div>
-      )}
-
-      {/* Track your items section */}
-      <section className="mb-4">
-        <h2 className="mb-1 text-xl font-bold">Track your regular items</h2>
-        <p className="mb-3 text-sm text-muted">
-          Get a personal comparison every week. Setup in 60 seconds.
-        </p>
-        <Link
-          to="/onboarding"
-          className={buttonVariants({ variant: 'outline', fullWidth: true })}
-        >
-          Set up my list
-        </Link>
-      </section>
-
-      {/* Email lookup */}
-      <section className="mb-6">
-        <EmailLookup />
       </section>
 
       {/* Data freshness */}
-      <div className="text-center">
+      <div className="pb-4 text-center">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
       </div>
     </div>

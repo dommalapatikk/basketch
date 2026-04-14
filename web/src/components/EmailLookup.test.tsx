@@ -23,7 +23,7 @@ describe('EmailLookup', () => {
 
   it('renders heading text', () => {
     render(wrap(<EmailLookup />))
-    expect(screen.getByText('Already have a list?')).toBeTruthy()
+    expect(screen.getByText(/Already have a list/)).toBeTruthy()
   })
 
   it('renders email input with sr-only label', () => {

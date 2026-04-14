@@ -186,6 +186,33 @@ A **great** architect:
 
 ---
 
+## Critical: Use Existing Data Before Building New Systems
+
+**Before designing any new system, ALWAYS check what data and signals already exist.** The most common architect mistake is building from scratch when the input data already contains the answer.
+
+### The hierarchy of data signals (use in this order):
+
+1. **Source-provided metadata** — If the upstream system (API, scraper, vendor) already classifies the data, USE IT. Do not re-derive what the source already knows. Example: Migros API provides product categories → map them to your taxonomy. Do not keyword-match when the source already tells you the answer.
+
+2. **Structured metadata** — Brand names, product types, units, quantities. These are high-confidence signals. Example: if brand is "Zweifel" → it's snacks. Period. A brand-to-category lookup table is definitive and has zero false positives. No keyword guessing needed.
+
+3. **Industry-standard patterns** — Product categorization, search, recommendations are solved problems in e-commerce. Before designing a custom solution, ask: "How does every online grocery store solve this?" Use proven patterns (taxonomy mapping, brand classification, product metadata) over novel approaches.
+
+4. **Keyword/heuristic matching** — Last resort only. Use for the gap after signals 1-3 are exhausted. Never as the primary system.
+
+### Anti-pattern: Over-engineering a workaround
+
+When a naive system fails (e.g., substring keyword matching produces false positives), the wrong response is to add complexity to the naive system (token parsing, exclusion guards, per-keyword match modes). The right response is to step back and ask: **"What higher-confidence signal can I use instead?"**
+
+Example of what NOT to do:
+- Problem: "milch" matches "milchschokolade" (chocolate, not milk)
+- Wrong: Add token boundaries, excludeWhen lists, matchMode per keyword → complex, fragile, needs maintenance for every new product
+- Right: Check the brand (Milka → chocolate). Check source category (Migros says "Süsswaren"). Keyword match only if both are missing.
+
+**The burden of proof is on building new systems, not on using existing data.**
+
+---
+
 ## Context
 
 basketch is a weekly grocery deal comparison tool:

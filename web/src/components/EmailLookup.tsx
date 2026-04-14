@@ -51,8 +51,7 @@ export function EmailLookup() {
 
   return (
     <div>
-      <h3 className="mb-1 text-lg font-semibold">Already have a list?</h3>
-      <p className="mb-3 text-sm text-muted">Enter the email you saved it with.</p>
+      <p className="mb-2 text-sm text-muted">Already have a list? Enter your email.</p>
       <div className="flex gap-2">
         <label htmlFor="email-lookup" className="sr-only">Email address</label>
         <Input

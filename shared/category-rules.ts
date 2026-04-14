@@ -1,9 +1,108 @@
-// shared/category-rules.ts — Keyword-to-category mapping rules.
-// Checked in order: first match wins. Default: 'long-life' (safest bucket).
-// Keywords are matched against lowercase product name.
-// Covers all 23 DB sub-categories used in BROWSE_CATEGORIES.
+// shared/category-rules.ts — Product categorization rules.
+// Three-tier matching: brand → source category → keyword fallback.
+// Brand matching is highest confidence (zero false positives).
+// Keywords are the last resort for products with no brand or source category.
 
 import type { Category, CategoryRule } from './types'
+
+// ============================================================
+// Tier 1: Brand → category + sub-category (definitive match)
+// ============================================================
+
+export interface BrandCategory {
+  category: Category
+  subCategory: string
+}
+
+/** Map brand name (lowercase) to category. Highest confidence — no false positives. */
+export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
+  // Snack brands
+  'zweifel': { category: 'long-life', subCategory: 'snacks' },
+  'kambly': { category: 'long-life', subCategory: 'snacks' },
+  'kägi': { category: 'long-life', subCategory: 'snacks' },
+  'chio': { category: 'long-life', subCategory: 'snacks' },
+  'pringles': { category: 'long-life', subCategory: 'snacks' },
+  'farmer': { category: 'long-life', subCategory: 'snacks' },
+  // Chocolate brands
+  'lindt': { category: 'long-life', subCategory: 'chocolate' },
+  'cailler': { category: 'long-life', subCategory: 'chocolate' },
+  'frey': { category: 'long-life', subCategory: 'chocolate' },
+  'toblerone': { category: 'long-life', subCategory: 'chocolate' },
+  'milka': { category: 'long-life', subCategory: 'chocolate' },
+  'halba': { category: 'long-life', subCategory: 'chocolate' },
+  'ovomaltine': { category: 'long-life', subCategory: 'chocolate' },
+  'kitkat': { category: 'long-life', subCategory: 'chocolate' },
+  'twix': { category: 'long-life', subCategory: 'chocolate' },
+  'm&m\'s': { category: 'long-life', subCategory: 'chocolate' },
+  'mars': { category: 'long-life', subCategory: 'chocolate' },
+  'snickers': { category: 'long-life', subCategory: 'chocolate' },
+  'bounty': { category: 'long-life', subCategory: 'chocolate' },
+  'maltesers': { category: 'long-life', subCategory: 'chocolate' },
+  'oreo': { category: 'long-life', subCategory: 'snacks' },
+  // Dairy brands
+  'emmi': { category: 'fresh', subCategory: 'dairy' },
+  'activia': { category: 'fresh', subCategory: 'dairy' },
+  'danonino': { category: 'fresh', subCategory: 'dairy' },
+  'danone': { category: 'fresh', subCategory: 'dairy' },
+  'gazi': { category: 'fresh', subCategory: 'dairy' },
+  // Meat/deli brands
+  'micarna': { category: 'fresh', subCategory: 'meat' },
+  'rapelli': { category: 'fresh', subCategory: 'deli' },
+  'optigal': { category: 'fresh', subCategory: 'poultry' },
+  // Drinks brands
+  'coca-cola': { category: 'long-life', subCategory: 'drinks' },
+  'rivella': { category: 'long-life', subCategory: 'drinks' },
+  'aproz': { category: 'long-life', subCategory: 'drinks' },
+  // Coffee/tea brands
+  'nespresso': { category: 'long-life', subCategory: 'coffee-tea' },
+  'nestea': { category: 'long-life', subCategory: 'drinks' },
+  'lavazza': { category: 'long-life', subCategory: 'coffee-tea' },
+  'tchibo': { category: 'long-life', subCategory: 'coffee-tea' },
+  'la semeuse': { category: 'long-life', subCategory: 'coffee-tea' },
+  // Pasta brands
+  'barilla': { category: 'long-life', subCategory: 'pasta-rice' },
+  'gala 3-eier': { category: 'long-life', subCategory: 'pasta-rice' },
+  // Cleaning/household brands
+  'persil': { category: 'non-food', subCategory: 'laundry' },
+  'swiffer': { category: 'non-food', subCategory: 'cleaning' },
+  'calgon': { category: 'non-food', subCategory: 'cleaning' },
+  'plenty': { category: 'non-food', subCategory: 'paper-goods' },
+  // Personal care brands
+  'nivea': { category: 'non-food', subCategory: 'personal-care' },
+  'elmex': { category: 'non-food', subCategory: 'personal-care' },
+  'colgate': { category: 'non-food', subCategory: 'personal-care' },
+  'dove': { category: 'non-food', subCategory: 'personal-care' },
+}
+
+// ============================================================
+// Tier 2: Source category → category + sub-category (Migros API)
+// ============================================================
+
+/** Map Migros source category labels to our taxonomy. */
+export const SOURCE_CATEGORY_MAP: Record<string, BrandCategory> = {
+  // 'fleisch & fisch' intentionally omitted — too broad (covers meat, poultry, fish, deli).
+  // Let keyword matching handle sub-category assignment for this source category.
+  'früchte & gemüse': { category: 'fresh', subCategory: 'fruit' },
+  'milchprodukte, eier & frische fertiggerichte': { category: 'fresh', subCategory: 'dairy' },
+  'brot, backwaren & frühstück': { category: 'fresh', subCategory: 'bread' },
+  'getränke, kaffee & tee': { category: 'long-life', subCategory: 'drinks' },
+  'tiefkühlprodukte': { category: 'long-life', subCategory: 'frozen' },
+  'waschen & putzen': { category: 'non-food', subCategory: 'cleaning' },
+  'haushalt & wohnen': { category: 'non-food', subCategory: 'household' },
+  'körperpflege & kosmetik': { category: 'non-food', subCategory: 'personal-care' },
+  'süsswaren & snacks': { category: 'long-life', subCategory: 'snacks' },
+  'teigwaren & fertiggerichte': { category: 'long-life', subCategory: 'pasta-rice' },
+  'konserven & fertigprodukte': { category: 'long-life', subCategory: 'canned' },
+  'öle, saucen & gewürze': { category: 'long-life', subCategory: 'condiments' },
+  'baby': { category: 'non-food', subCategory: 'household' },
+  'chips & snacks': { category: 'long-life', subCategory: 'snacks' },
+  'butter & margarine': { category: 'fresh', subCategory: 'dairy' },
+  'milchgetränke': { category: 'fresh', subCategory: 'dairy' },
+  'softdrinks': { category: 'long-life', subCategory: 'drinks' },
+  // Test/generic source categories
+  'frische milchprodukte': { category: 'fresh', subCategory: 'dairy' },
+  'haushalt & putzmittel': { category: 'non-food', subCategory: 'cleaning' },
+}
 
 export const CATEGORY_RULES: CategoryRule[] = [
   // ============================================================
@@ -38,7 +137,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   // Fresh > meat
   // ============================================================
   {
-    keywords: ['fleisch', 'meat', 'rind', 'schwein', 'pork', 'hackfleisch', 'lamm', 'kalb'],
+    keywords: ['fleisch', 'meat', 'rind', 'schwein', 'pork', 'hackfleisch', 'lamm', 'kalb', 'steak', 'entrecôte', 'geschnetzeltes', 'braten', 'ragout', 'gulasch', 'rindsfilet', 'schweinsfilet'],
     category: 'fresh',
     subCategory: 'meat',
   },
@@ -47,7 +146,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   // Fresh > poultry
   // ============================================================
   {
-    keywords: ['poulet', 'chicken', 'truthahn', 'turkey', 'geflügel'],
+    keywords: ['poulet', 'chicken', 'truthahn', 'turkey', 'geflügel', 'pouletbrust', 'pouletfilet', 'pouletflügel'],
     category: 'fresh',
     subCategory: 'poultry',
   },
@@ -56,7 +155,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   // Fresh > deli
   // ============================================================
   {
-    keywords: ['wurst', 'schinken', 'salami', 'aufschnitt', 'cervelat', 'landjäger'],
+    keywords: ['wurst', 'schinken', 'salami', 'aufschnitt', 'cervelat', 'landjäger', 'wienerli', 'bratwurst', 'kalbsbratwurst', 'speck', 'pancetta', 'coppa', 'bresaola', 'bündnerfleisch', 'mostbröckli', 'trockenfleisch', 'lyoner'],
     category: 'fresh',
     subCategory: 'deli',
   },
@@ -65,7 +164,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   // Fresh > fish
   // ============================================================
   {
-    keywords: ['fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp', 'thon', 'forelle', 'fischstäbchen'],
+    keywords: ['fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp', 'thon', 'forelle', 'fischstäbchen', 'lachsfilet', 'lachsrücken', 'pangasius', 'kabeljau', 'dorsch', 'garnelen'],
     category: 'fresh',
     subCategory: 'fish',
   },
@@ -87,7 +186,8 @@ export const CATEGORY_RULES: CategoryRule[] = [
       'gemüse', 'gemuese', 'vegetable',
       'tomaten', 'zwiebeln', 'kartoffeln', 'knoblauch', 'ingwer',
       'spinat', 'peperoni', 'zucchetti', 'aubergine', 'gurke', 'karotten', 'rüebli',
-      'champignons', 'pilze',
+      'champignons', 'pilze', 'spargeln', 'spargel', 'erbsen',
+      'fenchel', 'lauch', 'sellerie', 'blumenkohl', 'brokkoli', 'broccoli',
       'salat', 'salad', 'rucola',
     ],
     category: 'fresh',
@@ -102,6 +202,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
       'frucht', 'früchte', 'obst', 'fruit', 'beeren', 'erdbeeren',
       'bananen', 'äpfel', 'apfel', 'himbeeren', 'heidelbeeren',
       'trauben', 'orangen', 'zitronen', 'mango', 'ananas', 'kiwi', 'birnen',
+      'datteln', 'feigen', 'melone', 'nektarinen', 'pfirsich', 'aprikosen', 'zwetschgen', 'kirschen',
     ],
     category: 'fresh',
     subCategory: 'fruit',
@@ -254,11 +355,36 @@ export const VERDICT_WEIGHTS = {
 } as const
 
 /**
- * Match a product name against CATEGORY_RULES.
- * Returns the first matching rule's category + subCategory.
- * Falls back to { category: 'long-life', subCategory: null }.
+ * Extract brand from product name for category lookup.
+ * Checks BRAND_CATEGORIES keys against lowercase product name.
  */
-export function matchCategory(productName: string): { category: Category, subCategory: string | null } {
+function matchBrand(productName: string): BrandCategory | null {
+  const lower = productName.toLowerCase()
+  // Check longest brand names first to avoid partial matches (e.g., "m&m's" before "m")
+  const brands = Object.keys(BRAND_CATEGORIES).sort((a, b) => b.length - a.length)
+  for (const brand of brands) {
+    if (lower.includes(brand)) {
+      return BRAND_CATEGORIES[brand]!
+    }
+  }
+  return null
+}
+
+/**
+ * Match a source category string against the explicit map only.
+ * Does NOT fall back to keyword matching — source categories like "Fleisch & Fisch"
+ * are too broad for keyword matching (would always hit the first keyword).
+ */
+function matchSourceCategory(sourceCategory: string | null): BrandCategory | null {
+  if (!sourceCategory) return null
+  const lower = sourceCategory.toLowerCase()
+  return SOURCE_CATEGORY_MAP[lower] ?? null
+}
+
+/**
+ * Match a product name against keyword rules (Tier 3 fallback).
+ */
+function matchKeywords(productName: string): { category: Category, subCategory: string | null } {
   const lower = productName.toLowerCase()
 
   for (const rule of CATEGORY_RULES) {
@@ -273,4 +399,26 @@ export function matchCategory(productName: string): { category: Category, subCat
   }
 
   return { category: DEFAULT_CATEGORY, subCategory: null }
+}
+
+/**
+ * Three-tier product categorization:
+ * 1. Brand match (highest confidence — definitive)
+ * 2. Source category match (from Migros API — high confidence)
+ * 3. Keyword match on product name (fallback — lowest confidence)
+ */
+export function matchCategory(
+  productName: string,
+  sourceCategory?: string | null,
+): { category: Category, subCategory: string | null } {
+  // Tier 1: Brand match
+  const brandMatch = matchBrand(productName)
+  if (brandMatch) return brandMatch
+
+  // Tier 2: Source category match
+  const sourceMatch = matchSourceCategory(sourceCategory ?? null)
+  if (sourceMatch) return sourceMatch
+
+  // Tier 3: Keyword fallback
+  return matchKeywords(productName)
 }

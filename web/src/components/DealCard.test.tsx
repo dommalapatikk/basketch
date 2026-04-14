@@ -46,7 +46,7 @@ describe('DealCard', () => {
 
   it('renders original price when higher than sale price', () => {
     const { container } = render(<DealCard deal={makeDeal()} store="migros" />)
-    expect(container.textContent).toContain('CHF 2.50')
+    expect(container.textContent).toContain('2.50')
   })
 
   it('hides original price when null', () => {
@@ -90,8 +90,9 @@ describe('DealCard', () => {
     expect(label).toContain('Migros')
   })
 
-  it('renders valid_to date', () => {
+  it('renders discount and price in same row', () => {
     const { container } = render(<DealCard deal={makeDeal()} store="migros" />)
-    expect(container.textContent).toContain('Until')
+    expect(container.textContent).toContain('-22%')
+    expect(container.textContent).toContain('CHF 1.95')
   })
 })

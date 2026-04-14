@@ -1,31 +1,34 @@
 import { Link } from 'react-router-dom'
 
-import type { CategoryVerdict, DealRow } from '@shared/types'
+import type { CategoryVerdict } from '@shared/types'
 
 function categoryDisplayName(cat: string): string {
   if (cat === 'fresh') return 'FRESH'
   if (cat === 'long-life') return 'LONG-LIFE'
-  return 'NON-FOOD / HOUSEHOLD'
-}
-
-function topDeal(deals: DealRow[]): DealRow | null {
-  if (deals.length === 0) return null
-  return [...deals].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))[0] ?? null
+  return 'NON-FOOD'
 }
 
 export interface CategorySectionProps {
   verdict: CategoryVerdict
-  migrosDeals: DealRow[]
-  coopDeals: DealRow[]
 }
 
 export function CategorySection(props: CategorySectionProps) {
-  const { verdict, migrosDeals, coopDeals } = props
-  const topMigros = topDeal(migrosDeals)
-  const topCoop = topDeal(coopDeals)
-
-  // Link to deals page filtered by top-level category
+  const { verdict } = props
   const catParam = verdict.category
+
+  const winnerName = verdict.winner === 'migros' ? 'Migros'
+    : verdict.winner === 'coop' ? 'Coop'
+    : 'Tied'
+  const winnerColor = verdict.winner === 'migros' ? 'text-migros-text'
+    : verdict.winner === 'coop' ? 'text-coop-text'
+    : 'text-muted'
+  const dotColor = verdict.winner === 'migros' ? 'bg-migros'
+    : verdict.winner === 'coop' ? 'bg-coop'
+    : 'bg-gray-400'
+
+  const winnerAvg = verdict.winner === 'migros' ? verdict.migrosAvgDiscount
+    : verdict.winner === 'coop' ? verdict.coopAvgDiscount
+    : Math.max(verdict.migrosAvgDiscount, verdict.coopAvgDiscount)
 
   const ariaLabel = `${categoryDisplayName(verdict.category)} category: ${
     verdict.winner === 'migros'
@@ -38,45 +41,20 @@ export function CategorySection(props: CategorySectionProps) {
   return (
     <Link
       to={`/deals?category=${catParam}`}
-      className="block rounded-md border border-border bg-surface p-4 no-underline transition-shadow hover:shadow-md"
+      className="flex min-h-[56px] items-center gap-3 border-b border-border px-4 py-3 no-underline transition-colors hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 last:border-b-0"
+      aria-label={ariaLabel}
     >
-      <article aria-label={ariaLabel}>
-        <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-muted">
-          {categoryDisplayName(verdict.category)}
-        </h2>
-
-        <div className="space-y-1 text-sm">
-          <p>
-            <span className="font-semibold text-migros-text">Migros:</span>{' '}
-            <span className="text-muted">
-              {verdict.migrosDeals} deals, avg {verdict.migrosAvgDiscount}% off
-            </span>
-          </p>
-          <p>
-            <span className="font-semibold text-coop-text">Coop:</span>{' '}
-            <span className="text-muted">
-              {verdict.coopDeals} deals, avg {verdict.coopAvgDiscount}% off
-            </span>
-          </p>
-        </div>
-
-        {(topMigros || topCoop) && (
-          <div className="mt-3 space-y-1 text-xs text-muted">
-            {topMigros && (
-              <p>
-                Top deal: {topMigros.product_name} -{topMigros.discount_percent}% at{' '}
-                <span className="font-semibold text-migros-text">Migros</span>
-              </p>
-            )}
-            {topCoop && (
-              <p>
-                Top deal: {topCoop.product_name} -{topCoop.discount_percent}% at{' '}
-                <span className="font-semibold text-coop-text">Coop</span>
-              </p>
-            )}
-          </div>
-        )}
-      </article>
+      <span className="w-[90px] shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">
+        {categoryDisplayName(verdict.category)}
+      </span>
+      <span className={`inline-block size-[6px] shrink-0 rounded-full ${dotColor}`} aria-hidden="true" />
+      <span className={`text-sm font-bold ${winnerColor}`}>
+        {winnerName}
+      </span>
+      <span className="text-sm text-muted">
+        avg {winnerAvg}% off
+      </span>
+      <span className="ml-auto text-sm text-muted" aria-hidden="true">&rsaquo;</span>
     </Link>
   )
 }
