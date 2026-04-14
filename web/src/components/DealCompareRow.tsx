@@ -1,12 +1,38 @@
-import type { DealComparison, DealRow, Store } from '@shared/types'
+import type { DealComparison, DealRow, ProductRow, Store } from '@shared/types'
 import { ALL_STORES, STORE_META } from '@shared/types'
 
 const STORE_PREFIXES = ALL_STORES.map((s) => STORE_META[s].label.toLowerCase())
 
-/** Clean up raw product names: strip store prefix, title-case */
-function formatProductName(raw: string): string {
-  let name = raw.toLowerCase().trim()
-  // Strip "migros · ", "coop · ", "migros ", "coop " etc.
+/** Title-case a string */
+function titleCase(s: string): string {
+  return s
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+/**
+ * Get display name for a deal: use the product's source_name (has brand/weight)
+ * if available, otherwise clean up the raw deal product_name.
+ */
+function getDisplayName(deal: DealRow, productMap: Map<string, ProductRow> | null): string {
+  if (deal.product_id && productMap) {
+    const product = productMap.get(deal.product_id)
+    if (product) {
+      // Build rich name: source_name has the full original name
+      const parts: string[] = [titleCase(product.source_name)]
+      // Add quantity + unit if available and not already in the name
+      if (product.quantity && product.unit) {
+        const qtyStr = `${product.quantity}${product.unit}`
+        if (!product.source_name.toLowerCase().includes(qtyStr.toLowerCase())) {
+          parts.push(qtyStr)
+        }
+      }
+      return parts.join(' ')
+    }
+  }
+  // Fallback: strip store prefix and title-case
+  let name = deal.product_name.toLowerCase().trim()
   for (const prefix of STORE_PREFIXES) {
     if (name.startsWith(prefix + ' · ')) {
       name = name.slice(prefix.length + 3)
@@ -17,11 +43,7 @@ function formatProductName(raw: string): string {
       break
     }
   }
-  // Title-case
-  return name
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
+  return titleCase(name)
 }
 
 /**
@@ -32,9 +54,10 @@ function formatProductName(raw: string): string {
 export function DealCompareRow(props: {
   comparison: DealComparison
   selectedStores: Set<Store>
+  productMap?: Map<string, ProductRow> | null
 }) {
   const { label, storeDeals } = props.comparison
-  const { selectedStores } = props
+  const { selectedStores, productMap } = props
 
   // Only include deals from selected stores
   const stores = (Object.entries(storeDeals) as [Store, DealRow][])
@@ -111,7 +134,7 @@ export function DealCompareRow(props: {
 
               {/* Product name */}
               <div className="mt-1 line-clamp-2 text-xs">
-                {formatProductName(deal.product_name)}
+                {getDisplayName(deal, productMap ?? null)}
               </div>
 
               {/* Best badge */}

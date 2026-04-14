@@ -30,7 +30,17 @@ function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boole
 export function DealsPage() {
   usePageTitle('This Week\'s Deals')
   const { data: deals, loading, error, refetch } = useActiveDeals()
-  const { data: comparisons } = useDealComparisons()
+  const { data: comparisons, products: compProducts } = useDealComparisons()
+
+  // Build product lookup by ID for compare view display names
+  const productMap = useMemo(() => {
+    if (!compProducts) return null
+    const map = new Map<string, typeof compProducts[number]>()
+    for (const p of compProducts) {
+      map.set(p.id, p)
+    }
+    return map
+  }, [compProducts])
   const { data: pipelineRun } = useCachedQuery(
     'pipeline-run:latest',
     fetchLatestPipelineRun,
@@ -460,7 +470,7 @@ export function DealsPage() {
           <div className="space-y-3">
             <p className="text-sm text-muted">{filteredComparisons.length} products found at multiple stores</p>
             {filteredComparisons.slice(0, showCount).map((comp) => (
-              <DealCompareRow key={comp.id} comparison={comp} selectedStores={activeStores} />
+              <DealCompareRow key={comp.id} comparison={comp} selectedStores={activeStores} productMap={productMap} />
             ))}
             {filteredComparisons.length > showCount && (
               <button

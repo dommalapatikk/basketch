@@ -115,6 +115,7 @@ export function useDealComparisons() {
   return {
     data: comparisons,
     deals,
+    products,
     loading: dealsLoading || productsLoading || groupsLoading,
     error: dealsError || productsError || groupsError,
   }
