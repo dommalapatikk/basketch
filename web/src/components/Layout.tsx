@@ -2,6 +2,8 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
 
+const BASKET_KEY = 'basketch_favoriteId'
+
 function NavLink(props: { to: string; children: React.ReactNode }) {
   const { pathname } = useLocation()
   const isActive = pathname === props.to || pathname.startsWith(props.to + '/')
@@ -19,6 +21,14 @@ function NavLink(props: { to: string; children: React.ReactNode }) {
   )
 }
 
+function getMyListPath(): string {
+  try {
+    const id = localStorage.getItem(BASKET_KEY)
+    if (id) return `/compare/${id}`
+  } catch { /* ignore */ }
+  return '/onboarding'
+}
+
 export function Layout() {
   return (
     <div className="flex min-h-screen flex-col">
@@ -33,6 +43,7 @@ export function Layout() {
           </Link>
           <nav className="flex gap-4" aria-label="Main navigation">
             <NavLink to="/deals">Deals</NavLink>
+            <NavLink to={getMyListPath()}>My List</NavLink>
             <NavLink to="/about">About</NavLink>
           </nav>
         </div>
