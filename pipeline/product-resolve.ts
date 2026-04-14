@@ -66,9 +66,6 @@ export async function resolveProducts(
     brand: string | null
     store: Store
     category: string
-    sub_category: string | null
-    quantity: number | null
-    unit: string | null
     is_organic: boolean
     product_form: string
     product_group: string | null
@@ -110,9 +107,6 @@ export async function resolveProducts(
         brand: meta.brand,
         store,
         category: deal.category,
-        sub_category: meta.subCategory ?? deal.subCategory ?? null,
-        quantity: meta.quantity,
-        unit: meta.unit,
         is_organic: meta.isOrganic,
         product_form: groupAssignment?.productForm ?? meta.productForm,
         product_group: groupAssignment?.groupId ?? null,

@@ -239,7 +239,6 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
       price_updated_at: string
       brand: string | null
       is_organic: boolean
-      sub_category: string | null
     }[] = []
     let searchCount = 0
 
@@ -308,7 +307,6 @@ export async function fetchMigrosRegularPrices(): Promise<number> {
           price_updated_at: new Date().toISOString(),
           brand,
           is_organic: isOrganic,
-          sub_category: null,
         })
 
         // Add to lookup so we don't try to create duplicates
