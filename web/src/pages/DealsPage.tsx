@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow, Store } from '@shared/types'
-import { ALL_STORES, BROWSE_CATEGORIES, STORE_META } from '@shared/types'
+import { ALL_STORES, BROWSE_CATEGORIES, DEFAULT_STORES, STORE_META } from '@shared/types'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -71,11 +71,11 @@ export function DealsPage() {
         ? urlCategory as BrowseCategory
         : null
 
-  // Active store filters — parse from URL or default to all stores
+  // Active store filters — parse from URL or default to Migros + Coop
   const activeStores: Set<Store> = useMemo(() => {
-    if (!urlStores) return new Set(ALL_STORES)
+    if (!urlStores) return new Set(DEFAULT_STORES)
     const parsed = urlStores.split(',').filter((s): s is Store => ALL_STORES.includes(s as Store))
-    return parsed.length > 0 ? new Set(parsed) : new Set(ALL_STORES)
+    return parsed.length > 0 ? new Set(parsed) : new Set(DEFAULT_STORES)
   }, [urlStores])
 
   // When activeSub is set via backward compat (no top param), infer the top-level

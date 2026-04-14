@@ -90,7 +90,7 @@ export function computeCategoryVerdict(
   const dealCounts: Partial<Record<Store, number>> = {}
   const avgDiscounts: Partial<Record<Store, number>> = {}
 
-  // Collect counts and averages for all stores
+  // Collect counts and averages for MVP stores
   for (const store of ALL_STORES) {
     const storeDeals = dealsByStore.get(store) ?? []
     if (storeDeals.length > 0) {

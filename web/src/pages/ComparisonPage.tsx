@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
 import type { Store } from '@shared/types'
-import { ALL_STORES, STORE_META } from '@shared/types'
+import { ALL_STORES, DEFAULT_STORES, STORE_META } from '@shared/types'
 import { useActiveDeals, useBasketItems, usePageTitle, useProductsWithGroups } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
 import { fetchLatestPipelineRun } from '../lib/queries'
@@ -20,6 +20,7 @@ export function ComparisonPage() {
   usePageTitle('Your deals')
   const { favoriteId } = useParams<{ favoriteId: string }>()
   const [copied, setCopied] = useState(false)
+  const [selectedStores, setSelectedStores] = useState<Set<Store>>(() => new Set(DEFAULT_STORES))
 
   const {
     data: items,
@@ -107,13 +108,45 @@ export function ComparisonPage() {
     )
   }
 
-  // Items that have a best deal at some store
-  const withDeals = comparisons.filter((c) => c.bestStore !== 'none')
+  // Re-evaluate comparisons for selected stores only
+  const filtered = useMemo(() => {
+    return comparisons.map((c) => {
+      // Find best deal among selected stores only
+      let bestStore: Store | 'none' = 'none'
+      let bestDeal = c.bestDeal
+      let lowestPrice = Infinity
+      for (const store of Array.from(selectedStores)) {
+        const match = c.stores[store]
+        if (match?.deal && match.deal.sale_price < lowestPrice) {
+          lowestPrice = match.deal.sale_price
+          bestStore = store
+          bestDeal = match.deal
+        }
+      }
+      if (bestStore === 'none') bestDeal = null
+      return { ...c, bestStore: bestStore as Store | 'none', bestDeal }
+    })
+  }, [comparisons, selectedStores])
 
-  // Count items on sale per store
+  function toggleStore(store: Store) {
+    setSelectedStores((prev) => {
+      const next = new Set(prev)
+      if (next.has(store)) {
+        if (next.size > 1) next.delete(store) // keep at least 1
+      } else {
+        next.add(store)
+      }
+      return next
+    })
+  }
+
+  // Items that have a best deal at some selected store
+  const withDeals = filtered.filter((c) => c.bestStore !== 'none')
+
+  // Count items on sale per selected store
   const onSaleByStore: Partial<Record<Store, number>> = {}
-  for (const comp of comparisons) {
-    for (const store of ALL_STORES) {
+  for (const comp of filtered) {
+    for (const store of Array.from(selectedStores)) {
       if (comp.stores[store]?.deal) {
         onSaleByStore[store] = (onSaleByStore[store] ?? 0) + 1
       }
@@ -121,11 +154,11 @@ export function ComparisonPage() {
   }
 
   // Top 3 stores by item count for summary cards
-  const storesWithItems = ALL_STORES
-    .filter((s) => comparisons.some((c) => c.bestStore === s))
+  const storesWithItems = Array.from(selectedStores)
+    .filter((s) => filtered.some((c) => c.bestStore === s))
     .sort((a, b) => {
-      const aCount = comparisons.filter((c) => c.bestStore === a).length
-      const bCount = comparisons.filter((c) => c.bestStore === b).length
+      const aCount = filtered.filter((c) => c.bestStore === a).length
+      const bCount = filtered.filter((c) => c.bestStore === b).length
       return bCount - aCount
     })
     .slice(0, 3)
@@ -133,7 +166,7 @@ export function ComparisonPage() {
   // Store totals for summary cards
   const storeTotals: Partial<Record<Store, number>> = {}
   for (const store of storesWithItems) {
-    const total = comparisons
+    const total = filtered
       .filter((c) => c.bestStore === store)
       .reduce((sum, c) => {
         const match = c.stores[store]
@@ -144,9 +177,9 @@ export function ComparisonPage() {
     storeTotals[store] = total
   }
 
-  // Savings estimate: for items where 2+ stores have deals, the diff between best and second-best
+  // Savings estimate: for items where 2+ selected stores have deals
   const splitSavings = withDeals.reduce((sum, c) => {
-    const dealPrices = ALL_STORES
+    const dealPrices = Array.from(selectedStores)
       .map((s) => c.stores[s]?.deal?.sale_price)
       .filter((p): p is number => p !== undefined)
       .sort((a, b) => a - b)
@@ -157,7 +190,7 @@ export function ComparisonPage() {
   }, 0)
 
   // Build on-sale summary text
-  const onSaleParts = ALL_STORES
+  const onSaleParts = Array.from(selectedStores)
     .filter((s) => (onSaleByStore[s] ?? 0) > 0)
     .map((s) => {
       const meta = STORE_META[s]
@@ -194,6 +227,29 @@ export function ComparisonPage() {
         </Link>
       </div>
 
+      {/* Store filter pills */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {ALL_STORES.map((store) => {
+          const meta = STORE_META[store]
+          const active = selectedStores.has(store)
+          return (
+            <button
+              key={store}
+              type="button"
+              onClick={() => toggleStore(store)}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? `${meta.colorBg} text-white`
+                  : 'bg-gray-100 text-muted hover:bg-gray-200'
+              }`}
+              aria-pressed={active}
+            >
+              {meta.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Data freshness */}
       <div className="mb-2">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
@@ -217,7 +273,7 @@ export function ComparisonPage() {
         <div className={`mb-4 grid gap-2 ${storesWithItems.length === 1 ? 'grid-cols-1' : storesWithItems.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
           {storesWithItems.map((store) => {
             const meta = STORE_META[store]
-            const itemCount = comparisons.filter((c) => c.bestStore === store).length
+            const itemCount = filtered.filter((c) => c.bestStore === store).length
             const total = storeTotals[store] ?? 0
             return (
               <div key={store} className={`rounded-md p-3 text-center ${meta.colorLight}`}>
@@ -241,7 +297,7 @@ export function ComparisonPage() {
       )}
 
       {/* Split shopping list */}
-      <SplitList comparisons={comparisons} />
+      <SplitList comparisons={filtered} />
 
       {/* Save section */}
       <Card className="mt-6">
