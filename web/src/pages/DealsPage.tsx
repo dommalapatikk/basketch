@@ -289,7 +289,7 @@ export function DealsPage() {
           <button
             type="button"
             onClick={() => setViewMode('compare')}
-            className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               viewMode === 'compare' ? 'bg-accent text-white' : 'text-muted hover:text-current'
             }`}
           >
@@ -298,7 +298,7 @@ export function DealsPage() {
           <button
             type="button"
             onClick={() => setViewMode('list')}
-            className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               viewMode === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-current'
             }`}
           >
