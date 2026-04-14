@@ -1,31 +1,21 @@
-import type { DealRow, FavoriteComparison, RegularPrice } from '@shared/types'
-import { Badge, type BadgeProps } from './ui/Badge'
-import { CoopStatusMessage } from './CoopStatusMessage'
-
-const REC_TAGS: Record<FavoriteComparison['recommendation'], { variant: BadgeProps['variant']; label: string }> = {
-  migros: { variant: 'migros', label: 'Migros' },
-  coop: { variant: 'coop', label: 'Coop' },
-  both: { variant: 'both', label: 'Either' },
-  none: { variant: 'none', label: '--' },
-}
+import type { DealRow, FavoriteComparison, RegularPrice, Store } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 
 function DealColumn(props: {
   deal: DealRow | null
   regularPrice: RegularPrice | null
-  storeName: string
-  storeKey: 'migros' | 'coop'
-  bgClass: string
-  textClass: string
-  coopProductKnown?: boolean
+  store: Store
+  productKnown: boolean
 }) {
-  const { deal, regularPrice, storeName, storeKey, bgClass, textClass, coopProductKnown } = props
+  const { deal, regularPrice, store } = props
+  const meta = STORE_META[store]
 
   // Show deal if available
   if (deal) {
     return (
-      <div className={`rounded-md p-2 ${bgClass}`} aria-label={`${storeName} deal`}>
-        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${textClass}`}>
-          {storeName}
+      <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} deal`}>
+        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+          {meta.label}
         </div>
         {deal.image_url && (
           <img
@@ -58,9 +48,9 @@ function DealColumn(props: {
   // Show regular price if available (no deal)
   if (regularPrice) {
     return (
-      <div className={`rounded-md p-2 ${bgClass}`} aria-label={`${storeName} deal`}>
-        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${textClass}`}>
-          {storeName}
+      <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} price`}>
+        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+          {meta.label}
         </div>
         <div className="text-lg font-bold">
           CHF {regularPrice.price.toFixed(2)}
@@ -75,58 +65,51 @@ function DealColumn(props: {
 
   // No deal, no regular price — show status message
   return (
-    <div className={`rounded-md p-2 ${bgClass}`} aria-label={`${storeName} deal`}>
-      <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${textClass}`}>
-        {storeName}
+    <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} deal`}>
+      <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+        {meta.label}
       </div>
       <div className="py-2">
-        {storeKey === 'coop' && coopProductKnown !== undefined ? (
-          <CoopStatusMessage coopProductKnown={coopProductKnown} />
-        ) : (
-          <p className="text-sm italic text-muted">
-            Not on promotion at {storeName} this week
-          </p>
-        )}
+        <p className="text-sm italic text-muted">
+          Not on promotion at {meta.label} this week
+        </p>
       </div>
     </div>
   )
 }
 
 function buildAriaLabel(comparison: FavoriteComparison): string {
-  const { favorite, migrosDeal, coopDeal, recommendation } = comparison
+  const { favorite, stores, bestStore } = comparison
   const parts: string[] = [favorite.label + ':']
 
-  if (migrosDeal) {
-    parts.push(`on sale at Migros for CHF ${migrosDeal.sale_price.toFixed(2)}${
-      migrosDeal.discount_percent ? ` (${migrosDeal.discount_percent}% off)` : ''
-    }.`)
-  } else {
-    parts.push('Not on promotion at Migros.')
+  for (const store of ALL_STORES) {
+    const match = stores[store]
+    if (!match) continue
+    const meta = STORE_META[store]
+    if (match.deal) {
+      parts.push(`on sale at ${meta.label} for CHF ${match.deal.sale_price.toFixed(2)}${
+        match.deal.discount_percent ? ` (${match.deal.discount_percent}% off)` : ''
+      }.`)
+    }
   }
 
-  if (coopDeal) {
-    parts.push(`On sale at Coop for CHF ${coopDeal.sale_price.toFixed(2)}${
-      coopDeal.discount_percent ? ` (${coopDeal.discount_percent}% off)` : ''
-    }.`)
-  } else if (comparison.coopProductKnown) {
-    parts.push('Not on promotion at Coop this week.')
-  } else {
-    parts.push('Not found at Coop yet.')
-  }
-
-  if (recommendation !== 'none') {
-    const rec = recommendation === 'both' ? 'Either store'
-      : recommendation === 'migros' ? 'Buy at Migros'
-        : 'Buy at Coop'
-    parts.push(rec + '.')
+  if (bestStore !== 'none') {
+    parts.push(`Best deal at ${STORE_META[bestStore].label}.`)
   }
 
   return parts.join(' ')
 }
 
 export function CompareCard(props: { comparison: FavoriteComparison }) {
-  const { favorite, migrosDeal, coopDeal, migrosRegularPrice, coopRegularPrice, coopProductKnown, recommendation } = props.comparison
-  const tag = REC_TAGS[recommendation]
+  const { favorite, stores, bestStore, bestDeal } = props.comparison
+
+  // Get stores that have any data (deal or regular price)
+  const activeStores = ALL_STORES.filter((s) => stores[s] !== undefined)
+
+  // Badge label for best store
+  const bestLabel = bestStore !== 'none'
+    ? `Best: ${STORE_META[bestStore].label}`
+    : '--'
 
   return (
     <article
@@ -138,28 +121,38 @@ export function CompareCard(props: { comparison: FavoriteComparison }) {
           <strong className="text-base">{favorite.label}</strong>
           <div className="text-xs text-muted">{favorite.keyword}</div>
         </div>
-        <Badge variant={tag.variant}>{tag.label}</Badge>
+        {bestDeal ? (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold text-white ${STORE_META[bestStore as Store].colorBg}`}>
+            {bestLabel}
+          </span>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-muted">
+            {bestLabel}
+          </span>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <DealColumn
-          deal={migrosDeal}
-          regularPrice={migrosRegularPrice}
-          storeName="Migros"
-          storeKey="migros"
-          bgClass="bg-migros-light"
-          textClass="text-migros-text"
-        />
-        <DealColumn
-          deal={coopDeal}
-          regularPrice={coopRegularPrice}
-          storeName="Coop"
-          storeKey="coop"
-          bgClass="bg-coop-light"
-          textClass="text-coop-text"
-          coopProductKnown={coopProductKnown}
-        />
-      </div>
+      {/* Show columns for stores that have data — limit to first 2 for mobile layout */}
+      {activeStores.length > 0 ? (
+        <div
+          className={`grid gap-2 ${activeStores.length >= 2 ? 'grid-cols-2' : 'grid-cols-1'}`}
+        >
+          {activeStores.slice(0, 2).map((store) => {
+            const match = stores[store]!
+            return (
+              <DealColumn
+                key={store}
+                deal={match.deal}
+                regularPrice={match.regularPrice}
+                store={store}
+                productKnown={match.productKnown}
+              />
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-sm italic text-muted">No price data found for this item.</p>
+      )}
     </article>
   )
 }

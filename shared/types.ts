@@ -6,7 +6,45 @@
 // Core union types
 // ============================================================
 
-export type Store = 'migros' | 'coop'
+export type Store = 'migros' | 'coop' | 'lidl' | 'aldi' | 'denner' | 'spar' | 'volg'
+
+// ============================================================
+// Store metadata — single source of truth for labels, colors, slugs
+// ============================================================
+
+export interface StoreMeta {
+  slug: Store
+  label: string
+  aktionisSlug: string
+  colorBg: string
+  colorText: string
+  colorLight: string
+}
+
+export const STORE_META: Record<Store, StoreMeta> = {
+  migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       colorBg: 'bg-migros',  colorText: 'text-migros-text',  colorLight: 'bg-migros-light' },
+  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         colorBg: 'bg-coop',    colorText: 'text-coop-text',    colorLight: 'bg-coop-light' },
+  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         colorBg: 'bg-lidl',    colorText: 'text-lidl-text',    colorLight: 'bg-lidl-light' },
+  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  colorBg: 'bg-aldi',    colorText: 'text-aldi-text',    colorLight: 'bg-aldi-light' },
+  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       colorBg: 'bg-denner',  colorText: 'text-denner-text',  colorLight: 'bg-denner-light' },
+  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         colorBg: 'bg-spar',    colorText: 'text-spar-text',    colorLight: 'bg-spar-light' },
+  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         colorBg: 'bg-volg',    colorText: 'text-volg-text',    colorLight: 'bg-volg-light' },
+}
+
+export const ALL_STORES = Object.keys(STORE_META) as Store[]
+
+/** Stores to scrape from aktionis.ch (includes coop-megastore which merges into coop) */
+export const AKTIONIS_STORE_SLUGS = [
+  'coop', 'coop-megastore', 'migros', 'lidl', 'aldi-suisse', 'denner', 'spar', 'volg',
+] as const
+
+/** Map aktionis.ch slug to our Store type (coop-megastore → coop, aldi-suisse → aldi) */
+export function aktionisSlugToStore(slug: string): Store | null {
+  if (slug === 'coop-megastore') return 'coop'
+  if (slug === 'aldi-suisse') return 'aldi'
+  const match = ALL_STORES.find((s) => STORE_META[s].aktionisSlug === slug)
+  return match ?? null
+}
 export type Category = 'fresh' | 'long-life' | 'non-food'
 
 // ============================================================
@@ -264,13 +302,17 @@ export interface DealRow {
 /**
  * Pipeline run log entry.
  */
+export type PipelineStoreStatus = 'success' | 'failed' | 'skipped'
+
+export interface PipelineStoreResult {
+  status: PipelineStoreStatus
+  count: number
+}
+
 export interface PipelineRun {
   id: string
   run_at: string
-  migros_status: 'success' | 'failed' | 'skipped'
-  migros_count: number
-  coop_status: 'success' | 'failed' | 'skipped'
-  coop_count: number
+  store_results: Partial<Record<Store, PipelineStoreResult>>
   total_stored: number
   duration_ms: number
   error_log: string | null
@@ -286,12 +328,9 @@ export interface PipelineRun {
 export interface CategoryVerdict {
   category: Category
   winner: Store | 'tie'
-  migrosScore: number  // 0-100
-  coopScore: number    // 0-100
-  migrosDeals: number
-  coopDeals: number
-  migrosAvgDiscount: number
-  coopAvgDiscount: number
+  scores: Partial<Record<Store, number>>         // 0-100 per store
+  dealCounts: Partial<Record<Store, number>>
+  avgDiscounts: Partial<Record<Store, number>>
 }
 
 /**
@@ -521,14 +560,17 @@ export interface RegularPrice {
  * Result of matching a favorite item against active deals.
  * Used by the comparison view to build the split shopping list.
  */
+export interface StoreMatch {
+  deal: DealRow | null
+  regularPrice: RegularPrice | null
+  productKnown: boolean
+}
+
 export interface FavoriteComparison {
   favorite: BasketItem
-  migrosDeal: DealRow | null
-  coopDeal: DealRow | null
-  migrosRegularPrice: RegularPrice | null
-  coopRegularPrice: RegularPrice | null
-  coopProductKnown: boolean   // two-tier Coop status flag
-  recommendation: 'migros' | 'coop' | 'both' | 'none'
+  stores: Partial<Record<Store, StoreMatch>>
+  bestStore: Store | 'none'
+  bestDeal: DealRow | null
 }
 
 /**
@@ -539,9 +581,8 @@ export interface DealComparison {
   label: string
   matchType: 'product-group' | 'name-similarity'
   category: Category | null
-  migrosDeal: DealRow | null
-  coopDeal: DealRow | null
-  recommendation: 'migros' | 'coop' | 'both'
+  storeDeals: Partial<Record<Store, DealRow>>
+  bestStore: Store | 'tie'
 }
 
 /**
@@ -549,8 +590,7 @@ export interface DealComparison {
  */
 export interface DealComparisonResult {
   matched: DealComparison[]
-  unmatchedMigros: DealRow[]
-  unmatchedCoop: DealRow[]
+  unmatched: DealRow[]
 }
 
 /**
@@ -558,10 +598,8 @@ export interface DealComparisonResult {
  */
 export interface SearchResult {
   productGroup: ProductGroupRow | null
-  migrosDeal: DealRow | null
-  coopDeal: DealRow | null
-  migrosRegularPrice: number | null
-  coopRegularPrice: number | null
+  storeDeals: Partial<Record<Store, DealRow>>
+  regularPrices: Partial<Record<Store, number>>
   label: string
   category: Category
   relevance: number

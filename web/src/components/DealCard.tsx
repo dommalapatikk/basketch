@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
-import type { BasketItem, Category, DealRow, StarterPackItem } from '@shared/types'
-import { STARTER_PACKS } from '@shared/types'
+import type { BasketItem, Category, DealRow, StarterPackItem, Store } from '@shared/types'
+import { STARTER_PACKS, STORE_META } from '@shared/types'
 
 import { addBasketItem } from '../lib/queries'
 import { useBasketId } from '../lib/hooks'
@@ -9,7 +9,7 @@ import { matchRelevance } from '../lib/matching'
 
 export interface DealCardProps {
   deal: DealRow
-  store: 'migros' | 'coop'
+  store: Store
   basketItems?: BasketItem[]
   onItemAdded?: () => void
 }
@@ -73,7 +73,7 @@ function findKeywordForDeal(deal: DealRow): {
 
 export function DealCard(props: DealCardProps) {
   const { deal, store, basketItems, onItemAdded } = props
-  const storeColor = store === 'migros' ? 'bg-migros' : 'bg-coop'
+  const storeColor = STORE_META[store].colorBg
   const { getOrCreate } = useBasketId()
 
   const [adding, setAdding] = useState(false)
@@ -108,7 +108,7 @@ export function DealCard(props: DealCardProps) {
 
   const ariaLabel = `${deal.product_name}, CHF ${deal.sale_price.toFixed(2)}${
     deal.discount_percent ? `, ${deal.discount_percent}% off` : ''
-  } at ${store === 'migros' ? 'Migros' : 'Coop'}`
+  } at ${STORE_META[store].label}`
 
   return (
     <article
@@ -124,7 +124,7 @@ export function DealCard(props: DealCardProps) {
         />
       ) : (
         <div className="flex size-16 shrink-0 items-center justify-center rounded bg-gray-50 text-xs text-muted">
-          {store === 'migros' ? 'M' : 'C'}
+          {STORE_META[store].label.charAt(0).toUpperCase()}
         </div>
       )}
 

@@ -220,8 +220,7 @@ describe('fetchLatestPipelineRun', () => {
     const chain = createChain({
       id: 'run-1',
       run_at: '2026-04-10',
-      migros_status: 'success',
-      coop_status: 'success',
+      store_results: { migros: { status: 'success', count: 50 }, coop: { status: 'success', count: 40 } },
     })
     mockFrom.mockReturnValue(chain)
 

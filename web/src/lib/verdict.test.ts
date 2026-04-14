@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { DealRow } from '@shared/types'
+import type { DealRow, Store } from '@shared/types'
 import { MIN_DEALS_FOR_VERDICT } from '@shared/types'
 
 import {
@@ -35,6 +35,14 @@ function makeDeal(overrides: Partial<DealRow> = {}): DealRow {
     updated_at: '2026-04-10T00:00:00Z',
     ...overrides,
   }
+}
+
+// Helper to build a Map<Store, DealRow[]> for computeCategoryVerdict
+function dealMapFromArrays(migros: DealRow[], coop: DealRow[]): Map<Store, DealRow[]> {
+  const map = new Map<Store, DealRow[]>()
+  map.set('migros', migros)
+  map.set('coop', coop)
+  return map
 }
 
 describe('averageDiscount', () => {
@@ -102,11 +110,11 @@ describe('computeCategoryVerdict', () => {
     const coop = Array.from({ length: MIN_DEALS_FOR_VERDICT }, () =>
       makeDeal({ store: 'coop', discount_percent: 30 }),
     )
-    const verdict = computeCategoryVerdict('fresh', migros, coop)
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays(migros, coop))
 
     expect(verdict.category).toBe('fresh')
     expect(verdict.winner).toBe('tie')
-    expect(verdict.migrosScore).toBe(verdict.coopScore)
+    expect(verdict.scores['migros']).toBe(verdict.scores['coop'])
   })
 
   it('declares migros winner when it has better deals', () => {
@@ -120,10 +128,10 @@ describe('computeCategoryVerdict', () => {
       makeDeal({ store: 'coop', discount_percent: 15 }),
       makeDeal({ store: 'coop', discount_percent: 12 }),
     ]
-    const verdict = computeCategoryVerdict('fresh', migros, coop)
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays(migros, coop))
 
     expect(verdict.winner).toBe('migros')
-    expect(verdict.migrosScore).toBeGreaterThan(verdict.coopScore)
+    expect(verdict.scores['migros']!).toBeGreaterThan(verdict.scores['coop']!)
   })
 
   it('declares coop winner when it has better deals', () => {
@@ -137,30 +145,28 @@ describe('computeCategoryVerdict', () => {
       makeDeal({ store: 'coop', discount_percent: 45 }),
       makeDeal({ store: 'coop', discount_percent: 48 }),
     ]
-    const verdict = computeCategoryVerdict('fresh', migros, coop)
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays(migros, coop))
 
     expect(verdict.winner).toBe('coop')
   })
 
-  it('returns tie with zero scores when both are empty (insufficient data)', () => {
-    const verdict = computeCategoryVerdict('fresh', [], [])
+  it('returns tie with empty scores when both are empty (insufficient data)', () => {
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays([], []))
     expect(verdict.winner).toBe('tie')
-    expect(verdict.migrosScore).toBe(0)
-    expect(verdict.coopScore).toBe(0)
+    expect(Object.keys(verdict.scores)).toHaveLength(0)
   })
 
-  it('returns tie with zero scores when below MIN_DEALS_FOR_VERDICT', () => {
+  it('returns tie with empty scores when below MIN_DEALS_FOR_VERDICT', () => {
     const migros = [makeDeal({ store: 'migros', discount_percent: 50 })]
     const coop = [makeDeal({ store: 'coop', discount_percent: 10 })]
-    const verdict = computeCategoryVerdict('fresh', migros, coop)
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays(migros, coop))
 
     // Below threshold — insufficient data
     expect(verdict.winner).toBe('tie')
-    expect(verdict.migrosScore).toBe(0)
-    expect(verdict.coopScore).toBe(0)
+    expect(Object.keys(verdict.scores)).toHaveLength(0)
     // But deal counts are still populated
-    expect(verdict.migrosDeals).toBe(1)
-    expect(verdict.coopDeals).toBe(1)
+    expect(verdict.dealCounts['migros']).toBe(1)
+    expect(verdict.dealCounts['coop']).toBe(1)
   })
 
   it('returns insufficient data when only one store has enough deals', () => {
@@ -170,11 +176,10 @@ describe('computeCategoryVerdict', () => {
       makeDeal({ store: 'migros', discount_percent: 45 }),
     ]
     const coop = [makeDeal({ store: 'coop', discount_percent: 10 })]
-    const verdict = computeCategoryVerdict('fresh', migros, coop)
+    const verdict = computeCategoryVerdict('fresh', dealMapFromArrays(migros, coop))
 
     expect(verdict.winner).toBe('tie')
-    expect(verdict.migrosScore).toBe(0)
-    expect(verdict.coopScore).toBe(0)
+    expect(Object.keys(verdict.scores)).toHaveLength(0)
   })
 
   it('populates deal counts and avg discounts', () => {
@@ -188,12 +193,12 @@ describe('computeCategoryVerdict', () => {
       makeDeal({ store: 'coop', discount_percent: 35 }),
       makeDeal({ store: 'coop', discount_percent: 38 }),
     ]
-    const verdict = computeCategoryVerdict('long-life', migros, coop)
+    const verdict = computeCategoryVerdict('long-life', dealMapFromArrays(migros, coop))
 
-    expect(verdict.migrosDeals).toBe(3)
-    expect(verdict.coopDeals).toBe(3)
-    expect(verdict.migrosAvgDiscount).toBe(25)
-    expect(verdict.coopAvgDiscount).toBe(38)
+    expect(verdict.dealCounts['migros']).toBe(3)
+    expect(verdict.dealCounts['coop']).toBe(3)
+    expect(verdict.avgDiscounts['migros']).toBe(25)
+    expect(verdict.avgDiscounts['coop']).toBe(38)
   })
 })
 
@@ -219,13 +224,27 @@ describe('computeWeeklyVerdict', () => {
     expect(verdict.dataFreshness).toBe('partial')
   })
 
-  it('marks freshness as current when both stores have deals', () => {
+  it('marks freshness as current when all stores have deals', () => {
+    const deals = [
+      makeDeal({ store: 'migros' }),
+      makeDeal({ store: 'coop' }),
+      makeDeal({ store: 'lidl' }),
+      makeDeal({ store: 'aldi' }),
+      makeDeal({ store: 'denner' }),
+      makeDeal({ store: 'spar' }),
+      makeDeal({ store: 'volg' }),
+    ]
+    const verdict = computeWeeklyVerdict(deals, '2026-04-10')
+    expect(verdict.dataFreshness).toBe('current')
+  })
+
+  it('marks freshness as partial when only some stores have deals', () => {
     const deals = [
       makeDeal({ store: 'migros' }),
       makeDeal({ store: 'coop' }),
     ]
     const verdict = computeWeeklyVerdict(deals, '2026-04-10')
-    expect(verdict.dataFreshness).toBe('current')
+    expect(verdict.dataFreshness).toBe('partial')
   })
 
   it('sets weekOf and lastUpdated', () => {
@@ -264,8 +283,8 @@ describe('calculateVerdict', () => {
     const verdict = calculateVerdict(deals)
     const freshVerdict = verdict.categories.find((c) => c.category === 'fresh')!
 
-    expect(freshVerdict.migrosDeals).toBe(5)
-    expect(freshVerdict.coopDeals).toBe(4)
+    expect(freshVerdict.dealCounts['migros']).toBe(5)
+    expect(freshVerdict.dealCounts['coop']).toBe(4)
     expect(freshVerdict.winner).toBe('migros')
   })
 })

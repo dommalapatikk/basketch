@@ -1,4 +1,4 @@
-// Verdict logic: compares Migros vs Coop deals to determine the winner per category.
+// Verdict logic: compares deals across all stores to determine the winner per category.
 
 import type {
   Category,
@@ -8,7 +8,7 @@ import type {
   WeeklyVerdict,
 } from '@shared/types'
 
-import { TIE_THRESHOLD, MIN_DEALS_FOR_VERDICT } from '@shared/types'
+import { ALL_STORES, TIE_THRESHOLD, MIN_DEALS_FOR_VERDICT } from '@shared/types'
 import { VERDICT_WEIGHTS } from '@shared/category-rules'
 
 const ALL_CATEGORIES: Category[] = ['fresh', 'long-life', 'non-food']
@@ -22,7 +22,11 @@ function groupDeals(
   const grouped = new Map<Category, Map<Store, DealRow[]>>()
 
   for (const cat of ALL_CATEGORIES) {
-    grouped.set(cat, new Map([['migros', []], ['coop', []]]))
+    const storeMap = new Map<Store, DealRow[]>()
+    for (const store of ALL_STORES) {
+      storeMap.set(store, [])
+    }
+    grouped.set(cat, storeMap)
   }
 
   for (const deal of deals) {
@@ -75,60 +79,84 @@ export function scoreStore(
 }
 
 /**
- * Compute verdict for a single category.
- * If either store has fewer than MIN_DEALS_FOR_VERDICT deals,
- * winner is 'tie' with both scores at 0 (insufficient data).
+ * Compute verdict for a single category across all stores.
+ * Stores with fewer than MIN_DEALS_FOR_VERDICT deals are excluded from scoring.
+ * winner is 'tie' if no store has enough data or scores are within TIE_THRESHOLD.
  */
 export function computeCategoryVerdict(
   category: Category,
-  migrosDeals: DealRow[],
-  coopDeals: DealRow[],
+  dealsByStore: Map<Store, DealRow[]>,
 ): CategoryVerdict {
-  const migrosAvg = averageDiscount(migrosDeals)
-  const coopAvg = averageDiscount(coopDeals)
+  const dealCounts: Partial<Record<Store, number>> = {}
+  const avgDiscounts: Partial<Record<Store, number>> = {}
 
-  // Insufficient data: need MIN_DEALS_FOR_VERDICT from BOTH stores
-  if (migrosDeals.length < MIN_DEALS_FOR_VERDICT || coopDeals.length < MIN_DEALS_FOR_VERDICT) {
-    return {
-      category,
-      winner: 'tie',
-      migrosScore: 0,
-      coopScore: 0,
-      migrosDeals: migrosDeals.length,
-      coopDeals: coopDeals.length,
-      migrosAvgDiscount: migrosAvg,
-      coopAvgDiscount: coopAvg,
+  // Collect counts and averages for all stores
+  for (const store of ALL_STORES) {
+    const storeDeals = dealsByStore.get(store) ?? []
+    if (storeDeals.length > 0) {
+      dealCounts[store] = storeDeals.length
+      avgDiscounts[store] = averageDiscount(storeDeals)
     }
   }
 
-  const maxDeals = Math.max(migrosDeals.length, coopDeals.length)
-  const maxAvgDiscount = Math.max(migrosAvg, coopAvg)
+  // Only score stores with enough deals
+  const eligibleStores = ALL_STORES.filter(
+    (s) => (dealCounts[s] ?? 0) >= MIN_DEALS_FOR_VERDICT,
+  )
 
-  const migrosScore = scoreStore(migrosDeals, maxDeals, maxAvgDiscount)
-  const coopScore = scoreStore(coopDeals, maxDeals, maxAvgDiscount)
+  if (eligibleStores.length < 2) {
+    // Not enough data across stores — return tie with 0 scores
+    return {
+      category,
+      winner: 'tie',
+      scores: {},
+      dealCounts,
+      avgDiscounts,
+    }
+  }
 
+  // Compute scores relative to the max across eligible stores
+  const maxDeals = Math.max(...eligibleStores.map((s) => dealCounts[s] ?? 0))
+  const maxAvgDiscount = Math.max(...eligibleStores.map((s) => avgDiscounts[s] ?? 0))
+
+  const scores: Partial<Record<Store, number>> = {}
+  for (const store of eligibleStores) {
+    const storeDeals = dealsByStore.get(store) ?? []
+    scores[store] = scoreStore(storeDeals, maxDeals, maxAvgDiscount)
+  }
+
+  // Determine winner: store with highest score, subject to tie threshold
   let winner: Store | 'tie' = 'tie'
-  const diff = Math.abs(migrosScore - coopScore)
-  const maxScore = Math.max(migrosScore, coopScore)
-  const relativeDiff = maxScore > 0 ? diff / maxScore : 0
+  let highestScore = -1
+  let highestStore: Store | null = null
 
-  if (relativeDiff <= TIE_THRESHOLD) {
-    winner = 'tie'
-  } else if (migrosScore > coopScore) {
-    winner = 'migros'
-  } else {
-    winner = 'coop'
+  for (const store of eligibleStores) {
+    const score = scores[store] ?? 0
+    if (score > highestScore) {
+      highestScore = score
+      highestStore = store
+    }
+  }
+
+  if (highestStore !== null) {
+    // Check if any other store is within tie threshold of the leader
+    const isTie = eligibleStores.some((store) => {
+      if (store === highestStore) return false
+      const score = scores[store] ?? 0
+      const diff = Math.abs(highestScore - score)
+      const relativeDiff = highestScore > 0 ? diff / highestScore : 0
+      return relativeDiff <= TIE_THRESHOLD
+    })
+
+    winner = isTie ? 'tie' : highestStore
   }
 
   return {
     category,
     winner,
-    migrosScore,
-    coopScore,
-    migrosDeals: migrosDeals.length,
-    coopDeals: coopDeals.length,
-    migrosAvgDiscount: migrosAvg,
-    coopAvgDiscount: coopAvg,
+    scores,
+    dealCounts,
+    avgDiscounts,
   }
 }
 
@@ -143,20 +171,15 @@ export function computeWeeklyVerdict(
 
   const categories: CategoryVerdict[] = ALL_CATEGORIES.map((cat) => {
     const catMap = grouped.get(cat)!
-    return computeCategoryVerdict(
-      cat,
-      catMap.get('migros')!,
-      catMap.get('coop')!,
-    )
+    return computeCategoryVerdict(cat, catMap)
   })
 
-  // Determine data freshness
-  const hasMigros = deals.some((d) => d.store === 'migros')
-  const hasCoop = deals.some((d) => d.store === 'coop')
+  // Determine data freshness — check which stores have data
+  const storesWithData = new Set(deals.map((d) => d.store))
   let dataFreshness: WeeklyVerdict['dataFreshness'] = 'current'
-  if (!hasMigros && !hasCoop) {
+  if (storesWithData.size === 0) {
     dataFreshness = 'stale'
-  } else if (!hasMigros || !hasCoop) {
+  } else if (storesWithData.size < ALL_STORES.length) {
     dataFreshness = 'partial'
   }
 

@@ -18,8 +18,8 @@ const BASE_TITLE = 'basketch'
 
 export function usePageTitle(subtitle?: string) {
   useEffect(() => {
-    document.title = subtitle ? `${subtitle} | ${BASE_TITLE}` : `${BASE_TITLE} — Migros or Coop this week?`
-    return () => { document.title = `${BASE_TITLE} — Migros or Coop this week?` }
+    document.title = subtitle ? `${subtitle} | ${BASE_TITLE}` : `${BASE_TITLE} — Which store wins this week?`
+    return () => { document.title = `${BASE_TITLE} — Which store wins this week?` }
   }, [subtitle])
 }
 

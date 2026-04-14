@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 
-import type { WeeklyVerdict } from '@shared/types'
+import type { Store, WeeklyVerdict } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { Button } from './ui/Button'
 
 function categoryLabel(cat: string): string {
@@ -13,11 +14,12 @@ function buildAriaLabel(verdict: WeeklyVerdict): string {
   const parts = verdict.categories.map((c) => {
     const cat = categoryLabel(c.category)
     if (c.winner === 'tie') {
-      return `Tied on ${cat} with ${c.migrosDeals} deals each`
+      const totalDeals = ALL_STORES.reduce((sum, s) => sum + (c.dealCounts[s] ?? 0), 0)
+      return `Tied on ${cat} with ${totalDeals} total deals`
     }
-    const winner = c.winner === 'migros' ? 'Migros' : 'Coop'
-    const deals = c.winner === 'migros' ? c.migrosDeals : c.coopDeals
-    const avg = c.winner === 'migros' ? c.migrosAvgDiscount : c.coopAvgDiscount
+    const winner = STORE_META[c.winner as Store].label
+    const deals = c.dealCounts[c.winner as Store] ?? 0
+    const avg = c.avgDiscounts[c.winner as Store] ?? 0
     return `${winner} leads ${cat} with ${deals} deals averaging ${avg}% off`
   })
   return `This week's verdict: ${parts.join('. ')}.`
@@ -114,19 +116,36 @@ export function VerdictCard(props: VerdictCardProps) {
             const catName = categoryLabel(cat.category)
             let barColor = '#6B7280' // tie/gray
             let winnerLine = `Tied on ${catName}`
-            let statsLine = `${cat.migrosDeals} deals each`
+            let statsLine = ''
 
-            if (cat.migrosScore === 0 && cat.coopScore === 0) {
+            const hasScores = Object.keys(cat.scores).length > 0
+            const winnerStore = cat.winner !== 'tie' ? cat.winner as Store : null
+
+            if (!hasScores) {
               winnerLine = `Not enough data for ${catName}`
               statsLine = 'Fewer than 3 deals'
-            } else if (cat.winner === 'migros') {
-              barColor = '#e65100'
-              winnerLine = `MIGROS leads ${catName}`
-              statsLine = `${cat.migrosDeals} deals  |  avg ${cat.migrosAvgDiscount}% off`
-            } else if (cat.winner === 'coop') {
-              barColor = '#007a3d'
-              winnerLine = `COOP leads ${catName}`
-              statsLine = `${cat.coopDeals} deals  |  avg ${cat.coopAvgDiscount}% off`
+            } else if (winnerStore) {
+              // Use the store's brand color (inline hex for html2canvas compat)
+              // Migros = #e65100, Coop = #007a3d, others default to accent
+              const storeColors: Partial<Record<Store, string>> = {
+                migros: '#e65100',
+                coop: '#007a3d',
+                lidl: '#0050aa',
+                aldi: '#00529b',
+                denner: '#e30613',
+                spar: '#007a3d',
+                volg: '#c8102e',
+              }
+              barColor = storeColors[winnerStore] ?? '#6B7280'
+              const meta = STORE_META[winnerStore]
+              winnerLine = `${meta.label.toUpperCase()} leads ${catName}`
+              const deals = cat.dealCounts[winnerStore] ?? 0
+              const avg = cat.avgDiscounts[winnerStore] ?? 0
+              statsLine = `${deals} deals  |  avg ${avg}% off`
+            } else {
+              // Tie with data
+              const totalDeals = ALL_STORES.reduce((sum, s) => sum + (cat.dealCounts[s] ?? 0), 0)
+              statsLine = `${totalDeals} total deals across stores`
             }
 
             return (
@@ -140,7 +159,9 @@ export function VerdictCard(props: VerdictCardProps) {
                 />
                 <div className="p-4">
                   <div className="text-lg font-bold text-card-text">{winnerLine}</div>
-                  <div className="mt-0.5 text-[15px] text-[#d1d5db]">{statsLine}</div>
+                  {statsLine && (
+                    <div className="mt-0.5 text-[15px] text-[#d1d5db]">{statsLine}</div>
+                  )}
                 </div>
               </div>
             )

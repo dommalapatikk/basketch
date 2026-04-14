@@ -16,6 +16,8 @@
     "node_modules",
     "dist",
     "coop",
+    "aktionis",
+    "archive",
     "../shared/**/*.test.ts"
   ]
 }

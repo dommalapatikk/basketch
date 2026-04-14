@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 
-import type { CategoryVerdict } from '@shared/types'
+import type { CategoryVerdict, Store } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 
 function categoryDisplayName(cat: string): string {
   if (cat === 'fresh') return 'FRESH'
@@ -16,27 +17,27 @@ export function CategorySection(props: CategorySectionProps) {
   const { verdict } = props
   const catParam = verdict.category
 
-  const winnerName = verdict.winner === 'migros' ? 'Migros'
-    : verdict.winner === 'coop' ? 'Coop'
-    : 'Tied'
-  const winnerColor = verdict.winner === 'migros' ? 'text-migros-text'
-    : verdict.winner === 'coop' ? 'text-coop-text'
-    : 'text-muted'
-  const dotColor = verdict.winner === 'migros' ? 'bg-migros'
-    : verdict.winner === 'coop' ? 'bg-coop'
-    : 'bg-gray-400'
+  const winnerStore = verdict.winner !== 'tie' ? verdict.winner as Store : null
+  const winnerName = winnerStore ? STORE_META[winnerStore].label : 'Tied'
+  const winnerColor = winnerStore ? STORE_META[winnerStore].colorText : 'text-muted'
+  const dotColor = winnerStore ? STORE_META[winnerStore].colorBg : 'bg-gray-400'
 
-  const winnerAvg = verdict.winner === 'migros' ? verdict.migrosAvgDiscount
-    : verdict.winner === 'coop' ? verdict.coopAvgDiscount
-    : Math.max(verdict.migrosAvgDiscount, verdict.coopAvgDiscount)
+  // Best avg discount to show in summary
+  const winnerAvg = winnerStore
+    ? (verdict.avgDiscounts[winnerStore] ?? 0)
+    : Math.max(...ALL_STORES.map((s) => verdict.avgDiscounts[s] ?? 0))
 
-  const ariaLabel = `${categoryDisplayName(verdict.category)} category: ${
-    verdict.winner === 'migros'
-      ? `Migros leads with ${verdict.migrosDeals} deals averaging ${verdict.migrosAvgDiscount}% off`
-      : verdict.winner === 'coop'
-        ? `Coop leads with ${verdict.coopDeals} deals averaging ${verdict.coopAvgDiscount}% off`
-        : `Tied with ${verdict.migrosDeals} Migros and ${verdict.coopDeals} Coop deals`
-  }`
+  // Build aria label
+  const ariaLabel = (() => {
+    const catName = categoryDisplayName(verdict.category)
+    if (winnerStore) {
+      const deals = verdict.dealCounts[winnerStore] ?? 0
+      const avg = verdict.avgDiscounts[winnerStore] ?? 0
+      return `${catName} category: ${STORE_META[winnerStore].label} leads with ${deals} deals averaging ${avg}% off`
+    }
+    const totalDeals = ALL_STORES.reduce((sum, s) => sum + (verdict.dealCounts[s] ?? 0), 0)
+    return `${catName} category: Tied with ${totalDeals} total deals`
+  })()
 
   return (
     <Link

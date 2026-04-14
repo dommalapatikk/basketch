@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import type { BasketItem, BrowseCategory, BrowseCategoryInfo, Category, DealRow } from '@shared/types'
-import { BROWSE_CATEGORIES } from '@shared/types'
+import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow, Store } from '@shared/types'
+import { ALL_STORES, BROWSE_CATEGORIES, STORE_META } from '@shared/types'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -26,58 +26,6 @@ function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boole
   return deal.sub_category != null && subCategories.includes(deal.sub_category)
 }
 
-function StoreDealSection(props: {
-  store: 'migros' | 'coop'
-  categoryLabel: string
-  deals: DealRow[]
-  basketItems?: BasketItem[]
-  onItemAdded?: () => void
-}) {
-  const { store, categoryLabel, deals, basketItems, onItemAdded } = props
-  const [showCount, setShowCount] = useState(INITIAL_SHOW)
-  const visibleDeals = deals.slice(0, showCount)
-  const remaining = deals.length - showCount
-  const storeName = store === 'migros' ? 'Migros' : 'Coop'
-  const headerColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
-
-  return (
-    <section
-      role="region"
-      aria-label={`${storeName} deals`}
-    >
-      <div className="mb-3">
-        <h2 className={`text-base font-bold uppercase tracking-wide ${headerColor}`}>
-          {storeName} — {categoryLabel}
-        </h2>
-        <p className="text-sm text-muted">
-          {deals.length} deal{deals.length !== 1 ? 's' : ''}
-        </p>
-      </div>
-
-      {deals.length === 0 ? (
-        <div className="rounded-md border border-border bg-surface p-6 text-center text-sm italic text-muted">
-          No {storeName} deals in {categoryLabel.toLowerCase()} this week
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {visibleDeals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} store={store} basketItems={basketItems} onItemAdded={onItemAdded} />
-          ))}
-          {remaining > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
-              className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-            >
-              Show more {storeName} deals ({remaining} left)
-            </button>
-          )}
-        </div>
-      )}
-    </section>
-  )
-}
-
 export function DealsPage() {
   usePageTitle('This Week\'s Deals')
   const { data: deals, loading, error, refetch } = useActiveDeals()
@@ -92,13 +40,18 @@ export function DealsPage() {
   const { basketId } = useBasketId()
   const { data: basketItems, refetch: refetchBasket } = useBasketItems(basketId ?? undefined)
 
+  // Show count for infinite scroll
+  const [showCount, setShowCount] = useState(INITIAL_SHOW)
+
   // ── URL state ──
   // ?category=fresh         → top-level tab selected
   // ?category=fresh&sub=meat-fish → top-level + browse sub-filter
   // ?category=fruits-vegetables   → browse category direct link (backward compat)
+  // ?stores=migros,coop     → store filter pills
   // (no params)             → all deals
   const urlCategory = searchParams.get('category')
   const urlSub = searchParams.get('sub')
+  const urlStores = searchParams.get('stores')
 
   const topLevelIds: string[] = ['fresh', 'long-life', 'non-food']
   const browseIds = BROWSE_CATEGORIES.map((c) => c.id)
@@ -118,6 +71,13 @@ export function DealsPage() {
         ? urlCategory as BrowseCategory
         : null
 
+  // Active store filters — parse from URL or default to all stores
+  const activeStores: Set<Store> = useMemo(() => {
+    if (!urlStores) return new Set(ALL_STORES)
+    const parsed = urlStores.split(',').filter((s): s is Store => ALL_STORES.includes(s as Store))
+    return parsed.length > 0 ? new Set(parsed) : new Set(ALL_STORES)
+  }, [urlStores])
+
   // When activeSub is set via backward compat (no top param), infer the top-level
   const inferredTopLevel: Category | 'all' = useMemo(() => {
     if (activeTopLevel !== 'all') return activeTopLevel
@@ -135,19 +95,49 @@ export function DealsPage() {
   }, [inferredTopLevel])
 
   function setTopLevel(top: Category | 'all') {
+    setShowCount(INITIAL_SHOW)
     if (top === 'all') {
-      setSearchParams({})
+      setSearchParams(urlStores ? { stores: urlStores } : {})
     } else {
-      setSearchParams({ category: top })
+      const params: Record<string, string> = { category: top }
+      if (urlStores) params['stores'] = urlStores
+      setSearchParams(params)
     }
   }
 
   function setSubFilter(sub: BrowseCategory | null) {
+    setShowCount(INITIAL_SHOW)
     const top = inferredTopLevel === 'all' ? 'fresh' : inferredTopLevel
     if (sub) {
-      setSearchParams({ category: top, sub })
+      const params: Record<string, string> = { category: top, sub }
+      if (urlStores) params['stores'] = urlStores
+      setSearchParams(params)
     } else {
-      setSearchParams({ category: top })
+      const params: Record<string, string> = { category: top }
+      if (urlStores) params['stores'] = urlStores
+      setSearchParams(params)
+    }
+  }
+
+  function toggleStore(store: Store) {
+    setShowCount(INITIAL_SHOW)
+    const next = new Set(activeStores)
+    if (next.has(store)) {
+      // Don't allow deselecting all stores
+      if (next.size === 1) return
+      next.delete(store)
+    } else {
+      next.add(store)
+    }
+    const categoryParams: Record<string, string> = {}
+    if (urlCategory) categoryParams['category'] = urlCategory
+    if (urlSub) categoryParams['sub'] = urlSub
+
+    // If all stores selected, remove the param (cleaner URL)
+    if (next.size === ALL_STORES.length) {
+      setSearchParams(categoryParams)
+    } else {
+      setSearchParams({ ...categoryParams, stores: [...next].join(',') })
     }
   }
 
@@ -175,9 +165,25 @@ export function DealsPage() {
     return counts
   }, [deals])
 
-  // ── Filter deals ──
+  // Store deal counts (for pills)
+  const storeCounts = useMemo(() => {
+    if (!deals) return new Map<Store, number>()
+    const counts = new Map<Store, number>()
+    for (const deal of deals) {
+      counts.set(deal.store, (counts.get(deal.store) ?? 0) + 1)
+    }
+    return counts
+  }, [deals])
+
+  // Stores that actually have deals this week
+  const storesWithDeals = useMemo(
+    () => ALL_STORES.filter((s) => (storeCounts.get(s) ?? 0) > 0),
+    [storeCounts],
+  )
+
+  // ── Filter and sort deals ──
   const filteredDeals = useMemo(() => {
-    if (!deals) return { migros: [] as DealRow[], coop: [] as DealRow[] }
+    if (!deals) return [] as DealRow[]
     let filtered = deals
 
     // Apply top-level filter
@@ -193,11 +199,12 @@ export function DealsPage() {
       }
     }
 
-    return {
-      migros: filtered.filter((d) => d.store === 'migros'),
-      coop: filtered.filter((d) => d.store === 'coop'),
-    }
-  }, [deals, inferredTopLevel, activeSub])
+    // Apply store filter
+    filtered = filtered.filter((d) => activeStores.has(d.store))
+
+    // Sort by discount % descending
+    return [...filtered].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))
+  }, [deals, inferredTopLevel, activeSub, activeStores])
 
   // ── Labels ──
   const topLevelLabel = inferredTopLevel !== 'all'
@@ -213,9 +220,15 @@ export function DealsPage() {
     : false
 
   const totalDeals = deals?.length ?? 0
-  const totalFiltered = filteredDeals.migros.length + filteredDeals.coop.length
+  const totalFiltered = filteredDeals.length
   const hasResults = totalFiltered > 0
-  const isFilterActive = inferredTopLevel !== 'all' || activeSub !== null
+  const allStoresSelected = activeStores.size === storesWithDeals.length
+  const isCategoryFilterActive = inferredTopLevel !== 'all' || activeSub !== null
+  const isStoreFilterActive = !allStoresSelected
+  const isFilterActive = isCategoryFilterActive || isStoreFilterActive
+
+  const visibleDeals = filteredDeals.slice(0, showCount)
+  const remaining = filteredDeals.length - showCount
 
   // Roving tabindex keyboard handling for top tabs
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, tabs: string) {
@@ -302,7 +315,7 @@ export function DealsPage() {
         })}
       </div>
 
-      {/* ── Tier 2: Browse category pills (wrap to second line if needed) ── */}
+      {/* ── Tier 2: Browse category pills ── */}
       {inferredTopLevel !== 'all' && visibleBrowseCategories.length > 0 && (
         <div className="mb-3">
           <div
@@ -354,16 +367,51 @@ export function DealsPage() {
         </div>
       )}
 
+      {/* ── Store filter pills (horizontal scroll) ── */}
+      {storesWithDeals.length > 1 && (
+        <div className="mb-3">
+          <div
+            className="flex gap-2 overflow-x-auto py-1 pb-1 scrollbar-none"
+            role="group"
+            aria-label="Filter by store"
+          >
+            {storesWithDeals.map((store) => {
+              const meta = STORE_META[store]
+              const count = storeCounts.get(store) ?? 0
+              const isActive = activeStores.has(store)
+              return (
+                <button
+                  key={store}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => toggleStore(store)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    isActive
+                      ? `${meta.colorBg} text-white`
+                      : 'border border-border bg-pill-bg text-current hover:border-accent'
+                  }`}
+                >
+                  {meta.label} ({count})
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Active filter banner */}
       {isFilterActive && (
         <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
           <span className="text-sm text-muted">
-            Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}{' '}
-            ({filteredDeals.migros.length} Migros, {filteredDeals.coop.length} Coop)
+            Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}
+            {isStoreFilterActive && ` from ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`}
           </span>
           <button
             type="button"
-            onClick={() => setSearchParams({})}
+            onClick={() => {
+              setShowCount(INITIAL_SHOW)
+              setSearchParams({})
+            }}
             className="min-h-[44px] px-2 text-sm font-semibold text-accent hover:underline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           >
             Clear filter
@@ -371,30 +419,34 @@ export function DealsPage() {
         </div>
       )}
 
-      {/* Content: both stores empty */}
+      {/* Content: empty */}
       {!hasResults && (
         <div className="py-12 text-center text-sm text-muted">
-          No deals in {activeLabel.toLowerCase()} this week. Try another category.
+          No deals in {activeLabel.toLowerCase()} this week. Try another category or store.
         </div>
       )}
 
-      {/* Content: store sections */}
+      {/* Content: flat deal grid, sorted by discount % */}
       {hasResults && (
-        <div className="space-y-8 md:grid md:grid-cols-2 md:gap-6 md:space-y-0">
-          <StoreDealSection
-            store="migros"
-            categoryLabel={activeLabel}
-            deals={filteredDeals.migros}
-            basketItems={basketItems ?? undefined}
-            onItemAdded={refetchBasket}
-          />
-          <StoreDealSection
-            store="coop"
-            categoryLabel={activeLabel}
-            deals={filteredDeals.coop}
-            basketItems={basketItems ?? undefined}
-            onItemAdded={refetchBasket}
-          />
+        <div className="space-y-2">
+          {visibleDeals.map((deal) => (
+            <DealCard
+              key={deal.id}
+              deal={deal}
+              store={deal.store}
+              basketItems={basketItems ?? undefined}
+              onItemAdded={refetchBasket}
+            />
+          ))}
+          {remaining > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
+              className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              Show more deals ({remaining} left)
+            </button>
+          )}
         </div>
       )}
     </div>

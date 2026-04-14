@@ -66,8 +66,14 @@ describe('isValidDealEntry', () => {
   })
 
   it('rejects invalid store', () => {
-    const deal = { ...validDeal, store: 'aldi' }
+    const deal = { ...validDeal, store: 'walmart' }
     expect(isValidDealEntry(deal)).toBe(false)
+  })
+
+  it('accepts new stores (aldi, lidl, denner, spar, volg)', () => {
+    for (const store of ['aldi', 'lidl', 'denner', 'spar', 'volg']) {
+      expect(isValidDealEntry({ ...validDeal, store })).toBe(true)
+    }
   })
 
   it('rejects missing productName', () => {

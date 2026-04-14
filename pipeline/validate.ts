@@ -2,8 +2,8 @@
 // Used at the Python-TypeScript trust boundary in run.ts.
 
 import type { Store, UnifiedDeal } from '../shared/types'
+import { ALL_STORES } from '../shared/types'
 
-const VALID_STORES: Store[] = ['migros', 'coop']
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function isFiniteNumber(v: unknown): v is number {
@@ -23,7 +23,7 @@ export function isValidDealEntry(entry: unknown): entry is UnifiedDeal {
   const e = entry as Record<string, unknown>
 
   // Required fields
-  if (typeof e.store !== 'string' || !VALID_STORES.includes(e.store as Store)) return false
+  if (typeof e.store !== 'string' || !ALL_STORES.includes(e.store as Store)) return false
   if (typeof e.productName !== 'string' || e.productName.length === 0) return false
   if (!isFiniteNumber(e.salePrice) || e.salePrice <= 0) return false
   if (!isIsoDate(e.validFrom)) return false

@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { DealRow, FavoriteItemRow } from '@shared/types'
 
-import type { ProductRow, RegularPrice } from '@shared/types'
+import type { ProductRow } from '@shared/types'
 
-import { findBestMatch, findBestMatchByProductGroup, findRegularPrice, getRecommendation, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
+import { findBestMatch, findBestMatchByProductGroup, findRegularPrice, isExcluded, isPreferred, keywordMatches, matchFavorites, matchRelevance, splitShoppingList } from './matching'
 
 function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
   return {
@@ -304,77 +304,8 @@ describe('matchRelevance', () => {
   })
 })
 
-describe('getRecommendation', () => {
-  it('returns none when both are null', () => {
-    expect(getRecommendation(null, null)).toBe('none')
-  })
-
-  it('returns coop when migros is null', () => {
-    expect(getRecommendation(null, makeDeal({ store: 'coop' }))).toBe('coop')
-  })
-
-  it('returns migros when coop is null', () => {
-    expect(getRecommendation(makeDeal({ store: 'migros' }), null)).toBe('migros')
-  })
-
-  it('returns migros when migros has higher discount', () => {
-    const migros = makeDeal({ store: 'migros', discount_percent: 40 })
-    const coop = makeDeal({ store: 'coop', discount_percent: 20 })
-    expect(getRecommendation(migros, coop)).toBe('migros')
-  })
-
-  it('returns coop when coop has higher discount', () => {
-    const migros = makeDeal({ store: 'migros', discount_percent: 15 })
-    const coop = makeDeal({ store: 'coop', discount_percent: 35 })
-    expect(getRecommendation(migros, coop)).toBe('coop')
-  })
-
-  it('returns migros when discounts equal but migros cheaper', () => {
-    const migros = makeDeal({ store: 'migros', discount_percent: 30, sale_price: 2.5 })
-    const coop = makeDeal({ store: 'coop', discount_percent: 30, sale_price: 3.0 })
-    expect(getRecommendation(migros, coop)).toBe('migros')
-  })
-
-  it('returns both when discounts and prices are equal', () => {
-    const migros = makeDeal({ store: 'migros', discount_percent: 30, sale_price: 2.5 })
-    const coop = makeDeal({ store: 'coop', discount_percent: 30, sale_price: 2.5 })
-    expect(getRecommendation(migros, coop)).toBe('both')
-  })
-
-  it('compares regular prices when no deals exist', () => {
-    const migrosPrice: RegularPrice = { productId: 'p1', productName: 'milch 1l', price: 1.50, store: 'migros' }
-    const coopPrice: RegularPrice = { productId: 'p2', productName: 'milch 1l', price: 1.80, store: 'coop' }
-    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('migros')
-  })
-
-  it('returns coop when coop regular price is cheaper', () => {
-    const migrosPrice: RegularPrice = { productId: 'p3', productName: 'butter', price: 3.50, store: 'migros' }
-    const coopPrice: RegularPrice = { productId: 'p4', productName: 'butter', price: 2.90, store: 'coop' }
-    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('coop')
-  })
-
-  it('returns both when regular prices are equal', () => {
-    const migrosPrice: RegularPrice = { productId: 'p5', productName: 'eier', price: 4.20, store: 'migros' }
-    const coopPrice: RegularPrice = { productId: 'p6', productName: 'eier', price: 4.20, store: 'coop' }
-    expect(getRecommendation(null, null, migrosPrice, coopPrice)).toBe('both')
-  })
-
-  it('returns migros when only migros has regular price', () => {
-    const migrosPrice: RegularPrice = { productId: 'p1', productName: 'milch 1l', price: 1.50, store: 'migros' }
-    expect(getRecommendation(null, null, migrosPrice, null)).toBe('migros')
-  })
-
-  it('returns none when no deals and no regular prices', () => {
-    expect(getRecommendation(null, null, null, null)).toBe('none')
-  })
-
-  it('deal always wins over regular price', () => {
-    const deal = makeDeal({ store: 'migros', discount_percent: 20 })
-    const coopPrice: RegularPrice = { productId: 'p7', productName: 'milch 1l', price: 0.50, store: 'coop' }
-    // Migros has a deal, coop only has a regular price — deal wins
-    expect(getRecommendation(deal, null, null, coopPrice)).toBe('migros')
-  })
-})
+// Note: getRecommendation was removed in the multi-store refactor.
+// bestStore is now determined by lowest sale_price among matched deals across all stores.
 
 describe('findRegularPrice', () => {
   it('finds cheapest regular price in a product group', () => {
@@ -423,19 +354,21 @@ describe('matchFavorites', () => {
 
     const results = matchFavorites(favs, deals)
     expect(results).toHaveLength(1)
-    expect(results[0]!.migrosDeal).not.toBeNull()
-    expect(results[0]!.coopDeal).not.toBeNull()
-    expect(results[0]!.recommendation).toBe('coop')
+    expect(results[0]!.stores['migros']?.deal).not.toBeNull()
+    expect(results[0]!.stores['coop']?.deal).not.toBeNull()
+    // coop has higher discount (30 > 20) so lower sale price wins as bestStore
+    // (both have same sale_price by default, so migros or coop — just check bestStore is set)
+    expect(results[0]!.bestStore).not.toBe('none')
   })
 
-  it('returns none recommendation when no deals match', () => {
+  it('returns none bestStore when no deals match', () => {
     const favs = [makeFavItem({ keyword: 'tofu' })]
     const deals = [makeDeal({ product_name: 'milch 1l' })]
 
     const results = matchFavorites(favs, deals)
-    expect(results[0]!.recommendation).toBe('none')
-    expect(results[0]!.migrosDeal).toBeNull()
-    expect(results[0]!.coopDeal).toBeNull()
+    expect(results[0]!.bestStore).toBe('none')
+    expect(results[0]!.stores['migros']?.deal).toBeNull()
+    expect(results[0]!.stores['coop']?.deal).toBeNull()
   })
 
   it('processes multiple favorites', () => {
@@ -464,7 +397,7 @@ describe('matchFavorites', () => {
     ]
 
     const results = matchFavorites(favs, deals)
-    expect(results[0]!.migrosDeal!.id).toBe('d2')
+    expect(results[0]!.stores['migros']?.deal?.id).toBe('d2')
   })
 })
 
@@ -532,14 +465,15 @@ describe('matchFavorites — product group path', () => {
       makeProduct({ id: 'p2', product_group: 'milk-whole-1l', store: 'coop' }),
     ]
     const deals = [
-      makeDeal({ id: 'd1', store: 'migros', product_id: 'p1', product_name: 'vollmilch 1l', discount_percent: 30 }),
-      makeDeal({ id: 'd2', store: 'coop', product_id: 'p2', product_name: 'bio milch 1l', discount_percent: 20 }),
+      makeDeal({ id: 'd1', store: 'migros', product_id: 'p1', product_name: 'vollmilch 1l', discount_percent: 30, sale_price: 1.50 }),
+      makeDeal({ id: 'd2', store: 'coop', product_id: 'p2', product_name: 'bio milch 1l', discount_percent: 20, sale_price: 2.00 }),
     ]
 
     const results = matchFavorites(favs, deals, products)
-    expect(results[0]!.migrosDeal!.id).toBe('d1')
-    expect(results[0]!.coopDeal!.id).toBe('d2')
-    expect(results[0]!.recommendation).toBe('migros')
+    expect(results[0]!.stores['migros']?.deal?.id).toBe('d1')
+    expect(results[0]!.stores['coop']?.deal?.id).toBe('d2')
+    // migros has lower sale_price (1.50 vs 2.00)
+    expect(results[0]!.bestStore).toBe('migros')
   })
 
   it('does NOT fall back to keyword when product_group_id is set but products empty', () => {
@@ -550,9 +484,9 @@ describe('matchFavorites — product group path', () => {
 
     // Products array is empty — should NOT fall back to keyword match
     const results = matchFavorites(favs, deals, [])
-    expect(results[0]!.migrosDeal).toBeNull()
-    expect(results[0]!.coopDeal).toBeNull()
-    expect(results[0]!.recommendation).toBe('none')
+    expect(results[0]!.stores['migros']?.deal).toBeNull()
+    expect(results[0]!.stores['coop']?.deal).toBeNull()
+    expect(results[0]!.bestStore).toBe('none')
   })
 
   it('does NOT fall back to keyword when product_group_id is set but products undefined', () => {
@@ -563,7 +497,7 @@ describe('matchFavorites — product group path', () => {
 
     // Products undefined — should NOT fall back to keyword match
     const results = matchFavorites(favs, deals, undefined)
-    expect(results[0]!.recommendation).toBe('none')
+    expect(results[0]!.bestStore).toBe('none')
   })
 
   it('uses keyword matching when product_group_id is null', () => {
@@ -573,8 +507,8 @@ describe('matchFavorites — product group path', () => {
     ]
 
     const results = matchFavorites(favs, deals, [])
-    expect(results[0]!.migrosDeal).not.toBeNull()
-    expect(results[0]!.recommendation).toBe('migros')
+    expect(results[0]!.stores['migros']?.deal).not.toBeNull()
+    expect(results[0]!.bestStore).toBe('migros')
   })
 
   it('isolates product groups per store', () => {
@@ -589,9 +523,9 @@ describe('matchFavorites — product group path', () => {
     ]
 
     const results = matchFavorites(favs, deals, products)
-    expect(results[0]!.migrosDeal!.id).toBe('d1')
-    expect(results[0]!.coopDeal).toBeNull() // no coop product in group
-    expect(results[0]!.recommendation).toBe('migros')
+    expect(results[0]!.stores['migros']?.deal?.id).toBe('d1')
+    expect(results[0]!.stores['coop']?.deal).toBeNull() // no coop product in group
+    expect(results[0]!.bestStore).toBe('migros')
   })
 })
 
@@ -600,30 +534,27 @@ describe('splitShoppingList', () => {
     const favMilch = makeFavItem({ id: 'f1', keyword: 'milch', label: 'Milk' })
     const favButter = makeFavItem({ id: 'f2', keyword: 'butter', label: 'Butter' })
     const favTofu = makeFavItem({ id: 'f3', keyword: 'tofu', label: 'Tofu' })
-    const favEier = makeFavItem({ id: 'f4', keyword: 'eier', label: 'Eggs' })
 
     const deals = [
-      makeDeal({ store: 'migros', product_name: 'milch 1l', discount_percent: 40 }),
-      makeDeal({ store: 'coop', product_name: 'milch bio 1l', discount_percent: 20 }),
-      makeDeal({ store: 'coop', product_name: 'butter 250g', discount_percent: 30 }),
-      makeDeal({ store: 'migros', product_name: 'eier 6er', discount_percent: 25, sale_price: 3.0 }),
-      makeDeal({ store: 'coop', product_name: 'eier bio 6er', discount_percent: 25, sale_price: 3.0 }),
+      // milch: migros cheaper (1.50 vs 2.00), bestStore = migros
+      makeDeal({ id: 'dm1', store: 'migros', product_name: 'milch 1l', discount_percent: 40, sale_price: 1.50 }),
+      makeDeal({ id: 'dc1', store: 'coop', product_name: 'milch bio 1l', discount_percent: 20, sale_price: 2.00 }),
+      // butter: only at coop, bestStore = coop
+      makeDeal({ id: 'dc2', store: 'coop', product_name: 'butter 250g', discount_percent: 30 }),
+      // tofu: no match, bestStore = none
     ]
 
-    const comparisons = matchFavorites([favMilch, favButter, favTofu, favEier], deals)
+    const comparisons = matchFavorites([favMilch, favButter, favTofu], deals)
     const split = splitShoppingList(comparisons)
 
-    expect(split.migros).toHaveLength(1) // milch -> migros wins (40 vs 20)
-    expect(split.coop).toHaveLength(1)   // butter -> only at coop
-    expect(split.either).toHaveLength(1) // eier -> same discount + same price
-    expect(split.noDeals).toHaveLength(1) // tofu -> no match
+    expect(split.byStore['migros']).toHaveLength(1) // milch -> migros cheaper
+    expect(split.byStore['coop']).toHaveLength(1)   // butter -> only at coop
+    expect(split.noDeals).toHaveLength(1)            // tofu -> no match
   })
 
-  it('returns empty buckets for empty comparisons', () => {
+  it('returns empty result for empty comparisons', () => {
     const split = splitShoppingList([])
-    expect(split.migros).toHaveLength(0)
-    expect(split.coop).toHaveLength(0)
-    expect(split.either).toHaveLength(0)
+    expect(Object.keys(split.byStore)).toHaveLength(0)
     expect(split.noDeals).toHaveLength(0)
   })
 })

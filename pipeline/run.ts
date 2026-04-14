@@ -5,13 +5,13 @@ import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import type { UnifiedDeal } from '../shared/types'
+import type { Store, UnifiedDeal } from '../shared/types'
+import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
 
 import { categorizeDeal } from './categorize'
 import { extractProductMetadata } from './product-metadata'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
-import { fetchMigrosRegularPrices } from './migros/fetch-prices'
 import { isValidDealEntry } from './validate'
 
 function readDealsFile(filename: string): UnifiedDeal[] {
@@ -50,29 +50,49 @@ async function main(): Promise<void> {
   const startTime = Date.now()
   console.log('[pipeline] [INFO] Starting pipeline run')
 
-  // Read deal files from disk (artifacts from previous CI jobs)
-  // Artifacts are downloaded to pipeline/ by CI, but Coop writes to coop/ subdirectory.
-  // Check both locations for Coop deals.
-  const migrosRaw = readDealsFile('migros-deals.json')
-  let coopRaw = readDealsFile('coop-deals.json')
-  if (coopRaw.length === 0) {
-    coopRaw = readDealsFile('coop/coop-deals.json')
+  // Discover all *-deals.json files in the current working directory
+  const cwd = process.cwd()
+  const allFiles = fs.readdirSync(cwd)
+  const dealFiles = allFiles.filter((f) => /^[a-z][\w-]*-deals\.json$/.test(f))
+
+  // Track per-store status in a map
+  const storeStatusMap = new Map<Store, { status: 'success' | 'failed' | 'skipped'; count: number }>()
+
+  // Collect all raw deals, keyed by store
+  const storeDealsMap = new Map<Store, UnifiedDeal[]>()
+
+  for (const file of dealFiles) {
+    const slug = file.replace('-deals.json', '')
+    // Map aktionis slug to internal store name (e.g. 'aldi-suisse' → 'aldi', 'coop-megastore' → 'coop')
+    const storeName = aktionisSlugToStore(slug) ?? (ALL_STORES.includes(slug as Store) ? slug as Store : null)
+    if (!storeName) {
+      console.warn(`[pipeline] [WARN] Unknown store in filename: ${file} — skipping`)
+      continue
+    }
+    const deals = readDealsFile(file)
+    // Merge deals if multiple files map to the same store (e.g. coop + coop-megastore)
+    const existing = storeDealsMap.get(storeName) ?? []
+    storeDealsMap.set(storeName, [...existing, ...deals])
+    const prev = storeStatusMap.get(storeName)
+    storeStatusMap.set(storeName, {
+      status: (existing.length + deals.length) > 0 ? 'success' : (prev?.status ?? 'failed'),
+      count: (prev?.count ?? 0) + deals.length,
+    })
   }
 
-  const migrosStatus = migrosRaw.length > 0 ? 'success' : 'failed'
-  const coopStatus = coopRaw.length > 0 ? 'success' : 'failed'
+  // Log summary of what was found
+  for (const [store, result] of storeStatusMap) {
+    console.log(`[pipeline] [INFO] Read ${result.count} ${store} deals`)
+  }
 
-  if (migrosRaw.length === 0 && coopRaw.length === 0) {
-    console.error('[pipeline] [ERROR] No deal data available from either source')
+  // Fail early if no deals found at all
+  const allRaw = Array.from(storeDealsMap.values()).flat()
+  if (allRaw.length === 0) {
+    console.error('[pipeline] [ERROR] No deal data available from any source')
     process.exit(1)
   }
 
-  console.log(
-    `[pipeline] [INFO] Read ${migrosRaw.length} Migros deals, ${coopRaw.length} Coop deals`,
-  )
-
   // Step 1: Normalize product names (lowercase, collapse whitespace, standardise units)
-  const allRaw = [...migrosRaw, ...coopRaw]
   for (const deal of allRaw) {
     deal.productName = normalizeProductName(deal.productName)
   }
@@ -101,23 +121,21 @@ async function main(): Promise<void> {
   const filtered = allRaw.length - categorized.length
   console.log(`[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with 0% discount)`)
 
-  // Resolve products (find or create product rows, get product_id for each deal)
-  const migrosDeals = categorized.filter((d) => d.store === 'migros')
-  const coopDeals = categorized.filter((d) => d.store === 'coop')
-
-  const [migrosProducts, coopProducts] = await Promise.all([
-    resolveProducts(migrosDeals, 'migros'),
-    resolveProducts(coopDeals, 'coop'),
-  ])
+  // Resolve products per store dynamically
+  const storeNames = Array.from(storeStatusMap.keys())
+  const resolvedMaps = await Promise.all(
+    storeNames.map((store) => resolveProducts(categorized.filter((d) => d.store === store), store)),
+  )
 
   // Merge product ID maps (store|source_name -> product_id)
   // Keyed by store to prevent cross-store name collisions
   const productIds = new Map<string, string>()
-  for (const [name, resolved] of migrosProducts) {
-    productIds.set(productLookupKey('migros', name), resolved.productId)
-  }
-  for (const [name, resolved] of coopProducts) {
-    productIds.set(productLookupKey('coop', name), resolved.productId)
+  for (let i = 0; i < storeNames.length; i++) {
+    const store = storeNames[i]!
+    const resolved = resolvedMaps[i]!
+    for (const [name, result] of resolved) {
+      productIds.set(productLookupKey(store, name), result.productId)
+    }
   }
 
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
@@ -140,27 +158,28 @@ async function main(): Promise<void> {
     console.log(`[pipeline] [INFO] Deactivated ${deactivatedCount} expired deals`)
   }
 
-  // Fetch regular (shelf) prices for Migros products
-  // This enables price comparison even when no deal exists
-  const priceCount = await fetchMigrosRegularPrices()
-  console.log(`[pipeline] [INFO] Updated ${priceCount} Migros regular prices`)
-
   // Build error log from all failure sources
   const errors: string[] = []
-  if (migrosStatus === 'failed' || coopStatus === 'failed') {
-    errors.push(`Sources: migros=${migrosStatus}, coop=${coopStatus}`)
+  const failedStores = Array.from(storeStatusMap.entries())
+    .filter(([, r]) => r.status === 'failed')
+    .map(([store]) => store)
+  if (failedStores.length > 0) {
+    errors.push(`Sources failed: ${failedStores.join(', ')}`)
   }
   if (storagePartialFailure) {
     errors.push(`Storage: stored ${storedCount}/${categorized.length} (${storageShortfall} failed)`)
   }
 
+  // Build store_results for logPipelineRun
+  const storeResults: Record<string, { status: string; count: number }> = {}
+  for (const [store, result] of storeStatusMap) {
+    storeResults[store] = { status: result.status, count: result.count }
+  }
+
   // Log pipeline run
   const durationMs = Date.now() - startTime
   await logPipelineRun({
-    migros_status: migrosStatus as 'success' | 'failed' | 'skipped',
-    migros_count: migrosRaw.length,
-    coop_status: coopStatus as 'success' | 'failed' | 'skipped',
-    coop_count: coopRaw.length,
+    store_results: storeResults,
     total_stored: storedCount,
     duration_ms: durationMs,
     error_log: errors.length > 0 ? errors.join('; ') : null,

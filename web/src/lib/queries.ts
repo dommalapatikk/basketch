@@ -548,7 +548,7 @@ export async function searchProducts(
       }
     }
 
-    // Show individual products within the group (up to 4 per store)
+    // Show individual products within the group (up to 8 per group)
     // Score each product by relevance to the search keyword
     const scoredProducts = groupProducts
       .filter((p) => p.regular_price != null || dealByProductId.has(p.id))
@@ -565,16 +565,18 @@ export async function searchProducts(
         if (a.score !== b.score) return b.score - a.score
         return (a.product.regular_price ?? Infinity) - (b.product.regular_price ?? Infinity)
       })
-      .slice(0, 8) // up to 8 individual products per group
+      .slice(0, 8)
 
     if (scoredProducts.length > 0) {
       for (const { product, deal } of scoredProducts) {
+        const storeDeals: SearchResult['storeDeals'] = {}
+        const regularPrices: SearchResult['regularPrices'] = {}
+        if (deal) storeDeals[product.store] = deal
+        if (product.regular_price != null) regularPrices[product.store] = product.regular_price
         results.push({
           productGroup: group,
-          migrosDeal: product.store === 'migros' ? deal : null,
-          coopDeal: product.store === 'coop' ? deal : null,
-          migrosRegularPrice: product.store === 'migros' ? product.regular_price : null,
-          coopRegularPrice: product.store === 'coop' ? product.regular_price : null,
+          storeDeals,
+          regularPrices,
           label: product.source_name
             .split(/\s+/)
             .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -587,10 +589,8 @@ export async function searchProducts(
       // No products in group — show group header with no data
       results.push({
         productGroup: group,
-        migrosDeal: null,
-        coopDeal: null,
-        migrosRegularPrice: null,
-        coopRegularPrice: null,
+        storeDeals: {},
+        regularPrices: {},
         label: group.label,
         category: group.category,
         relevance,
@@ -612,10 +612,8 @@ export async function searchProducts(
 
     results.push({
       productGroup: null,
-      migrosDeal: deal.store === 'migros' ? deal : null,
-      coopDeal: deal.store === 'coop' ? deal : null,
-      migrosRegularPrice: null,
-      coopRegularPrice: null,
+      storeDeals: { [deal.store]: deal },
+      regularPrices: {},
       label: deal.product_name,
       category: deal.category,
       relevance,
@@ -625,8 +623,8 @@ export async function searchProducts(
   // Sort: relevance first, then prefer results with deals
   results.sort((a, b) => {
     if (a.relevance !== b.relevance) return b.relevance - a.relevance
-    const aHasDeal = (a.migrosDeal || a.coopDeal) ? 1 : 0
-    const bHasDeal = (b.migrosDeal || b.coopDeal) ? 1 : 0
+    const aHasDeal = Object.keys(a.storeDeals).length > 0 ? 1 : 0
+    const bHasDeal = Object.keys(b.storeDeals).length > 0 ? 1 : 0
     return bHasDeal - aHasDeal
   })
 

@@ -70,10 +70,10 @@ jobs:
           python-version: '3.13'
 
       - name: Install dependencies
-        run: pip install -r pipeline/coop/requirements.txt pytest
+        run: pip install -r pipeline/aktionis/requirements.txt pytest
 
-      - name: Run Coop tests
-        run: cd pipeline/coop && python -m pytest
+      - name: Run aktionis scraper tests
+        run: cd pipeline/aktionis && python -m pytest
 
   build-frontend:
     name: Build Frontend

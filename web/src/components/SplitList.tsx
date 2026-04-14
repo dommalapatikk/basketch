@@ -1,10 +1,11 @@
 import type { FavoriteComparison } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { splitShoppingList } from '../lib/matching'
 
 import { CompareCard } from './CompareCard'
 
 export function SplitList(props: { comparisons: FavoriteComparison[] }) {
-  const { migros, coop, either, noDeals } = splitShoppingList(props.comparisons)
+  const { byStore, noDeals } = splitShoppingList(props.comparisons)
 
   if (props.comparisons.length === 0) {
     return <div className="py-12 text-center text-muted">Your list is empty. Add items to see deals.</div>
@@ -12,41 +13,23 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
 
   return (
     <div>
-      {migros.length > 0 && (
-        <section>
-          <h2 className="flex items-center gap-2 py-3 text-base font-semibold">
-            <span className="size-3 rounded-full bg-migros" />
-            Buy at Migros ({migros.length})
-          </h2>
-          {migros.map((c) => (
-            <CompareCard key={c.favorite.id} comparison={c} />
-          ))}
-        </section>
-      )}
+      {ALL_STORES.map((store) => {
+        const items = byStore[store]
+        if (!items || items.length === 0) return null
+        const meta = STORE_META[store]
 
-      {coop.length > 0 && (
-        <section>
-          <h2 className="flex items-center gap-2 py-3 text-base font-semibold">
-            <span className="size-3 rounded-full bg-coop" />
-            Buy at Coop ({coop.length})
-          </h2>
-          {coop.map((c) => (
-            <CompareCard key={c.favorite.id} comparison={c} />
-          ))}
-        </section>
-      )}
-
-      {either.length > 0 && (
-        <section>
-          <h2 className="flex items-center gap-2 py-3 text-base font-semibold">
-            <span className="size-3 rounded-full bg-success" />
-            Same deal at both ({either.length})
-          </h2>
-          {either.map((c) => (
-            <CompareCard key={c.favorite.id} comparison={c} />
-          ))}
-        </section>
-      )}
+        return (
+          <section key={store}>
+            <h2 className="flex items-center gap-2 py-3 text-base font-semibold">
+              <span className={`size-3 rounded-full ${meta.colorBg}`} />
+              Buy at {meta.label} ({items.length})
+            </h2>
+            {items.map((c) => (
+              <CompareCard key={c.favorite.id} comparison={c} />
+            ))}
+          </section>
+        )
+      })}
 
       {noDeals.length > 0 && (
         <section>

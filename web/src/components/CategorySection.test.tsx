@@ -14,12 +14,9 @@ function wrap(ui: React.ReactNode) {
 const makeVerdict = (overrides?: Partial<CategoryVerdict>): CategoryVerdict => ({
   category: 'fresh',
   winner: 'migros',
-  migrosScore: 80,
-  coopScore: 60,
-  migrosDeals: 12,
-  coopDeals: 8,
-  migrosAvgDiscount: 28,
-  coopAvgDiscount: 22,
+  scores: { migros: 80, coop: 60 },
+  dealCounts: { migros: 12, coop: 8 },
+  avgDiscounts: { migros: 28, coop: 22 },
   ...overrides,
 })
 

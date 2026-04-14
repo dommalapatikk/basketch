@@ -5,7 +5,7 @@ import 'dotenv/config'
 
 import { createClient } from '@supabase/supabase-js'
 
-import type { Deal, PipelineRun } from '../shared/types'
+import type { Deal } from '../shared/types'
 import { dealToRow } from '../shared/types'
 
 const BATCH_SIZE = 100
@@ -110,12 +110,17 @@ export async function storeDeals(
   return storedCount
 }
 
+export interface PipelineRunInput {
+  store_results: Record<string, { status: string; count: number }>
+  total_stored: number
+  duration_ms: number
+  error_log: string | null
+}
+
 /**
  * Logs a pipeline run to the pipeline_runs table.
  */
-export async function logPipelineRun(
-  run: Omit<PipelineRun, 'id' | 'run_at'>,
-): Promise<void> {
+export async function logPipelineRun(run: PipelineRunInput): Promise<void> {
   const { error } = await supabase
     .from('pipeline_runs')
     .insert(run)

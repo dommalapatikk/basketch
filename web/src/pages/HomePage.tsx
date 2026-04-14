@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { Store } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { useActiveDeals, usePageTitle } from '../lib/hooks'
 import { calculateVerdict } from '../lib/verdict'
 import { CategorySection } from '../components/CategorySection'
@@ -16,12 +18,15 @@ import { useCachedQuery } from '../lib/use-cached-query'
 function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
   const { verdict } = props
   const winners = verdict.categories.filter((c) => c.winner !== 'tie')
-  const totalDeals = verdict.categories.reduce((s, c) => s + c.migrosDeals + c.coopDeals, 0)
+  const totalDeals = verdict.categories.reduce(
+    (s, c) => s + ALL_STORES.reduce((sum, store) => sum + (c.dealCounts[store] ?? 0), 0),
+    0,
+  )
 
   if (winners.length === 0) {
     return (
       <p className="text-base font-semibold">
-        Similar promotions at both stores this week
+        Similar promotions across stores this week
       </p>
     )
   }
@@ -29,13 +34,12 @@ function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
   // Check if one store sweeps all categories
   const uniqueWinners = new Set(winners.map((c) => c.winner))
   if (uniqueWinners.size === 1 && winners.length === verdict.categories.length) {
-    const store = winners[0]!.winner as 'migros' | 'coop'
-    const storeName = store === 'migros' ? 'Migros' : 'Coop'
-    const storeColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
+    const store = winners[0]!.winner as Store
+    const meta = STORE_META[store]
     return (
       <>
         <p className="text-base font-semibold">
-          <span className={`font-bold ${storeColor}`}>{storeName}</span> leads across the board
+          <span className={`font-bold ${meta.colorText}`}>{meta.label}</span> leads across the board
         </p>
         <p className="mt-1 text-xs text-muted">Based on {totalDeals} deals compared</p>
       </>
@@ -46,16 +50,15 @@ function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
     <>
       <p className="text-base font-semibold">
         {winners.map((c, i) => {
-          const store = c.winner as 'migros' | 'coop'
-          const storeName = store === 'migros' ? 'Migros' : 'Coop'
-          const storeColor = store === 'migros' ? 'text-migros-text' : 'text-coop-text'
+          const store = c.winner as Store
+          const meta = STORE_META[store]
           const catLabel = c.category === 'fresh' ? 'Fresh'
             : c.category === 'long-life' ? 'Long-life'
             : 'Household'
           return (
             <span key={c.category}>
               {i > 0 && ', '}
-              <span className={`font-bold ${storeColor}`}>{storeName}</span> for {catLabel}
+              <span className={`font-bold ${meta.colorText}`}>{meta.label}</span> for {catLabel}
             </span>
           )
         })}

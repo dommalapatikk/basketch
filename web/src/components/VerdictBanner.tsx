@@ -1,17 +1,15 @@
 import type { ReactNode } from 'react'
 
-import type { WeeklyVerdict } from '@shared/types'
+import type { Store, WeeklyVerdict } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { ShareButton } from './ShareButton'
 import { StaleBanner } from './StaleBanner'
 
-function StoreLabel(props: { store: 'migros' | 'coop' }) {
-  const label = props.store === 'migros' ? 'Migros' : 'Coop'
-  const className = props.store === 'migros'
-    ? 'font-bold text-migros-text'
-    : 'font-bold text-coop-text'
+function StoreLabel(props: { store: Store }) {
+  const meta = STORE_META[props.store]
   return (
-    <span className={className} aria-label={`${label} (store)`}>
-      {label}
+    <span className={`font-bold ${meta.colorText}`} aria-label={`${meta.label} (store)`}>
+      {meta.label}
     </span>
   )
 }
@@ -20,7 +18,7 @@ function verdictContent(verdict: WeeklyVerdict): ReactNode {
   const winners = verdict.categories.filter((c) => c.winner !== 'tie')
 
   if (winners.length === 0) {
-    return <>Similar promotions at both stores this week</>
+    return <>Similar promotions across stores this week</>
   }
 
   return (
@@ -33,7 +31,7 @@ function verdictContent(verdict: WeeklyVerdict): ReactNode {
         return (
           <span key={c.category}>
             {i > 0 && ', '}
-            <StoreLabel store={c.winner as 'migros' | 'coop'} /> for {catLabel}
+            <StoreLabel store={c.winner as Store} /> for {catLabel}
           </span>
         )
       })}
@@ -42,16 +40,39 @@ function verdictContent(verdict: WeeklyVerdict): ReactNode {
 }
 
 function transparencyLine(verdict: WeeklyVerdict): string {
-  const migrosDeals = verdict.categories.reduce((sum, c) => sum + c.migrosDeals, 0)
-  const coopDeals = verdict.categories.reduce((sum, c) => sum + c.coopDeals, 0)
-  const migrosAvg = verdict.categories.length > 0
-    ? Math.round(verdict.categories.reduce((sum, c) => sum + c.migrosAvgDiscount, 0) / verdict.categories.length)
-    : 0
-  const coopAvg = verdict.categories.length > 0
-    ? Math.round(verdict.categories.reduce((sum, c) => sum + c.coopAvgDiscount, 0) / verdict.categories.length)
-    : 0
+  // Summarise deal counts per store across all categories
+  const storeTotals: Partial<Record<Store, number>> = {}
+  const storeAvgDiscounts: Partial<Record<Store, number[]>> = {}
 
-  return `Based on ${migrosDeals} Migros deals (avg ${migrosAvg}% off) vs ${coopDeals} Coop deals (avg ${coopAvg}% off)`
+  for (const cat of verdict.categories) {
+    for (const store of ALL_STORES) {
+      const count = cat.dealCounts[store]
+      const avg = cat.avgDiscounts[store]
+      if (count !== undefined && count > 0) {
+        storeTotals[store] = (storeTotals[store] ?? 0) + count
+      }
+      if (avg !== undefined && avg > 0) {
+        const arr = storeAvgDiscounts[store] ?? []
+        arr.push(avg)
+        storeAvgDiscounts[store] = arr
+      }
+    }
+  }
+
+  // Report for stores that have any data
+  const storesWithData = ALL_STORES.filter((s) => (storeTotals[s] ?? 0) > 0)
+  if (storesWithData.length === 0) return 'No deal data available'
+
+  const parts = storesWithData.map((store) => {
+    const count = storeTotals[store] ?? 0
+    const avgs = storeAvgDiscounts[store] ?? []
+    const avg = avgs.length > 0
+      ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length)
+      : 0
+    return `${STORE_META[store].label}: ${count} deals (avg ${avg}% off)`
+  })
+
+  return `Based on ${parts.join(' vs ')}`
 }
 
 export interface VerdictBannerProps {
@@ -88,7 +109,7 @@ export function VerdictBanner(props: VerdictBannerProps) {
       )}
       {verdict.dataFreshness === 'partial' && (
         <div className="mt-2 rounded-md bg-warning-light p-3 text-sm text-warning">
-          Partial data — one source is missing this week
+          Partial data — some stores are missing this week
         </div>
       )}
     </div>

@@ -9,9 +9,9 @@ afterEach(cleanup)
 const makeVerdict = (overrides?: Partial<WeeklyVerdict>): WeeklyVerdict => ({
   weekOf: '2026-04-09',
   categories: [
-    { category: 'fresh', winner: 'migros', migrosScore: 80, coopScore: 60, migrosDeals: 12, coopDeals: 8, migrosAvgDiscount: 28, coopAvgDiscount: 22 },
-    { category: 'long-life', winner: 'coop', migrosScore: 55, coopScore: 70, migrosDeals: 18, coopDeals: 15, migrosAvgDiscount: 24, coopAvgDiscount: 27 },
-    { category: 'non-food', winner: 'tie', migrosScore: 65, coopScore: 65, migrosDeals: 12, coopDeals: 14, migrosAvgDiscount: 30, coopAvgDiscount: 35 },
+    { category: 'fresh', winner: 'migros', scores: { migros: 80, coop: 60 }, dealCounts: { migros: 12, coop: 8 }, avgDiscounts: { migros: 28, coop: 22 } },
+    { category: 'long-life', winner: 'coop', scores: { migros: 55, coop: 70 }, dealCounts: { migros: 18, coop: 15 }, avgDiscounts: { migros: 24, coop: 27 } },
+    { category: 'non-food', winner: 'tie', scores: { migros: 65, coop: 65 }, dealCounts: { migros: 12, coop: 14 }, avgDiscounts: { migros: 30, coop: 35 } },
   ],
   dataFreshness: 'current',
   lastUpdated: new Date().toISOString(),

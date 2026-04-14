@@ -181,10 +181,10 @@ describe('logPipelineRun', () => {
 
   it('inserts a pipeline run record', async () => {
     await logPipelineRun({
-      migros_status: 'success',
-      migros_count: 100,
-      coop_status: 'failed',
-      coop_count: 0,
+      store_results: {
+        migros: { status: 'success', count: 100 },
+        coop: { status: 'failed', count: 0 },
+      },
       total_stored: 100,
       duration_ms: 5000,
       error_log: null,
@@ -192,10 +192,10 @@ describe('logPipelineRun', () => {
 
     expect(mockFrom).toHaveBeenCalledWith('pipeline_runs')
     expect(mockInsert).toHaveBeenCalledWith({
-      migros_status: 'success',
-      migros_count: 100,
-      coop_status: 'failed',
-      coop_count: 0,
+      store_results: {
+        migros: { status: 'success', count: 100 },
+        coop: { status: 'failed', count: 0 },
+      },
       total_stored: 100,
       duration_ms: 5000,
       error_log: null,

@@ -63,7 +63,7 @@ export function Layout() {
             <Link to="/about" className="hover:text-current no-underline">About</Link>
           </nav>
           <p className="text-[11px] text-muted">
-            Data from Migros API and aktionis.ch. Not affiliated with either store.
+            Data from Migros API and aktionis.ch. Not affiliated with any store.
           </p>
         </div>
       </footer>

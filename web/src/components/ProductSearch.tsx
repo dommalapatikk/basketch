@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-import type { Category, SearchResult } from '@shared/types'
+import type { Category, DealRow, SearchResult, Store } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { searchProducts } from '../lib/queries'
 import { useProductGroups } from '../lib/hooks'
 import { Button } from './ui/Button'
@@ -84,18 +85,14 @@ export function ProductSearch(props: {
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{result.label}</div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                  <StorePrice
-                    store="Migros"
-                    deal={result.migrosDeal}
-                    regularPrice={result.migrosRegularPrice}
-                    colorClass="text-migros-text"
-                  />
-                  <StorePrice
-                    store="Coop"
-                    deal={result.coopDeal}
-                    regularPrice={result.coopRegularPrice}
-                    colorClass="text-coop"
-                  />
+                  {ALL_STORES.filter((s) => result.storeDeals[s] || result.regularPrices[s] != null).map((store) => (
+                    <StorePrice
+                      key={store}
+                      store={store}
+                      deal={result.storeDeals[store] ?? null}
+                      regularPrice={result.regularPrices[store] ?? null}
+                    />
+                  ))}
                 </div>
               </div>
               <Button size="sm" onClick={() => handleSelect(result)} type="button">
@@ -110,17 +107,17 @@ export function ProductSearch(props: {
 }
 
 function StorePrice(props: {
-  store: string
-  deal: SearchResult['migrosDeal']
+  store: Store
+  deal: DealRow | null
   regularPrice: number | null
-  colorClass: string
 }) {
-  const { store, deal, regularPrice, colorClass } = props
+  const { store, deal, regularPrice } = props
+  const meta = STORE_META[store]
 
   if (deal) {
     return (
-      <span className={colorClass}>
-        <span className="font-semibold">{store}</span>{' '}
+      <span className={meta.colorText}>
+        <span className="font-semibold">{meta.label}</span>{' '}
         CHF {(deal.sale_price ?? 0).toFixed(2)}
         {deal.discount_percent != null && deal.discount_percent > 0 && (
           <span className="ml-0.5 text-success">-{deal.discount_percent}%</span>
@@ -132,15 +129,11 @@ function StorePrice(props: {
   if (regularPrice != null) {
     return (
       <span className="text-muted">
-        <span className="font-semibold">{store}</span>{' '}
+        <span className="font-semibold">{meta.label}</span>{' '}
         CHF {regularPrice.toFixed(2)} <span className="italic">regular</span>
       </span>
     )
   }
 
-  return (
-    <span className="text-muted">
-      <span className="font-semibold">{store}</span> —
-    </span>
-  )
+  return null
 }

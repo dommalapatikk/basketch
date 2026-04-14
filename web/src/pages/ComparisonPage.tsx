@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
+import type { Store } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { useActiveDeals, useBasketItems, usePageTitle, useProductsWithGroups } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
 import { fetchLatestPipelineRun } from '../lib/queries'
@@ -105,42 +107,62 @@ export function ComparisonPage() {
     )
   }
 
-  const migrosItems = comparisons.filter((c) => c.recommendation === 'migros')
-  const coopItems = comparisons.filter((c) => c.recommendation === 'coop')
-  const withInfo = comparisons.filter((c) => c.recommendation !== 'none')
+  // Items that have a best deal at some store
+  const withDeals = comparisons.filter((c) => c.bestStore !== 'none')
 
-  // Summary counts
-  const onSaleMigros = comparisons.filter(
-    (c) => c.migrosDeal !== null,
-  ).length
-  const onSaleCoop = comparisons.filter(
-    (c) => c.coopDeal !== null,
-  ).length
+  // Count items on sale per store
+  const onSaleByStore: Partial<Record<Store, number>> = {}
+  for (const comp of comparisons) {
+    for (const store of ALL_STORES) {
+      if (comp.stores[store]?.deal) {
+        onSaleByStore[store] = (onSaleByStore[store] ?? 0) + 1
+      }
+    }
+  }
+
+  // Top 3 stores by item count for summary cards
+  const storesWithItems = ALL_STORES
+    .filter((s) => comparisons.some((c) => c.bestStore === s))
+    .sort((a, b) => {
+      const aCount = comparisons.filter((c) => c.bestStore === a).length
+      const bCount = comparisons.filter((c) => c.bestStore === b).length
+      return bCount - aCount
+    })
+    .slice(0, 3)
 
   // Store totals for summary cards
-  const migrosTotal = migrosItems.reduce((sum, c) => {
-    if (c.migrosDeal) return sum + c.migrosDeal.sale_price
-    if (c.migrosRegularPrice) return sum + c.migrosRegularPrice.price
-    return sum
-  }, 0)
-  const coopTotal = coopItems.reduce((sum, c) => {
-    if (c.coopDeal) return sum + c.coopDeal.sale_price
-    if (c.coopRegularPrice) return sum + c.coopRegularPrice.price
-    return sum
-  }, 0)
+  const storeTotals: Partial<Record<Store, number>> = {}
+  for (const store of storesWithItems) {
+    const total = comparisons
+      .filter((c) => c.bestStore === store)
+      .reduce((sum, c) => {
+        const match = c.stores[store]
+        if (match?.deal) return sum + match.deal.sale_price
+        if (match?.regularPrice) return sum + match.regularPrice.price
+        return sum
+      }, 0)
+    storeTotals[store] = total
+  }
 
-  // Savings from splitting
-  const splitSavings = withInfo.reduce((sum, c) => {
-    if (c.migrosDeal && c.coopDeal) {
-      return sum + Math.abs(c.migrosDeal.sale_price - c.coopDeal.sale_price)
+  // Savings estimate: for items where 2+ stores have deals, the diff between best and second-best
+  const splitSavings = withDeals.reduce((sum, c) => {
+    const dealPrices = ALL_STORES
+      .map((s) => c.stores[s]?.deal?.sale_price)
+      .filter((p): p is number => p !== undefined)
+      .sort((a, b) => a - b)
+    if (dealPrices.length >= 2) {
+      return sum + (dealPrices[1]! - dealPrices[0]!)
     }
     return sum
   }, 0)
 
-  // Check if any Coop items have coopProductKnown = false
-  const hasUnknownCoopProducts = comparisons.some(
-    (c) => !c.coopDeal && !c.coopProductKnown,
-  )
+  // Build on-sale summary text
+  const onSaleParts = ALL_STORES
+    .filter((s) => (onSaleByStore[s] ?? 0) > 0)
+    .map((s) => {
+      const meta = STORE_META[s]
+      return { store: s, count: onSaleByStore[s]!, meta }
+    })
 
   return (
     <div>
@@ -151,19 +173,18 @@ export function ComparisonPage() {
           <p className="mt-1 text-sm text-muted">
             {comparisons.length} items tracked
           </p>
-          <p className="text-sm">
-            {onSaleMigros > 0 && (
-              <span>
-                <span className="font-semibold text-migros-text">{onSaleMigros} at Migros</span>
-              </span>
-            )}
-            {onSaleMigros > 0 && onSaleCoop > 0 && ', '}
-            {onSaleCoop > 0 && (
-              <span>
-                <span className="font-semibold text-coop-text">{onSaleCoop} at Coop</span>
-              </span>
-            )}
-          </p>
+          {onSaleParts.length > 0 && (
+            <p className="text-sm">
+              {onSaleParts.map((p, i) => (
+                <span key={p.store}>
+                  {i > 0 && ', '}
+                  <span className={`font-semibold ${p.meta.colorText}`}>
+                    {p.count} at {p.meta.label}
+                  </span>
+                </span>
+              ))}
+            </p>
+          )}
         </div>
         <Link
           to={`/onboarding?edit=${favoriteId}`}
@@ -184,33 +205,30 @@ export function ComparisonPage() {
         </div>
       )}
 
-      {/* Coop transparency label */}
-      {hasUnknownCoopProducts && (
-        <div className="mb-3 rounded-md bg-info-bg p-3 text-sm text-info-text" role="note">
-          Coop: showing promotions found. Not all Coop products are tracked yet.
-        </div>
-      )}
-
       {/* Empty verdict */}
-      {withInfo.length === 0 && comparisons.length > 0 && (
+      {withDeals.length === 0 && comparisons.length > 0 && (
         <div className="mb-4 rounded-md border border-accent/20 bg-accent-light p-4 text-center text-sm">
           None of your favorites are on sale this week. Check back Thursday when new deals are published.
         </div>
       )}
 
-      {/* Store total summary cards */}
-      {(migrosItems.length > 0 || coopItems.length > 0) && (
-        <div className="mb-4 grid grid-cols-2 gap-2">
-          <div className="rounded-md bg-migros-light p-3 text-center">
-            <div className="text-xs font-semibold uppercase tracking-wide text-migros-text">Migros</div>
-            <div className="mt-0.5 text-xl font-bold">CHF {migrosTotal.toFixed(2)}</div>
-            <div className="text-xs text-muted">{migrosItems.length} item{migrosItems.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div className="rounded-md bg-coop-light p-3 text-center">
-            <div className="text-xs font-semibold uppercase tracking-wide text-coop-text">Coop</div>
-            <div className="mt-0.5 text-xl font-bold">CHF {coopTotal.toFixed(2)}</div>
-            <div className="text-xs text-muted">{coopItems.length} item{coopItems.length !== 1 ? 's' : ''}</div>
-          </div>
+      {/* Store total summary cards — top 3 stores */}
+      {storesWithItems.length > 0 && (
+        <div className={`mb-4 grid gap-2 ${storesWithItems.length === 1 ? 'grid-cols-1' : storesWithItems.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {storesWithItems.map((store) => {
+            const meta = STORE_META[store]
+            const itemCount = comparisons.filter((c) => c.bestStore === store).length
+            const total = storeTotals[store] ?? 0
+            return (
+              <div key={store} className={`rounded-md p-3 text-center ${meta.colorLight}`}>
+                <div className={`text-xs font-semibold uppercase tracking-wide ${meta.colorText}`}>
+                  {meta.label}
+                </div>
+                <div className="mt-0.5 text-xl font-bold">CHF {total.toFixed(2)}</div>
+                <div className="text-xs text-muted">{itemCount} item{itemCount !== 1 ? 's' : ''}</div>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -238,7 +256,7 @@ export function ComparisonPage() {
           </Button>
           <ShareButton
             title="My grocery deals — basketch"
-            text="Check out my split shopping list for Migros and Coop"
+            text="Check out my split shopping list for Swiss grocery stores"
           >
             Share this list
           </ShareButton>
