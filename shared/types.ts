@@ -42,6 +42,7 @@ export interface BrowseCategoryInfo {
   label: string
   emoji: string
   subCategories: string[]  // matches sub_category values in DB
+  topCategory: Category    // parent top-level category
 }
 
 /**
@@ -50,17 +51,20 @@ export interface BrowseCategoryInfo {
  * Deals with sub_category = null appear only in the "All" view.
  */
 export const BROWSE_CATEGORIES: BrowseCategoryInfo[] = [
-  { id: 'fruits-vegetables', label: 'Fruits & Vegetables', emoji: '🥬', subCategories: ['fruit', 'vegetables'] },
-  { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'fish', 'deli'] },
-  { id: 'dairy', label: 'Dairy & Eggs', emoji: '🧀', subCategories: ['dairy', 'eggs'] },
-  { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread'] },
-  { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['snacks', 'chocolate'] },
-  { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'] },
-  { id: 'drinks', label: 'Drinks', emoji: '☕', subCategories: ['drinks', 'coffee-tea'] },
-  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen'] },
-  { id: 'pantry-canned', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'] },
-  { id: 'home', label: 'Home & Cleaning', emoji: '🧹', subCategories: ['cleaning', 'laundry', 'paper-goods', 'household'] },
-  { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['personal-care'] },
+  // Fresh
+  { id: 'fruits-vegetables', label: 'Fruits & Vegetables', emoji: '🥬', subCategories: ['fruit', 'vegetables'], topCategory: 'fresh' },
+  { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'fish', 'deli'], topCategory: 'fresh' },
+  { id: 'dairy', label: 'Dairy & Eggs', emoji: '🧀', subCategories: ['dairy', 'eggs'], topCategory: 'fresh' },
+  { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread'], topCategory: 'fresh' },
+  // Long-life
+  { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['snacks', 'chocolate'], topCategory: 'long-life' },
+  { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'], topCategory: 'long-life' },
+  { id: 'drinks', label: 'Drinks', emoji: '☕', subCategories: ['drinks', 'coffee-tea'], topCategory: 'long-life' },
+  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen'], topCategory: 'long-life' },
+  { id: 'pantry-canned', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'], topCategory: 'long-life' },
+  // Non-food
+  { id: 'home', label: 'Home & Cleaning', emoji: '🧹', subCategories: ['cleaning', 'laundry', 'paper-goods', 'household'], topCategory: 'non-food' },
+  { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['personal-care'], topCategory: 'non-food' },
 ]
 
 // ============================================================
