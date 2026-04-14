@@ -456,6 +456,7 @@ export function buildDealComparisons(
   }
 
   // Tier 2: Name-similarity matching for remaining unmatched deals
+  // Iterates ALL stores as anchors (not just Migros) so Coop↔Denner matches are found too.
   const unmatchedDeals = deals.filter((d) => !matchedDealIds.has(d.id))
 
   // Group unmatched deals by store for iteration
@@ -465,42 +466,43 @@ export function buildDealComparisons(
   }
 
   const tier2MatchedIds = new Set<string>()
+  const NAME_MATCH_THRESHOLD = 2
 
-  // Use migros as the anchor store for name-similarity matching
-  const anchorStore: Store = 'migros'
-  const anchorDeals = unmatchedByStore.get(anchorStore) ?? []
+  // Try each store as anchor to find cross-store matches
+  for (const anchorStore of ALL_STORES) {
+    const anchorDeals = unmatchedByStore.get(anchorStore) ?? []
 
-  for (const anchorDeal of anchorDeals) {
-    if (tier2MatchedIds.has(anchorDeal.id)) continue
+    for (const anchorDeal of anchorDeals) {
+      if (tier2MatchedIds.has(anchorDeal.id)) continue
 
-    const candidateStoreDeals: Partial<Record<Store, DealRow>> = {
-      [anchorStore]: anchorDeal,
-    }
+      const candidateStoreDeals: Partial<Record<Store, DealRow>> = {
+        [anchorStore]: anchorDeal,
+      }
 
-    for (const store of ALL_STORES) {
-      if (store === anchorStore) continue
-      const storeUnmatched = unmatchedByStore.get(store) ?? []
-      let bestMatch: DealRow | null = null
-      let bestRelevance = 0
+      for (const store of ALL_STORES) {
+        if (store === anchorStore) continue
+        const storeUnmatched = unmatchedByStore.get(store) ?? []
+        let bestMatch: DealRow | null = null
+        let bestRelevance = 0
 
-      for (const cDeal of storeUnmatched) {
-        if (tier2MatchedIds.has(cDeal.id)) continue
-        const r1 = matchRelevance(anchorDeal.product_name, cDeal.product_name)
-        const r2 = matchRelevance(cDeal.product_name, anchorDeal.product_name)
-        const relevance = Math.max(r1, r2)
-        if (relevance >= 3 && relevance > bestRelevance) {
-          bestRelevance = relevance
-          bestMatch = cDeal
+        for (const cDeal of storeUnmatched) {
+          if (tier2MatchedIds.has(cDeal.id)) continue
+          const r1 = matchRelevance(anchorDeal.product_name, cDeal.product_name)
+          const r2 = matchRelevance(cDeal.product_name, anchorDeal.product_name)
+          const relevance = Math.max(r1, r2)
+          if (relevance >= NAME_MATCH_THRESHOLD && relevance > bestRelevance) {
+            bestRelevance = relevance
+            bestMatch = cDeal
+          }
+        }
+
+        if (bestMatch) {
+          candidateStoreDeals[store] = bestMatch
         }
       }
 
-      if (bestMatch) {
-        candidateStoreDeals[store] = bestMatch
-      }
-    }
-
-    const storeCount = Object.keys(candidateStoreDeals).length
-    if (storeCount < 2) continue
+      const storeCount = Object.keys(candidateStoreDeals).length
+      if (storeCount < 2) continue
 
     // Mark all as matched
     for (const deal of Object.values(candidateStoreDeals) as DealRow[]) {
@@ -534,6 +536,7 @@ export function buildDealComparisons(
       storeDeals: candidateStoreDeals,
       bestStore,
     })
+    }
   }
 
   // Sort matched: product-group first, then by best discount
