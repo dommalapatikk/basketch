@@ -1,5 +1,28 @@
 import type { DealComparison, DealRow, Store } from '@shared/types'
-import { STORE_META } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
+
+const STORE_PREFIXES = ALL_STORES.map((s) => STORE_META[s].label.toLowerCase())
+
+/** Clean up raw product names: strip store prefix, title-case */
+function formatProductName(raw: string): string {
+  let name = raw.toLowerCase().trim()
+  // Strip "migros · ", "coop · ", "migros ", "coop " etc.
+  for (const prefix of STORE_PREFIXES) {
+    if (name.startsWith(prefix + ' · ')) {
+      name = name.slice(prefix.length + 3)
+      break
+    }
+    if (name.startsWith(prefix + ' ')) {
+      name = name.slice(prefix.length + 1)
+      break
+    }
+  }
+  // Title-case
+  return name
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
 
 /**
  * Side-by-side comparison row showing the same product across selected stores.
@@ -88,7 +111,7 @@ export function DealCompareRow(props: {
 
               {/* Product name */}
               <div className="mt-1 line-clamp-2 text-xs">
-                {deal.product_name}
+                {formatProductName(deal.product_name)}
               </div>
 
               {/* Best badge */}
