@@ -6,11 +6,6 @@ import { BROWSE_CATEGORIES } from '@shared/types'
 
 const TOP_LEVEL_CATEGORIES: Category[] = ['fresh', 'long-life', 'non-food']
 
-const TOP_LEVEL_LABELS: Record<Category, string> = {
-  'fresh': 'Fresh',
-  'long-life': 'Long-life',
-  'non-food': 'Non-food / Household',
-}
 import { useActiveDeals, usePageTitle } from '../lib/hooks'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
@@ -24,28 +19,6 @@ const INITIAL_SHOW = 50
 
 function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boolean {
   return deal.sub_category != null && subCategories.includes(deal.sub_category)
-}
-
-function dealMatchesBrowseCategory(deal: DealRow, categoryId: BrowseCategory | Category): boolean {
-  if (categoryId === 'all') return true
-  if (TOP_LEVEL_CATEGORIES.includes(categoryId as Category)) {
-    return deal.category === categoryId
-  }
-  const cat = BROWSE_CATEGORIES.find((c) => c.id === categoryId)
-  if (!cat) return false
-  return matchDealToSubCategories(deal, cat.subCategories)
-}
-
-/** Determine which browse categories have deals within a top-level category. */
-function browseCategoriesForTopLevel(deals: DealRow[], topLevel: Category): BrowseCategory[] {
-  const topLevelDeals = deals.filter((d) => d.category === topLevel)
-  const matching: BrowseCategory[] = []
-  for (const bc of BROWSE_CATEGORIES) {
-    if (topLevelDeals.some((d) => matchDealToSubCategories(d, bc.subCategories))) {
-      matching.push(bc.id)
-    }
-  }
-  return matching
 }
 
 function StoreDealSection(props: {
@@ -110,24 +83,18 @@ export function DealsPage() {
   const pillContainerRef = useRef<HTMLDivElement>(null)
   const [showFade, setShowFade] = useState(true)
 
-  // Two-tier URL state: ?category=fresh (top-level) and ?browse=fruits-vegetables (sub)
+  // Single-tier URL state: ?category=fruits-vegetables
+  // Also supports legacy top-level URLs from homepage: ?category=fresh
   const urlCategory = searchParams.get('category')
-  const urlBrowse = searchParams.get('browse')
-
-  // Derive active top-level category
-  const activeTopLevel: Category | 'all' =
-    urlCategory && TOP_LEVEL_CATEGORIES.includes(urlCategory as Category)
-      ? urlCategory as Category
+  const validIds = BROWSE_CATEGORIES.map((c) => c.id)
+  const isTopLevel = urlCategory && TOP_LEVEL_CATEGORIES.includes(urlCategory as Category)
+  const activeCategory: BrowseCategory | 'all' =
+    urlCategory && validIds.includes(urlCategory as BrowseCategory)
+      ? urlCategory as BrowseCategory
       : 'all'
+  const activeTopLevel: Category | null = isTopLevel ? urlCategory as Category : null
 
-  // Derive active browse category (only valid when a top-level is set, or when used standalone)
-  const validBrowseIds = BROWSE_CATEGORIES.map((c) => c.id)
-  const activeBrowse: BrowseCategory | null =
-    urlBrowse && validBrowseIds.includes(urlBrowse as BrowseCategory)
-      ? urlBrowse as BrowseCategory
-      : null
-
-  function setTopLevel(cat: Category | 'all') {
+  function setCategory(cat: BrowseCategory | 'all') {
     if (cat === 'all') {
       setSearchParams({})
     } else {
@@ -135,24 +102,7 @@ export function DealsPage() {
     }
   }
 
-  function setBrowse(browse: BrowseCategory | null) {
-    if (activeTopLevel === 'all') {
-      // No top-level selected — browse is standalone
-      if (browse) {
-        setSearchParams({ browse })
-      } else {
-        setSearchParams({})
-      }
-    } else {
-      if (browse) {
-        setSearchParams({ category: activeTopLevel, browse })
-      } else {
-        setSearchParams({ category: activeTopLevel })
-      }
-    }
-  }
-
-  // Check scroll fade for browse pills
+  // Check scroll fade for pill row
   useEffect(() => {
     const container = pillContainerRef.current
     if (!container) return
@@ -166,34 +116,39 @@ export function DealsPage() {
     handleScroll()
     container.addEventListener('scroll', handleScroll, { passive: true })
     return () => container.removeEventListener('scroll', handleScroll)
-  }, [deals, activeTopLevel])
+  }, [deals])
 
-  // Filter deals by both tiers
+  // Filter deals by selected category
   const filteredDeals = useMemo(() => {
     if (!deals) return { migros: [] as DealRow[], coop: [] as DealRow[] }
     let filtered = deals
 
-    // Tier 1: top-level category filter
-    if (activeTopLevel !== 'all') {
+    if (activeTopLevel) {
+      // Legacy top-level URL from homepage (e.g., ?category=fresh)
       filtered = filtered.filter((d) => d.category === activeTopLevel)
-    }
-
-    // Tier 2: browse sub-category filter
-    if (activeBrowse) {
-      filtered = filtered.filter((d) => dealMatchesBrowseCategory(d, activeBrowse))
+    } else if (activeCategory !== 'all') {
+      const cat = BROWSE_CATEGORIES.find((c) => c.id === activeCategory)
+      if (cat) {
+        filtered = filtered.filter((d) => matchDealToSubCategories(d, cat.subCategories))
+      }
     }
 
     return {
       migros: filtered.filter((d) => d.store === 'migros'),
       coop: filtered.filter((d) => d.store === 'coop'),
     }
-  }, [deals, activeTopLevel, activeBrowse])
+  }, [deals, activeCategory, activeTopLevel])
 
   // Category label for store section headers
-  const activeCategoryLabel = activeBrowse
-    ? BROWSE_CATEGORIES.find((c) => c.id === activeBrowse)?.label ?? 'All Categories'
-    : activeTopLevel !== 'all'
-      ? TOP_LEVEL_LABELS[activeTopLevel]
+  const TOP_LEVEL_LABELS: Record<Category, string> = {
+    'fresh': 'Fresh',
+    'long-life': 'Long-life',
+    'non-food': 'Non-food / Household',
+  }
+  const activeCategoryLabel = activeTopLevel
+    ? TOP_LEVEL_LABELS[activeTopLevel]
+    : activeCategory !== 'all'
+      ? BROWSE_CATEGORIES.find((c) => c.id === activeCategory)?.label ?? 'All Categories'
       : 'All Categories'
 
   // Check stale data (> 7 days)
@@ -201,24 +156,11 @@ export function DealsPage() {
     ? (Date.now() - new Date(pipelineRun.run_at).getTime()) > 7 * 24 * 60 * 60 * 1000
     : false
 
-  // Top-level category deal counts
-  const topLevelCounts = useMemo(() => {
-    if (!deals) return new Map<Category, number>()
-    const counts = new Map<Category, number>()
-    for (const deal of deals) {
-      counts.set(deal.category, (counts.get(deal.category) ?? 0) + 1)
-    }
-    return counts
-  }, [deals])
-
-  // Browse category counts (scoped to active top-level)
+  // Category deal counts
   const categoryCounts = useMemo(() => {
     if (!deals) return new Map<BrowseCategory, number>()
-    const source = activeTopLevel !== 'all'
-      ? deals.filter((d) => d.category === activeTopLevel)
-      : deals
     const counts = new Map<BrowseCategory, number>()
-    for (const deal of source) {
+    for (const deal of deals) {
       for (const cat of BROWSE_CATEGORIES) {
         if (matchDealToSubCategories(deal, cat.subCategories)) {
           counts.set(cat.id, (counts.get(cat.id) ?? 0) + 1)
@@ -227,22 +169,15 @@ export function DealsPage() {
       }
     }
     return counts
-  }, [deals, activeTopLevel])
-
-  // Which browse pills to show (all, or filtered by top-level)
-  const visibleBrowseCategories = useMemo(() => {
-    if (!deals || activeTopLevel === 'all') return BROWSE_CATEGORIES
-    const matchingIds = browseCategoriesForTopLevel(deals, activeTopLevel)
-    return BROWSE_CATEGORIES.filter((c) => matchingIds.includes(c.id))
-  }, [deals, activeTopLevel])
+  }, [deals])
 
   const totalDeals = deals?.length ?? 0
   const totalFiltered = filteredDeals.migros.length + filteredDeals.coop.length
   const hasResults = totalFiltered > 0
 
   // Roving tabindex keyboard handling
-  function handlePillKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, containerSelector: string) {
-    const container = document.querySelector<HTMLDivElement>(containerSelector)
+  function handlePillKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const container = pillContainerRef.current
     if (!container) return
     const pills = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
     const currentIndex = pills.indexOf(e.currentTarget)
@@ -261,7 +196,7 @@ export function DealsPage() {
     }
   }
 
-  const isFilterActive = activeTopLevel !== 'all' || activeBrowse !== null
+  const isFilterActive = activeCategory !== 'all' || activeTopLevel !== null
 
   if (loading) {
     return (
@@ -294,100 +229,56 @@ export function DealsPage() {
         </div>
       )}
 
-      {/* Tier 1: Top-level category pills */}
-      <div className="mb-2 flex gap-2 py-1" data-tier="top" role="tablist" aria-label="Filter by category group">
-        <button
-          className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-            activeTopLevel === 'all' && !activeBrowse
-              ? 'bg-pill-active-bg text-pill-active-text'
-              : 'border border-border bg-pill-bg text-current hover:border-accent'
-          }`}
-          onClick={() => setTopLevel('all')}
-          onKeyDown={(e) => handlePillKeyDown(e, '[data-tier="top"]')}
-          type="button"
-          role="tab"
-          aria-selected={activeTopLevel === 'all'}
-          tabIndex={activeTopLevel === 'all' ? 0 : -1}
+      {/* Single row of category pills — horizontal scroll */}
+      <div className="relative mb-3">
+        <div
+          ref={pillContainerRef}
+          className="no-scrollbar flex gap-2 overflow-x-auto py-1"
+          role="tablist"
+          aria-label="Filter by category"
         >
-          All ({totalDeals})
-        </button>
-        {TOP_LEVEL_CATEGORIES.map((cat) => {
-          const count = topLevelCounts.get(cat) ?? 0
-          return (
-            <button
-              key={cat}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                activeTopLevel === cat
-                  ? 'bg-pill-active-bg text-pill-active-text'
-                  : 'border border-border bg-pill-bg text-current hover:border-accent'
-              }`}
-              onClick={() => setTopLevel(cat)}
-              onKeyDown={(e) => handlePillKeyDown(e, '[data-tier="top"]')}
-              type="button"
-              role="tab"
-              aria-selected={activeTopLevel === cat}
-              tabIndex={activeTopLevel === cat ? 0 : -1}
-            >
-              {TOP_LEVEL_LABELS[cat]}{count > 0 ? ` (${count})` : ''}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Tier 2: Browse sub-category pills — horizontal scroll */}
-      {visibleBrowseCategories.length > 0 && (
-        <div className="relative mb-3">
-          <div
-            ref={pillContainerRef}
-            className="no-scrollbar flex gap-2 overflow-x-auto py-1 pr-8"
-            data-tier="browse"
-            role="tablist"
-            aria-label="Filter by sub-category"
+          <button
+            className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+              activeCategory === 'all'
+                ? 'bg-pill-active-bg text-pill-active-text'
+                : 'border border-border bg-pill-bg text-current hover:border-accent'
+            }`}
+            onClick={() => setCategory('all')}
+            onKeyDown={handlePillKeyDown}
+            type="button"
+            role="tab"
+            aria-selected={activeCategory === 'all'}
+            tabIndex={activeCategory === 'all' ? 0 : -1}
           >
-            {activeTopLevel !== 'all' && (
+            All ({totalDeals})
+          </button>
+          {BROWSE_CATEGORIES.map((cat) => {
+            const count = categoryCounts.get(cat.id) ?? 0
+            if (count === 0) return null
+            return (
               <button
-                className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                  !activeBrowse
+                key={cat.id}
+                className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  activeCategory === cat.id
                     ? 'bg-pill-active-bg text-pill-active-text'
                     : 'border border-border bg-pill-bg text-current hover:border-accent'
                 }`}
-                onClick={() => setBrowse(null)}
-                onKeyDown={(e) => handlePillKeyDown(e, '[data-tier="browse"]')}
+                onClick={() => setCategory(cat.id)}
+                onKeyDown={handlePillKeyDown}
                 type="button"
                 role="tab"
-                aria-selected={!activeBrowse}
-                tabIndex={!activeBrowse ? 0 : -1}
+                aria-selected={activeCategory === cat.id}
+                tabIndex={activeCategory === cat.id ? 0 : -1}
               >
-                All {TOP_LEVEL_LABELS[activeTopLevel]}
+                {cat.emoji} {cat.label} ({count})
               </button>
-            )}
-            {visibleBrowseCategories.map((cat) => {
-              const count = categoryCounts.get(cat.id) ?? 0
-              return (
-                <button
-                  key={cat.id}
-                  className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                    activeBrowse === cat.id
-                      ? 'bg-pill-active-bg text-pill-active-text'
-                      : 'border border-border bg-pill-bg text-current hover:border-accent'
-                  }`}
-                  onClick={() => setBrowse(cat.id)}
-                  onKeyDown={(e) => handlePillKeyDown(e, '[data-tier="browse"]')}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeBrowse === cat.id}
-                  tabIndex={activeBrowse === cat.id ? 0 : -1}
-                >
-                  {cat.emoji} {cat.label}{count > 0 ? ` (${count})` : ''}
-                </button>
-              )
-            })}
-          </div>
-          {showFade && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-bg to-transparent" />
-          )}
+            )
+          })}
         </div>
-      )}
+        {showFade && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-bg to-transparent" />
+        )}
+      </div>
 
       {/* Active filter banner */}
       {isFilterActive && (

@@ -51,13 +51,13 @@ export interface BrowseCategoryInfo {
  */
 export const BROWSE_CATEGORIES: BrowseCategoryInfo[] = [
   { id: 'fruits-vegetables', label: 'Fruits & Vegetables', emoji: '🥬', subCategories: ['fruit', 'vegetables'] },
-  { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'fish'] },
+  { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'fish', 'deli'] },
   { id: 'dairy', label: 'Dairy & Eggs', emoji: '🧀', subCategories: ['dairy', 'eggs'] },
   { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread'] },
   { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['snacks', 'chocolate'] },
   { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'] },
   { id: 'drinks', label: 'Drinks', emoji: '☕', subCategories: ['drinks', 'coffee-tea'] },
-  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen', 'deli'] },
+  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen'] },
   { id: 'pantry-canned', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'] },
   { id: 'home', label: 'Home & Cleaning', emoji: '🧹', subCategories: ['cleaning', 'laundry', 'paper-goods', 'household'] },
   { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['personal-care'] },
