@@ -11,7 +11,7 @@ export interface OgTagData {
 
 const BASE_URL = 'https://basketch.ch'
 const SITE_NAME = 'basketch'
-const DEFAULT_DESCRIPTION = 'Migros or Coop this week? Compare weekly deals side by side and find out who wins.'
+const DEFAULT_DESCRIPTION = 'Compare weekly grocery deals across Swiss supermarkets. Find the cheapest price for your favorites.'
 
 /**
  * Generate OG tag data for a given route path.
@@ -20,7 +20,7 @@ export function getOgTags(pathname: string): OgTagData {
   // Home page
   if (pathname === '/' || pathname === '') {
     return {
-      title: `${SITE_NAME} — Migros or Coop this week?`,
+      title: `${SITE_NAME} — Which store wins this week?`,
       description: DEFAULT_DESCRIPTION,
       url: BASE_URL,
       type: 'website',
@@ -31,7 +31,7 @@ export function getOgTags(pathname: string): OgTagData {
   if (pathname === '/deals' || pathname.startsWith('/deals')) {
     return {
       title: `This Week's Deals — ${SITE_NAME}`,
-      description: 'Browse all Migros and Coop weekly promotions side by side. Sorted by discount.',
+      description: 'Browse weekly promotions from all major Swiss supermarkets. Sorted by discount.',
       url: `${BASE_URL}/deals`,
       type: 'website',
     }
@@ -61,7 +61,7 @@ export function getOgTags(pathname: string): OgTagData {
   if (pathname === '/about') {
     return {
       title: `About — ${SITE_NAME}`,
-      description: 'How basketch works: we compare Migros and Coop weekly promotions so you don\'t have to.',
+      description: 'How basketch works: we compare weekly promotions across Swiss supermarkets so you don\'t have to.',
       url: `${BASE_URL}/about`,
       type: 'website',
     }
