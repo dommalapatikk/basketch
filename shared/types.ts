@@ -16,19 +16,22 @@ export interface StoreMeta {
   slug: Store
   label: string
   aktionisSlug: string
-  colorBg: string
-  colorText: string
-  colorLight: string
+  /** Hex color for backgrounds (buttons, badges) */
+  hex: string
+  /** Hex color for text on white (WCAG AA) */
+  hexText: string
+  /** Hex color for light tinted backgrounds */
+  hexLight: string
 }
 
 export const STORE_META: Record<Store, StoreMeta> = {
-  migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       colorBg: 'bg-migros',  colorText: 'text-migros-text',  colorLight: 'bg-migros-light' },
-  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         colorBg: 'bg-coop',    colorText: 'text-coop-text',    colorLight: 'bg-coop-light' },
-  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         colorBg: 'bg-lidl',    colorText: 'text-lidl-text',    colorLight: 'bg-lidl-light' },
-  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  colorBg: 'bg-aldi',    colorText: 'text-aldi-text',    colorLight: 'bg-aldi-light' },
-  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       colorBg: 'bg-denner',  colorText: 'text-denner-text',  colorLight: 'bg-denner-light' },
-  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         colorBg: 'bg-spar',    colorText: 'text-spar-text',    colorLight: 'bg-spar-light' },
-  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         colorBg: 'bg-volg',    colorText: 'text-volg-text',    colorLight: 'bg-volg-light' },
+  migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       hex: '#e65100', hexText: '#c54400', hexLight: '#fff3e6' },
+  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         hex: '#007a3d', hexText: '#006030', hexLight: '#e6f4ec' },
+  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         hex: '#0050aa', hexText: '#003d82', hexLight: '#e6f0fa' },
+  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  hex: '#00508f', hexText: '#003d6e', hexLight: '#e6eff7' },
+  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       hex: '#e30613', hexText: '#b00010', hexLight: '#fde8e9' },
+  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         hex: '#008a5c', hexText: '#006844', hexLight: '#e6f5ef' },
+  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         hex: '#c8102e', hexText: '#9e0020', hexLight: '#fae8eb' },
 }
 
 export const ALL_STORES = Object.keys(STORE_META) as Store[]

@@ -116,7 +116,7 @@ function StorePrice(props: {
 
   if (deal) {
     return (
-      <span className={meta.colorText}>
+      <span style={{ color: meta.hexText }}>
         <span className="font-semibold">{meta.label}</span>{' '}
         CHF {(deal.sale_price ?? 0).toFixed(2)}
         {deal.discount_percent != null && deal.discount_percent > 0 && (

@@ -13,8 +13,8 @@ function DealColumn(props: {
   // Show deal if available
   if (deal) {
     return (
-      <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} deal`}>
-        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+      <div className="rounded-md p-2" style={{ backgroundColor: meta.hexLight }} aria-label={`${meta.label} deal`}>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: meta.hexText }}>
           {meta.label}
         </div>
         {deal.image_url && (
@@ -48,8 +48,8 @@ function DealColumn(props: {
   // Show regular price if available (no deal)
   if (regularPrice) {
     return (
-      <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} price`}>
-        <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+      <div className="rounded-md p-2" style={{ backgroundColor: meta.hexLight }} aria-label={`${meta.label} price`}>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: meta.hexText }}>
           {meta.label}
         </div>
         <div className="text-lg font-bold">
@@ -65,8 +65,8 @@ function DealColumn(props: {
 
   // No deal, no regular price — show status message
   return (
-    <div className={`rounded-md p-2 ${meta.colorLight}`} aria-label={`${meta.label} deal`}>
-      <div className={`mb-1 text-[11px] font-semibold uppercase tracking-wide ${meta.colorText}`}>
+    <div className="rounded-md p-2" style={{ backgroundColor: meta.hexLight }} aria-label={`${meta.label} deal`}>
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: meta.hexText }}>
         {meta.label}
       </div>
       <div className="py-2">
@@ -122,7 +122,7 @@ export function CompareCard(props: { comparison: FavoriteComparison }) {
           <div className="text-xs text-muted">{favorite.keyword}</div>
         </div>
         {bestDeal ? (
-          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold text-white ${STORE_META[bestStore as Store].colorBg}`}>
+          <span className="rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: STORE_META[bestStore as Store].hex }}>
             {bestLabel}
           </span>
         ) : (

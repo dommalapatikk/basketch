@@ -39,7 +39,7 @@ function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
     return (
       <>
         <p className="text-base font-semibold">
-          <span className={`font-bold ${meta.colorText}`}>{meta.label}</span> leads across the board
+          <span className="font-bold" style={{ color: meta.hexText }}>{meta.label}</span> leads across the board
         </p>
         <p className="mt-1 text-xs text-muted">Based on {totalDeals} deals compared</p>
       </>
@@ -58,7 +58,7 @@ function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
           return (
             <span key={c.category}>
               {i > 0 && ', '}
-              <span className={`font-bold ${meta.colorText}`}>{meta.label}</span> for {catLabel}
+              <span className="font-bold" style={{ color: meta.hexText }}>{meta.label}</span> for {catLabel}
             </span>
           )
         })}

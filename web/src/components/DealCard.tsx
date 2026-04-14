@@ -73,7 +73,7 @@ function findKeywordForDeal(deal: DealRow): {
 
 export function DealCard(props: DealCardProps) {
   const { deal, store, basketItems, onItemAdded } = props
-  const storeColor = STORE_META[store].colorBg
+  const storeHex = STORE_META[store].hex
   const { getOrCreate } = useBasketId()
 
   const [adding, setAdding] = useState(false)
@@ -130,7 +130,7 @@ export function DealCard(props: DealCardProps) {
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white ${storeColor}`}>
+          <span className="inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" style={{ backgroundColor: storeHex }}>
             {STORE_META[store].label}
           </span>
           <span className="line-clamp-1 text-sm font-semibold">{deal.product_name}</span>
@@ -145,7 +145,7 @@ export function DealCard(props: DealCardProps) {
             </span>
           )}
           {deal.discount_percent != null && deal.discount_percent > 0 && (
-            <span className={`ml-auto inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white ${storeColor}`}>
+            <span className="ml-auto inline-block rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: storeHex }}>
               -{deal.discount_percent}%
             </span>
           )}

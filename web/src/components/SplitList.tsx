@@ -21,7 +21,7 @@ export function SplitList(props: { comparisons: FavoriteComparison[] }) {
         return (
           <section key={store}>
             <h2 className="flex items-center gap-2 py-3 text-base font-semibold">
-              <span className={`size-3 rounded-full ${meta.colorBg}`} />
+              <span className="size-3 rounded-full" style={{ backgroundColor: meta.hex }} />
               Buy at {meta.label} ({items.length})
             </h2>
             {items.map((c) => (

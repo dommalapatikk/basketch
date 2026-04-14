@@ -19,8 +19,8 @@ export function CategorySection(props: CategorySectionProps) {
 
   const winnerStore = verdict.winner !== 'tie' ? verdict.winner as Store : null
   const winnerName = winnerStore ? STORE_META[winnerStore].label : 'Tied'
-  const winnerColor = winnerStore ? STORE_META[winnerStore].colorText : 'text-muted'
-  const dotColor = winnerStore ? STORE_META[winnerStore].colorBg : 'bg-gray-400'
+  const winnerHexText = winnerStore ? STORE_META[winnerStore].hexText : null
+  const dotHex = winnerStore ? STORE_META[winnerStore].hex : null
 
   // Best avg discount to show in summary
   const winnerAvg = winnerStore
@@ -48,8 +48,8 @@ export function CategorySection(props: CategorySectionProps) {
       <span className="w-[90px] shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">
         {categoryDisplayName(verdict.category)}
       </span>
-      <span className={`inline-block size-[6px] shrink-0 rounded-full ${dotColor}`} aria-hidden="true" />
-      <span className={`text-sm font-bold ${winnerColor}`}>
+      <span className="inline-block size-[6px] shrink-0 rounded-full" style={{ backgroundColor: dotHex ?? '#9ca3af' }} aria-hidden="true" />
+      <span className="text-sm font-bold" style={winnerHexText ? { color: winnerHexText } : undefined}>
         {winnerName}
       </span>
       <span className="text-sm text-muted">

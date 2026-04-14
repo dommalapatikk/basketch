@@ -8,7 +8,7 @@ import { StaleBanner } from './StaleBanner'
 function StoreLabel(props: { store: Store }) {
   const meta = STORE_META[props.store]
   return (
-    <span className={`font-bold ${meta.colorText}`} aria-label={`${meta.label} (store)`}>
+    <span className="font-bold" style={{ color: meta.hexText }} aria-label={`${meta.label} (store)`}>
       {meta.label}
     </span>
   )

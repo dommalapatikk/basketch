@@ -211,7 +211,7 @@ export function ComparisonPage() {
               {onSaleParts.map((p, i) => (
                 <span key={p.store}>
                   {i > 0 && ', '}
-                  <span className={`font-semibold ${p.meta.colorText}`}>
+                  <span className="font-semibold" style={{ color: p.meta.hexText }}>
                     {p.count} at {p.meta.label}
                   </span>
                 </span>
@@ -237,11 +237,10 @@ export function ComparisonPage() {
               key={store}
               type="button"
               onClick={() => toggleStore(store)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
-                active
-                  ? `${meta.colorBg} text-white`
-                  : `border-2 border-current ${meta.colorText} bg-white`
-              }`}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors border-2 bg-white"
+              style={active
+                ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
+                : { color: meta.hexText, borderColor: meta.hexText }}
               aria-pressed={active}
             >
               {meta.label}
@@ -276,8 +275,8 @@ export function ComparisonPage() {
             const itemCount = filtered.filter((c) => c.bestStore === store).length
             const total = storeTotals[store] ?? 0
             return (
-              <div key={store} className={`rounded-md p-3 text-center ${meta.colorLight}`}>
-                <div className={`text-xs font-semibold uppercase tracking-wide ${meta.colorText}`}>
+              <div key={store} className="rounded-md p-3 text-center" style={{ backgroundColor: meta.hexLight }}>
+                <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: meta.hexText }}>
                   {meta.label}
                 </div>
                 <div className="mt-0.5 text-xl font-bold">CHF {total.toFixed(2)}</div>
