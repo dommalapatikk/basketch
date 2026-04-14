@@ -25,13 +25,13 @@ export interface StoreMeta {
 }
 
 export const STORE_META: Record<Store, StoreMeta> = {
-  migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       hex: '#e65100', hexText: '#c54400', hexLight: '#fff3e6' },
-  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         hex: '#007a3d', hexText: '#006030', hexLight: '#e6f4ec' },
-  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         hex: '#0050aa', hexText: '#003d82', hexLight: '#e6f0fa' },
-  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  hex: '#00508f', hexText: '#003d6e', hexLight: '#e6eff7' },
-  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       hex: '#e30613', hexText: '#b00010', hexLight: '#fde8e9' },
-  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         hex: '#008a5c', hexText: '#006844', hexLight: '#e6f5ef' },
-  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         hex: '#c8102e', hexText: '#9e0020', hexLight: '#fae8eb' },
+  migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       hex: '#FF6600', hexText: '#CC5200', hexLight: '#FFF0E6' },
+  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         hex: '#00AA46', hexText: '#007A32', hexLight: '#E6F7ED' },
+  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         hex: '#015AA2', hexText: '#014480', hexLight: '#E6EFF8' },
+  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  hex: '#001E78', hexText: '#001460', hexLight: '#E6E8F5' },
+  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       hex: '#E4332B', hexText: '#B32821', hexLight: '#FCECEA' },
+  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         hex: '#157946', hexText: '#0F5C35', hexLight: '#E9F5EE' },
+  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         hex: '#104680', hexText: '#0C3460', hexLight: '#E8EDF5' },
 }
 
 export const ALL_STORES = Object.keys(STORE_META) as Store[]
