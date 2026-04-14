@@ -1,10 +1,11 @@
 // Application hooks. Uses useCachedQuery (ADR-005) instead of React Query.
 
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useCachedQuery } from './use-cached-query'
 import { buildDealComparisons } from './matching'
 import {
+  createBasket,
   fetchActiveDeals,
   fetchAllProductGroups,
   fetchBasketItems,
@@ -70,6 +71,35 @@ export function useProductGroups() {
     fetchAllProductGroups,
     30, // 30 min — groups rarely change
   )
+}
+
+const BASKET_KEY = 'basketch_favoriteId'
+
+/**
+ * Returns the current basket ID from localStorage and a function to
+ * get-or-create it. The getter creates a new basket on first use and
+ * stores the ID in localStorage for future visits.
+ */
+export function useBasketId() {
+  const [basketId, setBasketId] = useState<string | null>(() => {
+    try { return localStorage.getItem(BASKET_KEY) } catch { return null }
+  })
+
+  const getOrCreate = useCallback(async (): Promise<string> => {
+    try {
+      const existing = localStorage.getItem(BASKET_KEY)
+      if (existing) {
+        setBasketId(existing)
+        return existing
+      }
+    } catch { /* localStorage unavailable */ }
+    const basket = await createBasket()
+    try { localStorage.setItem(BASKET_KEY, basket.id) } catch { /* ignore */ }
+    setBasketId(basket.id)
+    return basket.id
+  }, [])
+
+  return { basketId, getOrCreate }
 }
 
 export function useDealComparisons() {

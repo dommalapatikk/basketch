@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow } from '@shared/types'
+import type { BasketItem, BrowseCategory, BrowseCategoryInfo, Category, DealRow } from '@shared/types'
 import { BROWSE_CATEGORIES } from '@shared/types'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
@@ -11,7 +11,7 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'non-food', label: 'Non-food' },
 ]
 
-import { useActiveDeals, usePageTitle } from '../lib/hooks'
+import { useActiveDeals, useBasketId, useBasketItems, usePageTitle } from '../lib/hooks'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { DataFreshness } from '../components/DataFreshness'
@@ -30,8 +30,10 @@ function StoreDealSection(props: {
   store: 'migros' | 'coop'
   categoryLabel: string
   deals: DealRow[]
+  basketItems?: BasketItem[]
+  onItemAdded?: () => void
 }) {
-  const { store, categoryLabel, deals } = props
+  const { store, categoryLabel, deals, basketItems, onItemAdded } = props
   const [showCount, setShowCount] = useState(INITIAL_SHOW)
   const visibleDeals = deals.slice(0, showCount)
   const remaining = deals.length - showCount
@@ -59,7 +61,7 @@ function StoreDealSection(props: {
       ) : (
         <div className="space-y-2">
           {visibleDeals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} store={store} />
+            <DealCard key={deal.id} deal={deal} store={store} basketItems={basketItems} onItemAdded={onItemAdded} />
           ))}
           {remaining > 0 && (
             <button
@@ -85,6 +87,10 @@ export function DealsPage() {
     60,
   )
   const [searchParams, setSearchParams] = useSearchParams()
+
+  // Basket for "add to list" buttons
+  const { basketId } = useBasketId()
+  const { data: basketItems, refetch: refetchBasket } = useBasketItems(basketId ?? undefined)
 
   // ── URL state ──
   // ?category=fresh         → top-level tab selected
@@ -379,11 +385,15 @@ export function DealsPage() {
             store="migros"
             categoryLabel={activeLabel}
             deals={filteredDeals.migros}
+            basketItems={basketItems ?? undefined}
+            onItemAdded={refetchBasket}
           />
           <StoreDealSection
             store="coop"
             categoryLabel={activeLabel}
             deals={filteredDeals.coop}
+            basketItems={basketItems ?? undefined}
+            onItemAdded={refetchBasket}
           />
         </div>
       )}

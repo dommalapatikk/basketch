@@ -66,7 +66,7 @@ describe('DealCard', () => {
     const { container } = render(
       <DealCard deal={makeDeal({ discount_percent: 0 })} store="migros" />
     )
-    expect(container.querySelector('.rounded-full')).toBeNull()
+    expect(container.querySelector('.bg-migros')).toBeNull()
   })
 
   it('renders image fallback letter for Migros', () => {
