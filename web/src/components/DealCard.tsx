@@ -1,9 +1,11 @@
 import { useState } from 'react'
 
-import type { BasketItem, Category, DealRow } from '@shared/types'
+import type { BasketItem, Category, DealRow, StarterPackItem } from '@shared/types'
+import { STARTER_PACKS } from '@shared/types'
 
 import { addBasketItem } from '../lib/queries'
 import { useBasketId } from '../lib/hooks'
+import { matchRelevance } from '../lib/matching'
 
 export interface DealCardProps {
   deal: DealRow
@@ -12,8 +14,61 @@ export interface DealCardProps {
   onItemAdded?: () => void
 }
 
-function dealToKeyword(name: string): string {
-  return name.toLowerCase().replace(/\s+/g, ' ').trim()
+/**
+ * Build a deduplicated map of keyword → best StarterPackItem metadata.
+ * Merges excludeTerms/preferTerms from all packs for the same keyword,
+ * keeping the longest list of each.
+ */
+const KEYWORD_META: Map<string, StarterPackItem> = (() => {
+  const map = new Map<string, StarterPackItem>()
+  for (const pack of STARTER_PACKS) {
+    for (const item of pack.items) {
+      const existing = map.get(item.keyword)
+      if (!existing || (item.excludeTerms?.length ?? 0) > (existing.excludeTerms?.length ?? 0)) {
+        map.set(item.keyword, item)
+      }
+    }
+  }
+  return map
+})()
+
+/**
+ * Find the best starter pack keyword that matches this deal's product name.
+ * Returns the keyword + its metadata (excludeTerms, preferTerms, label).
+ * Falls back to using the raw product name if no starter pack keyword matches.
+ */
+function findKeywordForDeal(deal: DealRow): {
+  keyword: string
+  label: string
+  excludeTerms?: string[]
+  preferTerms?: string[]
+} {
+  let bestKeyword: StarterPackItem | null = null
+  let bestScore = 0
+
+  for (const [, item] of KEYWORD_META) {
+    if (item.category !== deal.category) continue
+    const score = matchRelevance(item.keyword, deal.product_name)
+    if (score > bestScore) {
+      bestScore = score
+      bestKeyword = item
+    }
+  }
+
+  if (bestKeyword && bestScore >= 2) {
+    return {
+      keyword: bestKeyword.keyword,
+      label: bestKeyword.label,
+      excludeTerms: bestKeyword.excludeTerms,
+      preferTerms: bestKeyword.preferTerms,
+    }
+  }
+
+  // Fallback: use raw product name
+  return {
+    keyword: deal.product_name.toLowerCase().replace(/\s+/g, ' ').trim(),
+    label: deal.product_name,
+  }
 }
 
 export function DealCard(props: DealCardProps) {
@@ -24,8 +79,8 @@ export function DealCard(props: DealCardProps) {
   const [adding, setAdding] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
 
-  const keyword = dealToKeyword(deal.product_name)
-  const alreadyInList = basketItems?.some((item) => item.keyword === keyword) ?? false
+  const meta = findKeywordForDeal(deal)
+  const alreadyInList = basketItems?.some((item) => item.keyword === meta.keyword) ?? false
 
   const showCheck = alreadyInList || justAdded
 
@@ -35,9 +90,11 @@ export function DealCard(props: DealCardProps) {
     try {
       const basketId = await getOrCreate()
       await addBasketItem(basketId, {
-        keyword,
-        label: deal.product_name,
+        keyword: meta.keyword,
+        label: meta.label,
         category: deal.category as Category,
+        excludeTerms: meta.excludeTerms,
+        preferTerms: meta.preferTerms,
       })
       setJustAdded(true)
       onItemAdded?.()

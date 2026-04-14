@@ -1,6 +1,7 @@
 // Matching logic: pairs each favorite item with best Migros and Coop deals.
 
 import type {
+  BasketItem,
   Category,
   DealComparison,
   DealComparisonResult,
@@ -296,62 +297,71 @@ export function findBestMatchByProductGroup(
  * Rule: if product_group_id is set, ONLY use product group matching.
  * No fallback to keyword — if no deals exist in the group, show "no deals."
  */
+/**
+ * Normalize a FavoriteItemRow (snake_case) to BasketItem (camelCase).
+ */
+function toBasketItem(row: FavoriteItemRow): BasketItem {
+  return {
+    id: row.id,
+    basketId: row.favorite_id,
+    keyword: row.keyword,
+    label: row.label,
+    category: row.category,
+    excludeTerms: row.exclude_terms,
+    preferTerms: row.prefer_terms,
+    productGroupId: row.product_group_id,
+    createdAt: row.created_at,
+  }
+}
+
+/**
+ * Detect whether an item is FavoriteItemRow (has favorite_id) or BasketItem (has basketId).
+ */
+function isLegacyRow(item: FavoriteItemRow | BasketItem): item is FavoriteItemRow {
+  return 'favorite_id' in item
+}
+
 export function matchFavorites(
-  favorites: FavoriteItemRow[],
+  favorites: (FavoriteItemRow | BasketItem)[],
   deals: DealRow[],
   products?: ProductRow[],
 ): FavoriteComparison[] {
   const migrosDeals = deals.filter((d) => d.store === 'migros')
   const coopDeals = deals.filter((d) => d.store === 'coop')
 
-  return favorites.map((fav) => {
+  return favorites.map((raw) => {
+    const item = isLegacyRow(raw) ? toBasketItem(raw) : raw
+
     let migrosDeal: DealRow | null = null
     let coopDeal: DealRow | null = null
 
-    if (fav.product_group_id) {
-      // Product group matching — exact, no fallback.
-      // If products data is unavailable, result is "no deals" (never fall back to keyword).
+    if (item.productGroupId) {
       if (products && products.length > 0) {
-        migrosDeal = findBestMatchByProductGroup(fav.product_group_id, migrosDeals, products)
-        coopDeal = findBestMatchByProductGroup(fav.product_group_id, coopDeals, products)
+        migrosDeal = findBestMatchByProductGroup(item.productGroupId, migrosDeals, products)
+        coopDeal = findBestMatchByProductGroup(item.productGroupId, coopDeals, products)
       }
     } else {
-      // Keyword matching — for favorites without a product group
       const matchOptions = {
-        excludeTerms: fav.exclude_terms,
-        preferTerms: fav.prefer_terms,
+        excludeTerms: item.excludeTerms,
+        preferTerms: item.preferTerms,
       }
-      migrosDeal = findBestMatch(fav.keyword, migrosDeals, matchOptions)
-      coopDeal = findBestMatch(fav.keyword, coopDeals, matchOptions)
+      migrosDeal = findBestMatch(item.keyword, migrosDeals, matchOptions)
+      coopDeal = findBestMatch(item.keyword, coopDeals, matchOptions)
     }
 
-    // Look up regular prices when product group is available
     let migrosRegularPrice: RegularPrice | null = null
     let coopRegularPrice: RegularPrice | null = null
 
-    if (fav.product_group_id && products && products.length > 0) {
-      migrosRegularPrice = findRegularPrice(fav.product_group_id, 'migros', products)
-      coopRegularPrice = findRegularPrice(fav.product_group_id, 'coop', products)
+    if (item.productGroupId && products && products.length > 0) {
+      migrosRegularPrice = findRegularPrice(item.productGroupId, 'migros', products)
+      coopRegularPrice = findRegularPrice(item.productGroupId, 'coop', products)
     }
 
     const recommendation = getRecommendation(migrosDeal, coopDeal, migrosRegularPrice, coopRegularPrice)
-
-    // Determine coopProductKnown: if no Coop deal and there's a Coop regular price,
-    // we know the product exists at Coop (just not on promotion).
     const coopProductKnown = !coopDeal && coopRegularPrice !== null
 
     return {
-      favorite: {
-        id: fav.id,
-        basketId: fav.favorite_id,
-        keyword: fav.keyword,
-        label: fav.label,
-        category: fav.category,
-        excludeTerms: fav.exclude_terms,
-        preferTerms: fav.prefer_terms,
-        productGroupId: fav.product_group_id,
-        createdAt: fav.created_at,
-      },
+      favorite: item,
       migrosDeal,
       coopDeal,
       migrosRegularPrice,

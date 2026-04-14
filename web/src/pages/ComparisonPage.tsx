@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
-import { useActiveDeals, useFavoriteItems, usePageTitle, useProductsWithGroups } from '../lib/hooks'
+import { useActiveDeals, useBasketItems, usePageTitle, useProductsWithGroups } from '../lib/hooks'
 import { matchFavorites } from '../lib/matching'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
@@ -23,7 +23,7 @@ export function ComparisonPage() {
     data: items,
     loading: itemsLoading,
     error: itemsError,
-  } = useFavoriteItems(favoriteId)
+  } = useBasketItems(favoriteId)
 
   const {
     data: deals,
