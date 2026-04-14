@@ -48,6 +48,7 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   // Meat/deli brands
   'micarna': { category: 'fresh', subCategory: 'meat' },
   'rapelli': { category: 'fresh', subCategory: 'deli' },
+  'möckli': { category: 'fresh', subCategory: 'deli' },
   'optigal': { category: 'fresh', subCategory: 'poultry' },
   // Drinks brands
   'coca-cola': { category: 'long-life', subCategory: 'drinks' },
@@ -66,6 +67,8 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'persil': { category: 'non-food', subCategory: 'laundry' },
   'swiffer': { category: 'non-food', subCategory: 'cleaning' },
   'calgon': { category: 'non-food', subCategory: 'cleaning' },
+  'dr.beckmann': { category: 'non-food', subCategory: 'cleaning' },
+  'dr. beckmann': { category: 'non-food', subCategory: 'cleaning' },
   'plenty': { category: 'non-food', subCategory: 'paper-goods' },
   // Personal care brands
   'nivea': { category: 'non-food', subCategory: 'personal-care' },
@@ -81,8 +84,8 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
 /** Map Migros source category labels to our taxonomy. */
 export const SOURCE_CATEGORY_MAP: Record<string, BrandCategory> = {
   // 'fleisch & fisch' intentionally omitted — too broad (covers meat, poultry, fish, deli).
-  // Let keyword matching handle sub-category assignment for this source category.
-  'früchte & gemüse': { category: 'fresh', subCategory: 'fruit' },
+  // 'früchte & gemüse' intentionally omitted — too broad (covers fruit AND vegetables).
+  // Let keyword matching handle sub-category assignment for these source categories.
   'milchprodukte, eier & frische fertiggerichte': { category: 'fresh', subCategory: 'dairy' },
   'brot, backwaren & frühstück': { category: 'fresh', subCategory: 'bread' },
   'getränke, kaffee & tee': { category: 'long-life', subCategory: 'drinks' },
@@ -134,16 +137,7 @@ export const CATEGORY_RULES: CategoryRule[] = [
   },
 
   // ============================================================
-  // Fresh > meat
-  // ============================================================
-  {
-    keywords: ['fleisch', 'meat', 'rind', 'schwein', 'pork', 'hackfleisch', 'lamm', 'kalb', 'steak', 'entrecôte', 'geschnetzeltes', 'braten', 'ragout', 'gulasch', 'rindsfilet', 'schweinsfilet'],
-    category: 'fresh',
-    subCategory: 'meat',
-  },
-
-  // ============================================================
-  // Fresh > poultry
+  // Fresh > poultry (BEFORE meat — "pouletschnitzel" must match poultry, not meat)
   // ============================================================
   {
     keywords: ['poulet', 'chicken', 'truthahn', 'turkey', 'geflügel', 'pouletbrust', 'pouletfilet', 'pouletflügel'],
@@ -152,19 +146,28 @@ export const CATEGORY_RULES: CategoryRule[] = [
   },
 
   // ============================================================
-  // Fresh > deli
+  // Fresh > deli (BEFORE meat — "schinken", "speck" etc. must match deli, not meat via "schwein")
   // ============================================================
   {
-    keywords: ['wurst', 'schinken', 'salami', 'aufschnitt', 'cervelat', 'landjäger', 'wienerli', 'bratwurst', 'kalbsbratwurst', 'speck', 'pancetta', 'coppa', 'bresaola', 'bündnerfleisch', 'mostbröckli', 'trockenfleisch', 'lyoner'],
+    keywords: ['wurst', 'schinken', 'salami', 'aufschnitt', 'cervelat', 'landjäger', 'wienerli', 'bratwurst', 'kalbsbratwurst', 'speck', 'pancetta', 'coppa', 'bresaola', 'bündnerfleisch', 'mostbröckli', 'trockenfleisch', 'lyoner', 'cipollata'],
     category: 'fresh',
     subCategory: 'deli',
+  },
+
+  // ============================================================
+  // Fresh > meat (after poultry + deli so more specific categories win)
+  // ============================================================
+  {
+    keywords: ['fleisch', 'meat', 'rind', 'schwein', 'pork', 'hackfleisch', 'lamm', 'kalb', 'steak', 'schnitzel', 'entrecôte', 'geschnetzeltes', 'braten', 'ragout', 'gulasch', 'rindsfilet', 'schweinsfilet', 'cordon bleu'],
+    category: 'fresh',
+    subCategory: 'meat',
   },
 
   // ============================================================
   // Fresh > fish
   // ============================================================
   {
-    keywords: ['fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp', 'thon', 'forelle', 'fischstäbchen', 'lachsfilet', 'lachsrücken', 'pangasius', 'kabeljau', 'dorsch', 'garnelen'],
+    keywords: ['fisch', 'fish', 'lachs', 'salmon', 'crevetten', 'shrimp', 'thon', 'forelle', 'fischstäbchen', 'lachsfilet', 'lachsrücken', 'pangasius', 'kabeljau', 'dorsch', 'garnelen', 'goldbutt', 'egli', 'zander', 'seelachs'],
     category: 'fresh',
     subCategory: 'fish',
   },
@@ -355,15 +358,29 @@ export const VERDICT_WEIGHTS = {
 } as const
 
 /**
+ * Check if a term appears as a whole word (not embedded inside another word).
+ * Uses word-boundary logic: the character before/after the match must be
+ * a non-letter (space, digit, punctuation, ·, start/end of string).
+ */
+function isWholeWord(text: string, term: string): boolean {
+  const idx = text.indexOf(term)
+  if (idx === -1) return false
+  const before = idx === 0 ? ' ' : text[idx - 1]!
+  const after = idx + term.length >= text.length ? ' ' : text[idx + term.length]!
+  const boundary = /[^a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]/
+  return boundary.test(before) && boundary.test(after)
+}
+
+/**
  * Extract brand from product name for category lookup.
- * Checks BRAND_CATEGORIES keys against lowercase product name.
+ * Uses whole-word matching to avoid false positives (e.g., "nestea" inside "schweinesteak").
  */
 function matchBrand(productName: string): BrandCategory | null {
   const lower = productName.toLowerCase()
-  // Check longest brand names first to avoid partial matches (e.g., "m&m's" before "m")
+  // Check longest brand names first to avoid partial matches (e.g., "gala 3-eier" before "gala")
   const brands = Object.keys(BRAND_CATEGORIES).sort((a, b) => b.length - a.length)
   for (const brand of brands) {
-    if (lower.includes(brand)) {
+    if (isWholeWord(lower, brand)) {
       return BRAND_CATEGORIES[brand]!
     }
   }
@@ -381,15 +398,53 @@ function matchSourceCategory(sourceCategory: string | null): BrandCategory | nul
   return SOURCE_CATEGORY_MAP[lower] ?? null
 }
 
+/** Keywords that must match as whole words to avoid false positives.
+ * e.g., "wein" inside "schweinesteak", "lauch" inside "bärlauchschnitzel",
+ * "tee"/"tea" inside "steak", "reis" inside "preiselbeer". */
+/** Keywords that must match as whole words to avoid false positives.
+ * Only add a keyword here if it causes proven false positives as a substring. */
+const WHOLE_WORD_KEYWORDS = new Set([
+  'lauch',  // "bärlauchschnitzel" is meat, not vegetables
+  'speck',  // "bratspeck" as ingredient shouldn't trigger deli
+  'tea',    // "steak" contains "tea"
+  'reis',   // "preiselbeer" contains "reis"
+])
+
+/** Known false-positive substrings: if the keyword match is actually
+ * part of a longer word in this list, skip it. E.g., "wein" inside "schwein". */
+const KEYWORD_BLOCKERS: Record<string, string[]> = {
+  'wein': ['schwein'],
+  'tee': ['steak'],
+  'oliven': ['olivenöl'],  // "olivenöl" is condiments, not canned olives
+}
+
+/**
+ * Check if a keyword match is a false positive due to being part of a larger word.
+ */
+function isBlockedMatch(text: string, keyword: string): boolean {
+  // Check whole-word requirement
+  if (WHOLE_WORD_KEYWORDS.has(keyword) && !isWholeWord(text, keyword)) return true
+  // Check blocker compounds (e.g., "wein" blocked by "schwein")
+  const blockers = KEYWORD_BLOCKERS[keyword]
+  if (blockers) {
+    for (const blocker of blockers) {
+      if (text.includes(blocker)) return true
+    }
+  }
+  return false
+}
+
 /**
  * Match a product name against keyword rules (Tier 3 fallback).
+ * Most keywords use substring matching. Some require word-boundary or
+ * blocker checks to prevent false positives in German compound words.
  */
 function matchKeywords(productName: string): { category: Category, subCategory: string | null } {
   const lower = productName.toLowerCase()
 
   for (const rule of CATEGORY_RULES) {
     for (const keyword of rule.keywords) {
-      if (lower.includes(keyword)) {
+      if (lower.includes(keyword) && !isBlockedMatch(lower, keyword)) {
         return {
           category: rule.category,
           subCategory: rule.subCategory ?? null,
