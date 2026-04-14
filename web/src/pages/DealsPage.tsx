@@ -457,7 +457,7 @@ export function DealsPage() {
           <div className="space-y-3">
             <p className="text-sm text-muted">{filteredComparisons.length} products found at multiple stores</p>
             {filteredComparisons.slice(0, showCount).map((comp) => (
-              <DealCompareRow key={comp.id} comparison={comp} />
+              <DealCompareRow key={comp.id} comparison={comp} selectedStores={activeStores} />
             ))}
             {filteredComparisons.length > showCount && (
               <button

@@ -37,7 +37,7 @@ export const STORE_META: Record<Store, StoreMeta> = {
 export const ALL_STORES = Object.keys(STORE_META) as Store[]
 
 /** Default stores shown before user customizes their filter */
-export const DEFAULT_STORES: Store[] = ['migros', 'coop']
+export const DEFAULT_STORES: Store[] = ['migros', 'coop', 'denner']
 
 /** Stores to scrape from aktionis.ch (includes coop-megastore which merges into coop) */
 export const AKTIONIS_STORE_SLUGS = [

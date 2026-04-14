@@ -2,20 +2,31 @@ import type { DealComparison, DealRow, Store } from '@shared/types'
 import { STORE_META } from '@shared/types'
 
 /**
- * Side-by-side comparison row showing the same product across multiple stores.
- * Highlights the cheapest price.
+ * Side-by-side comparison row showing the same product across selected stores.
+ * Only shows stores that are in the selectedStores set.
+ * Highlights the cheapest price among selected stores.
  */
-export function DealCompareRow(props: { comparison: DealComparison }) {
-  const { label, storeDeals, bestStore } = props.comparison
+export function DealCompareRow(props: {
+  comparison: DealComparison
+  selectedStores: Set<Store>
+}) {
+  const { label, storeDeals } = props.comparison
+  const { selectedStores } = props
 
-  const stores = Object.entries(storeDeals) as [Store, DealRow][]
+  // Only include deals from selected stores
+  const stores = (Object.entries(storeDeals) as [Store, DealRow][])
+    .filter(([store]) => selectedStores.has(store))
 
   if (stores.length < 2) return null
 
+  // Find best price among selected stores
+  const bestPrice = Math.min(...stores.map(([, d]) => d.sale_price))
+  const bestStoreId = stores.find(([, d]) => d.sale_price === bestPrice)?.[0]
+
   // Sort: best store first, then by price
   stores.sort((a, b) => {
-    if (a[0] === bestStore) return -1
-    if (b[0] === bestStore) return 1
+    if (a[0] === bestStoreId) return -1
+    if (b[0] === bestStoreId) return 1
     return a[1].sale_price - b[1].sale_price
   })
 
@@ -28,14 +39,14 @@ export function DealCompareRow(props: { comparison: DealComparison }) {
       <div className={`grid gap-2 ${stores.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {stores.slice(0, 3).map(([store, deal]) => {
           const meta = STORE_META[store]
-          const isBest = store === bestStore
+          const isBest = store === bestStoreId
           return (
             <div
               key={store}
-              className={`rounded-md p-2 text-center ${isBest ? 'ring-2 ring-offset-1' : ''}`}
+              className="rounded-md p-2 text-center"
               style={{
                 backgroundColor: meta.hexLight,
-                ...(isBest ? { ringColor: meta.hex } : {}),
+                ...(isBest ? { outline: `2px solid ${meta.hex}`, outlineOffset: '1px' } : {}),
               }}
             >
               {/* Store badge */}
@@ -49,7 +60,7 @@ export function DealCompareRow(props: { comparison: DealComparison }) {
               {/* Image */}
               {deal.image_url && (
                 <img
-                  className="mx-auto mb-1 max-h-[60px] rounded object-contain"
+                  className="mx-auto my-1 max-h-[60px] rounded object-contain"
                   src={deal.image_url}
                   alt=""
                   loading="lazy"
@@ -88,7 +99,7 @@ export function DealCompareRow(props: { comparison: DealComparison }) {
 
       {/* Show remaining stores count if > 3 */}
       {stores.length > 3 && (
-        <div className="mt-1 text-xs text-muted text-center">
+        <div className="mt-1 text-center text-xs text-muted">
           +{stores.length - 3} more store{stores.length - 3 > 1 ? 's' : ''}
         </div>
       )}
