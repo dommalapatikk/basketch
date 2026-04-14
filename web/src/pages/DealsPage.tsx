@@ -313,7 +313,7 @@ export function DealsPage() {
               data-tab-group="browse"
               onClick={() => setSubFilter(null)}
               onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-              className={`rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+              className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                 activeSub === null
                   ? 'bg-pill-active-bg text-pill-active-text'
                   : 'border border-border bg-pill-bg text-current hover:border-accent'
@@ -334,7 +334,7 @@ export function DealsPage() {
                   data-tab-group="browse"
                   onClick={() => setSubFilter(cat.id)}
                   onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-                  className={`rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                     activeSub === cat.id
                       ? 'bg-pill-active-bg text-pill-active-text'
                       : 'border border-border bg-pill-bg text-current hover:border-accent'
