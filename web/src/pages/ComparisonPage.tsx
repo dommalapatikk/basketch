@@ -268,7 +268,7 @@ export function ComparisonPage() {
               key={store}
               type="button"
               onClick={() => toggleStore(store)}
-              className="flex min-h-[44px] items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-2 bg-white"
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white"
               style={active
                 ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                 : { color: meta.hexText, borderColor: meta.hexText }}
