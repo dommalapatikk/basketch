@@ -466,7 +466,7 @@ export function buildDealComparisons(
   }
 
   const tier2MatchedIds = new Set<string>()
-  const NAME_MATCH_THRESHOLD = 2
+  const NAME_MATCH_THRESHOLD = 3
 
   // Try each store as anchor to find cross-store matches
   for (const anchorStore of ALL_STORES) {
@@ -487,6 +487,9 @@ export function buildDealComparisons(
 
         for (const cDeal of storeUnmatched) {
           if (tier2MatchedIds.has(cDeal.id)) continue
+          // Must share same sub_category (or both null) to prevent cross-category false matches
+          // e.g., "erdbeeren" (strawberries) must not match "erdbeer-joghurt" (strawberry yogurt)
+          if (anchorDeal.sub_category !== cDeal.sub_category) continue
           const r1 = matchRelevance(anchorDeal.product_name, cDeal.product_name)
           const r2 = matchRelevance(cDeal.product_name, anchorDeal.product_name)
           const relevance = Math.max(r1, r2)
