@@ -86,6 +86,11 @@ export function DealCompareRow(props: {
                 </div>
               )}
 
+              {/* Product name */}
+              <div className="mt-1 line-clamp-2 text-xs">
+                {deal.product_name}
+              </div>
+
               {/* Best badge */}
               {isBest && (
                 <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-success">
