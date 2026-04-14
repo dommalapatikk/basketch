@@ -8,7 +8,7 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'fresh', label: 'Fresh' },
   { id: 'long-life', label: 'Long-life' },
-  { id: 'non-food', label: 'Non-food' },
+  { id: 'non-food', label: 'Household' },
 ]
 
 import { useActiveDeals, useBasketId, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
@@ -289,7 +289,7 @@ export function DealsPage() {
           <button
             type="button"
             onClick={() => setViewMode('compare')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
               viewMode === 'compare' ? 'bg-accent text-white' : 'text-muted hover:text-current'
             }`}
           >
@@ -298,7 +298,7 @@ export function DealsPage() {
           <button
             type="button"
             onClick={() => setViewMode('list')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            className={`min-h-[44px] rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
               viewMode === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-current'
             }`}
           >
@@ -330,9 +330,11 @@ export function DealsPage() {
           return (
             <button
               key={tab.id}
+              id={`tab-${tab.id}`}
               type="button"
               role="tab"
               aria-selected={isActive}
+              aria-controls="deals-tabpanel"
               tabIndex={isActive ? 0 : -1}
               data-tab-group="top"
               onClick={() => setTopLevel(tab.id as Category | 'all')}
@@ -366,7 +368,7 @@ export function DealsPage() {
               data-tab-group="browse"
               onClick={() => setSubFilter(null)}
               onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-              className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+              className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                 activeSub === null
                   ? 'bg-pill-active-bg text-pill-active-text'
                   : 'border border-border bg-pill-bg text-current hover:border-accent'
@@ -387,7 +389,7 @@ export function DealsPage() {
                   data-tab-group="browse"
                   onClick={() => setSubFilter(cat.id)}
                   onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-                  className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                     activeSub === cat.id
                       ? 'bg-pill-active-bg text-pill-active-text'
                       : 'border border-border bg-pill-bg text-current hover:border-accent'
@@ -418,7 +420,7 @@ export function DealsPage() {
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => toggleStore(store)}
-                  className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold min-h-[36px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-2 bg-white"
+                  className="shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-2 bg-white"
                   style={isActive
                     ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                     : { color: meta.hexText, borderColor: meta.hexText }}
@@ -451,6 +453,7 @@ export function DealsPage() {
       )}
 
       {/* Content */}
+      <div id="deals-tabpanel" role="tabpanel" aria-labelledby={`tab-${inferredTopLevel}`}>
       {viewMode === 'compare' ? (
         /* ── Compare view: side-by-side matched deals ── */
         filteredComparisons.length > 0 ? (
@@ -506,6 +509,7 @@ export function DealsPage() {
           )}
         </>
       )}
+      </div>
     </div>
   )
 }

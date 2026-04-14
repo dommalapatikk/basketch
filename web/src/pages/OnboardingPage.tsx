@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
-import { addFavoriteItemsBatch, createFavorite } from '../lib/queries'
+import { addFavoriteItemsBatch, createFavorite, fetchBasket } from '../lib/queries'
 import { useFavoriteItems, usePageTitle } from '../lib/hooks'
 import { Button } from '../components/ui/Button'
 import { TemplatePicker } from '../components/TemplatePicker'
@@ -23,6 +23,12 @@ export function OnboardingPage() {
   const [items, setItems] = useState<FavoriteItemRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null)
+
+  // Focus heading when step changes for screen reader users
+  useEffect(() => {
+    stepHeadingRef.current?.focus()
+  }, [step])
 
   // Load existing items in edit mode
   const editFavoriteId = editId ?? undefined
@@ -98,6 +104,19 @@ export function OnboardingPage() {
   }
 
   function handleDoneEditing() {
+    // Skip email step for returning editors who already have an email saved
+    if (editId && favoriteId) {
+      fetchBasket(favoriteId).then((basket) => {
+        if (basket.email) {
+          navigate(`/compare/${favoriteId}`)
+        } else {
+          setStep('save')
+        }
+      }).catch(() => {
+        setStep('save')
+      })
+      return
+    }
     setStep('save')
   }
 
@@ -150,7 +169,7 @@ export function OnboardingPage() {
           &larr; Back
         </button>
       )}
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">Set up your list</h1>
+      <h1 ref={stepHeadingRef} tabIndex={-1} className="mb-1 text-2xl font-bold tracking-tight outline-none">Set up your list</h1>
       <p className="mb-4 text-sm text-muted">{subtitles[stepIndex]}</p>
 
       {/* Step progress bar */}
@@ -225,20 +244,17 @@ export function OnboardingPage() {
       {!loading && step === 'save' && favoriteId && (
         <div>
           <EmailCapture favoriteId={favoriteId} onSaved={handleEmailSaved} />
-          <p className="mt-2 text-center text-xs text-muted">
-            Or just bookmark the link on the next page.
-          </p>
           <div className="mt-4 flex gap-3">
             <Button variant="outline" onClick={handleBack} type="button">
               Back
             </Button>
             <Button
-              variant="ghost"
+              variant="outline"
               fullWidth
               onClick={handleSkipEmail}
               type="button"
             >
-              Skip &rarr;
+              Skip — I'll bookmark instead
             </Button>
           </div>
         </div>

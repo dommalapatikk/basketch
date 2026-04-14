@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
 import type { Store } from '@shared/types'
@@ -8,7 +8,6 @@ import { matchFavorites } from '../lib/matching'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { Button, buttonVariants } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
 import { DataFreshness } from '../components/DataFreshness'
 import { SplitList } from '../components/SplitList'
 import { ShareButton } from '../components/ShareButton'
@@ -16,11 +15,15 @@ import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
 
+const LAST_SEEN_PIPELINE_KEY = 'basketch_lastSeenPipeline'
+
 export function ComparisonPage() {
   usePageTitle('Your deals')
   const { favoriteId } = useParams<{ favoriteId: string }>()
   const [copied, setCopied] = useState(false)
   const [selectedStores, setSelectedStores] = useState<Set<Store>>(() => new Set(DEFAULT_STORES))
+  const [storeLimit, setStoreLimit] = useState(false)
+  const [showNewDeals, setShowNewDeals] = useState(false)
 
   const {
     data: items,
@@ -51,6 +54,25 @@ export function ComparisonPage() {
     return matchFavorites(items, deals, products ?? undefined)
   }, [items, deals, products])
 
+  // Fix 3: useMemo must be called before any early returns (Rules of Hooks)
+  const filtered = useMemo(() => {
+    return comparisons.map((c) => {
+      let bestStore: Store | 'none' = 'none'
+      let bestDeal = c.bestDeal
+      let lowestPrice = Infinity
+      for (const store of Array.from(selectedStores)) {
+        const match = c.stores[store]
+        if (match?.deal && match.deal.sale_price < lowestPrice) {
+          lowestPrice = match.deal.sale_price
+          bestStore = store
+          bestDeal = match.deal
+        }
+      }
+      if (bestStore === 'none') bestDeal = null
+      return { ...c, bestStore: bestStore as Store | 'none', bestDeal }
+    })
+  }, [comparisons, selectedStores])
+
   const loading = itemsLoading || dealsLoading || productsLoading
   const error = itemsError || dealsError || productsError
 
@@ -58,6 +80,18 @@ export function ComparisonPage() {
   const isStale = pipelineRun
     ? (Date.now() - new Date(pipelineRun.run_at).getTime()) > 7 * 24 * 60 * 60 * 1000
     : false
+
+  // Fix 2: "Deals refreshed" signal for returning users
+  useEffect(() => {
+    if (!pipelineRun) return
+    try {
+      const lastSeen = localStorage.getItem(LAST_SEEN_PIPELINE_KEY)
+      if (lastSeen && lastSeen !== pipelineRun.run_at) {
+        setShowNewDeals(true)
+      }
+      localStorage.setItem(LAST_SEEN_PIPELINE_KEY, pipelineRun.run_at)
+    } catch { /* localStorage unavailable */ }
+  }, [pipelineRun])
 
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -79,18 +113,27 @@ export function ComparisonPage() {
     return <LoadingState message="Loading your deals..." />
   }
 
-  if (error || !favoriteId) {
+  // Fix 1: Only clear localStorage when basket ID is missing from URL (confirmed not found),
+  // not on transient network errors which would destroy the user's saved basket reference
+  if (!favoriteId) {
     if (typeof window !== 'undefined') localStorage.removeItem('basketch_favoriteId')
     return (
       <div>
-        <ErrorState message={
-          !favoriteId
-            ? 'This comparison list was not found. It may have been deleted or the link may be incorrect.'
-            : 'Could not load this week\'s deals. Your favorites are saved — please try again later.'
-        } onRetry={!favoriteId ? undefined : () => window.location.reload()} />
+        <ErrorState message="This comparison list was not found. It may have been deleted or the link may be incorrect." />
         <Link to="/onboarding" className={buttonVariants({ fullWidth: true, className: 'mt-4' })}>
           Create a new list
         </Link>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div>
+        <ErrorState
+          message="Could not load this week's deals. Your favorites are saved — please try again later."
+          onRetry={() => window.location.reload()}
+        />
       </div>
     )
   }
@@ -108,36 +151,24 @@ export function ComparisonPage() {
     )
   }
 
-  // Re-evaluate comparisons for selected stores only
-  const filtered = useMemo(() => {
-    return comparisons.map((c) => {
-      // Find best deal among selected stores only
-      let bestStore: Store | 'none' = 'none'
-      let bestDeal = c.bestDeal
-      let lowestPrice = Infinity
-      for (const store of Array.from(selectedStores)) {
-        const match = c.stores[store]
-        if (match?.deal && match.deal.sale_price < lowestPrice) {
-          lowestPrice = match.deal.sale_price
-          bestStore = store
-          bestDeal = match.deal
-        }
-      }
-      if (bestStore === 'none') bestDeal = null
-      return { ...c, bestStore: bestStore as Store | 'none', bestDeal }
-    })
-  }, [comparisons, selectedStores])
+  const MAX_COMPARE_STORES = 3
 
   function toggleStore(store: Store) {
-    setSelectedStores((prev) => {
-      const next = new Set(prev)
-      if (next.has(store)) {
-        if (next.size > 1) next.delete(store) // keep at least 1
-      } else {
-        next.add(store)
+    if (selectedStores.has(store)) {
+      if (selectedStores.size > 1) {
+        const next = new Set(selectedStores)
+        next.delete(store)
+        setSelectedStores(next)
       }
-      return next
-    })
+      setStoreLimit(false)
+    } else if (selectedStores.size >= MAX_COMPARE_STORES) {
+      setStoreLimit(true)
+    } else {
+      const next = new Set(selectedStores)
+      next.add(store)
+      setSelectedStores(next)
+      setStoreLimit(false)
+    }
   }
 
   // Items that have a best deal at some selected store
@@ -237,7 +268,7 @@ export function ComparisonPage() {
               key={store}
               type="button"
               onClick={() => toggleStore(store)}
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors border-2 bg-white"
+              className="flex min-h-[44px] items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-2 bg-white"
               style={active
                 ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                 : { color: meta.hexText, borderColor: meta.hexText }}
@@ -249,6 +280,13 @@ export function ComparisonPage() {
         })}
       </div>
 
+      {/* Store limit message */}
+      {storeLimit && (
+        <div className="mb-2 rounded-md bg-accent-light px-3 py-2 text-center text-sm text-accent">
+          You can compare up to {MAX_COMPARE_STORES} stores at a time. Deselect one to add another.
+        </div>
+      )}
+
       {/* Data freshness */}
       <div className="mb-2">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
@@ -257,6 +295,21 @@ export function ComparisonPage() {
       {isStale && pipelineRun && (
         <div className="mb-3">
           <StaleBanner lastUpdated={pipelineRun.run_at} />
+        </div>
+      )}
+
+      {/* Fix 2: "Deals refreshed" signal for returning users */}
+      {showNewDeals && !isStale && (
+        <div className="mb-3 flex items-center justify-between rounded-md bg-accent-light px-3 py-2">
+          <span className="text-sm font-semibold text-accent">New deals this week</span>
+          <button
+            type="button"
+            className="text-xs text-muted hover:text-current"
+            onClick={() => setShowNewDeals(false)}
+            aria-label="Dismiss"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -295,28 +348,22 @@ export function ComparisonPage() {
         </div>
       )}
 
+      {/* Fix 4: Save/share moved above the fold, near peak value moment */}
+      <div className="mb-4 flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
+          {copied ? 'Copied!' : 'Copy link'}
+        </Button>
+        <ShareButton
+          title="My grocery deals — basketch"
+          text="Check out my split shopping list for Swiss grocery stores"
+        >
+          Share
+        </ShareButton>
+        <span className="ml-auto text-xs text-muted">Bookmark this page to check every week</span>
+      </div>
+
       {/* Split shopping list */}
       <SplitList comparisons={filtered} />
-
-      {/* Save section */}
-      <Card className="mt-6">
-        <h2 className="mb-2 text-lg font-semibold">Save this list</h2>
-        <p className="mb-3 text-sm text-muted">
-          Bookmark this page or copy the link to check your deals every week.
-        </p>
-        <p className="mb-2 text-sm text-muted">Your personal link</p>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleCopyLink} type="button">
-            {copied ? 'Copied!' : 'Copy link'}
-          </Button>
-          <ShareButton
-            title="My grocery deals — basketch"
-            text="Check out my split shopping list for Swiss grocery stores"
-          >
-            Share this list
-          </ShareButton>
-        </div>
-      </Card>
 
       {/* Edit button */}
       <div className="mt-4 text-center">

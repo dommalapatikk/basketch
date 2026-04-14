@@ -51,7 +51,7 @@ export function EmailCapture(props: {
       <h3 className="mb-3 text-lg font-semibold">Save your list</h3>
       <p className="mb-2 text-sm text-muted">
         Enter your email so you can find your list again next week.
-        No account needed.
+        No account needed. We only use it to look up your list — no spam, no marketing, never shared.
       </p>
       <div className="flex gap-2">
         <label htmlFor="email-capture" className="sr-only">Email address</label>

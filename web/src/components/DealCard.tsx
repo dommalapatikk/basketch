@@ -78,6 +78,7 @@ export function DealCard(props: DealCardProps) {
 
   const [adding, setAdding] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
+  const [addError, setAddError] = useState(false)
 
   const meta = findKeywordForDeal(deal)
   const alreadyInList = basketItems?.some((item) => item.keyword === meta.keyword) ?? false
@@ -88,6 +89,7 @@ export function DealCard(props: DealCardProps) {
     if (showCheck || adding) return
     setAdding(true)
     try {
+      setAddError(false)
       const basketId = await getOrCreate()
       await addBasketItem(basketId, {
         keyword: meta.keyword,
@@ -100,7 +102,8 @@ export function DealCard(props: DealCardProps) {
       onItemAdded?.()
       setTimeout(() => setJustAdded(false), 2000)
     } catch {
-      // silently fail — duplicate keyword constraint or network error
+      setAddError(true)
+      setTimeout(() => setAddError(false), 2000)
     } finally {
       setAdding(false)
     }
@@ -157,16 +160,22 @@ export function DealCard(props: DealCardProps) {
         onClick={handleAdd}
         disabled={showCheck || adding}
         aria-label={showCheck ? 'Already in list' : `Add ${deal.product_name} to list`}
-        className={`flex size-9 shrink-0 items-center justify-center self-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-          showCheck
-            ? 'bg-green-100 text-green-600'
-            : 'bg-gray-100 text-muted hover:bg-gray-200 hover:text-current'
+        className={`flex size-11 shrink-0 items-center justify-center self-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+          addError
+            ? 'bg-error-light text-error'
+            : showCheck
+              ? 'bg-green-100 text-green-600'
+              : 'bg-gray-100 text-muted hover:bg-gray-200 hover:text-current'
         }`}
       >
         {adding ? (
           <svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
+          </svg>
+        ) : addError ? (
+          <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
         ) : showCheck ? (
           <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">

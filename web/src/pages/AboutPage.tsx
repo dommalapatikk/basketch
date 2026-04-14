@@ -14,7 +14,7 @@ export function AboutPage() {
         <h2 className="mb-3 text-lg font-semibold">How it works</h2>
         <ol className="list-decimal space-y-2 pl-5 text-base leading-loose">
           <li>Every Wednesday evening, we fetch this week's promotions from 7 Swiss supermarkets.</li>
-          <li>We categorise every deal into Fresh, Long-life, or Non-food and calculate a weekly verdict.</li>
+          <li>We categorise every deal into Fresh, Long-life, or Household and calculate a weekly verdict.</li>
           <li>You see the verdict instantly. Browse all deals, or track your regular items for a personal comparison.</li>
         </ol>
       </Card>

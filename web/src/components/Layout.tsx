@@ -51,7 +51,7 @@ export function Layout() {
       <main id="main-content" className="mx-auto w-full max-w-[640px] flex-1 p-4">
         <Outlet />
       </main>
-      <footer className="border-t border-border p-6 text-center">
+      <footer className="safe-area-bottom border-t border-border p-6 text-center">
         <div className="mx-auto flex max-w-[640px] flex-col items-center gap-3">
           <div className="flex items-center gap-2">
             <img src="/favicon.svg" alt="" width="20" height="20" aria-hidden="true" />
@@ -59,7 +59,7 @@ export function Layout() {
           </div>
           <nav className="flex gap-4 text-xs text-muted" aria-label="Footer navigation">
             <Link to="/deals" className="hover:text-current no-underline">Deals</Link>
-            <Link to="/onboarding" className="hover:text-current no-underline">My List</Link>
+            <Link to={getMyListPath()} className="hover:text-current no-underline">My List</Link>
             <Link to="/about" className="hover:text-current no-underline">About</Link>
           </nav>
           <p className="text-[11px] text-muted">
