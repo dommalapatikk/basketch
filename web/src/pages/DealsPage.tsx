@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow } from '@shared/types'
@@ -85,8 +85,6 @@ export function DealsPage() {
     60,
   )
   const [searchParams, setSearchParams] = useSearchParams()
-  const pillContainerRef = useRef<HTMLDivElement>(null)
-  const [showFade, setShowFade] = useState(true)
 
   // ── URL state ──
   // ?category=fresh         → top-level tab selected
@@ -146,22 +144,6 @@ export function DealsPage() {
       setSearchParams({ category: top })
     }
   }
-
-  // Check scroll fade for pill row
-  useEffect(() => {
-    const container = pillContainerRef.current
-    if (!container) return
-
-    function handleScroll() {
-      if (!container) return
-      const atEnd = container.scrollLeft + container.clientWidth >= container.scrollWidth - 2
-      setShowFade(!atEnd)
-    }
-
-    handleScroll()
-    container.addEventListener('scroll', handleScroll, { passive: true })
-    return () => container.removeEventListener('scroll', handleScroll)
-  }, [deals, inferredTopLevel])
 
   // ── Deal counts ──
   const topLevelCounts = useMemo(() => {
@@ -314,12 +296,11 @@ export function DealsPage() {
         })}
       </div>
 
-      {/* ── Tier 2: Browse category pills (Airbnb refinement style) ── */}
+      {/* ── Tier 2: Browse category pills (wrap to second line if needed) ── */}
       {inferredTopLevel !== 'all' && visibleBrowseCategories.length > 0 && (
-        <div className="relative mb-3">
+        <div className="mb-3">
           <div
-            ref={pillContainerRef}
-            className="no-scrollbar flex gap-2 overflow-x-auto py-1"
+            className="flex flex-wrap gap-2 py-1"
             role="tablist"
             aria-label="Filter by category"
           >
@@ -332,7 +313,7 @@ export function DealsPage() {
               data-tab-group="browse"
               onClick={() => setSubFilter(null)}
               onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+              className={`rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                 activeSub === null
                   ? 'bg-pill-active-bg text-pill-active-text'
                   : 'border border-border bg-pill-bg text-current hover:border-accent'
@@ -353,7 +334,7 @@ export function DealsPage() {
                   data-tab-group="browse"
                   onClick={() => setSubFilter(cat.id)}
                   onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-                  className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  className={`rounded-full px-4 py-2 text-sm min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
                     activeSub === cat.id
                       ? 'bg-pill-active-bg text-pill-active-text'
                       : 'border border-border bg-pill-bg text-current hover:border-accent'
@@ -363,12 +344,7 @@ export function DealsPage() {
                 </button>
               )
             })}
-            {/* Spacer so fade doesn't clip last pill */}
-            <div className="shrink-0 w-8" aria-hidden="true" />
           </div>
-          {showFade && (
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-bg to-transparent" />
-          )}
         </div>
       )}
 
