@@ -175,12 +175,6 @@ export function DealsPage() {
     return counts
   }, [deals])
 
-  // Stores that actually have deals this week
-  const storesWithDeals = useMemo(
-    () => ALL_STORES.filter((s) => (storeCounts.get(s) ?? 0) > 0),
-    [storeCounts],
-  )
-
   // ── Filter and sort deals ──
   const filteredDeals = useMemo(() => {
     if (!deals) return [] as DealRow[]
@@ -222,7 +216,7 @@ export function DealsPage() {
   const totalDeals = deals?.length ?? 0
   const totalFiltered = filteredDeals.length
   const hasResults = totalFiltered > 0
-  const allStoresSelected = activeStores.size === storesWithDeals.length
+  const allStoresSelected = activeStores.size === ALL_STORES.length
   const isCategoryFilterActive = inferredTopLevel !== 'all' || activeSub !== null
   const isStoreFilterActive = !allStoresSelected
   const isFilterActive = isCategoryFilterActive || isStoreFilterActive
@@ -368,17 +362,16 @@ export function DealsPage() {
       )}
 
       {/* ── Store filter pills (horizontal scroll) ── */}
-      {storesWithDeals.length > 1 && (
-        <div className="mb-3">
-          <div
-            className="flex gap-2 overflow-x-auto py-1 pb-1 scrollbar-none"
-            role="group"
-            aria-label="Filter by store"
-          >
-            {storesWithDeals.map((store) => {
-              const meta = STORE_META[store]
-              const count = storeCounts.get(store) ?? 0
-              const isActive = activeStores.has(store)
+      <div className="mb-3">
+        <div
+          className="flex gap-2 overflow-x-auto py-1 pb-1 scrollbar-none"
+          role="group"
+          aria-label="Filter by store"
+        >
+          {ALL_STORES.map((store) => {
+            const meta = STORE_META[store]
+            const count = storeCounts.get(store) ?? 0
+            const isActive = activeStores.has(store)
               return (
                 <button
                   key={store}
@@ -397,7 +390,6 @@ export function DealsPage() {
             })}
           </div>
         </div>
-      )}
 
       {/* Active filter banner */}
       {isFilterActive && (
