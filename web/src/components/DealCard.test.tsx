@@ -1,8 +1,17 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 
 import type { DealRow } from '@shared/types'
 import { DealCard } from './DealCard'
+
+// Mock queries to avoid Supabase env var requirement in CI
+vi.mock('../lib/queries', () => ({
+  addBasketItem: vi.fn(),
+}))
+
+vi.mock('../lib/hooks', () => ({
+  useBasketId: () => ({ basketId: null, getOrCreate: vi.fn() }),
+}))
 
 afterEach(cleanup)
 
