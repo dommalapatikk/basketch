@@ -1,9 +1,9 @@
 // Custom caching hook replacing React Query (ADR-005).
-// localStorage cache with 1-hour stale time.
+// localStorage cache with 15-minute stale time.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const DEFAULT_STALE_MINUTES = 60
+const DEFAULT_STALE_MINUTES = 15
 
 interface CacheEntry<T> {
   data: T
