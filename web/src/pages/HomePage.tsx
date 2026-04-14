@@ -7,7 +7,7 @@ import { useActiveDeals, usePageTitle } from '../lib/hooks'
 import { calculateVerdict } from '../lib/verdict'
 import { CategorySection } from '../components/CategorySection'
 import { EmailLookup } from '../components/EmailLookup'
-import { VerdictCard } from '../components/VerdictCard'
+import { ShareVerdict } from '../components/ShareVerdict'
 import { DataFreshness } from '../components/DataFreshness'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
@@ -130,9 +130,9 @@ export function HomePage() {
             ))}
           </div>
 
-          {/* Shareable verdict card */}
-          <div className="mb-4">
-            <VerdictCard verdict={verdict} />
+          {/* Share verdict — compact inline button */}
+          <div className="mb-4 text-center">
+            <ShareVerdict verdict={verdict} />
           </div>
         </>
       )}
