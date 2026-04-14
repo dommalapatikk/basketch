@@ -319,7 +319,7 @@ export function DealsPage() {
         <div className="relative mb-3">
           <div
             ref={pillContainerRef}
-            className="no-scrollbar flex gap-2 overflow-x-auto py-1 pr-8"
+            className="no-scrollbar flex gap-2 overflow-x-auto py-1"
             role="tablist"
             aria-label="Filter by category"
           >
@@ -363,6 +363,8 @@ export function DealsPage() {
                 </button>
               )
             })}
+            {/* Spacer so fade doesn't clip last pill */}
+            <div className="shrink-0 w-8" aria-hidden="true" />
           </div>
           {showFade && (
             <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-bg to-transparent" />
