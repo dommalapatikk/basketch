@@ -161,27 +161,12 @@ ALTER TABLE favorite_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read starter_packs" ON starter_packs
   FOR SELECT USING (true);
 
--- Favorites: anyone can create (anon), but only read/update by knowing the UUID.
--- The UUID is unguessable (gen_random_uuid) and acts as the access token.
--- Email column is write-only from the frontend perspective (no public email lookup).
-CREATE POLICY "Public insert favorites" ON favorites
-  FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Read own favorites by id" ON favorites
-  FOR SELECT USING (true);
-
-CREATE POLICY "Update own favorites by id" ON favorites
-  FOR UPDATE USING (true);
-
--- Favorite items: tied to favorites via favorite_id (UUID acts as access token)
-CREATE POLICY "Public read favorite_items" ON favorite_items
-  FOR SELECT USING (true);
-
-CREATE POLICY "Public insert favorite_items" ON favorite_items
-  FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Public delete favorite_items" ON favorite_items
-  FOR DELETE USING (true);
+-- Favorites + favorite_items: NO direct table policies for anon.
+-- All access goes through SECURITY DEFINER RPCs that require the favorite UUID.
+-- See migration: 20260416_secure_favorites_rls.sql
+-- RPCs: create_favorite, get_favorite, update_favorite_email,
+--        get_favorite_items, add_favorite_item, add_favorite_items_batch,
+--        remove_favorite_item, lookup_favorite_by_email
 
 -- ============================================================
 -- 9. SEED STARTER PACKS

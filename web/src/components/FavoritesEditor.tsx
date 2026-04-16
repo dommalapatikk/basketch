@@ -17,7 +17,7 @@ export function FavoritesEditor(props: {
 
   async function handleRemove(itemId: string) {
     setRemoving((prev) => new Set(prev).add(itemId))
-    const success = await removeFavoriteItem(itemId)
+    const success = await removeFavoriteItem(props.favoriteId, itemId)
     if (success) {
       props.onItemsChange(props.items.filter((i) => i.id !== itemId))
       // Cache will refresh on next navigation (useCachedQuery stale time)

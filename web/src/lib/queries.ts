@@ -21,7 +21,11 @@ import { matchRelevance, isExcluded } from './matching'
 
 import { supabase } from './supabase'
 
-const today = () => new Date().toISOString().slice(0, 10)
+/** Returns today's date as YYYY-MM-DD in Swiss local time (Europe/Zurich). */
+const today = () => {
+  const formatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich' })
+  return formatter.format(new Date())
+}
 
 // ============================================================
 // Deal queries
@@ -135,17 +139,13 @@ export async function fetchStarterPacks(): Promise<StarterPackRow[]> {
 // ============================================================
 
 /**
- * Fetch a basket by ID.
+ * Fetch a basket by ID (via RPC — no direct table access).
  */
 export async function fetchBasket(id: string): Promise<Basket> {
-  const { data, error } = await supabase
-    .from('favorites')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const { data, error } = await supabase.rpc('get_favorite', { p_id: id })
 
-  if (error) {
-    throw new Error(`[queries] fetchBasket: ${error.message}`)
+  if (error || !data) {
+    throw new Error(`[queries] fetchBasket: ${error?.message ?? 'not found'}`)
   }
 
   const row = data as BasketRow
@@ -158,22 +158,20 @@ export async function fetchBasket(id: string): Promise<Basket> {
 }
 
 /**
- * Fetch all items in a basket.
+ * Fetch all items in a basket (via RPC).
  */
 export async function fetchBasketItems(
   basketId: string,
 ): Promise<BasketItem[]> {
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .select('*')
-    .eq('favorite_id', basketId)
-    .order('created_at', { ascending: true })
+  const { data, error } = await supabase.rpc('get_favorite_items', {
+    p_favorite_id: basketId,
+  })
 
   if (error) {
     throw new Error(`[queries] fetchBasketItems: ${error.message}`)
   }
 
-  return (data as BasketItemRow[]).map((row) => ({
+  return ((data ?? []) as BasketItemRow[]).map((row) => ({
     id: row.id,
     basketId: row.favorite_id,
     keyword: row.keyword,
@@ -187,19 +185,15 @@ export async function fetchBasketItems(
 }
 
 /**
- * Create a new basket (favorites list). Returns the Basket.
+ * Create a new basket (via RPC). Returns the Basket.
  */
 export async function createBasket(email?: string): Promise<Basket> {
-  const insertData = email ? { email } : {}
+  const { data, error } = await supabase.rpc('create_favorite', {
+    p_email: email ?? null,
+  })
 
-  const { data, error } = await supabase
-    .from('favorites')
-    .insert(insertData)
-    .select('*')
-    .single()
-
-  if (error) {
-    throw new Error(`[queries] createBasket: ${error.message}`)
+  if (error || !data) {
+    throw new Error(`[queries] createBasket: ${error?.message ?? 'no data returned'}`)
   }
 
   const row = data as BasketRow
@@ -212,7 +206,7 @@ export async function createBasket(email?: string): Promise<Basket> {
 }
 
 /**
- * Add an item to a basket.
+ * Add an item to a basket (via RPC).
  */
 export async function addBasketItem(
   basketId: string,
@@ -225,22 +219,18 @@ export async function addBasketItem(
     productGroupId?: string
   },
 ): Promise<BasketItem> {
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .insert({
-      favorite_id: basketId,
-      keyword: item.keyword,
-      label: item.label,
-      category: item.category,
-      exclude_terms: item.excludeTerms ?? null,
-      prefer_terms: item.preferTerms ?? null,
-      product_group_id: item.productGroupId ?? null,
-    })
-    .select('*')
-    .single()
+  const { data, error } = await supabase.rpc('add_favorite_item', {
+    p_favorite_id: basketId,
+    p_keyword: item.keyword,
+    p_label: item.label,
+    p_category: item.category,
+    p_exclude_terms: item.excludeTerms ?? null,
+    p_prefer_terms: item.preferTerms ?? null,
+    p_product_group_id: item.productGroupId ?? null,
+  })
 
-  if (error) {
-    throw new Error(`[queries] addBasketItem: ${error.message}`)
+  if (error || !data) {
+    throw new Error(`[queries] addBasketItem: ${error?.message ?? 'no data returned'}`)
   }
 
   const row = data as BasketItemRow
@@ -258,13 +248,16 @@ export async function addBasketItem(
 }
 
 /**
- * Remove an item from a basket.
+ * Remove an item from a basket (via RPC — requires both IDs for ownership check).
  */
-export async function removeBasketItem(itemId: string): Promise<void> {
-  const { error } = await supabase
-    .from('favorite_items')
-    .delete()
-    .eq('id', itemId)
+export async function removeBasketItem(
+  basketId: string,
+  itemId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc('remove_favorite_item', {
+    p_favorite_id: basketId,
+    p_item_id: itemId,
+  })
 
   if (error) {
     throw new Error(`[queries] removeBasketItem: ${error.message}`)
@@ -290,16 +283,16 @@ export async function lookupBasketByEmail(
 }
 
 /**
- * Save email to an existing basket.
+ * Save email to an existing basket (via RPC).
  */
 export async function saveBasketEmail(
   basketId: string,
   email: string,
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from('favorites')
-    .update({ email })
-    .eq('id', basketId)
+  const { error } = await supabase.rpc('update_favorite_email', {
+    p_id: basketId,
+    p_email: email,
+  })
 
   if (error) {
     console.error('[queries] saveBasketEmail error:', error.message)
@@ -309,7 +302,7 @@ export async function saveBasketEmail(
 }
 
 /**
- * Add multiple items to a basket at once (for starter pack import).
+ * Add multiple items to a basket at once (via RPC — for starter pack import).
  */
 export async function addBasketItemsBatch(
   basketId: string,
@@ -322,27 +315,17 @@ export async function addBasketItemsBatch(
     productGroupId?: string
   }[],
 ): Promise<BasketItem[]> {
-  const rows = items.map((item) => ({
-    favorite_id: basketId,
-    keyword: item.keyword,
-    label: item.label,
-    category: item.category,
-    exclude_terms: item.excludeTerms ?? null,
-    prefer_terms: item.preferTerms ?? null,
-    product_group_id: item.productGroupId ?? null,
-  }))
-
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .insert(rows)
-    .select('*')
+  const { data, error } = await supabase.rpc('add_favorite_items_batch', {
+    p_favorite_id: basketId,
+    p_items: JSON.stringify(items),
+  })
 
   if (error) {
     console.error('[queries] addBasketItemsBatch error:', error.message)
     return []
   }
 
-  return (data as BasketItemRow[]).map((row) => ({
+  return ((data ?? []) as BasketItemRow[]).map((row) => ({
     id: row.id,
     basketId: row.favorite_id,
     keyword: row.keyword,
@@ -365,7 +348,7 @@ export async function addBasketItemsBatch(
  */
 export async function fetchLatestPipelineRun(): Promise<PipelineRun | null> {
   const { data, error } = await supabase
-    .from('pipeline_runs')
+    .from('pipeline_runs_public')
     .select('*')
     .order('run_at', { ascending: false })
     .limit(1)
@@ -660,16 +643,14 @@ export async function lookupFavoriteByEmail(
 export async function fetchFavoriteItems(
   favoriteId: string,
 ): Promise<FavoriteItemRow[]> {
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .select('*')
-    .eq('favorite_id', favoriteId)
-    .order('created_at', { ascending: true })
+  const { data, error } = await supabase.rpc('get_favorite_items', {
+    p_favorite_id: favoriteId,
+  })
 
   if (error) {
     throw new Error(`[queries] fetchFavoriteItems: ${error.message}`)
   }
-  return data as FavoriteItemRow[]
+  return (data ?? []) as FavoriteItemRow[]
 }
 
 /** @deprecated Use addBasketItem */
@@ -677,19 +658,15 @@ export async function addFavoriteItem(
   favoriteId: string,
   item: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string },
 ): Promise<FavoriteItemRow | null> {
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .insert({
-      favorite_id: favoriteId,
-      keyword: item.keyword,
-      label: item.label,
-      category: item.category,
-      exclude_terms: item.excludeTerms ?? null,
-      prefer_terms: item.preferTerms ?? null,
-      product_group_id: item.productGroupId ?? null,
-    })
-    .select('*')
-    .single()
+  const { data, error } = await supabase.rpc('add_favorite_item', {
+    p_favorite_id: favoriteId,
+    p_keyword: item.keyword,
+    p_label: item.label,
+    p_category: item.category,
+    p_exclude_terms: item.excludeTerms ?? null,
+    p_prefer_terms: item.preferTerms ?? null,
+    p_product_group_id: item.productGroupId ?? null,
+  })
 
   if (error) {
     console.error('[queries] addFavoriteItem error:', error.message)
@@ -699,9 +676,12 @@ export async function addFavoriteItem(
 }
 
 /** @deprecated Use removeBasketItem */
-export async function removeFavoriteItem(itemId: string): Promise<boolean> {
+export async function removeFavoriteItem(
+  favoriteId: string,
+  itemId: string,
+): Promise<boolean> {
   try {
-    await removeBasketItem(itemId)
+    await removeBasketItem(favoriteId, itemId)
     return true
   } catch {
     return false
@@ -713,24 +693,14 @@ export async function addFavoriteItemsBatch(
   favoriteId: string,
   items: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string }[],
 ): Promise<FavoriteItemRow[]> {
-  const rows = items.map((item) => ({
-    favorite_id: favoriteId,
-    keyword: item.keyword,
-    label: item.label,
-    category: item.category,
-    exclude_terms: item.excludeTerms ?? null,
-    prefer_terms: item.preferTerms ?? null,
-    product_group_id: item.productGroupId ?? null,
-  }))
-
-  const { data, error } = await supabase
-    .from('favorite_items')
-    .insert(rows)
-    .select('*')
+  const { data, error } = await supabase.rpc('add_favorite_items_batch', {
+    p_favorite_id: favoriteId,
+    p_items: JSON.stringify(items),
+  })
 
   if (error) {
     console.error('[queries] addFavoriteItemsBatch error:', error.message)
     return []
   }
-  return data as FavoriteItemRow[]
+  return (data ?? []) as FavoriteItemRow[]
 }

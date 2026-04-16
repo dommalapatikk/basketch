@@ -135,7 +135,8 @@ export async function logPipelineRun(run: PipelineRunInput): Promise<void> {
  * Returns the number of deals deactivated.
  */
 export async function deactivateExpiredDeals(): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10)
+  // Use Swiss local time to match user expectations around midnight
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich' }).format(new Date())
 
   const { data, error } = await supabase
     .from('deals')

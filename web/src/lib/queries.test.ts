@@ -127,18 +127,20 @@ describe('fetchDealsByCategory', () => {
 })
 
 describe('fetchBasket', () => {
-  it('queries favorites table by ID and maps to Basket shape', async () => {
-    const chain = createChain({
-      id: 'basket-1',
-      email: 'test@example.com',
-      created_at: '2026-04-10',
-      updated_at: '2026-04-10',
+  it('calls get_favorite RPC and maps to Basket shape', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        id: 'basket-1',
+        email: 'test@example.com',
+        created_at: '2026-04-10',
+        updated_at: '2026-04-10',
+      },
+      error: null,
     })
-    mockFrom.mockReturnValue(chain)
 
     const result = await queries.fetchBasket('basket-1')
 
-    expect(mockFrom).toHaveBeenCalledWith('favorites')
+    expect(mockRpc).toHaveBeenCalledWith('get_favorite', { p_id: 'basket-1' })
     expect(result.id).toBe('basket-1')
     expect(result.email).toBe('test@example.com')
     expect(result.createdAt).toBe('2026-04-10')
@@ -146,60 +148,69 @@ describe('fetchBasket', () => {
 })
 
 describe('createBasket', () => {
-  it('inserts into favorites table', async () => {
-    const chain = createChain({
-      id: 'new-basket',
-      email: null,
-      created_at: '2026-04-10',
-      updated_at: '2026-04-10',
+  it('calls create_favorite RPC', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        id: 'new-basket',
+        email: null,
+        created_at: '2026-04-10',
+        updated_at: '2026-04-10',
+      },
+      error: null,
     })
-    mockFrom.mockReturnValue(chain)
 
     const result = await queries.createBasket()
 
-    expect(mockFrom).toHaveBeenCalledWith('favorites')
-    expect(mockInsert).toHaveBeenCalled()
+    expect(mockRpc).toHaveBeenCalledWith('create_favorite', { p_email: null })
     expect(result.id).toBe('new-basket')
   })
 
   it('passes email when provided', async () => {
-    const chain = createChain({
-      id: 'new-basket',
-      email: 'user@test.com',
-      created_at: '2026-04-10',
-      updated_at: '2026-04-10',
+    mockRpc.mockResolvedValue({
+      data: {
+        id: 'new-basket',
+        email: 'user@test.com',
+        created_at: '2026-04-10',
+        updated_at: '2026-04-10',
+      },
+      error: null,
     })
-    mockFrom.mockReturnValue(chain)
 
     const result = await queries.createBasket('user@test.com')
+
+    expect(mockRpc).toHaveBeenCalledWith('create_favorite', { p_email: 'user@test.com' })
     expect(result.email).toBe('user@test.com')
   })
 })
 
 describe('removeBasketItem', () => {
-  it('deletes from favorite_items by ID', async () => {
-    const chain = createChain(null, null)
-    mockFrom.mockReturnValue(chain)
+  it('calls remove_favorite_item RPC with both IDs', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: null })
 
-    await queries.removeBasketItem('item-1')
+    await queries.removeBasketItem('basket-1', 'item-1')
 
-    expect(mockFrom).toHaveBeenCalledWith('favorite_items')
-    expect(mockDelete).toHaveBeenCalled()
-    expect(mockEq).toHaveBeenCalledWith('id', 'item-1')
+    expect(mockRpc).toHaveBeenCalledWith('remove_favorite_item', {
+      p_favorite_id: 'basket-1',
+      p_item_id: 'item-1',
+    })
   })
 })
 
 describe('lookupBasketByEmail', () => {
   it('calls RPC with email and returns basket', async () => {
-    mockRpc.mockResolvedValue({ data: 'basket-id', error: null })
-    // Mock fetchBasket chain
-    const chain = createChain({
-      id: 'basket-id',
-      email: 'test@test.com',
-      created_at: '2026-04-10',
-      updated_at: '2026-04-10',
-    })
-    mockFrom.mockReturnValue(chain)
+    // First call: lookup_favorite_by_email returns the ID
+    // Second call: get_favorite returns the full row
+    mockRpc
+      .mockResolvedValueOnce({ data: 'basket-id', error: null })
+      .mockResolvedValueOnce({
+        data: {
+          id: 'basket-id',
+          email: 'test@test.com',
+          created_at: '2026-04-10',
+          updated_at: '2026-04-10',
+        },
+        error: null,
+      })
 
     const result = await queries.lookupBasketByEmail('test@test.com')
 
@@ -226,7 +237,7 @@ describe('fetchLatestPipelineRun', () => {
 
     const result = await queries.fetchLatestPipelineRun()
 
-    expect(mockFrom).toHaveBeenCalledWith('pipeline_runs')
+    expect(mockFrom).toHaveBeenCalledWith('pipeline_runs_public')
     expect(mockOrder).toHaveBeenCalledWith('run_at', { ascending: false })
     expect(result).toBeTruthy()
   })

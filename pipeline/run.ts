@@ -185,9 +185,13 @@ async function main(): Promise<void> {
     error_log: errors.length > 0 ? errors.join('; ') : null,
   })
 
-  // Fail hard only if zero deals stored despite having data to store
-  if (storedCount === 0 && categorized.length > 0) {
-    console.error('[pipeline] [ERROR] Zero deals stored — failing pipeline')
+  // Fail if stored deals fall below 80% of categorized (significant data loss)
+  const storageRatio = categorized.length > 0 ? storedCount / categorized.length : 1
+  const STORAGE_THRESHOLD = 0.8
+  if (categorized.length > 0 && storageRatio < STORAGE_THRESHOLD) {
+    console.error(
+      `[pipeline] [ERROR] Storage ratio ${(storageRatio * 100).toFixed(1)}% is below ${STORAGE_THRESHOLD * 100}% threshold — failing pipeline`,
+    )
     process.exit(1)
   }
 

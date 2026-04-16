@@ -303,6 +303,10 @@ export function matchFavorites(
 
     const stores: Partial<Record<Store, StoreMatch>> = {}
 
+    // First pass: find deals and regular prices per store
+    const dealsByStoreForItem = new Map<Store, DealRow | null>()
+    const regularPricesByStore = new Map<Store, RegularPrice | null>()
+
     for (const store of ALL_STORES) {
       const storeDeals = dealsByStore.get(store) ?? []
       let deal: DealRow | null = null
@@ -320,6 +324,18 @@ export function matchFavorites(
         })
       }
 
+      dealsByStoreForItem.set(store, deal)
+      regularPricesByStore.set(store, regularPrice)
+    }
+
+    // Suppress one-sided regular price comparisons: only show regular prices
+    // when ALL stores have data, to avoid biased recommendations.
+    const storesWithRegularPrice = ALL_STORES.filter((s) => regularPricesByStore.get(s) != null)
+    const allStoresHaveRegularPrice = storesWithRegularPrice.length === ALL_STORES.length
+
+    for (const store of ALL_STORES) {
+      const deal = dealsByStoreForItem.get(store) ?? null
+      const regularPrice = allStoresHaveRegularPrice ? (regularPricesByStore.get(store) ?? null) : null
       const productKnown = !deal && regularPrice !== null
       stores[store] = { deal, regularPrice, productKnown }
     }
