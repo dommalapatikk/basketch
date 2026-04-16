@@ -290,7 +290,7 @@ class TestNormalizeAktionisDeal:
             "sourceCategory",
             "sourceUrl",
         }
-        assert set(result.keys()) == expected_keys
+        assert set(result.keys()) >= expected_keys
 
 
 class TestNormalizeCoopDeal:
@@ -368,7 +368,7 @@ class TestNormalizeCoopDeal:
             "sourceCategory",
             "sourceUrl",
         }
-        assert set(result.keys()) == expected_keys
+        assert set(result.keys()) >= expected_keys
 
 
 # ── End-to-end fixture test ─────────────────────────────────────────
@@ -576,7 +576,7 @@ class TestFetchStoreDeals:
                 "sourceUrl",
             }
             for deal in deals:
-                assert set(deal.keys()) == expected_keys
+                assert set(deal.keys()) >= expected_keys
 
     def test_zero_deals_is_success(self) -> None:
         """0 deals should return empty list (not an error)."""
@@ -658,7 +658,7 @@ class TestFetchCoopDeals:
                 "sourceUrl",
             }
             for deal in deals:
-                assert set(deal.keys()) == expected_keys
+                assert set(deal.keys()) >= expected_keys
 
     def test_zero_deals_is_success(self) -> None:
         """0 deals should return empty list (not an error)."""

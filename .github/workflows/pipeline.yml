@@ -1,9 +1,14 @@
-name: Weekly Deal Pipeline
+name: Deal Pipeline
 
 on:
   schedule:
-    - cron: '17 21 * * 3'  # Wednesday 21:17 UTC (after stores publish, off-peak minute)
-  workflow_dispatch:  # Allow manual trigger
+    # Monday 05:00 UTC (07:00 Swiss) — Aldi Mon cycle, Volg general
+    - cron: '0 5 * * 1'
+    # Tuesday 05:00 UTC (07:00 Swiss) — Spar
+    - cron: '0 5 * * 2'
+    # Thursday 05:00 UTC (07:00 Swiss) — Migros, Coop, Lidl, Denner, Aldi Thu, Volg fresh
+    - cron: '0 5 * * 4'
+  workflow_dispatch:  # Allow manual trigger (runs all stores)
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -20,42 +25,73 @@ jobs:
           - slug: coop
             store: coop
             label: Coop
+            # Thu launch (Thu–Wed). Also try Mon/Tue in case aktionis catches stragglers.
+            days: '1,2,4'
           - slug: coop-megastore
             store: coop
             label: Coop Megastore
+            days: '1,2,4'
           - slug: migros
             store: migros
             label: Migros
+            # Thu launch (Thu–Wed)
+            days: '4'
           - slug: lidl
             store: lidl
             label: LIDL
+            # Thu launch (Thu–Wed)
+            days: '4'
           - slug: aldi-suisse
             store: aldi
             label: ALDI
+            # Mon + Thu dual cycle
+            days: '1,4'
           - slug: denner
             store: denner
             label: Denner
+            # Thu launch (Thu–Wed)
+            days: '4'
           - slug: spar
             store: spar
             label: SPAR
+            # Tue launch (Tue–Mon)
+            days: '2'
           - slug: volg
             store: volg
             label: Volg
+            # Mon (general) + Thu (fresh)
+            days: '1,4'
     steps:
+      - name: Check if store runs today
+        id: should-run
+        run: |
+          DOW=$(date -u +%u)
+          DAYS="${{ matrix.days }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || echo "$DAYS" | grep -q "$DOW"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping ${{ matrix.label }} — not scheduled for day $DOW"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.should-run.outputs.run == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.should-run.outputs.run == 'true'
         with:
           python-version: '3.13'
 
       - name: Install dependencies
+        if: steps.should-run.outputs.run == 'true'
         run: pip install -r pipeline/aktionis/requirements.txt
 
       - name: Fetch ${{ matrix.label }} deals
+        if: steps.should-run.outputs.run == 'true'
         run: cd pipeline/aktionis && python3 main.py ${{ matrix.slug }} ${{ matrix.store }} ${{ matrix.slug }}-deals.json
 
       - name: Upload deals artifact
-        if: always()
+        if: always() && steps.should-run.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.slug }}-deals
