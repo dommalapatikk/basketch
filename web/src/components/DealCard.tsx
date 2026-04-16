@@ -4,7 +4,8 @@ import type { BasketItem, Category, DealRow, StarterPackItem, Store } from '@sha
 import { STARTER_PACKS, STORE_META } from '@shared/types'
 
 import { addBasketItem } from '../lib/queries'
-import { useBasketId } from '../lib/hooks'
+import { useBasketContext } from '../lib/basket-context'
+import { useToast } from './Toast'
 import { matchRelevance } from '../lib/matching'
 
 export interface DealCardProps {
@@ -74,7 +75,8 @@ function findKeywordForDeal(deal: DealRow): {
 export function DealCard(props: DealCardProps) {
   const { deal, store, basketItems, onItemAdded } = props
   const storeHex = STORE_META[store].hex
-  const { getOrCreate } = useBasketId()
+  const { getOrCreate } = useBasketContext()
+  const toast = useToast()
 
   const [adding, setAdding] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
@@ -99,6 +101,7 @@ export function DealCard(props: DealCardProps) {
         preferTerms: meta.preferTerms,
       })
       setJustAdded(true)
+      toast.show('Added to your list!')
       onItemAdded?.()
       setTimeout(() => setJustAdded(false), 2000)
     } catch {

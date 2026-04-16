@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
+import { BasketProvider } from './lib/basket-context'
+import { ToastProvider } from './components/Toast'
 
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })))
@@ -15,18 +17,22 @@ export function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <Suspense fallback={<div className="py-12 text-center text-muted">Loading...</div>}>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/onboarding" element={<OnboardingPage />} />
-              <Route path="/deals" element={<DealsPage />} />
-              <Route path="/compare/:favoriteId" element={<ComparisonPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              <Route path="*" element={<NotFoundPage />} />
-            </Route>
-          </Routes>
-        </Suspense>
+        <BasketProvider>
+          <ToastProvider>
+            <Suspense fallback={<div className="py-12 text-center text-muted">Loading...</div>}>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/onboarding" element={<OnboardingPage />} />
+                  <Route path="/deals" element={<DealsPage />} />
+                  <Route path="/compare/:favoriteId" element={<ComparisonPage />} />
+                  <Route path="/about" element={<AboutPage />} />
+                  <Route path="*" element={<NotFoundPage />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </ToastProvider>
+        </BasketProvider>
       </BrowserRouter>
     </ErrorBoundary>
   )

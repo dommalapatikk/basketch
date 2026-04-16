@@ -15,7 +15,7 @@ export function ShareVerdict(props: { verdict: WeeklyVerdict }) {
   return (
     <>
       <Button variant="outline" size="sm" onClick={handleToggle} type="button">
-        {open ? 'Hide verdict card' : 'Share this verdict'}
+        {open ? 'Hide verdict card' : 'See shareable card'}
       </Button>
       {open && (
         <div ref={containerRef} className="mt-3">

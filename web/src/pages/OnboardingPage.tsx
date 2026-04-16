@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
-import { addFavoriteItemsBatch, createFavorite, fetchBasket } from '../lib/queries'
+import { addFavoriteItemsBatch, fetchBasket } from '../lib/queries'
 import { useFavoriteItems, usePageTitle } from '../lib/hooks'
+import { useBasketContext } from '../lib/basket-context'
 import { Button } from '../components/ui/Button'
 import { TemplatePicker } from '../components/TemplatePicker'
 import { FavoritesEditor } from '../components/FavoritesEditor'
@@ -14,11 +15,24 @@ type Step = 'pick' | 'edit' | 'save'
 
 export function OnboardingPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const editId = searchParams.get('edit')
+  const { getOrCreate: getOrCreateBasket } = useBasketContext()
 
   usePageTitle('Set up your list')
-  const [step, setStep] = useState<Step>(editId ? 'edit' : 'pick')
+
+  // Derive step from URL so browser back/forward works (BUG-01 fix)
+  const urlStep = searchParams.get('step') as Step | null
+  const step: Step = urlStep && ['pick', 'edit', 'save'].includes(urlStep)
+    ? urlStep
+    : editId ? 'edit' : 'pick'
+
+  function goToStep(next: Step) {
+    const params: Record<string, string> = { step: next }
+    if (editId) params['edit'] = editId
+    setSearchParams(params)
+  }
+
   const [favoriteId, setFavoriteId] = useState<string | null>(editId ?? null)
   const [items, setItems] = useState<FavoriteItemRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -49,14 +63,14 @@ export function OnboardingPage() {
 
     let id = favoriteId
     if (!id) {
-      id = await createFavorite()
-      if (!id) {
+      try {
+        id = await getOrCreateBasket()
+      } catch {
         setError('Could not create your list. Please try again.')
         setActionLoading(false)
         return
       }
       setFavoriteId(id)
-      localStorage.setItem('basketch_favoriteId', id)
     }
 
     const imported = await addFavoriteItemsBatch(
@@ -74,7 +88,7 @@ export function OnboardingPage() {
     if (imported.length === 0) {
       setError('Could not import starter pack items. Try starting from scratch.')
       setActionLoading(false)
-      setStep('edit')
+      goToStep('edit')
       return
     }
 
@@ -84,21 +98,19 @@ export function OnboardingPage() {
 
     setItems(imported)
     setActionLoading(false)
-    setStep('edit')
+    goToStep('edit')
   }
 
   function handleSkipTemplate() {
     if (actionLoading) return
     setActionLoading(true)
     setError(null)
-    createFavorite().then((id) => {
-      if (id) {
-        setFavoriteId(id)
-        localStorage.setItem('basketch_favoriteId', id)
-        setStep('edit')
-      } else {
-        setError('Could not create your list. Please try again.')
-      }
+    getOrCreateBasket().then((id) => {
+      setFavoriteId(id)
+      goToStep('edit')
+      setActionLoading(false)
+    }).catch(() => {
+      setError('Could not create your list. Please try again.')
       setActionLoading(false)
     })
   }
@@ -110,14 +122,14 @@ export function OnboardingPage() {
         if (basket.email) {
           navigate(`/compare/${favoriteId}`)
         } else {
-          setStep('save')
+          goToStep('save')
         }
       }).catch(() => {
-        setStep('save')
+        goToStep('save')
       })
       return
     }
-    setStep('save')
+    goToStep('save')
   }
 
   function handleEmailSaved() {
@@ -137,10 +149,10 @@ export function OnboardingPage() {
       if (editId) {
         navigate(`/compare/${editId}`)
       } else {
-        setStep('pick')
+        goToStep('pick')
       }
     } else if (step === 'save') {
-      setStep('edit')
+      goToStep('edit')
     }
   }
 
@@ -234,10 +246,14 @@ export function OnboardingPage() {
               onClick={handleDoneEditing}
               disabled={items.length === 0}
               type="button"
+              title={items.length === 0 ? 'Add at least one item to continue' : undefined}
             >
               Next — compare deals ({items.length} items)
             </Button>
           </div>
+          {items.length === 0 && (
+            <p className="mt-2 text-center text-xs text-muted">Add at least one item to continue</p>
+          )}
         </div>
       )}
 

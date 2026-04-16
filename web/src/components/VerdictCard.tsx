@@ -182,7 +182,7 @@ export function VerdictCard(props: VerdictCardProps) {
 
         {/* Footer */}
         <div className="mt-6 border-t border-card-border pt-4">
-          <div className="text-[15px] font-bold text-card-text">basketch.ch</div>
+          <div className="text-[15px] font-bold text-card-text">basketch.vercel.app</div>
           <div className="text-[13px] text-card-text-muted">
             Your weekly promotions, compared.
           </div>

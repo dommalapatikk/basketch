@@ -74,6 +74,6 @@ describe('VerdictCard', () => {
 
   it('renders footer with site name', () => {
     render(<VerdictCard verdict={makeVerdict()} />)
-    expect(screen.getByText('basketch.ch')).toBeTruthy()
+    expect(screen.getByText('basketch.vercel.app')).toBeTruthy()
   })
 })

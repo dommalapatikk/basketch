@@ -11,7 +11,8 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'non-food', label: 'Household' },
 ]
 
-import { useActiveDeals, useBasketId, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
+import { useActiveDeals, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
+import { useBasketContext } from '../lib/basket-context'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { DataFreshness } from '../components/DataFreshness'
@@ -22,6 +23,7 @@ import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
 
 const INITIAL_SHOW = 50
+const MAX_COMPARE_STORES = 3
 
 function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boolean {
   return deal.sub_category != null && subCategories.includes(deal.sub_category)
@@ -52,8 +54,11 @@ export function DealsPage() {
   const [viewMode, setViewMode] = useState<'list' | 'compare'>('compare')
 
   // Basket for "add to list" buttons
-  const { basketId } = useBasketId()
+  const { basketId } = useBasketContext()
   const { data: basketItems, refetch: refetchBasket } = useBasketItems(basketId ?? undefined)
+
+  // Store limit warning
+  const [storeLimit, setStoreLimit] = useState(false)
 
   // Show count for infinite scroll
   const [showCount, setShowCount] = useState(INITIAL_SHOW)
@@ -141,8 +146,13 @@ export function DealsPage() {
       // Don't allow deselecting all stores
       if (next.size === 1) return
       next.delete(store)
+      setStoreLimit(false)
+    } else if (next.size >= MAX_COMPARE_STORES) {
+      setStoreLimit(true)
+      return
     } else {
       next.add(store)
+      setStoreLimit(false)
     }
     const categoryParams: Record<string, string> = {}
     if (urlCategory) categoryParams['category'] = urlCategory
@@ -442,6 +452,13 @@ export function DealsPage() {
           </div>
         </div>
 
+      {/* Store limit message */}
+      {storeLimit && (
+        <div className="mb-2 rounded-md bg-accent-light px-3 py-2 text-center text-sm text-accent">
+          You can compare up to {MAX_COMPARE_STORES} stores at a time. Deselect one to add another.
+        </div>
+      )}
+
       {/* Active filter banner */}
       {isFilterActive && (
         <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
@@ -492,7 +509,9 @@ export function DealsPage() {
         <>
           {!hasResults && (
             <div className="py-12 text-center text-sm text-muted">
-              No deals in {activeLabel.toLowerCase()} this week. Try another category or store.
+              No deals from {isStoreFilterActive
+                ? [...activeStores].map((s) => STORE_META[s].label).join(', ')
+                : 'selected stores'} in {activeLabel.toLowerCase()} this week. Try another category or store.
             </div>
           )}
           {hasResults && (

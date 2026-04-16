@@ -113,16 +113,21 @@ export function ComparisonPage() {
     return <LoadingState message="Loading your deals..." />
   }
 
-  // Fix 1: Only clear localStorage when basket ID is missing from URL (confirmed not found),
-  // not on transient network errors which would destroy the user's saved basket reference
-  if (!favoriteId) {
-    if (typeof window !== 'undefined') localStorage.removeItem('basketch_favoriteId')
+  // Validate UUID format before fetching
+  const isValidUUID = favoriteId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(favoriteId)
+
+  if (!favoriteId || !isValidUUID) {
     return (
       <div>
-        <ErrorState message="This comparison list was not found. It may have been deleted or the link may be incorrect." />
-        <Link to="/onboarding" className={buttonVariants({ fullWidth: true, className: 'mt-4' })}>
-          Create a new list
-        </Link>
+        <ErrorState message="This list was not found. The link may be incorrect or the list may have been deleted." />
+        <div className="mt-4 flex flex-col gap-2">
+          <Link to="/onboarding" className={buttonVariants({ fullWidth: true })}>
+            Create a new list
+          </Link>
+          <Link to="/" className={buttonVariants({ variant: 'outline', fullWidth: true })}>
+            Go to homepage
+          </Link>
+        </div>
       </div>
     )
   }
@@ -134,6 +139,9 @@ export function ComparisonPage() {
           message="Could not load this week's deals. Your favorites are saved — please try again later."
           onRetry={() => window.location.reload()}
         />
+        <Link to="/" className={buttonVariants({ variant: 'outline', fullWidth: true, className: 'mt-4' })}>
+          Go to homepage
+        </Link>
       </div>
     )
   }
@@ -313,15 +321,22 @@ export function ComparisonPage() {
         </div>
       )}
 
+      {/* Single-store hint (BUG-03 fix) */}
+      {selectedStores.size < 2 && (
+        <div className="mb-4 rounded-md border border-border bg-surface p-4 text-center text-sm text-muted">
+          Select at least 2 stores above to compare prices.
+        </div>
+      )}
+
       {/* Empty verdict */}
-      {withDeals.length === 0 && comparisons.length > 0 && (
+      {withDeals.length === 0 && comparisons.length > 0 && selectedStores.size >= 2 && (
         <div className="mb-4 rounded-md border border-accent/20 bg-accent-light p-4 text-center text-sm">
           None of your favorites are on sale this week. Check back Thursday when new deals are published.
         </div>
       )}
 
-      {/* Store total summary cards — top 3 stores */}
-      {storesWithItems.length > 0 && (
+      {/* Store total summary cards — top 3 stores (only when comparing 2+) */}
+      {storesWithItems.length > 0 && selectedStores.size >= 2 && (
         <div className={`mb-4 grid gap-2 ${storesWithItems.length === 1 ? 'grid-cols-1' : storesWithItems.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
           {storesWithItems.map((store) => {
             const meta = STORE_META[store]
@@ -340,8 +355,8 @@ export function ComparisonPage() {
         </div>
       )}
 
-      {/* Savings estimate */}
-      {splitSavings > 0 && (
+      {/* Savings estimate (only meaningful with 2+ stores) */}
+      {splitSavings > 0 && selectedStores.size >= 2 && (
         <div className="mb-4 rounded-md bg-success-light p-3 text-center">
           <div className="text-xs font-semibold uppercase tracking-wide text-success">Estimated savings by splitting</div>
           <div className="mt-0.5 text-2xl font-bold text-success">CHF {splitSavings.toFixed(2)}</div>
