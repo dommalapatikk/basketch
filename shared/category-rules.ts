@@ -62,6 +62,7 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'la semeuse': { category: 'long-life', subCategory: 'coffee-tea' },
   // Pasta brands
   'barilla': { category: 'long-life', subCategory: 'pasta-rice' },
+  'ben\'s original': { category: 'long-life', subCategory: 'pasta-rice' },
   'gala 3-eier': { category: 'long-life', subCategory: 'pasta-rice' },
   // Cleaning/household brands
   'persil': { category: 'non-food', subCategory: 'laundry' },
@@ -72,10 +73,12 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'satrap': { category: 'non-food', subCategory: 'household' },
   'plenty': { category: 'non-food', subCategory: 'paper-goods' },
   // Personal care brands
+  'le petit marseillais': { category: 'non-food', subCategory: 'personal-care' },
   'nivea': { category: 'non-food', subCategory: 'personal-care' },
   'elmex': { category: 'non-food', subCategory: 'personal-care' },
   'colgate': { category: 'non-food', subCategory: 'personal-care' },
   'dove': { category: 'non-food', subCategory: 'personal-care' },
+  'meridol': { category: 'non-food', subCategory: 'personal-care' },
 }
 
 // ============================================================
@@ -317,8 +320,8 @@ export const CATEGORY_RULES: CategoryRule[] = [
   {
     keywords: [
       'pflege', 'körperpflege', 'hygiene', 'hygieneprodukt',
-      'shampoo', 'duschgel', 'shower', 'seife', 'soap',
-      'zahnpasta', 'zahnbürste', 'toothpaste', 'mundwasser',
+      'shampoo', 'duschgel', 'duschcreme', 'shower', 'seife', 'soap',
+      'zahnpasta', 'zahnbürste', 'toothpaste', 'mundwasser', 'mundspülung',
       'deodorant', 'deo', 'nivea', 'elmex',
     ],
     category: 'non-food',
@@ -418,6 +421,9 @@ const KEYWORD_BLOCKERS: Record<string, string[]> = {
   'wein': ['schwein'],
   'tee': ['steak'],
   'oliven': ['olivenöl'],  // "olivenöl" is condiments, not canned olives
+  'fleisch': ['zahnfleisch', 'mundspülung', 'zahncreme', 'zahnpasta'],  // dental products contain "fleisch"
+  'orangen': ['orangenblüten', 'orangenblüte'],  // orange blossom is cosmetic fragrance, not fruit
+  'tomaten': ['risotto'],  // "risotto tomaten" is a pasta-rice product, not vegetables
 }
 
 /**

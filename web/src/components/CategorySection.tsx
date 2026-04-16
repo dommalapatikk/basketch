@@ -6,7 +6,7 @@ import { ALL_STORES, STORE_META } from '@shared/types'
 function categoryDisplayName(cat: string): string {
   if (cat === 'fresh') return 'FRESH'
   if (cat === 'long-life') return 'LONG-LIFE'
-  return 'NON-FOOD'
+  return 'HOUSEHOLD'
 }
 
 export interface CategorySectionProps {

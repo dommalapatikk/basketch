@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import type { Store } from '@shared/types'
 import { ALL_STORES, STORE_META } from '@shared/types'
-import { useActiveDeals, usePageTitle } from '../lib/hooks'
+import { useActiveDeals, useBasketItems, usePageTitle } from '../lib/hooks'
 import { calculateVerdict } from '../lib/verdict'
 import { CategorySection } from '../components/CategorySection'
 import { EmailLookup } from '../components/EmailLookup'
@@ -50,16 +50,24 @@ function VerdictLine(props: { verdict: ReturnType<typeof calculateVerdict> }) {
   return (
     <>
       <p className="text-base font-semibold">
-        {winners.map((c, i) => {
-          const store = c.winner as Store
-          const meta = STORE_META[store]
+        {verdict.categories.map((c, i) => {
           const catLabel = c.category === 'fresh' ? 'Fresh'
             : c.category === 'long-life' ? 'Long-life'
             : 'Household'
+          if (c.winner === 'tie') {
+            return (
+              <span key={c.category}>
+                {i > 0 && ' | '}
+                {catLabel}: <span className="text-muted">Tied</span>
+              </span>
+            )
+          }
+          const store = c.winner as Store
+          const meta = STORE_META[store]
           return (
             <span key={c.category}>
-              {i > 0 && ', '}
-              <span className="font-bold" style={{ color: meta.hexText }}>{meta.label}</span> for {catLabel}
+              {i > 0 && ' | '}
+              {catLabel}: <span className="font-bold" style={{ color: meta.hexText }}>{meta.label}</span>
             </span>
           )
         })}
@@ -82,6 +90,9 @@ export function HomePage() {
   const storedFavoriteId = typeof window !== 'undefined'
     ? localStorage.getItem('basketch_favoriteId')
     : null
+
+  const { data: basketItems } = useBasketItems(storedFavoriteId ?? undefined)
+  const hasListItems = (basketItems?.length ?? 0) > 0
 
   const verdict = useMemo(() => {
     if (!deals || deals.length === 0) return null
@@ -146,7 +157,7 @@ export function HomePage() {
 
       {/* Personalisation — one compact section */}
       <section className="mb-4 rounded-md border border-border bg-surface p-4">
-        {storedFavoriteId ? (
+        {storedFavoriteId && hasListItems ? (
           <div className="flex items-center justify-between">
             <span className="text-sm">Your personal comparison is ready.</span>
             <Link
@@ -154,6 +165,16 @@ export function HomePage() {
               className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
             >
               View &rarr;
+            </Link>
+          </div>
+        ) : storedFavoriteId && !hasListItems ? (
+          <div className="flex items-center justify-between">
+            <span className="text-sm">You have a saved basket. Add items to compare deals.</span>
+            <Link
+              to="/onboarding"
+              className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
+            >
+              Set up &rarr;
             </Link>
           </div>
         ) : (

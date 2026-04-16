@@ -76,19 +76,23 @@ export function DealsPage() {
   const topLevelIds: string[] = ['fresh', 'long-life', 'non-food']
   const browseIds = BROWSE_CATEGORIES.map((c) => c.id)
 
+  // Normalise URL alias: ?category=household → non-food
+  const normalisedCategory = urlCategory === 'household' ? 'non-food' : urlCategory
+
   // Determine active top-level tab
   const activeTopLevel: Category | 'all' =
-    urlCategory && topLevelIds.includes(urlCategory)
-      ? urlCategory as Category
+    normalisedCategory && topLevelIds.includes(normalisedCategory)
+      ? normalisedCategory as Category
       : 'all'
 
-  // Determine active browse sub-filter
+  // Determine active browse sub-filter (also accept 'other-*' synthetic keys)
+  const isValidSub = (s: string) => browseIds.includes(s as BrowseCategory) || s.startsWith('other-')
   const activeSub: BrowseCategory | null =
-    urlSub && browseIds.includes(urlSub as BrowseCategory)
+    urlSub && isValidSub(urlSub)
       ? urlSub as BrowseCategory
       // Backward compat: ?category=fruits-vegetables (browse ID without top param)
-      : urlCategory && browseIds.includes(urlCategory as BrowseCategory)
-        ? urlCategory as BrowseCategory
+      : normalisedCategory && browseIds.includes(normalisedCategory as BrowseCategory)
+        ? normalisedCategory as BrowseCategory
         : null
 
   // Active store filters — parse from URL or default to Migros + Coop
@@ -180,25 +184,47 @@ export function DealsPage() {
     if (!deals) return new Map<BrowseCategory, number>()
     const counts = new Map<BrowseCategory, number>()
     for (const deal of deals) {
+      let matched = false
       for (const cat of BROWSE_CATEGORIES) {
         if (matchDealToSubCategories(deal, cat.subCategories)) {
           counts.set(cat.id, (counts.get(cat.id) ?? 0) + 1)
+          matched = true
           break
         }
+      }
+      // Count uncategorised deals per top-level category using a synthetic key
+      if (!matched && deal.category) {
+        const otherKey = `other-${deal.category}` as BrowseCategory
+        counts.set(otherKey, (counts.get(otherKey) ?? 0) + 1)
       }
     }
     return counts
   }, [deals])
 
-  // Store deal counts (for pills)
+  // Store deal counts (for pills) — filtered by active category/subcategory
   const storeCounts = useMemo(() => {
     if (!deals) return new Map<Store, number>()
+    let subset = deals
+
+    // Filter by top-level category
+    if (inferredTopLevel !== 'all') {
+      subset = subset.filter((d) => d.category === inferredTopLevel)
+    }
+
+    // Filter by browse sub-category
+    if (activeSub) {
+      const cat = BROWSE_CATEGORIES.find((c) => c.id === activeSub)
+      if (cat) {
+        subset = subset.filter((d) => matchDealToSubCategories(d, cat.subCategories))
+      }
+    }
+
     const counts = new Map<Store, number>()
-    for (const deal of deals) {
+    for (const deal of subset) {
       counts.set(deal.store, (counts.get(deal.store) ?? 0) + 1)
     }
     return counts
-  }, [deals])
+  }, [deals, inferredTopLevel, activeSub])
 
   // ── Filter and sort deals ──
   const filteredDeals = useMemo(() => {
@@ -212,9 +238,17 @@ export function DealsPage() {
 
     // Apply browse sub-filter
     if (activeSub) {
-      const cat = BROWSE_CATEGORIES.find((c) => c.id === activeSub)
-      if (cat) {
-        filtered = filtered.filter((d) => matchDealToSubCategories(d, cat.subCategories))
+      if (activeSub.startsWith('other-')) {
+        // "Other" pill: deals that don't match any defined subcategory for this top-level
+        const allSubCats = BROWSE_CATEGORIES
+          .filter((c) => c.topCategory === inferredTopLevel)
+          .flatMap((c) => c.subCategories)
+        filtered = filtered.filter((d) => !matchDealToSubCategories(d, allSubCats))
+      } else {
+        const cat = BROWSE_CATEGORIES.find((c) => c.id === activeSub)
+        if (cat) {
+          filtered = filtered.filter((d) => matchDealToSubCategories(d, cat.subCategories))
+        }
       }
     }
 
@@ -419,6 +453,30 @@ export function DealsPage() {
                 </button>
               )
             })}
+            {/* "Other" pill for uncategorised deals within this top-level */}
+            {inferredTopLevel !== 'all' && (() => {
+              const otherKey = `other-${inferredTopLevel}` as BrowseCategory
+              const otherCount = browseCounts.get(otherKey) ?? 0
+              if (otherCount === 0) return null
+              return (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSub === otherKey}
+                  tabIndex={activeSub === otherKey ? 0 : -1}
+                  data-tab-group="browse"
+                  onClick={() => setSubFilter(otherKey)}
+                  onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
+                  className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    activeSub === otherKey
+                      ? 'bg-pill-active-bg text-pill-active-text'
+                      : 'border border-border bg-pill-bg text-current hover:border-accent'
+                  }`}
+                >
+                  📦 Other ({otherCount})
+                </button>
+              )
+            })()}
           </div>
         </div>
       )}
@@ -434,13 +492,14 @@ export function DealsPage() {
             const meta = STORE_META[store]
             const count = storeCounts.get(store) ?? 0
             const isActive = activeStores.has(store)
+            const isEmpty = count === 0
               return (
                 <button
                   key={store}
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => toggleStore(store)}
-                  className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white"
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white${isEmpty && !isActive ? ' opacity-40' : ''}`}
                   style={isActive
                     ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                     : { color: meta.hexText, borderColor: meta.hexText }}
@@ -463,8 +522,13 @@ export function DealsPage() {
       {isFilterActive && (
         <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
           <span className="text-sm text-muted">
-            Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}
-            {isStoreFilterActive && ` from ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`}
+            {viewMode === 'compare'
+              ? filteredComparisons.length > 0
+                ? `${filteredComparisons.length} ${activeLabel} product${filteredComparisons.length !== 1 ? 's' : ''} available for comparison`
+                : `No ${activeLabel} deals available for comparison across ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`
+              : <>Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}
+                {isStoreFilterActive && ` from ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`}</>
+            }
           </span>
           <button
             type="button"
