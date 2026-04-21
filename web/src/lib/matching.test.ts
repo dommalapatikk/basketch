@@ -23,6 +23,8 @@ function makeProduct(overrides: Partial<ProductRow> = {}): ProductRow {
     source_name: 'test product',
     regular_price: null,
     price_updated_at: null,
+    offer_valid_from: null,
+    offer_valid_to: null,
     first_seen_at: '2026-04-10T00:00:00Z',
     updated_at: '2026-04-10T00:00:00Z',
     ...overrides,

@@ -11,6 +11,8 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'non-food', label: 'Household' },
 ]
 
+import { Link } from 'react-router-dom'
+
 import { useActiveDeals, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
 import { useBasketContext } from '../lib/basket-context'
 import { fetchLatestPipelineRun } from '../lib/queries'
@@ -21,9 +23,9 @@ import { DealCompareRow } from '../components/DealCompareRow'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
+import { ShareButton } from '../components/ShareButton'
 
 const INITIAL_SHOW = 50
-const MAX_COMPARE_STORES = 3
 
 function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boolean {
   return deal.sub_category != null && subCategories.includes(deal.sub_category)
@@ -51,14 +53,13 @@ export function DealsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   // View mode: 'list' (flat deals) or 'compare' (side-by-side)
-  const [viewMode, setViewMode] = useState<'list' | 'compare'>('compare')
+  const [viewMode, setViewMode] = useState<'list' | 'compare'>('list')
+
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Basket for "add to list" buttons
   const { basketId } = useBasketContext()
   const { data: basketItems, refetch: refetchBasket } = useBasketItems(basketId ?? undefined)
-
-  // Store limit warning
-  const [storeLimit, setStoreLimit] = useState(false)
 
   // Show count for infinite scroll
   const [showCount, setShowCount] = useState(INITIAL_SHOW)
@@ -147,16 +148,10 @@ export function DealsPage() {
     setShowCount(INITIAL_SHOW)
     const next = new Set(activeStores)
     if (next.has(store)) {
-      // Don't allow deselecting all stores
       if (next.size === 1) return
       next.delete(store)
-      setStoreLimit(false)
-    } else if (next.size >= MAX_COMPARE_STORES) {
-      setStoreLimit(true)
-      return
     } else {
       next.add(store)
-      setStoreLimit(false)
     }
     const categoryParams: Record<string, string> = {}
     if (urlCategory) categoryParams['category'] = urlCategory
@@ -255,9 +250,15 @@ export function DealsPage() {
     // Apply store filter
     filtered = filtered.filter((d) => activeStores.has(d.store))
 
+    // Apply search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      filtered = filtered.filter((d) => d.product_name.toLowerCase().includes(q))
+    }
+
     // Sort by discount % descending
     return [...filtered].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))
-  }, [deals, inferredTopLevel, activeSub, activeStores])
+  }, [deals, inferredTopLevel, activeSub, activeStores, searchQuery])
 
   // ── Labels ──
   const topLevelLabel = inferredTopLevel !== 'all'
@@ -342,6 +343,7 @@ export function DealsPage() {
         <div className="flex rounded-full border border-border bg-surface p-0.5">
           <button
             type="button"
+            aria-pressed={viewMode === 'compare'}
             onClick={() => setViewMode('compare')}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               viewMode === 'compare' ? 'bg-accent text-white' : 'text-muted hover:text-current'
@@ -351,6 +353,7 @@ export function DealsPage() {
           </button>
           <button
             type="button"
+            aria-pressed={viewMode === 'list'}
             onClick={() => setViewMode('list')}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               viewMode === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-current'
@@ -498,8 +501,9 @@ export function DealsPage() {
                   key={store}
                   type="button"
                   aria-pressed={isActive}
+                  disabled={isEmpty && !isActive}
                   onClick={() => toggleStore(store)}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white${isEmpty && !isActive ? ' opacity-40' : ''}`}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white${isEmpty && !isActive ? ' opacity-40 cursor-not-allowed' : ''}`}
                   style={isActive
                     ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
                     : { color: meta.hexText, borderColor: meta.hexText }}
@@ -511,12 +515,27 @@ export function DealsPage() {
           </div>
         </div>
 
-      {/* Store limit message */}
-      {storeLimit && (
-        <div className="mb-2 rounded-md bg-accent-light px-3 py-2 text-center text-sm text-accent">
-          You can compare up to {MAX_COMPARE_STORES} stores at a time. Deselect one to add another.
-        </div>
-      )}
+      {/* Search bar */}
+      <div className="mb-3 relative">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => { setSearchQuery(e.target.value); setShowCount(INITIAL_SHOW) }}
+          placeholder="Search deals…"
+          aria-label="Search deals"
+          className="w-full rounded-md border border-border bg-surface py-2 pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-current"
+          >
+            ✕
+          </button>
+        )}
+      </div>
 
       {/* Active filter banner */}
       {isFilterActive && (
@@ -579,7 +598,7 @@ export function DealsPage() {
             </div>
           )}
           {hasResults && (
-            <div className="space-y-2">
+            <div className="space-y-2 pb-20">
               {visibleDeals.map((deal) => (
                 <DealCard
                   key={deal.id}
@@ -587,6 +606,7 @@ export function DealsPage() {
                   store={deal.store}
                   basketItems={basketItems ?? undefined}
                   onItemAdded={refetchBasket}
+                  onItemRemoved={refetchBasket}
                 />
               ))}
               {remaining > 0 && (
@@ -603,6 +623,26 @@ export function DealsPage() {
         </>
       )}
       </div>
+
+      {/* Sticky bottom bar — my list */}
+      {(basketItems?.length ?? 0) > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-white px-4 py-3 shadow-md">
+          <div className="mx-auto flex max-w-lg items-center gap-3">
+            <Link
+              to={`/compare/${basketId}`}
+              className="flex-1 text-sm font-medium text-accent hover:underline"
+            >
+              {basketItems?.length} item{basketItems?.length !== 1 ? 's' : ''} in your list →
+            </Link>
+            <ShareButton
+              title="My grocery deals — basketch"
+              text="Check out my split shopping list for Swiss grocery stores"
+            >
+              Share list
+            </ShareButton>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

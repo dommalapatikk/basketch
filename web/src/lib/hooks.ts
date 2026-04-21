@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useCachedQuery } from './use-cached-query'
-import { buildDealComparisons } from './matching'
+import { buildDealComparisons, matchFavoritesByCategory } from './matching'
+import { readCategoryOverrides } from './category-overrides'
 import {
   createBasket,
   fetchActiveDeals,
@@ -18,8 +19,8 @@ const BASE_TITLE = 'basketch'
 
 export function usePageTitle(subtitle?: string) {
   useEffect(() => {
-    document.title = subtitle ? `${subtitle} | ${BASE_TITLE}` : `${BASE_TITLE} — Which store wins this week?`
-    return () => { document.title = `${BASE_TITLE} — Which store wins this week?` }
+    document.title = subtitle ? `${subtitle} | ${BASE_TITLE}` : `${BASE_TITLE} | Which store wins this week?`
+    return () => { document.title = `${BASE_TITLE} | Which store wins this week?` }
   }, [subtitle])
 }
 
@@ -31,6 +32,12 @@ export function useActiveDeals() {
 }
 
 export function useBasketItems(basketId: string | undefined) {
+  useEffect(() => {
+    if (basketId) {
+      try { localStorage.removeItem('bsk:basket:none:items') } catch { /* ignore */ }
+    }
+  }, [basketId])
+
   return useCachedQuery(
     `basket:${basketId ?? 'none'}:items`,
     () => {
@@ -100,6 +107,26 @@ export function useBasketId() {
   }, [])
 
   return { basketId, getOrCreate }
+}
+
+export function useCategoryMatches(basketId: string | undefined) {
+  const { data: items, loading: itemsLoading, error: itemsError, refetch: refetchItems } = useBasketItems(basketId)
+  const { data: deals, loading: dealsLoading, error: dealsError } = useActiveDeals()
+  const { data: productGroups, loading: groupsLoading, error: groupsError } = useProductGroups()
+
+  const result = useMemo(() => {
+    if (!items?.length || !deals?.length || !productGroups) return null
+    return matchFavoritesByCategory(items, deals, productGroups, readCategoryOverrides())
+  }, [items, deals, productGroups])
+
+  return {
+    data: result,
+    items: items ?? [],
+    itemCount: items?.length ?? 0,
+    loading: itemsLoading || dealsLoading || groupsLoading,
+    error: itemsError || dealsError || groupsError,
+    refetch: refetchItems,
+  }
 }
 
 export function useDealComparisons() {

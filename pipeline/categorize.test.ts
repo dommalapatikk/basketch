@@ -139,6 +139,26 @@ describe('categorizeDeal', () => {
     })
   })
 
+  describe('false positive prevention', () => {
+    it('does NOT categorize dental products as meat', () => {
+      const mouthwash = makeDeal({ productName: 'meridol mundspülung zahnfleischschutz' })
+      const result1 = categorizeDeal(mouthwash)
+      expect(result1.subCategory).toBe('personal-care')
+      expect(result1.category).toBe('non-food')
+
+      const toothpaste = makeDeal({ productName: 'meridol zahnpasta' })
+      const result2 = categorizeDeal(toothpaste)
+      expect(result2.subCategory).toBe('personal-care')
+      expect(result2.category).toBe('non-food')
+    })
+
+    it('still categorizes real meat products correctly', () => {
+      const deal = makeDeal({ productName: 'rindfleisch 500g' })
+      const result = categorizeDeal(deal)
+      expect(result.subCategory).toBe('meat')
+    })
+  })
+
   describe('first match wins', () => {
     it('matches fresh before non-food for a product with both keywords', () => {
       // 'milch' is in fresh > dairy rules, checked before non-food

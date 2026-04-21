@@ -2,7 +2,10 @@
 
 import type {
   BasketItem,
+  BrowseCategory,
   Category,
+  CategoryMatch,
+  CategoryMatchResult,
   DealComparison,
   DealComparisonResult,
   DealRow,
@@ -14,7 +17,7 @@ import type {
   Store,
   StoreMatch,
 } from '@shared/types'
-import { ALL_STORES } from '@shared/types'
+import { ALL_STORES, BROWSE_CATEGORIES } from '@shared/types'
 
 /**
  * Check if keyword matches a product name with word-boundary awareness.
@@ -597,4 +600,273 @@ export function splitShoppingList(comparisons: FavoriteComparison[]): {
   }
 
   return { byStore, noDeals }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Category-based matching
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Fallback keyword → BrowseCategory map for custom items without a product group.
+ * Covers common German grocery keywords. English variants included for items
+ * users may type in English.
+ */
+const KEYWORD_BROWSE_CATEGORY_MAP: Record<string, BrowseCategory> = {
+  // Fruits & Vegetables
+  'tomate': 'fruits-vegetables', 'tomaten': 'fruits-vegetables',
+  'tomato': 'fruits-vegetables', 'tomatoes': 'fruits-vegetables',
+  'zwiebel': 'fruits-vegetables', 'zwiebeln': 'fruits-vegetables',
+  'onion': 'fruits-vegetables', 'onions': 'fruits-vegetables',
+  'karotte': 'fruits-vegetables', 'karotten': 'fruits-vegetables',
+  'rüebli': 'fruits-vegetables', 'carrot': 'fruits-vegetables', 'carrots': 'fruits-vegetables',
+  'kartoffel': 'fruits-vegetables', 'kartoffeln': 'fruits-vegetables',
+  'potato': 'fruits-vegetables', 'potatoes': 'fruits-vegetables',
+  'salat': 'fruits-vegetables', 'lattich': 'fruits-vegetables',
+  'lettuce': 'fruits-vegetables', 'spinat': 'fruits-vegetables', 'spinach': 'fruits-vegetables',
+  'paprika': 'fruits-vegetables', 'pepper': 'fruits-vegetables', 'peppers': 'fruits-vegetables',
+  'zucchini': 'fruits-vegetables', 'gurke': 'fruits-vegetables', 'gurken': 'fruits-vegetables',
+  'cucumber': 'fruits-vegetables', 'champignon': 'fruits-vegetables', 'pilze': 'fruits-vegetables',
+  'mushroom': 'fruits-vegetables', 'mushrooms': 'fruits-vegetables',
+  'apfel': 'fruits-vegetables', 'äpfel': 'fruits-vegetables',
+  'apple': 'fruits-vegetables', 'apples': 'fruits-vegetables',
+  'banane': 'fruits-vegetables', 'bananen': 'fruits-vegetables',
+  'banana': 'fruits-vegetables', 'bananas': 'fruits-vegetables',
+  'orange': 'fruits-vegetables', 'orangen': 'fruits-vegetables',
+  'zitrone': 'fruits-vegetables', 'zitronen': 'fruits-vegetables', 'lemon': 'fruits-vegetables',
+  'erdbeere': 'fruits-vegetables', 'erdbeeren': 'fruits-vegetables',
+  'strawberry': 'fruits-vegetables', 'strawberries': 'fruits-vegetables',
+  'traube': 'fruits-vegetables', 'trauben': 'fruits-vegetables',
+  'grape': 'fruits-vegetables', 'grapes': 'fruits-vegetables',
+  'avocado': 'fruits-vegetables', 'avocados': 'fruits-vegetables',
+  'knoblauch': 'fruits-vegetables', 'garlic': 'fruits-vegetables',
+  'broccoli': 'fruits-vegetables', 'blumenkohl': 'fruits-vegetables', 'cauliflower': 'fruits-vegetables',
+  'lauch': 'fruits-vegetables', 'leek': 'fruits-vegetables',
+  'obst': 'fruits-vegetables', 'gemüse': 'fruits-vegetables',
+  'fruit': 'fruits-vegetables', 'fruits': 'fruits-vegetables', 'vegetables': 'fruits-vegetables',
+
+  // Meat & Fish
+  'poulet': 'meat-fish', 'huhn': 'meat-fish', 'chicken': 'meat-fish',
+  'rind': 'meat-fish', 'rindfleisch': 'meat-fish', 'beef': 'meat-fish',
+  'schwein': 'meat-fish', 'schweinefleisch': 'meat-fish', 'pork': 'meat-fish',
+  'lamm': 'meat-fish', 'lammfleisch': 'meat-fish', 'lamb': 'meat-fish',
+  'hackfleisch': 'meat-fish', 'minced': 'meat-fish', 'mince': 'meat-fish',
+  'wurst': 'meat-fish', 'würste': 'meat-fish', 'sausage': 'meat-fish', 'sausages': 'meat-fish',
+  'speck': 'meat-fish', 'bacon': 'meat-fish',
+  'schinken': 'meat-fish', 'ham': 'meat-fish',
+  'lachs': 'meat-fish', 'salmon': 'meat-fish',
+  'thunfisch': 'meat-fish', 'tuna': 'meat-fish',
+  'fisch': 'meat-fish', 'fish': 'meat-fish',
+  'shrimps': 'meat-fish', 'crevetten': 'meat-fish', 'shrimp': 'meat-fish',
+  'fleisch': 'meat-fish', 'meat': 'meat-fish',
+
+  // Dairy & Eggs
+  'milch': 'dairy', 'milk': 'dairy',
+  'butter': 'dairy',
+  'käse': 'dairy', 'cheese': 'dairy',
+  'joghurt': 'dairy', 'yogurt': 'dairy', 'yoghurt': 'dairy',
+  'rahm': 'dairy', 'sahne': 'dairy', 'cream': 'dairy',
+  'quark': 'dairy', 'skyr': 'dairy',
+  'mozzarella': 'dairy', 'parmesan': 'dairy', 'gruyère': 'dairy',
+  'ei': 'dairy', 'eier': 'dairy', 'egg': 'dairy', 'eggs': 'dairy',
+
+  // Bakery
+  'brot': 'bakery', 'bread': 'bakery',
+  'brötchen': 'bakery', 'roll': 'bakery', 'rolls': 'bakery',
+  'gipfeli': 'bakery', 'croissant': 'bakery', 'croissants': 'bakery',
+  'zopf': 'bakery', 'toast': 'bakery',
+  'baguette': 'bakery',
+
+  // Snacks & Sweets
+  'schokolade': 'snacks-sweets', 'chocolate': 'snacks-sweets',
+  'chips': 'snacks-sweets', 'crisps': 'snacks-sweets',
+  'nüsse': 'snacks-sweets', 'nuts': 'snacks-sweets', 'mandeln': 'snacks-sweets',
+  'kekse': 'snacks-sweets', 'cookies': 'snacks-sweets', 'biscuits': 'snacks-sweets',
+  'kuchen': 'snacks-sweets', 'cake': 'snacks-sweets',
+  'bonbons': 'snacks-sweets', 'sweets': 'snacks-sweets', 'candy': 'snacks-sweets',
+  'riegel': 'snacks-sweets', 'bar': 'snacks-sweets',
+  'popcorn': 'snacks-sweets', 'gummibären': 'snacks-sweets',
+
+  // Pasta, Rice & More
+  'pasta': 'pasta-rice-cereals', 'spaghetti': 'pasta-rice-cereals',
+  'nudeln': 'pasta-rice-cereals', 'noodles': 'pasta-rice-cereals',
+  'reis': 'pasta-rice-cereals', 'rice': 'pasta-rice-cereals',
+  'müsli': 'pasta-rice-cereals', 'muesli': 'pasta-rice-cereals', 'granola': 'pasta-rice-cereals',
+  'haferflocken': 'pasta-rice-cereals', 'oats': 'pasta-rice-cereals',
+  'cornflakes': 'pasta-rice-cereals', 'cereal': 'pasta-rice-cereals', 'cereals': 'pasta-rice-cereals',
+  'quinoa': 'pasta-rice-cereals', 'couscous': 'pasta-rice-cereals',
+
+  // Drinks
+  'wasser': 'drinks', 'water': 'drinks',
+  'kaffee': 'drinks', 'coffee': 'drinks',
+  'tee': 'drinks', 'tea': 'drinks',
+  'saft': 'drinks', 'juice': 'drinks',
+  'bier': 'drinks', 'beer': 'drinks',
+  'wein': 'drinks', 'wine': 'drinks',
+  'cola': 'drinks', 'limonade': 'drinks', 'lemonade': 'drinks',
+  'smoothie': 'drinks', 'getränk': 'drinks', 'getränke': 'drinks', 'drink': 'drinks', 'drinks': 'drinks',
+  'mineralwasser': 'drinks', 'espresso': 'drinks', 'cappuccino': 'drinks',
+
+  // Ready Meals & Frozen
+  'pizza': 'ready-meals-frozen', 'tiefkühl': 'ready-meals-frozen', 'frozen': 'ready-meals-frozen',
+  'glacé': 'ready-meals-frozen', 'glace': 'ready-meals-frozen',
+  'ice cream': 'ready-meals-frozen', 'icecream': 'ready-meals-frozen',
+  'suppe': 'ready-meals-frozen', 'soup': 'ready-meals-frozen',
+  'fertiggericht': 'ready-meals-frozen', 'ready meal': 'ready-meals-frozen',
+
+  // Pantry & Canned
+  'zucker': 'pantry-canned', 'sugar': 'pantry-canned',
+  'mehl': 'pantry-canned', 'flour': 'pantry-canned',
+  'öl': 'pantry-canned', 'oil': 'pantry-canned', 'olivenöl': 'pantry-canned',
+  'essig': 'pantry-canned', 'vinegar': 'pantry-canned',
+  'konfitüre': 'pantry-canned', 'jam': 'pantry-canned', 'marmelade': 'pantry-canned',
+  'honig': 'pantry-canned', 'honey': 'pantry-canned',
+  'konserve': 'pantry-canned', 'konserven': 'pantry-canned', 'canned': 'pantry-canned',
+  'dose': 'pantry-canned', 'dosen': 'pantry-canned',
+  'ketchup': 'pantry-canned', 'senf': 'pantry-canned', 'mustard': 'pantry-canned',
+  'soja': 'pantry-canned', 'soy': 'pantry-canned',
+  'linsen': 'pantry-canned', 'lentils': 'pantry-canned',
+  'bohnen': 'pantry-canned', 'beans': 'pantry-canned',
+  'tomatenmark': 'pantry-canned', 'tomato paste': 'pantry-canned',
+
+  // Home & Cleaning
+  'waschmittel': 'home', 'laundry': 'home', 'detergent': 'home',
+  'weichspüler': 'home', 'fabric softener': 'home',
+  'reiniger': 'home', 'cleaner': 'home', 'cleaning': 'home',
+  'toilettenpapier': 'home', 'toilet paper': 'home',
+  'küchenpapier': 'home', 'kitchen paper': 'home', 'kitchen roll': 'home',
+  'schwamm': 'home', 'sponge': 'home',
+  'müllsäcke': 'home', 'bin bags': 'home', 'garbage bags': 'home',
+  'haushalt': 'home', 'household': 'home',
+
+  // Beauty & Hygiene
+  'shampoo': 'beauty-hygiene',
+  'duschgel': 'beauty-hygiene', 'shower gel': 'beauty-hygiene',
+  'deodorant': 'beauty-hygiene', 'deo': 'beauty-hygiene',
+  'zahnpasta': 'beauty-hygiene', 'toothpaste': 'beauty-hygiene',
+  'zahnbürste': 'beauty-hygiene', 'toothbrush': 'beauty-hygiene',
+  'seife': 'beauty-hygiene', 'soap': 'beauty-hygiene',
+  'creme': 'beauty-hygiene', 'körpercreme': 'beauty-hygiene',
+  'rasierer': 'beauty-hygiene', 'razor': 'beauty-hygiene',
+  'tampons': 'beauty-hygiene', 'binden': 'beauty-hygiene',
+  'pflege': 'beauty-hygiene', 'hygiene': 'beauty-hygiene',
+}
+
+/**
+ * Map a sub_category string (from DB) to a BrowseCategory.
+ */
+function subCategoryToBrowseCategory(subCategory: string | null): BrowseCategory | null {
+  if (!subCategory) return null
+  const found = BROWSE_CATEGORIES.find((bc) => bc.subCategories.includes(subCategory))
+  return found?.id ?? null
+}
+
+/**
+ * Resolve a BasketItem to its BrowseCategory.
+ * 1. If item has productGroupId, look up the group's sub_category.
+ * 2. Fall back to keyword lookup table.
+ * Returns null if no mapping found.
+ */
+export function resolveBrowseCategory(
+  item: BasketItem,
+  productGroups: ProductGroupRow[],
+  overrides?: Record<string, BrowseCategory>,
+): BrowseCategory | null {
+  if (overrides?.[item.id]) return overrides[item.id]!
+
+  if (item.productGroupId) {
+    const group = productGroups.find((g) => g.id === item.productGroupId)
+    const bc = subCategoryToBrowseCategory(group?.sub_category ?? null)
+    if (bc) return bc
+  }
+
+  // Keyword fallback: check keyword first, then label
+  const kw = item.keyword.toLowerCase().trim()
+  if (KEYWORD_BROWSE_CATEGORY_MAP[kw]) return KEYWORD_BROWSE_CATEGORY_MAP[kw]!
+
+  const label = item.label.toLowerCase().trim()
+  if (KEYWORD_BROWSE_CATEGORY_MAP[label]) return KEYWORD_BROWSE_CATEGORY_MAP[label]!
+
+  return null
+}
+
+/**
+ * Group user items by BrowseCategory and attach all deals in each category.
+ * Main function for the category-based My List view.
+ *
+ * Items that cannot be resolved to a BrowseCategory go into unmappedItems.
+ * Multiple items mapping to the same BrowseCategory are grouped together.
+ */
+export function matchFavoritesByCategory(
+  favorites: BasketItem[],
+  deals: DealRow[],
+  productGroups: ProductGroupRow[],
+  overrides?: Record<string, BrowseCategory>,
+): CategoryMatchResult {
+  // Resolve each item to a BrowseCategory
+  const resolved = favorites.map((item) => ({
+    item,
+    browseCategory: resolveBrowseCategory(item, productGroups, overrides),
+  }))
+
+  const unmappedItems = resolved
+    .filter((r) => r.browseCategory === null)
+    .map((r) => r.item)
+
+  // Group items by BrowseCategory
+  const itemsByCategory = new Map<BrowseCategory, BasketItem[]>()
+  for (const { item, browseCategory } of resolved) {
+    if (!browseCategory) continue
+    const arr = itemsByCategory.get(browseCategory) ?? []
+    arr.push(item)
+    itemsByCategory.set(browseCategory, arr)
+  }
+
+  // Pre-build deal lookup: sub_category → deals
+  const dealsBySubCategory = new Map<string, DealRow[]>()
+  for (const deal of deals) {
+    if (!deal.sub_category) continue
+    const arr = dealsBySubCategory.get(deal.sub_category) ?? []
+    arr.push(deal)
+    dealsBySubCategory.set(deal.sub_category, arr)
+  }
+
+  // Build CategoryMatch entries in BROWSE_CATEGORIES order (stable)
+  const categories: CategoryMatch[] = []
+  for (const catInfo of BROWSE_CATEGORIES) {
+    const sourceItems = itemsByCategory.get(catInfo.id)
+    if (!sourceItems || sourceItems.length === 0) continue
+
+    // Collect all deals for this category from all stores
+    const allCategoryDeals: DealRow[] = []
+    for (const sub of catInfo.subCategories) {
+      const dealsForSub = dealsBySubCategory.get(sub) ?? []
+      allCategoryDeals.push(...dealsForSub)
+    }
+
+    // Group by store
+    const dealsByStore: Partial<Record<Store, DealRow[]>> = {}
+    for (const deal of allCategoryDeals) {
+      const arr = dealsByStore[deal.store] ?? []
+      arr.push(deal)
+      dealsByStore[deal.store] = arr
+    }
+
+    // Sort each store's deals by discount % descending
+    for (const store of ALL_STORES) {
+      if (dealsByStore[store]) {
+        dealsByStore[store]!.sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))
+      }
+    }
+
+    categories.push({
+      browseCategory: catInfo.id,
+      browseCategoryLabel: catInfo.label,
+      browseCategoryEmoji: catInfo.emoji,
+      sourceItems,
+      dealsByStore,
+      totalDealCount: allCategoryDeals.length,
+    })
+  }
+
+  return { categories, unmappedItems }
 }

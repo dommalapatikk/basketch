@@ -6,7 +6,7 @@
 | **Date**     | 2026-04-10                                 |
 | **Version**  | 1.0                                        |
 | **Status**   | Draft                                      |
-| **Product**  | basketch -- Personalized Swiss grocery deal comparison (Migros vs Coop) |
+| **Product**  | basketch -- Personalized Swiss grocery deal comparison (7 stores) |
 | **Scope**    | MVP -- Bern region only                    |
 
 ---
@@ -18,8 +18,8 @@
 |                               |                               |                               |
 |  8. KEY PARTNERSHIPS          |  7. KEY ACTIVITIES            |  2. VALUE PROPOSITIONS        |
 |                               |                               |                               |
-|  - migros-api-wrapper (npm)   |  - Weekly data pipeline       |  "Which of MY products are    |
-|  - aktionis.ch (Coop data)    |    (Wed 21:00 UTC)            |   on sale this week, and      |
+|  - aktionis.ch (all 7 stores) |  - Weekly data pipeline       |  "Which of MY products are    |
+|                               |    (Wed 21:00 UTC)            |   on sale this week, and      |
 |  - Supabase (DB, free tier)   |  - Favorites matching         |   where should I buy each?"   |
 |  - Vercel (hosting, free)     |  - Category mapping           |                               |
 |  - GitHub (CI/CD, free)       |  - SEO content generation     |  - Personalized, not generic  |
@@ -29,7 +29,7 @@
 |                               |                               |  - 45-sec setup via templates |
 |  6. KEY RESOURCES             |  4. CUSTOMER RELATIONSHIPS    |  - Saves CHF 20-40/month     |
 |                               |                               |                               |
-|  - Migros API + aktionis.ch   |  - Self-service               +-------------------------------+
+|  - aktionis.ch (7 stores)     |  - Self-service               +-------------------------------+
 |  - React/Vite + TS/Python     |  - Email as identifier        |                               |
 |  - Supabase + Vercel          |  - Weekly return habit         |  1. CUSTOMER SEGMENTS         |
 |  - Starter pack templates     |  - Future: Thu email alert     |                               |
@@ -80,9 +80,8 @@
 
 | Type                          | Why excluded                                                  |
 |-------------------------------|---------------------------------------------------------------|
-| Multi-store optimizers (5+)   | basketch only covers Migros and Coop -- not Aldi, Lidl, Denner |
-| Tourists / temporary visitors | No recurring shopping list to personalize                    |
 | Single-store-only shoppers    | No comparison needed if you never switch stores              |
+| Tourists / temporary visitors | No recurring shopping list to personalize                    |
 | Extreme couponers             | Need coupon stacking, loyalty point optimization -- out of scope |
 
 ### Scale
@@ -103,7 +102,7 @@
 | Value                        | Detail                                                        |
 |------------------------------|---------------------------------------------------------------|
 | Personalized                 | Starts with YOUR favorites, not 200+ random deals            |
-| Split shopping list          | "Buy these at Migros, buy these at Coop" -- one view         |
+| Split shopping list          | "Buy these at Migros, these at Coop, these at Denner" -- one view |
 | Zero friction                | No app install, no account creation, no login                |
 | 45-second setup              | Pick a starter pack template, customize with search, done    |
 | Weekly habit                 | Check once (Thursday evening or Saturday morning), shop smart all week |
@@ -135,7 +134,7 @@
 
 | Channel                     | Reach       | Cost   | Action                                    |
 |-----------------------------|-------------|--------|-------------------------------------------|
-| Weekly verdict pages        | Organic     | CHF 0  | "Migros vs Coop: this week's best deals"  |
+| Weekly verdict pages        | Organic     | CHF 0  | "Best grocery deals in Switzerland this week" |
 | Category comparison pages   | Organic     | CHF 0  | "Cheapest dairy in Bern this week"        |
 | Store comparison pages      | Organic     | CHF 0  | Long-tail SEO, fresh content every week   |
 
@@ -187,7 +186,7 @@ basketch is a **portfolio project**, not a business. Revenue is not the goal.
 | Stream                | Model                          | Feasibility         |
 |-----------------------|--------------------------------|---------------------|
 | Affiliate links       | Commission on click-through to store websites | Low -- Swiss stores don't have strong affiliate programs |
-| Premium features      | Add Aldi, Lidl, Denner for CHF X/month       | Medium -- only if free users demand it |
+| Premium features      | Advanced filters, price history, alerts        | Medium -- only if free users demand it |
 | Sponsored placements  | Brands pay to feature deals                   | Low -- requires significant user base |
 | Data insights         | Anonymized shopping pattern reports           | Very low -- requires scale |
 
@@ -199,10 +198,9 @@ These are listed for Canvas completeness only. None are planned or prioritized.
 
 ### Data Sources
 
-| Source                | Covers    | Method                       | Reliability        |
-|-----------------------|-----------|------------------------------|--------------------|
-| migros-api-wrapper    | Migros    | npm package, guest OAuth2    | High (official API wrapper) |
-| aktionis.ch           | Coop      | Public aggregator, scraping  | Medium (third-party, no SLA) |
+| Source                | Covers                                              | Method                      | Reliability                  |
+|-----------------------|-----------------------------------------------------|-----------------------------|------------------------------|
+| aktionis.ch           | All 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) | Public aggregator, scraping | Medium (third-party, no SLA) |
 
 ### Tech Stack
 
@@ -220,7 +218,7 @@ Curated product lists that let new users start with a useful favorites list in 4
 
 ### Domain Knowledge
 
-- Swiss grocery market structure (duopoly: Migros + Coop = ~70% market share)
+- Swiss grocery market structure (Migros + Coop = ~70% market share; basketch covers 7 stores including discounters)
 - Deal cycles: promotions run Thursday to Wednesday
 - Store geography: Bern region focus for MVP
 
@@ -234,7 +232,7 @@ The portfolio artifact itself: PRD, use cases, architecture, roadmap, this canva
 
 | Activity                | Frequency       | Detail                                           |
 |-------------------------|-----------------|--------------------------------------------------|
-| Data pipeline run       | Weekly (Wed 21:00 UTC) | Fetch Migros + Coop deals, categorize, store |
+| Data pipeline run       | Weekly (Wed 21:00 UTC) | Fetch all 7 stores from aktionis.ch, categorize, store |
 | Favorites matching      | On each user visit | Compare user favorites against active deals   |
 | Category mapping        | Ongoing         | Fresh / long-life / non-food classification      |
 | SEO content generation  | Weekly          | Auto-generated verdict pages from deal data      |
@@ -247,12 +245,12 @@ The portfolio artifact itself: PRD, use cases, architecture, roadmap, this canva
 Wednesday 21:00 UTC
         |
         v
-+------------------+     +------------------+
-| Fetch Migros API |     | Fetch aktionis   |
-| (migros-wrapper) |     | (Coop deals)     |
-+--------+---------+     +--------+---------+
-         |                         |
-         v                         v
++------------------------------------------+
+|       Fetch aktionis.ch                  |
+|  (all 7 stores in parallel via matrix)   |
++--------------------+---------------------+
+                     |
+                     v
 +------------------------------------------+
 |         Categorize + Normalize           |
 |    (fresh / long-life / non-food)        |
@@ -277,8 +275,7 @@ Wednesday 21:00 UTC
 
 | Partner               | Type              | Dependency Level | Risk if Lost                      |
 |-----------------------|-------------------|------------------|-----------------------------------|
-| migros-api-wrapper    | Open-source npm   | High             | No Migros data; need alternative  |
-| aktionis.ch           | Public aggregator | High             | No Coop data; need direct source  |
+| aktionis.ch           | Public aggregator | High             | No deal data for any store; need direct sources |
 | Supabase              | SaaS (free tier)  | Medium           | Migrate to another Postgres host  |
 | Vercel                | SaaS (free tier)  | Medium           | Migrate to Netlify or similar     |
 | GitHub                | SaaS (free tier)  | Low              | Standard Git, easily portable     |
@@ -321,7 +318,7 @@ Solo builder: Kiran Dommalapati (Senior PM, evenings and weekends). Not a moneta
 |--------------------------|--------------------|--------------------|--------------------|--------------------|---------------------|
 | **Core model**           | Your favorites vs deals | All deals, all stores | Digital flyers   | Shopping list app  | Recipe-based shopping |
 | **Personalization**      | Favorites-first    | None (browse all)  | None (browse flyers) | List-based, no deals | Recipe-based       |
-| **Split shopping list**  | Yes -- Migros vs Coop | No               | No                 | No                 | No                  |
+| **Split shopping list**  | Yes -- 7 stores    | No               | No                 | No                 | No                  |
 | **Setup time**           | 45 seconds (template) | 0 (but no personalization) | 0 (but no personalization) | Manual list building | Recipe selection   |
 | **Deal comparison**      | Side-by-side, your items | Per-store view | Per-store flyers  | No deal data       | No deal comparison  |
 | **Account required**     | Email only (no password) | No account     | No account         | Optional account   | Account required    |
@@ -332,7 +329,7 @@ Solo builder: Kiran Dommalapati (Senior PM, evenings and weekends). Not a moneta
 
 1. **Favorites-first, not deals-first.** Every other tool shows you ALL deals and asks you to find what matters. basketch starts with what you already buy and tells you where it is cheaper this week.
 
-2. **Split shopping list.** No other tool in Switzerland gives you a "buy this at Migros, buy that at Coop" split view based on your personal list.
+2. **Split shopping list.** No other tool in Switzerland gives you a per-store split view across 7 stores based on your personal list.
 
 3. **45-second onboarding.** Starter pack templates mean you get value on your first visit, not after manually adding 30 products.
 
@@ -346,8 +343,8 @@ Ranked by risk (highest first):
 
 | # | Assumption                                                     | Risk Level | Validation Method                        | Success Criteria                          |
 |---|----------------------------------------------------------------|------------|------------------------------------------|-------------------------------------------|
-| 1 | Users actually split shopping between Migros and Coop          | High       | User interviews + onboarding survey      | >60% of users shop at both stores weekly  |
-| 2 | Deal data from migros-api-wrapper and aktionis.ch is reliable and complete | High | Weekly data quality checks               | >90% accuracy vs manual flyer check      |
+| 1 | Users actually split shopping across multiple stores           | High       | User interviews + onboarding survey      | >60% of users shop at 2+ stores weekly   |
+| 2 | Deal data from aktionis.ch is reliable and complete across all 7 stores | High | Weekly data quality checks               | >90% accuracy vs manual flyer check      |
 | 3 | Users will return weekly to check deals                        | High       | Retention metrics (Week 1 vs Week 4)     | >40% weekly return rate after 4 weeks     |
 | 4 | Starter pack templates cover enough items to be useful on day 1 | Medium    | Template coverage analysis + user feedback | >70% of users find 5+ relevant items in their template |
 | 5 | CHF 20-40/month savings claim is realistic                     | Medium     | Savings calculation from actual deal data | Average basket shows >CHF 5/week in deal savings |
@@ -357,7 +354,7 @@ Ranked by risk (highest first):
 
 ### Riskiest Assumption
 
-**Assumption #1: Users actually split shopping between Migros and Coop.** If most people are loyal to one store regardless of deals, the entire value proposition collapses. This must be validated before investing in polish or growth.
+**Assumption #1: Users actually split shopping across multiple stores.** If most people are loyal to one store regardless of deals, the entire value proposition collapses. This must be validated before investing in polish or growth.
 
 ### Validation Timeline
 

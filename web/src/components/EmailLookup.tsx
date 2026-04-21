@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { lookupBasketByEmail } from '../lib/queries'
+import { useBasketContext } from '../lib/basket-context'
 import { Button } from './ui/Button'
 import { Input } from './ui/Input'
 
 export function EmailLookup() {
   const navigate = useNavigate()
+  const { setBasketId } = useBasketContext()
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
@@ -25,7 +27,7 @@ export function EmailLookup() {
       const basket = await lookupBasketByEmail(trimmed)
       if (basket) {
         setFound(true)
-        localStorage.setItem('basketch_favoriteId', basket.id)
+        setBasketId(basket.id)
         setTimeout(() => navigate(`/compare/${basket.id}`), 500)
       } else {
         setError('No list found for this email.')

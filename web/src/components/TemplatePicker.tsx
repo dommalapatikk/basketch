@@ -41,9 +41,13 @@ export function TemplatePicker(props: {
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold">Pick a starter pack</h2>
+      {props.onSkip && (
+        <Button variant="outline" fullWidth className="mb-4" onClick={props.onSkip} disabled={!!selectedId} type="button">
+          Build my own list
+        </Button>
+      )}
       <p className="mb-4 text-sm text-muted">
-        Choose a template to pre-fill your list. You can add or remove items next.
+        Or choose a starter pack to pre-fill your list. You can add or remove items next.
       </p>
       <div className="grid grid-cols-2 gap-3 max-[400px]:grid-cols-1">
         {packs.map((pack) => (
@@ -71,11 +75,6 @@ export function TemplatePicker(props: {
           </button>
         ))}
       </div>
-      {props.onSkip && (
-        <Button variant="outline" fullWidth className="mt-4" onClick={props.onSkip} disabled={!!selectedId} type="button">
-          Build my own list
-        </Button>
-      )}
     </div>
   )
 }

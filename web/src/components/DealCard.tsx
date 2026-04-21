@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { BasketItem, Category, DealRow, StarterPackItem, Store } from '@shared/types'
 import { STARTER_PACKS, STORE_META } from '@shared/types'
 
-import { addBasketItem } from '../lib/queries'
+import { addBasketItem, removeBasketItem } from '../lib/queries'
 import { useBasketContext } from '../lib/basket-context'
 import { useToast } from './Toast'
 import { matchRelevance } from '../lib/matching'
@@ -13,6 +13,7 @@ export interface DealCardProps {
   store: Store
   basketItems?: BasketItem[]
   onItemAdded?: () => void
+  onItemRemoved?: () => void
 }
 
 /**
@@ -56,7 +57,7 @@ function findKeywordForDeal(deal: DealRow): {
     }
   }
 
-  if (bestKeyword && bestScore >= 2) {
+  if (bestKeyword && bestScore >= 3) {
     return {
       keyword: bestKeyword.keyword,
       label: bestKeyword.label,
@@ -72,43 +73,61 @@ function findKeywordForDeal(deal: DealRow): {
   }
 }
 
+function formatValidRange(from: string, to: string | null): string | null {
+  if (!from) return null
+  try {
+    const f = new Date(from)
+    const t = to ? new Date(to) : null
+    const day = (d: Date) => d.getDate()
+    const mon = (d: Date) => d.toLocaleString('en', { month: 'short' })
+    if (!t) return `From ${day(f)} ${mon(f)}`
+    if (f.getMonth() === t.getMonth()) return `${day(f)}–${day(t)} ${mon(t)}`
+    return `${day(f)} ${mon(f)} – ${day(t)} ${mon(t)}`
+  } catch {
+    return null
+  }
+}
+
 export function DealCard(props: DealCardProps) {
-  const { deal, store, basketItems, onItemAdded } = props
+  const { deal, store, basketItems, onItemAdded, onItemRemoved } = props
   const storeHex = STORE_META[store].hex
-  const { getOrCreate } = useBasketContext()
+  const { getOrCreate, basketId } = useBasketContext()
   const toast = useToast()
 
-  const [adding, setAdding] = useState(false)
-  const [justAdded, setJustAdded] = useState(false)
-  const [addError, setAddError] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState(false)
 
   const meta = findKeywordForDeal(deal)
-  const alreadyInList = basketItems?.some((item) => item.keyword === meta.keyword) ?? false
+  const matchedItem = basketItems?.find((item) => item.keyword === meta.keyword) ?? null
+  const inList = matchedItem !== null
 
-  const showCheck = alreadyInList || justAdded
-
-  async function handleAdd() {
-    if (showCheck || adding) return
-    setAdding(true)
+  async function handleToggle() {
+    if (busy) return
+    setBusy(true)
+    setActionError(false)
     try {
-      setAddError(false)
-      const basketId = await getOrCreate()
-      await addBasketItem(basketId, {
-        keyword: meta.keyword,
-        label: meta.label,
-        category: deal.category as Category,
-        excludeTerms: meta.excludeTerms,
-        preferTerms: meta.preferTerms,
-      })
-      setJustAdded(true)
-      toast.show('Added to your list!')
-      onItemAdded?.()
-      setTimeout(() => setJustAdded(false), 2000)
+      if (inList && matchedItem) {
+        if (!basketId) { toast.show('Could not find your list — try refreshing'); throw new Error('no basketId') }
+        await removeBasketItem(basketId, matchedItem.id)
+        toast.show(`${meta.label} removed from list`)
+        onItemRemoved?.()
+      } else {
+        const bid = await getOrCreate()
+        await addBasketItem(bid, {
+          keyword: meta.keyword,
+          label: meta.label,
+          category: deal.category as Category,
+          excludeTerms: meta.excludeTerms,
+          preferTerms: meta.preferTerms,
+        })
+        toast.show(`${meta.label} added to list`)
+        onItemAdded?.()
+      }
     } catch {
-      setAddError(true)
-      setTimeout(() => setAddError(false), 2000)
+      setActionError(true)
+      setTimeout(() => setActionError(false), 2000)
     } finally {
-      setAdding(false)
+      setBusy(false)
     }
   }
 
@@ -156,31 +175,36 @@ export function DealCard(props: DealCardProps) {
             </span>
           )}
         </div>
+        {formatValidRange(deal.valid_from, deal.valid_to) && (
+          <p className="mt-0.5 text-[11px] text-muted">
+            Valid {formatValidRange(deal.valid_from, deal.valid_to)}
+          </p>
+        )}
       </div>
 
       <button
         type="button"
-        onClick={handleAdd}
-        disabled={showCheck || adding}
-        aria-label={showCheck ? 'Already in list' : `Add ${deal.product_name} to list`}
+        onClick={handleToggle}
+        disabled={busy}
+        aria-label={inList ? `Remove ${deal.product_name} from list` : `Add ${deal.product_name} to list`}
         className={`flex size-11 shrink-0 items-center justify-center self-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-          addError
+          actionError
             ? 'bg-error-light text-error'
-            : showCheck
-              ? 'bg-green-100 text-green-600'
+            : inList
+              ? 'bg-green-100 text-green-600 hover:bg-red-50 hover:text-red-500'
               : 'bg-gray-100 text-muted hover:bg-gray-200 hover:text-current'
         }`}
       >
-        {adding ? (
+        {busy ? (
           <svg className="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z" />
           </svg>
-        ) : addError ? (
+        ) : actionError ? (
           <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
-        ) : showCheck ? (
+        ) : inList ? (
           <svg className="size-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
           </svg>

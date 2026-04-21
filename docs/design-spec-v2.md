@@ -20,7 +20,7 @@
 7. Onboarding: removed 300ms auto-advance on pack selection, replaced with explicit "Next" button. Section 3.6.
 8. Skip navigation link added as first focusable element on every page. Section 8.1.
 9. Returning-user shortcut: "Welcome back" banner shown when localStorage has favoriteId. Section 1.2.
-10. Deals page: whole-page empty state for when both stores are empty after category filtering. Section 2.7.
+10. Deals page: whole-page empty state for when all active stores are empty after category filtering. Section 2.7.
 
 **Consider (10):**
 11. Share buttons consolidated: "Share verdict" on banner only, "Copy card" below Wordle card only. Section 1.1.
@@ -52,6 +52,21 @@ Production values after Round 2 review fixes:
 | `coop` | `#007a3d` | Store badges, backgrounds, buttons | 5.3:1 (pass AA) |
 | `coop-light` | `#e6f4ec` | Coop panel backgrounds | N/A (background) |
 | `coop-text` | `#006030` | Green text on light backgrounds | 5.0:1 on `#e6f4ec` |
+| `lidl` | `#015AA2` | Store badges, backgrounds, buttons | 4.6:1 (pass AA) |
+| `lidl-light` | `#E6EFF7` | LIDL panel backgrounds | N/A (background) |
+| `lidl-text` | `#014480` | Blue text on light backgrounds | 5.2:1 on `#E6EFF7` |
+| `aldi` | `#001E78` | Store badges, backgrounds, buttons | 11.5:1 (pass AA) |
+| `aldi-light` | `#E6E9F2` | ALDI panel backgrounds | N/A (background) |
+| `aldi-text` | `#001460` | Dark blue text on light backgrounds | 12.8:1 on `#E6E9F2` |
+| `denner` | `#E4332B` | Store badges, backgrounds, buttons | 4.6:1 (pass AA) |
+| `denner-light` | `#FDECEA` | Denner panel backgrounds | N/A (background) |
+| `denner-text` | `#B32821` | Red text on light backgrounds | 5.4:1 on `#FDECEA` |
+| `spar` | `#157946` | Store badges, backgrounds, buttons | 4.9:1 (pass AA) |
+| `spar-light` | `#E8F3ED` | SPAR panel backgrounds | N/A (background) |
+| `spar-text` | `#0F5C35` | Green text on light backgrounds | 5.6:1 on `#E8F3ED` |
+| `volg` | `#104680` | Store badges, backgrounds, buttons | 7.2:1 (pass AA) |
+| `volg-light` | `#E7EDF3` | Volg panel backgrounds | N/A (background) |
+| `volg-text` | `#0C3460` | Dark blue text on light backgrounds | 8.1:1 on `#E7EDF3` |
 | `bg` | `#FAFAFA` | Page background | N/A |
 | `surface` | `#FFFFFF` | Cards, panels, header | N/A |
 | `text` | `#1A1A1A` | Body text, headings | 17.5:1 (pass AA) |
@@ -95,7 +110,7 @@ The deals browsing page introduces a desktop breakpoint:
 |-----------|-------|-----------|
 | Mobile (default) | < 640px | Single column. 16px padding. Store sections stacked. |
 | Content max | 640px | Content caps at 640px, auto-centered. |
-| Desktop (deals only) | 768px+ | Side-by-side Migros/Coop columns on deals page. All other pages unchanged. |
+| Desktop (deals only) | 768px+ | N-store dynamic columns on deals page (one column per active store). All other pages unchanged. |
 
 ---
 
@@ -113,8 +128,8 @@ The home page is the first-visit experience. It delivers the "aha moment" with z
 |  Which store has better                  |
 |  promotions this week?                   |  <- H1, 28px, ExtraBold
 |                                          |
-|  Your weekly Migros vs Coop              |
-|  deals, compared in 5 seconds.           |  <- 16px, muted
+|  Swiss grocery deals from 7 stores,      |
+|  compared in 5 seconds.                  |  <- 16px, muted
 |                                          |
 +------------------------------------------+
 |  WEEKLY VERDICT                          |  <- Section label, 12px, uppercase
@@ -185,8 +200,8 @@ The home page is the first-visit experience. It delivers the "aha moment" with z
 +------------------------------------------+
 |  Deals updated: Thu 10 Apr               |  <- 12px, muted
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |  <- Footer, 12px, centered, muted
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |  <- Footer, 12px, centered, muted
 +------------------------------------------+
 ```
 
@@ -229,7 +244,7 @@ HomePage
 | Element | Text |
 |---------|------|
 | H1 | "Which store has better promotions this week?" |
-| Subtitle | "Your weekly Migros vs Coop deals, compared in 5 seconds." |
+| Subtitle | "Swiss grocery deals from 7 stores, compared in 5 seconds." |
 | Verdict label | "WEEKLY VERDICT" |
 | Verdict (example, normal) | "This week: **Migros** for Fresh, **Coop** for Household" |
 | Verdict (tie) | "Similar promotions at both stores this week" |
@@ -244,7 +259,7 @@ HomePage
 | Email lookup body | "Enter the email you saved it with." |
 | Find button | "Find" |
 | Data freshness | "Deals updated: Thu 10 Apr" |
-| Footer | "basketch -- your weekly promotions, compared. Migros vs Coop." |
+| Footer | "basketch -- Swiss grocery deals, compared." |
 
 ### 1.4 States
 
@@ -304,7 +319,7 @@ HomePage
 
 ## 2. Deals Browsing Page (`/deals`)
 
-The deals browsing page lets anyone browse all weekly promotions by sub-category, with Migros and Coop deals grouped separately. No setup required.
+The deals browsing page lets anyone browse all weekly promotions by sub-category, with deals grouped by store. Users filter stores via store pills (default: Migros, Coop, Denner). No setup required.
 
 ### 2.1 Layout (375px viewport)
 
@@ -353,14 +368,14 @@ The deals browsing page lets anyone browse all weekly promotions by sub-category
 |  ... more deal cards ...                 |
 |                                          |
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |
 +------------------------------------------+
 ```
 
 ### 2.2 Desktop Layout (768px+)
 
-On wider screens, the deals page uses a two-column layout:
+On wider screens, the deals page uses an N-store dynamic column layout (one column per active store filter):
 
 ```
 +----------------------------------------------------------+
@@ -476,8 +491,8 @@ Each deal card shows one promotion:
 **Empty category (one store):**
 - If a store has zero deals in the selected category, show the store section header normally, with centered muted text: "No [Store] deals in [category] this week". Do NOT collapse the empty section -- the user should see that the section exists but has no data.
 
-**Empty category (both stores):**
-- If both stores have zero deals in the selected category, show both empty store sections as above, plus a centered muted message above them: "No deals in [category] this week. Try another category." This provides a clear recovery path when the entire page is empty after filtering.
+**Empty category (all active stores):**
+- If all active stores have zero deals in the selected category, show all empty store sections as above, plus a centered muted message above them: "No deals in [category] this week. Try another category." This provides a clear recovery path when the entire page is empty after filtering.
 
 **Stale data:**
 - Same amber warning pattern as home page, below the page header.
@@ -490,12 +505,12 @@ Each deal card shows one promotion:
 
 - **Category pills:** Tap to filter. Single selection. Updates URL query parameter for shareability.
 - **Show more:** Reveals next 50 deals in the same store section. Button text changes to "Show more ([remaining] left)".
-- **Scroll behavior:** Store sections are stacked on mobile. On desktop (768px+), columns are placed side-by-side in a CSS grid (`grid-template-columns: 1fr 1fr`) and scroll together with the page. No independent scroll containers -- this avoids scroll-trapping keyboard focus and is simpler to implement with Tailwind.
+- **Scroll behavior:** Store sections are stacked on mobile. On desktop (768px+), columns are placed side-by-side in a CSS grid (`grid-template-columns: repeat(N, 1fr)` where N = number of active store filters) and scroll together with the page. No independent scroll containers -- this avoids scroll-trapping keyboard focus and is simpler to implement with Tailwind.
 
 ### 2.9 Accessibility
 
 - Category pills use `role="tablist"` with each pill as `role="tab"` and `aria-selected`.
-- Store sections use `role="region"` with `aria-label="Migros deals"` / `aria-label="Coop deals"`.
+- Store sections use `role="region"` with `aria-label="[Store] deals"` (e.g. "Migros deals", "Coop deals", "Denner deals").
 - Deal cards use `<article>` with `aria-label` summarizing the deal: "Erdbeeren 500g, CHF 2.95, 40% off at Migros".
 - Horizontal scroll pills use the roving tabindex pattern: only the active (selected) pill is in the Tab order (`tabindex="0"`), all others have `tabindex="-1"`. Tab exits the pill list to the next focusable element. Left/Right arrow keys move between pills. This follows the WAI-ARIA tablist keyboard pattern.
 - Focus ring visible on pills when keyboard-navigated.
@@ -830,8 +845,8 @@ The personal favorites comparison -- the retention hook. Shows which of the user
 |  [ Edit my list ]                        |  <- Outline button, centered
 |                                          |
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |
 +------------------------------------------+
 ```
 
@@ -981,8 +996,8 @@ Straightforward informational page. Builds trust through transparency.
 |  How it works                            |  <- H2, 18px, SemiBold
 |                                          |
 |  1. Every Wednesday evening, we fetch    |
-|     this week's promotions from Migros   |
-|     and Coop.                            |
+|     this week's promotions from 7 Swiss  |
+|     supermarkets.                        |
 |                                          |
 |  2. We categorise every deal into Fresh, |
 |     Long-life, or Non-food and calculate |
@@ -997,10 +1012,10 @@ Straightforward informational page. Builds trust through transparency.
 |                                          |
 |  Data sources                            |  <- H2
 |                                          |
-|  - Migros promotions: via the Migros     |
-|    API (open source wrapper)             |
-|  - Coop promotions: via aktionis.ch      |
+|  - All store promotions: via aktionis.ch |
 |    (public deal aggregator since 2006)   |
+|  - Stores: Migros, Coop, LIDL, ALDI,    |
+|    Denner, SPAR, Volg                    |
 |                                          |
 |  We only use publicly available data.    |
 |  No scraping of protected websites.      |
@@ -1036,8 +1051,8 @@ Straightforward informational page. Builds trust through transparency.
 |  documented like a portfolio project.    |
 |                                          |
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |
 +------------------------------------------+
 ```
 
@@ -1098,8 +1113,8 @@ This is a static page. No loading, error, or empty states. Always renders the sa
 |                                          |
 |                                          |
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |
 +------------------------------------------+
 ```
 
@@ -1278,15 +1293,15 @@ The "Copy card" button sits directly below the card. The "Share verdict" button 
 
 ```
 +------------------------------------------+
-|  basketch -- your weekly promotions,     |
-|  compared. Migros vs Coop.              |
+|  basketch -- Swiss grocery deals,        |
+|  compared.              |
 +------------------------------------------+
 ```
 
 - Centered text, 12px, muted.
 - 24px vertical padding.
 - 1px top border.
-- Below the content, include: "Data from Migros API and aktionis.ch" in 11px, muted. This is a transparency signal.
+- Below the content, include: "Data from aktionis.ch" in 11px, muted. This is a transparency signal.
 
 ### 8.3 DataFreshness Component
 
@@ -1398,15 +1413,15 @@ Each page sets these tags via `react-helmet-async` (client-side) AND Vercel Midd
 
 | Page | og:title | og:description |
 |------|----------|----------------|
-| `/` | "basketch -- Migros vs Coop deals this week" | "Which store has better promotions this week? Your weekly Migros vs Coop deals, compared." |
-| `/deals` | "All deals this week -- basketch" | "Browse Migros and Coop promotions side by side. Sorted by discount." |
+| `/` | "basketch -- Swiss grocery deals, compared" | "Which store has better promotions this week? Deals from 7 Swiss supermarkets, compared." |
+| `/deals` | "All deals this week -- basketch" | "Browse promotions from Migros, Coop, LIDL, ALDI, Denner, SPAR, and Volg. Sorted by discount." |
 | `/onboarding` | "Set up your list -- basketch" | "Pick your regular groceries and compare deals every week. 60-second setup." |
-| `/compare/:id` | "My grocery deals -- basketch" | "See your personalized Migros vs Coop comparison." |
-| `/about` | "About basketch" | "How basketch compares Migros and Coop weekly promotions." |
+| `/compare/:id` | "My grocery deals -- basketch" | "See your personalized multi-store deal comparison." |
+| `/about` | "About basketch" | "How basketch compares weekly promotions across 7 Swiss supermarkets." |
 
 All pages also set:
 - `og:url`: Full canonical URL
-- `og:image`: Static 1200x630px social preview image (basketch logo + tagline + Migros/Coop branding)
+- `og:image`: Static 1200x630px social preview image (basketch logo + tagline + multi-store branding)
 - `og:type`: "website"
 - `twitter:card`: "summary_large_image"
 - `theme-color`: "#1a1a2e" (dark navy, matches Wordle card background)
@@ -1422,13 +1437,13 @@ All pages are designed mobile-first at 375px. The content max-width is 640px on 
 | Page | Mobile (< 640px) | Desktop (640px+) |
 |------|-------------------|-------------------|
 | Home | Single column, full-width cards | Same layout, centered at 640px |
-| Deals | Store sections stacked (Migros, then Coop). Pills horizontal scroll. | Side-by-side columns at 768px+. Pills wrap naturally. |
+| Deals | Store sections stacked (one per active store). Category + store filter pills horizontal scroll. | N-store dynamic columns at 768px+. Pills wrap naturally. |
 | Onboarding | Pack cards 2-column. Favorites list full-width. | Same layout, centered at 640px |
 | Comparison | CompareCards full-width. Store columns always 2-column within each card. | Same layout, centered at 640px |
 | About | Stacked cards | Same layout, centered at 640px |
 | 404 | Centered content | Same layout, centered at 640px |
 
-The only page that changes layout at wider viewports is the Deals page, where the side-by-side Migros/Coop column view appears at 768px.
+The only page that changes layout at wider viewports is the Deals page, where the multi-store column view appears at 768px (one column per active store filter).
 
 ---
 
@@ -1437,7 +1452,7 @@ The only page that changes layout at wider viewports is the Deals page, where th
 | Requirement | Implementation | Status |
 |-------------|---------------|--------|
 | 4.5:1 contrast (normal text) | All text colors verified against backgrounds. See Section 0.1. | Required |
-| 3:1 contrast (large text / UI) | Store colors on white: Migros 4.6:1, Coop 5.3:1. Both pass. | Required |
+| 3:1 contrast (large text / UI) | Store colors on white: Migros 4.6:1, Coop 5.3:1, LIDL 4.6:1, ALDI 11.5:1, Denner 4.6:1, SPAR 4.9:1, Volg 7.2:1. All pass. | Required |
 | 44px touch targets | All buttons, links, pills, inputs enforce `min-height: 44px`. | Required |
 | Skip navigation | Visually hidden "Skip to main content" link as first focusable element on every page. Visible on `:focus-visible`. | Required |
 | Keyboard navigation | All interactive elements reachable via Tab. Enter/Space activates. Arrow keys for pill navigation (roving tabindex). | Required |
@@ -1456,7 +1471,7 @@ The only page that changes layout at wider viewports is the Deals page, where th
 | 1 | Dark Wordle card background | Survives WhatsApp compression. Stands out on both light/dark backgrounds. Creates visual "object" that invites screenshotting. |
 | 2 | Verdict -> Category cards -> Wordle card on home page | PRD: verdict is the "aha moment" (5 seconds). Category cards are the depth (15 seconds). Wordle card is a sharing artifact -- placing it third prevents it from creating a "wall" that pushes category cards 800px down on mobile. |
 | 3 | Wordle card visible on page (not behind a button) | The card should feel like content, not a hidden feature. Users naturally screenshot things they see on screen. Hiding it behind "Share" reduces discoverability. |
-| 4 | Deals page has a desktop two-column layout | Deals browsing is the one flow where side-by-side comparison adds clear value. All other pages work fine at 640px single-column. |
+| 4 | Deals page has a desktop N-store column layout | Deals browsing is the one flow where side-by-side comparison adds clear value. Columns are dynamic (one per active store filter). All other pages work fine at 640px single-column. |
 | 5 | "Track your items" is secondary to "Browse all deals" | PRD feature sequencing: verdict + deals = aha moment (zero setup). Favorites = retention (requires setup). The home page reflects this priority order. |
 | 6 | Email is optional in onboarding step 3 | Users can skip email and just bookmark the URL. Both return paths are primary. Forcing email would increase drop-off. |
 | 7 | No product detail pages | V1 is a weekly utility used for 30 seconds. Deal cards show all necessary info inline. A detail page adds navigation complexity without adding value. |

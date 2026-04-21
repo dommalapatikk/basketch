@@ -58,10 +58,25 @@ export function useCachedQuery<T>(
   const doFetch = useCallback(() => {
     setLoading(true)
     setError(null)
+    // Record when this fetch was initiated so we can detect if a mutation
+    // wrote a fresher cache entry while the fetch was in-flight.
+    const fetchStartedAt = Date.now()
     fetcherRef.current()
       .then((result) => {
         setData(result)
-        setCache(key, result)
+        // Only write to cache if no newer entry was written after this fetch
+        // started (e.g. by a mutation that called setCache directly). This
+        // prevents a slow background refetch from overwriting post-mutation
+        // state with stale DB data.
+        try {
+          const raw = localStorage.getItem(`bsk:${key}`)
+          const existingTimestamp: number = raw ? (JSON.parse(raw) as { timestamp: number }).timestamp : 0
+          if (existingTimestamp <= fetchStartedAt) {
+            setCache(key, result)
+          }
+        } catch {
+          setCache(key, result)
+        }
         setLoading(false)
       })
       .catch((err: unknown) => {

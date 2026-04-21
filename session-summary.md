@@ -1,43 +1,38 @@
 # Session Summary: basketch
 
-**Date:** 2026-04-14
-**Project:** basketch — Swiss grocery deal comparison (Migros vs Coop)
+**Date:** 2026-04-15
+**Project:** basketch — Swiss grocery deal comparison (7 supermarkets via aktionis.ch)
 
 ---
 
 ## What Was Done This Session
 
-### Two-Tier Category Filter Redesign (Final)
-- Previous session implemented single-tier flat pill row — user wanted two tiers **improved**, not removed
-- Implemented proper two-tier filter inspired by Google Flights / Airbnb:
-  - **Tier 1 — Top tabs**: `All | Fresh | Long-life | Non-food` (underlined active tab, Google Flights style)
-  - **Tier 2 — Browse pills**: Sub-categories within selected department (Airbnb refinement chips)
-  - Tier 2 only visible when a top-level tab is selected
-- Added `topCategory: Category` field to `BrowseCategoryInfo` in `shared/types.ts`
-- URL state: `?category=fresh` (top-level), `?category=fresh&sub=meat-fish` (top + browse)
-- Backward compatible with homepage `?category=fresh` links
-- Commit: `c81ff52` pushed to main, deploying on Vercel
+### Multi-Store Pivot — Documentation Update
+Updated all 8 active reference docs to reflect the pivot from "Migros vs Coop" (2 stores, 2 data sources) to 7 Swiss supermarkets via single aktionis.ch data source:
 
-### Files Changed
-- `shared/types.ts` — Added `topCategory` field to `BrowseCategoryInfo`, updated all 11 entries
-- `web/src/pages/DealsPage.tsx` — Complete rewrite of filter UI from single-tier to two-tier
+| File | Key changes |
+|------|------------|
+| **CLAUDE.md** | Description, folder structure (aktionis/), 7 store colors, pipeline flow, build order, pitfalls |
+| **README.md** | Tagline, problem framing, comparison table, tech stack, pipeline steps, status checklist (all done) |
+| **docs/prd.md** | Bumped to v3.0. Value prop, data sources, store type, data uniformity section, out-of-scope, risks |
+| **docs/business-model-canvas.md** | Partnerships, data sources, anti-personas, revenue streams, pipeline diagram, differentiation |
+| **docs/coding-standards.md** | Python section renamed, store union type, color constants, status messages generalized |
+| **docs/use-cases.md** | Product goal, tagline, personas, pipeline steps, R2 risk, constraints table |
+| **docs/technical-architecture-v2.md** | C4 diagram, out-of-scope, deployment model, source modules, OG tags, R2 risk |
+| **docs/design-spec-v2.md** | All wireframe taglines, color tokens (7 stores), N-store columns, OG tags, data source refs |
 
-### Verification
-- All 380 tests passing (193 frontend + 187 pipeline)
-- Both type-checks clean (web + pipeline)
-- Deployed to Vercel Production
+**Historical docs left untouched** — they're accurate records of the 2-store era (code-review-step2/6, pm-coach reviews, lenny review, qa-report, etc.)
 
 ---
 
 ## Key Decisions (by user)
-- Two-tier filter is the correct design — don't collapse to single tier again
-- World-class benchmarks (Google Flights, Airbnb, Booking.com) for ALL design decisions (saved as global memory)
-- Use Sonnet for questions, Opus for complex coding
+- Historical docs are correct as-is — they record what happened at the time
+- Only active reference docs needed updating
+- The pivot: single data source (aktionis.ch) for all 7 stores replaces migros-api-wrapper + coop scraper
 
-## Known Issues / Pending
-- Visually verify the two-tier filter on live site after Vercel deployment completes
-- "satrap airfryer leggero" appeared under Fresh in earlier screenshot — possible categorization issue
-- Coop scraper provides no source categories (539 deals depend on brand + keyword matching)
+## Known Issues / Pending (carried forward)
+- Visually verify the two-tier filter on live site
+- "satrap airfryer leggero" appeared under Fresh — possible categorization issue
 - `og-image.png` still missing from `web/public/`
 
 ---

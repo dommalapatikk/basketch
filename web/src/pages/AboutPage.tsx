@@ -13,7 +13,7 @@ export function AboutPage() {
       <Card>
         <h2 className="mb-3 text-lg font-semibold">How it works</h2>
         <ol className="list-decimal space-y-2 pl-5 text-base leading-loose">
-          <li>Every Wednesday evening, we fetch this week's promotions from 7 Swiss supermarkets.</li>
+          <li>Every week we fetch the latest promotions from 7 Swiss supermarkets — check the freshness indicator on the deals page for the exact update time.</li>
           <li>We categorise every deal into Fresh, Long-life, or Household and calculate a weekly verdict.</li>
           <li>You see the verdict instantly. Browse all deals, or track your regular items for a personal comparison.</li>
         </ol>
@@ -22,7 +22,7 @@ export function AboutPage() {
       <Card className="mt-4">
         <h2 className="mb-3 text-lg font-semibold">Data sources</h2>
         <p className="mb-2 text-base leading-relaxed">
-          All deal data comes from <strong>aktionis.ch</strong>, a public Swiss deal aggregator since 2006.
+          All deal data comes from <a href="https://www.aktionis.ch" target="_blank" rel="noopener noreferrer" className="text-accent underline">aktionis.ch</a>, a public Swiss deal aggregator since 2006.
         </p>
         <p className="text-base leading-relaxed">
           Stores tracked: Migros, Coop, LIDL, ALDI Suisse, Denner, SPAR, and Volg.

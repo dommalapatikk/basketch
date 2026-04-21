@@ -317,7 +317,14 @@ export async function addBasketItemsBatch(
 ): Promise<BasketItem[]> {
   const { data, error } = await supabase.rpc('add_favorite_items_batch', {
     p_favorite_id: basketId,
-    p_items: JSON.stringify(items),
+    p_items: JSON.stringify(items.map((i) => ({
+      keyword: i.keyword,
+      label: i.label,
+      category: i.category,
+      excludeTerms: i.excludeTerms ?? null,
+      preferTerms: i.preferTerms ?? null,
+      productGroupId: i.productGroupId ?? null,
+    }))),
   })
 
   if (error) {
@@ -589,7 +596,8 @@ export async function searchProducts(
     seenNames.add(deal.product_name)
 
     const relevance = matchRelevance(normalized, deal.product_name)
-    if (relevance < 2) continue
+    if (relevance < 3) continue
+    if (deal.category === 'non-food') continue
 
     if (isExcluded(deal.product_name, topGroups[0]?.group.exclude_keywords)) continue
 
@@ -658,34 +666,32 @@ export async function addFavoriteItem(
   favoriteId: string,
   item: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string },
 ): Promise<FavoriteItemRow | null> {
-  const { data, error } = await supabase.rpc('add_favorite_item', {
-    p_favorite_id: favoriteId,
-    p_keyword: item.keyword,
-    p_label: item.label,
-    p_category: item.category,
-    p_exclude_terms: item.excludeTerms ?? null,
-    p_prefer_terms: item.preferTerms ?? null,
-    p_product_group_id: item.productGroupId ?? null,
-  })
-
-  if (error) {
-    console.error('[queries] addFavoriteItem error:', error.message)
+  try {
+    const basketItem = await addBasketItem(favoriteId, item)
+    // Map BasketItem (camelCase) back to FavoriteItemRow (snake_case) for legacy callers
+    return {
+      id: basketItem.id,
+      favorite_id: basketItem.basketId,
+      keyword: basketItem.keyword,
+      label: basketItem.label,
+      category: basketItem.category,
+      exclude_terms: basketItem.excludeTerms,
+      prefer_terms: basketItem.preferTerms,
+      product_group_id: basketItem.productGroupId,
+      created_at: basketItem.createdAt,
+    }
+  } catch (err) {
+    console.error('[queries] addFavoriteItem error:', err instanceof Error ? err.message : err)
     return null
   }
-  return data as FavoriteItemRow
 }
 
 /** @deprecated Use removeBasketItem */
 export async function removeFavoriteItem(
   favoriteId: string,
   itemId: string,
-): Promise<boolean> {
-  try {
-    await removeBasketItem(favoriteId, itemId)
-    return true
-  } catch {
-    return false
-  }
+): Promise<void> {
+  await removeBasketItem(favoriteId, itemId)
 }
 
 /** @deprecated Use addBasketItemsBatch */
@@ -693,14 +699,21 @@ export async function addFavoriteItemsBatch(
   favoriteId: string,
   items: { keyword: string; label: string; category: Category; excludeTerms?: string[]; preferTerms?: string[]; productGroupId?: string }[],
 ): Promise<FavoriteItemRow[]> {
-  const { data, error } = await supabase.rpc('add_favorite_items_batch', {
-    p_favorite_id: favoriteId,
-    p_items: JSON.stringify(items),
-  })
-
-  if (error) {
-    console.error('[queries] addFavoriteItemsBatch error:', error.message)
+  try {
+    const basketItems = await addBasketItemsBatch(favoriteId, items)
+    return basketItems.map((bi) => ({
+      id: bi.id,
+      favorite_id: bi.basketId,
+      keyword: bi.keyword,
+      label: bi.label,
+      category: bi.category,
+      exclude_terms: bi.excludeTerms,
+      prefer_terms: bi.preferTerms,
+      product_group_id: bi.productGroupId,
+      created_at: bi.createdAt,
+    }))
+  } catch (err) {
+    console.error('[queries] addFavoriteItemsBatch error:', err instanceof Error ? err.message : err)
     return []
   }
-  return (data ?? []) as FavoriteItemRow[]
 }

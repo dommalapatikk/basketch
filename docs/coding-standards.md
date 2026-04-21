@@ -56,11 +56,11 @@ Each sub-folder (`pipeline/`, `web/`, `shared/`) extends this base config.
 | Files (modules) | kebab-case | `category-rules.ts`, `deal-card.tsx` |
 | Files (components) | PascalCase | `VerdictBanner.tsx`, `DealCard.tsx` |
 | Files (tests) | Same as source + `.test` | `categorize.test.ts`, `VerdictBanner.test.tsx` |
-| Variables, functions | camelCase | `fetchMigrosDeals`, `discountPercent` |
+| Variables, functions | camelCase | `fetchStoreDeals`, `discountPercent` |
 | Types, interfaces | PascalCase | `UnifiedDeal`, `CategoryVerdict` |
 | Constants | UPPER_SNAKE_CASE | `CATEGORY_RULES`, `MAX_DEALS_PER_STORE` |
 | Enums | PascalCase (name), PascalCase (values) | `Store.Migros` -- but prefer union types |
-| Type unions over enums | `type Store = 'migros' \| 'coop'` | Simpler, no runtime overhead |
+| Type unions over enums | `type Store = 'migros' \| 'coop' \| 'lidl' \| 'aldi' \| 'denner' \| 'spar' \| 'volg'` | Simpler, no runtime overhead |
 
 **Exports:**
 - Named exports only. No default exports. Reason: easier to search, refactor, and auto-import.
@@ -68,7 +68,7 @@ Each sub-folder (`pipeline/`, `web/`, `shared/`) extends this base config.
 
 **File size:** If a file exceeds 200 lines, consider splitting. If it exceeds 300 lines, it must be split.
 
-### 1.2 Python (Coop Scraper)
+### 1.2 Python (Aktionis Scraper)
 
 **Version:** Python 3.12+
 
@@ -82,7 +82,7 @@ Each sub-folder (`pipeline/`, `web/`, `shared/`) extends this base config.
 **Type hints:** Required on all function signatures. Not required on local variables where the type is obvious.
 
 ```python
-def fetch_coop_deals(max_pages: int = 20) -> list[dict]:  # good
+def fetch_store_deals(store: str, max_pages: int = 20) -> list[dict]:  # good
     deals: list[dict] = []  # optional -- type is obvious from assignment
 ```
 
@@ -93,11 +93,11 @@ def fetch_coop_deals(max_pages: int = 20) -> list[dict]:  # good
 
 **Naming:**
 - Files: snake_case (`fetch.py`, `normalize.py`, `test_fetch.py`)
-- Functions, variables: snake_case (`fetch_coop_deals`, `deal_count`)
+- Functions, variables: snake_case (`fetch_store_deals`, `deal_count`)
 - Constants: UPPER_SNAKE_CASE (`BASE_URL`, `MAX_PAGES`)
 - Classes: PascalCase (unlikely in this project)
 
-**Output format:** The Python scraper outputs JSON using camelCase field names to match the TypeScript `UnifiedDeal` interface exactly. Do not use snake_case in the JSON output.
+**Output format:** The Python scraper (in `pipeline/aktionis/`) outputs JSON using camelCase field names to match the TypeScript `UnifiedDeal` interface exactly. Do not use snake_case in the JSON output.
 
 ### 1.3 Shared Standards (Both Languages)
 
@@ -113,20 +113,16 @@ def fetch_coop_deals(max_pages: int = 20) -> list[dict]:  # good
 ```
 basketch/
 ├── pipeline/                    # Data pipeline (TypeScript + Python)
-│   ├── migros/                  # Migros source (TypeScript)
-│   │   ├── fetch.ts
-│   │   ├── normalize.ts
-│   │   ├── fetch.test.ts
-│   │   └── fixtures/
-│   │       └── migros-response.json
-│   │
-│   ├── coop/                    # Coop source (Python)
+│   ├── aktionis/                # Unified Python scraper for all 7 stores (source: aktionis.ch)
+│   │   ├── main.py
 │   │   ├── fetch.py
 │   │   ├── normalize.py
 │   │   ├── test_fetch.py
 │   │   ├── fixtures/
-│   │   │   └── coop-page-1.html
 │   │   └── requirements.txt
+│   │
+│   ├── migros/                  # DEPRECATED — old Migros API wrapper (archive only)
+│   ├── coop/                    # DEPRECATED — old Coop scraper (archive only)
 │   │
 │   ├── metadata.ts              # Brand/quantity/organic extraction (pure function)
 │   ├── metadata.test.ts
@@ -162,7 +158,7 @@ basketch/
 │   │   │   ├── ShareButton.tsx  # Web Share API + clipboard fallback
 │   │   │   ├── EmailLookup.tsx  # Email return path on home page
 │   │   │   ├── DataWarning.tsx
-│   │   │   └── CoopStatusMessage.tsx  # Two-tier Coop status display
+│   │   │   └── StoreStatusMessage.tsx  # Two-tier store status display
 │   │   ├── pages/
 │   │   │   ├── Home.tsx
 │   │   │   ├── Deals.tsx        # Browse all deals by sub-category
@@ -269,8 +265,14 @@ All components must meet WCAG 2.1 AA. These are build requirements, not QA findi
 |---------|-------|----------------------|-----------|
 | Migros orange | #FF6600 | 3.13:1 (fails AA normal text) | Use for backgrounds/badges with dark text only |
 | Migros text on white | #CC5200 | 4.6:1 (passes AA) | Use when orange text must appear on white |
-| Coop red | #E10A0A | ~4.0:1 (passes large text only) | Use for backgrounds/badges with white/dark text |
-| Coop text on white | #B80909 | Passes AA for normal text | Use when red text must appear on white |
+| Coop green | #00AA46 | Use for backgrounds/badges with white/dark text | Badge/card backgrounds |
+| Coop text on white | #007A32 | Passes AA for normal text | Use when green text must appear on white |
+| LIDL blue | #015AA2 | Passes AA | Badge/card backgrounds with white text |
+| ALDI navy | #001E78 | Passes AA | Badge/card backgrounds with white text |
+| Denner red | #E4332B | Use for backgrounds with dark text | Badge/card backgrounds |
+| Denner text on white | #B32821 | Passes AA for normal text | Use when red text must appear on white |
+| SPAR green | #157946 | Passes AA | Badge/card backgrounds with white text |
+| Volg blue | #104680 | Passes AA | Badge/card backgrounds with white text |
 
 **Touch targets:** 44x44px minimum on all buttons, links, filter pills, deal cards.
 
@@ -281,7 +283,7 @@ All components must meet WCAG 2.1 AA. These are build requirements, not QA findi
 - `aria-label` on icon-only buttons (e.g., share button, copy button).
 - Store identity via `aria-label`, not just color. Example: `<span class="bg-migros" aria-label="Migros">` is wrong. Use `<span class="bg-migros">Migros</span>` with visible text.
 
-**No color-only information:** Store-colored elements always include a text label ("Migros", "Coop"). A colorblind user must be able to tell which store a deal belongs to from text alone.
+**No color-only information:** Store-colored elements always include a text label ("Migros", "Coop", "LIDL", "ALDI", "Denner", "SPAR", "Volg"). A colorblind user must be able to tell which store a deal belongs to from text alone.
 
 ### 3.2 Store Color Convention
 
@@ -296,38 +298,61 @@ const STORE_COLORS = {
     label: 'Migros',
   },
   coop: {
-    bg: '#E10A0A',        // Badge/card backgrounds
-    text: '#B80909',      // Red text on white backgrounds (WCAG AA)
+    bg: '#00AA46',        // Badge/card backgrounds
+    text: '#007A32',      // Green text on white backgrounds (WCAG AA)
     label: 'Coop',
+  },
+  lidl: {
+    bg: '#015AA2',
+    text: '#014480',
+    label: 'LIDL',
+  },
+  aldi: {
+    bg: '#001E78',
+    text: '#001460',
+    label: 'ALDI',
+  },
+  denner: {
+    bg: '#E4332B',
+    text: '#B32821',
+    label: 'Denner',
+  },
+  spar: {
+    bg: '#157946',
+    text: '#0F5C35',
+    label: 'SPAR',
+  },
+  volg: {
+    bg: '#104680',
+    text: '#0C3460',
+    label: 'Volg',
   },
 } as const
 ```
 
 Every component that shows store identity (deal cards, verdict banners, category headers, split lists) must use these colors consistently. All neutral UI uses grey/white.
 
-### 3.3 Two-Tier Coop Status Messages
+### 3.3 Two-Tier Store Status Messages
 
-The favorites comparison page must distinguish between two Coop states when a favorite item has no active Coop deal. This is a product-level pattern, not a one-off. Use it wherever Coop deal status is displayed on the comparison page.
+The favorites comparison page must distinguish between two states per store when a favorite item has no active deal at that store. This is a product-level pattern, not a one-off. Use it wherever store deal status is displayed on the comparison page.
 
 | Tier | Condition | Message | When to use |
 |------|-----------|---------|-------------|
-| **Tier 1** (confident) | Coop product exists in `products` table (has been seen in a promotion before) | "Not on promotion at Coop this week" | We know this product exists at Coop, it is just not on sale |
-| **Tier 2** (honest) | Coop product has NEVER been seen in `products` table | "No Coop data yet" | We have never seen this product at Coop |
+| **Tier 1** (confident) | Product exists in `products` table for that store (has been seen in a promotion before) | "Not on promotion at [Store] this week" | We know this product exists at this store, it is just not on sale |
+| **Tier 2** (honest) | Product has NEVER been seen in `products` table for that store | "We haven't found this at [Store] yet -- check back next week." | We have never seen this product at this store |
 
-**Implementation:** The `getComparisonForFavorites` query function returns a `coopProductKnown: boolean` flag per item. The component uses this flag:
+**Implementation:** The `getComparisonForFavorites` query function returns a `[store]ProductKnown: boolean` flag per item per store. The component uses this flag:
 
 ```tsx
 // In the comparison item component
-function CoopStatus({ coopDeal, coopProductKnown }: { coopDeal: Deal | null, coopProductKnown: boolean }) {
-  if (coopDeal) return <DealCard deal={coopDeal} />
-  if (coopProductKnown) return <span>Not on promotion at Coop this week</span>
-  return <span>No Coop data yet</span>
+function StoreStatus({ deal, productKnown, storeName }: { deal: Deal | null, productKnown: boolean, storeName: string }) {
+  if (deal) return <DealCard deal={deal} />
+  if (productKnown) return <span>Not on promotion at {storeName} this week</span>
+  return <span>We haven't found this at {storeName} yet -- check back next week.</span>
 }
 ```
 
-**Coop transparency label:** The comparison page always shows a permanent one-line label at the top: "Coop: showing promotions found. Not all Coop products are tracked yet."
-
-**Migros is always confident:** Migros has full catalog access, so it always shows either the deal or "Not on promotion at Migros this week". Never "No Migros data yet".
+**Transparency label:** The comparison page shows a permanent one-line label: "Showing promotions found. Not all products are tracked at every store yet."
 
 ### 3.4 Verdict Card (Wordle Card)
 
@@ -501,14 +526,9 @@ Deals with `sub_category = null` (unmapped products) appear only in the "All" vi
 
 Every data source must produce `UnifiedDeal[]` (TypeScript) or `list[dict]` matching the `UnifiedDeal` JSON shape (Python). This is the contract.
 
-```typescript
-// TypeScript source interface
-export async function fetchMigrosDeals(): Promise<UnifiedDeal[]>
-```
-
 ```python
-# Python source interface
-def fetch_coop_deals() -> list[dict]:
+# Python source interface (pipeline/aktionis/)
+def fetch_store_deals(store: str) -> list[dict]:
 ```
 
 Rules:
@@ -568,8 +588,8 @@ Examples:
 ```
 [migros] [INFO] Fetched 142 deals (page 1-5)
 [migros] [WARN] Empty response on page 6 — stopping pagination
-[coop] [ERROR] Failed to parse deal card (url=https://aktionis.ch/products/123, error=missing price element)
-[storage] [INFO] Upserted 287 deals (142 migros, 145 coop)
+[lidl] [ERROR] Failed to parse deal card (url=https://aktionis.ch/products/123, error=missing price element)
+[storage] [INFO] Upserted 487 deals (142 migros, 98 coop, 67 lidl, 55 aldi, 45 denner, 42 spar, 38 volg)
 [products] [INFO] Products: 5 new, 120 updated, 3 auto-matched to groups
 ```
 
@@ -595,7 +615,7 @@ Access via `process.env` (pipeline) or `import.meta.env` (frontend). Never hardc
 | Frontend: verdict logic | Score calculation, tie detection, minimum threshold, edge cases | Vitest | High |
 | Frontend: useCachedQuery | Cache hit/miss, stale detection, error handling | Vitest | Medium |
 | Frontend: queries | Query construction, response mapping, date filter safety net | Vitest (mock Supabase) | Medium |
-| Frontend: two-tier Coop status | Tier 1 vs Tier 2 message selection based on `coopProductKnown` | Vitest | Medium |
+| Frontend: two-tier store status | Tier 1 vs Tier 2 message selection based on `[store]ProductKnown` | Vitest | Medium |
 | Frontend: components | Rendering with mock data | Vitest + Testing Library | Low |
 
 ### What NOT to Test
@@ -621,8 +641,8 @@ cd pipeline && npx vitest run
 # TypeScript tests (frontend)
 cd web && npx vitest run
 
-# Python tests (Coop scraper)
-cd pipeline/coop && python -m pytest
+# Python tests (Aktionis scraper)
+cd pipeline/aktionis && python -m pytest
 
 # All TypeScript tests in watch mode
 cd pipeline && npx vitest
@@ -640,7 +660,7 @@ cd web && npx vitest
 
 ### Pipeline Errors
 
-- **Per-source isolation:** If Migros fetch fails, Coop still runs (and vice versa). The `process-and-store` job runs if at least one source succeeded.
+- **Per-source isolation:** If one store's fetch fails, the other stores still run. The `process-and-store` job runs if at least one source succeeded.
 - **Per-deal isolation:** If one deal fails to parse or categorise, log the error and skip it. Do not abort the entire pipeline for one bad record.
 - **Structured error logging:** Every error log must include: what failed, what data was involved, and what the operator should check.
 - **Retry policy:** No automatic retries in MVP. If a source fails, it fails for this run. The pipeline runs again next week (or can be triggered manually).
@@ -700,8 +720,7 @@ __pycache__/
 .pytest_cache/
 .vite/
 coverage/
-migros-deals.json
-coop-deals.json
+*-deals.json
 ```
 
 ### What Never Gets Committed
@@ -709,7 +728,7 @@ coop-deals.json
 - `.env` files with real credentials
 - `node_modules/`
 - Build output (`dist/`)
-- JSON deal files generated by the pipeline (`migros-deals.json`, `coop-deals.json`)
+- JSON deal files generated by the pipeline (`*-deals.json`)
 - Python bytecode (`__pycache__/`, `*.pyc`)
 
 ---
@@ -749,7 +768,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here
 
 1. **Every module gets a one-line comment** at the top explaining what it does.
    ```typescript
-   // Fetches current Migros promotions using migros-api-wrapper and outputs UnifiedDeal[].
+   // Fetches current promotions for a given store via the aktionis scraper and outputs UnifiedDeal[].
    ```
 
 2. **No docstrings on obvious functions.** `getActiveDeals()` does not need a doc comment.
@@ -797,7 +816,7 @@ When Claude Code writes code for basketch:
 
 13. **Lazy-load heavy libraries.** `html2canvas` and similar large dependencies must be loaded via dynamic `import()` on user action, not at page load.
 
-14. **Two-tier Coop status.** On the comparison page, always check `coopProductKnown` before displaying Coop status. Never show "Not on promotion" when the correct message is "No Coop data yet".
+14. **Two-tier store status.** On the comparison page, always check `[store]ProductKnown` before displaying store status. Never show "Not on promotion" when the correct message is the "not yet found" variant.
 
 ---
 

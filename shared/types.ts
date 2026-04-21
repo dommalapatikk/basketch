@@ -37,7 +37,7 @@ export const STORE_META: Record<Store, StoreMeta> = {
 export const ALL_STORES = Object.keys(STORE_META) as Store[]
 
 /** Default stores shown before user customizes their filter */
-export const DEFAULT_STORES: Store[] = ['migros', 'coop', 'denner']
+export const DEFAULT_STORES: Store[] = ALL_STORES
 
 /** Stores to scrape from aktionis.ch (includes coop-megastore which merges into coop) */
 export const AKTIONIS_STORE_SLUGS = [
@@ -412,6 +412,8 @@ export interface Product {
   sourceName: string
   regularPrice: number | null
   priceUpdatedAt: string | null
+  offerValidFrom: string | null
+  offerValidTo: string | null
   firstSeenAt: string
   updatedAt: string
 }
@@ -433,6 +435,8 @@ export interface ProductRow {
   source_name: string
   regular_price: number | null
   price_updated_at: string | null
+  offer_valid_from: string | null
+  offer_valid_to: string | null
   first_seen_at: string
   updated_at: string
 }
@@ -597,6 +601,26 @@ export interface DealComparison {
 export interface DealComparisonResult {
   matched: DealComparison[]
   unmatched: DealRow[]
+}
+
+/**
+ * A user's list items resolved to one BROWSE_CATEGORY, with all deals in that category.
+ */
+export interface CategoryMatch {
+  browseCategory: BrowseCategory
+  browseCategoryLabel: string
+  browseCategoryEmoji: string
+  sourceItems: BasketItem[]
+  dealsByStore: Partial<Record<Store, DealRow[]>>
+  totalDealCount: number
+}
+
+/**
+ * Result of category-based matching for all user items.
+ */
+export interface CategoryMatchResult {
+  categories: CategoryMatch[]
+  unmappedItems: BasketItem[]
 }
 
 /**

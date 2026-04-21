@@ -72,8 +72,16 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'dr. beckmann': { category: 'non-food', subCategory: 'cleaning' },
   'satrap': { category: 'non-food', subCategory: 'household' },
   'plenty': { category: 'non-food', subCategory: 'paper-goods' },
+  // Household appliance / utensil brands
+  'air wick':   { category: 'non-food', subCategory: 'household' },
+  'zyliss':     { category: 'non-food', subCategory: 'household' },
+  'terraillon': { category: 'non-food', subCategory: 'household' },
+  'varta':      { category: 'non-food', subCategory: 'household' },
   // Personal care brands
   'le petit marseillais': { category: 'non-food', subCategory: 'personal-care' },
+  'l\'oréal':   { category: 'non-food', subCategory: 'personal-care' },
+  'loreal':     { category: 'non-food', subCategory: 'personal-care' },
+  'maybelline': { category: 'non-food', subCategory: 'personal-care' },
   'nivea': { category: 'non-food', subCategory: 'personal-care' },
   'elmex': { category: 'non-food', subCategory: 'personal-care' },
   'colgate': { category: 'non-food', subCategory: 'personal-care' },
@@ -344,7 +352,8 @@ export const CATEGORY_RULES: CategoryRule[] = [
     keywords: [
       'haushalt', 'household', 'windeln', 'diaper',
       'müllsack', 'abfallsack', 'garbage',
-      'batterien', 'battery', 'glühbirne', 'lampe',
+      'batterien', 'batterie', 'battery', 'knopfzelle', 'akku',
+      'glühbirne', 'lampe', 'thermometer', 'küchenwaage',
     ],
     category: 'non-food',
     subCategory: 'household',
@@ -424,6 +433,8 @@ const KEYWORD_BLOCKERS: Record<string, string[]> = {
   'fleisch': ['zahnfleisch', 'mundspülung', 'zahncreme', 'zahnpasta'],  // dental products contain "fleisch"
   'orangen': ['orangenblüten', 'orangenblüte'],  // orange blossom is cosmetic fragrance, not fruit
   'tomaten': ['risotto'],  // "risotto tomaten" is a pasta-rice product, not vegetables
+  'gemüse': ['gemüsehacker', 'gemüseschäler', 'gemüsemesser', 'gemüsehobel'],  // kitchen utensils, not vegetables
+  'milch': ['süssmandelmilch', 'mandelmilch'],  // cosmetic ingredients, not dairy
 }
 
 /**

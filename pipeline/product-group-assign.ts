@@ -45,9 +45,27 @@ export const GROUP_RULES: GroupRule[] = [
     productForm: 'raw',
   },
   {
+    groupId: 'gruyere',
+    mustMatch: [/\b(gruyère|gruyere)\b/i],
+    mustNotMatch: [/fondue/i],
+    productForm: 'raw',
+  },
+  {
+    groupId: 'emmentaler',
+    mustMatch: [/\bemmentaler\b/i],
+    mustNotMatch: [/fondue/i],
+    productForm: 'raw',
+  },
+  {
+    groupId: 'appenzeller',
+    mustMatch: [/\bappenzeller\b/i],
+    mustNotMatch: [/fondue/i, /bärli/i, /biber/i],
+    productForm: 'raw',
+  },
+  {
     groupId: 'cheese-hard',
-    mustMatch: [/\b(käse|gruyère|gruyere|emmentaler|appenzeller|reibkäse)\b/i],
-    mustNotMatch: [/schnitzel/i, /cordon/i, /fondue/i],
+    mustMatch: [/\b(käse|reibkäse)\b/i],
+    mustNotMatch: [/schnitzel/i, /cordon/i, /fondue/i, /gruyère/i, /gruyere/i, /emmentaler/i, /appenzeller/i],
     productForm: 'raw',
   },
   {
@@ -325,9 +343,27 @@ export const GROUP_RULES: GroupRule[] = [
     productForm: 'raw',
   },
   {
+    groupId: 'strawberries',
+    mustMatch: [/\berdbeeren?\b/i],
+    mustNotMatch: [/konfitüre/i, /marmelade/i, /joghurt/i, /müesli/i, /drink/i, /actimel/i, /lc1/i, /glacé/i, /glace/i, /sirup/i, /cornet/i],
+    productForm: 'raw',
+  },
+  {
+    groupId: 'blueberries',
+    mustMatch: [/\bheidelbeeren?\b/i],
+    mustNotMatch: [/konfitüre/i, /marmelade/i, /joghurt/i, /müesli/i, /drink/i, /sirup/i],
+    productForm: 'raw',
+  },
+  {
+    groupId: 'raspberries',
+    mustMatch: [/\bhimbeeren?\b/i],
+    mustNotMatch: [/konfitüre/i, /marmelade/i, /joghurt/i, /müesli/i, /drink/i, /sirup/i],
+    productForm: 'raw',
+  },
+  {
     groupId: 'berries',
-    mustMatch: [/\b(erdbeeren|himbeeren|heidelbeeren|beeren)\b/i],
-    mustNotMatch: [/konfitüre/i, /marmelade/i, /joghurt/i, /müesli/i],
+    mustMatch: [/\bbeeren\b/i],
+    mustNotMatch: [/konfitüre/i, /marmelade/i, /joghurt/i, /müesli/i, /erdbeeren/i, /himbeeren/i, /heidelbeeren/i, /preiselbeeren/i],
     productForm: 'raw',
   },
 
@@ -457,6 +493,56 @@ export const GROUP_RULES: GroupRule[] = [
     mustMatch: [/\b(nüsse|mandeln|cashew|erdnüsse)\b/i],
     mustNotMatch: [/butter/i, /creme/i, /aufstrich/i],
     productForm: 'raw',
+  },
+
+  // ============================================================
+  // DRINKS (specific before general)
+  // ============================================================
+  {
+    groupId: 'wine-red',
+    mustMatch: [/\b(rotwein|primitivo|merlot|cabernet|pinot\s*noir|tempranillo|chianti|rioja|barolo|barbera|amarone|montepulciano|sangiovese)\b/i],
+    mustNotMatch: [/essig/i],
+    productForm: 'processed',
+  },
+  {
+    groupId: 'wine-white',
+    mustMatch: [/\b(weisswein|chardonnay|sauvignon\s*blanc|riesling|pinot\s*grigio|pinot\s*gris|prosecco|grauburgunder|müller.thurgau|fendant|chasselas|aigle)\b/i],
+    mustNotMatch: [/essig/i],
+    productForm: 'processed',
+  },
+  {
+    groupId: 'wine-rose',
+    mustMatch: [/\b(rosé|roséwein)\b/i],
+    mustNotMatch: [/essig/i, /creme/i, /dusch/i],
+    productForm: 'processed',
+  },
+  {
+    groupId: 'beer',
+    mustMatch: [/\b(bier|lager|pils|feldschlösschen|appenzeller\s*bier|calanda|quöllfrisch|eichhof|cardinal|chopfab)\b/i],
+    mustNotMatch: [/essig/i, /bierhefe/i],
+    productForm: 'processed',
+  },
+  {
+    groupId: 'mineral-water',
+    mustMatch: [/\b(mineralwasser|henniez|valser|aproz|evian|volvic|contrex)\b/i],
+    mustNotMatch: [],
+    productForm: 'processed',
+  },
+  {
+    groupId: 'juice',
+    mustMatch: [/\b(orangensaft|apfelsaft|multivitamin|fruchtsaft|nektar)\b/i],
+    mustNotMatch: [],
+    productForm: 'processed',
+  },
+
+  // ============================================================
+  // FROZEN / READY MEALS (specific)
+  // ============================================================
+  {
+    groupId: 'frozen-pizza',
+    mustMatch: [/\b(pizza|tiefkühlpizza|steinofen.?pizza)\b/i],
+    mustNotMatch: [/sauce/i, /gewürz/i, /teig\b/i],
+    productForm: 'frozen',
   },
 
   // ============================================================

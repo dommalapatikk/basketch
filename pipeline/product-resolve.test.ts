@@ -8,6 +8,8 @@ import type { Deal } from '../shared/types'
 const mockSelectEqResult = vi.fn()
 const mockUpsertSelectResult = vi.fn()
 
+const mockUpdateEqResult = vi.fn().mockResolvedValue({ error: null })
+
 const mockFrom = vi.fn((_table: string) => ({
   // For: .select(...).eq(...)
   select: vi.fn(() => ({
@@ -16,6 +18,10 @@ const mockFrom = vi.fn((_table: string) => ({
   // For: .upsert(...).select(...)
   upsert: vi.fn(() => ({
     select: mockUpsertSelectResult,
+  })),
+  // For: .update(...).eq(...)
+  update: vi.fn(() => ({
+    eq: mockUpdateEqResult,
   })),
 }))
 

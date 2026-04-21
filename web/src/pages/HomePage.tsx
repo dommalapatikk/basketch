@@ -164,33 +164,25 @@ export function HomePage() {
               to={`/compare/${storedFavoriteId}`}
               className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
             >
-              View &rarr;
-            </Link>
-          </div>
-        ) : storedFavoriteId && !hasListItems ? (
-          <div className="flex items-center justify-between">
-            <span className="text-sm">You have a saved basket. Add items to compare deals.</span>
-            <Link
-              to="/onboarding"
-              className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
-            >
-              Set up &rarr;
+              View my list &rarr;
             </Link>
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <span className="text-sm">Track your regular items for a personal comparison.</span>
+            <span className="text-sm">Browse deals and tap + to build your personal list.</span>
             <Link
-              to="/onboarding"
+              to="/deals"
               className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
             >
-              Set up &rarr;
+              Browse &rarr;
             </Link>
           </div>
         )}
-        <div className="mt-3 border-t border-border pt-3">
-          <EmailLookup />
-        </div>
+        {!(storedFavoriteId && hasListItems) && (
+          <div className="mt-3 border-t border-border pt-3">
+            <EmailLookup />
+          </div>
+        )}
       </section>
 
       {/* Data freshness */}

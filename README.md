@@ -1,14 +1,14 @@
 # basketch
 
-**Your groceries. Two stores. One smart list.**
+**Your groceries. Seven stores. One smart list.**
 
-> Pick your regular items. See which are on sale at Migros or Coop this week. Get a split shopping list that tells you exactly where to buy each. 45 seconds to set up — no app, no account, no login.
+> Pick your regular items. See which are on sale across Swiss supermarkets this week. Get a split shopping list that tells you exactly where to buy each. 45 seconds to set up — no app, no account, no login.
 
 ---
 
 ## The Problem
 
-Every weekend, Swiss shoppers face the same question: **"Should I go to Migros or Coop?"**
+Every weekend, Swiss shoppers face the same question: **"Which store has the best deals on the things I actually buy?"**
 
 Existing deal sites show you 200+ promotions — but you only buy 15-20 items regularly. The problem isn't "which deals exist." It's **"which of MY products are cheaper where this week."**
 
@@ -20,7 +20,7 @@ No tool in Switzerland answers that question today.
 1. Pick a starter pack       →  Swiss Basics, Indian Kitchen, Mediterranean, or General Mix
 2. Customize your list       →  Remove what you don't buy, search and add what you do
 3. See your comparison       →  Which of YOUR items are on sale, at which store
-4. Get your split list       →  "Buy these at Migros. Buy these at Coop."
+4. Get your split list       →  A per-store shopping list — one section per supermarket
 5. Save with email           →  Come back next week — your list is waiting
 ```
 
@@ -31,7 +31,7 @@ No app to install. No account to create. No password to remember.
 | Feature | Rappn | Aktionis | Profital | Bring! | **basketch** |
 |---------|-------|----------|----------|--------|-------------|
 | Personal favorites tracking | Category-level | Wishlist | Stores only | Full lists | **Product-level** |
-| Cross-store comparison | Yes (5 stores) | No | No | No | **Yes (Migros vs Coop)** |
+| Cross-store comparison | Yes (5 stores) | No | No | No | **Yes (7 stores)** |
 | Split shopping list | No | No | No | No | **Yes** |
 | No app / no login needed | No (app) | Yes | No (app) | No (app) | **Yes** |
 | Starter pack onboarding | No | No | No | No | **Yes (45 sec)** |
@@ -42,7 +42,7 @@ No app to install. No account to create. No password to remember.
 |-------|-----------|-----|
 | Frontend | React + Vite + TypeScript | Fast, mobile-first, no app needed |
 | Database | Supabase (PostgreSQL) | Free tier, REST API, row-level security |
-| Data Pipeline | TypeScript + Python + GitHub Actions | Migros API + Coop scraping, weekly cron |
+| Data Pipeline | Python + GitHub Actions | aktionis.ch (all stores), weekly cron |
 | Hosting | Vercel | Free, global CDN, auto-deploy from GitHub |
 
 **Total cost: CHF 0/month** — all free tiers.
@@ -50,10 +50,9 @@ No app to install. No account to create. No password to remember.
 ## Data Pipeline
 
 Every **Wednesday at 22:00 CET**, a scheduled pipeline:
-1. Fetches Migros promotions via [migros-api-wrapper](https://github.com/nickreynolds/migros-api-wrapper) (open source, guest OAuth2)
-2. Scrapes Coop promotions from [aktionis.ch](https://aktionis.ch) (public aggregator)
-3. Categorizes deals into Fresh / Long-life / Non-food
-4. Stores in Supabase — ready for Thursday morning shopping
+1. Scrapes promotions for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) from [aktionis.ch](https://aktionis.ch) via a unified Python scraper in `pipeline/aktionis/`
+2. Categorizes deals into Fresh / Long-life / Non-food
+3. Stores in Supabase — ready for Thursday morning shopping
 
 Verification run at **Thursday 07:00 CET** catches any late updates.
 
@@ -76,12 +75,11 @@ This project is built and documented as a PM case study:
 - [x] PRD, architecture, use cases, competitive analysis
 - [x] Shared types, database schema, starter pack seed data
 - [x] CI/CD pipelines (GitHub Actions)
-- [ ] Migros source module
-- [ ] Coop source module
-- [ ] Categorizer + storage
-- [ ] Frontend: onboarding flow (templates → customize → compare)
-- [ ] Frontend: comparison view + split shopping list
-- [ ] Deploy to Vercel
+- [x] Unified data pipeline (aktionis.ch — all 7 stores)
+- [x] Categorizer + storage
+- [x] Frontend: onboarding flow (templates → customize → compare)
+- [x] Frontend: comparison view + split shopping list
+- [x] Deploy to Vercel
 
 ## Built With
 

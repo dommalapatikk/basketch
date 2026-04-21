@@ -45,12 +45,11 @@
                        | Weekly Pipeline |
                        | (GitHub Actions)|
                        +--------+--------+
-                               / \
-                              /   \
-               +-------------+     +------------+
-               | migros-api- |     | aktionis.ch|
-               | wrapper     |     | (Coop)     |
-               +-------------+     +------------+
+                                |
+                       +--------+--------+
+                       |  aktionis.ch    |
+                       | (all 7 stores)  |
+                       +-----------------+
 ```
 
 ### What's in scope
@@ -72,7 +71,6 @@
 - Kill criteria monitoring
 
 ### What's out of scope
-- Other retailers (Aldi, Lidl, Denner)
 - Price history / trend tracking
 - Email notifications (future)
 - Native app / PWA
@@ -85,9 +83,9 @@
 
 ### Goals (ordered by feature sequencing)
 1. Any first-time visitor sees the weekly verdict and can browse deals with zero setup (aha moment)
-2. The weekly verdict answers "Migros or Coop?" in 5 seconds with an explanation
+2. The weekly verdict answers "which store?" in 5 seconds with an explanation
 3. The Wordle card makes the verdict screenshot-shareable in WhatsApp groups (primary growth)
-4. Any shopper can browse all deals by sub-category with Migros vs Coop grouping
+4. Any shopper can browse all deals by sub-category with store grouping
 5. A shopper sets up favorites in under 60 seconds using a starter pack (retention hook)
 6. A returning shopper sees their personalized comparison in under 30 seconds
 7. Data is fresh every Thursday by 20:00 CET
@@ -108,8 +106,7 @@
 
 | Component | Runs on | Trigger |
 |-----------|---------|---------|
-| Migros source | GitHub Actions (Node.js 20) | Cron: Wednesday 21:17 UTC |
-| Coop source | GitHub Actions (Python 3.12) | Cron: Wednesday 21:17 UTC |
+| All store sources (aktionis.ch) | GitHub Actions (Python 3.12), 8-job matrix | Cron: Wednesday 21:17 UTC |
 | Categorizer + Metadata Extractor + Product Resolver + Storage | GitHub Actions (Node.js 20) | After both sources complete |
 | Verification fetch | GitHub Actions (Node.js 20 + Python 3.12) | Cron: Thursday 06:17 UTC |
 | Supabase | Supabase cloud (free tier) | Always on |
@@ -151,27 +148,28 @@ Raw API/HTML
 
 ### Mixed-Language Decision (unchanged)
 
-TypeScript for Migros (migros-api-wrapper is npm-only). Python for Coop (requests + BeautifulSoup). Orchestrated via GitHub Actions with JSON artifacts as the cross-language contract.
+Python for all stores via aktionis.ch (unified scraper using requests + BeautifulSoup). Orchestrated via GitHub Actions with JSON artifacts as the cross-language contract.
 
 ---
 
 ## 4. Module Design
 
-### 4.1 Pipeline: Migros Source (unchanged from v1.1)
+### 4.1 Pipeline: Unified Aktionis Source (multi-store pivot)
 
 | Attribute | Detail |
 |-----------|--------|
-| **Responsibility** | Fetch current Migros promotions, output normalized deal JSON |
-| **Language** | TypeScript (Node.js 20) |
-| **Key dependency** | `migros-api-wrapper` (npm) |
-| **Interface** | `fetchMigrosDeals(): Promise<UnifiedDeal[]>` |
-| **Error handling** | Return empty array on failure. Log error. Pipeline continues with Coop only. |
+| **Responsibility** | Scrape current promotions for all 7 stores from aktionis.ch |
+| **Language** | Python 3.12 |
+| **Key dependency** | aktionis.ch (web scraper via requests + BeautifulSoup) |
+| **Location** | `pipeline/aktionis/` (main.py, fetch.py, normalize.py) |
+| **Interface** | Per-store JSON output (`{store}-deals.json`), 8-job GitHub Actions matrix (coop, coop-megastore, migros, lidl, aldi-suisse, denner, spar, volg) |
+| **Error handling** | Return empty array on failure per store. Log error. Pipeline continues with remaining stores. |
 
-### 4.2 Pipeline: Coop Source (unchanged from v1.1)
+### 4.2 Pipeline: Coop Source (DEPRECATED -- replaced by aktionis unified scraper)
 
 | Attribute | Detail |
 |-----------|--------|
-| **Responsibility** | Scrape current Coop promotions from aktionis.ch |
+| **Responsibility** | ~~Scrape current Coop promotions from aktionis.ch~~ DEPRECATED |
 | **Language** | Python 3.12 |
 | **Key dependencies** | `requests`, `beautifulsoup4` |
 | **Interface** | `fetch_coop_deals() -> list[dict]` (JSON matching UnifiedDeal shape) |
@@ -306,7 +304,7 @@ Same GitHub Actions workflow structure. The `process-and-store` job now runs:
 
 | Attribute | Detail |
 |-----------|--------|
-| **Responsibility** | Browse all deals by sub-category with Migros vs Coop grouping |
+| **Responsibility** | Browse all deals by sub-category with multi-store grouping |
 | **Route** | `/deals` |
 | **Components** | `DealsPage`, `CategoryFilterPills`, `StoreGroup`, `DealCard` |
 
@@ -459,16 +457,16 @@ Implementation: React Router catch-all route + error boundary in Compare page.
 
 | Page | og:title | og:description |
 |------|----------|----------------|
-| `/` (Home) | "basketch -- Migros vs Coop deals this week" | "See which store has better deals this week. Migros vs Coop, compared." |
-| `/compare/:id` | "My grocery deals -- basketch" | "See your personalized Migros vs Coop comparison" |
-| `/deals` | "All deals this week -- basketch" | "Browse Migros and Coop deals side by side" |
+| `/` (Home) | "basketch -- Swiss grocery deals this week" | "See which store has better deals this week. 7 stores, compared." |
+| `/compare/:id` | "My grocery deals -- basketch" | "See your personalized Swiss grocery deal comparison" |
+| `/deals` | "All deals this week -- basketch" | "Browse deals from 7 Swiss grocery stores side by side" |
 | `/onboarding` | "Set up your list -- basketch" | "Pick your regular groceries and compare deals" |
 
 All pages also set: `og:url`, `og:image` (1200x630px static image with basketch branding), `twitter:card` ("summary_large_image"), `theme-color` ("#1a1a2e"), `canonical` URL, `apple-touch-icon`.
 
 **SPA limitation:** OG tags set client-side via `react-helmet-async` work in browsers but are NOT picked up by WhatsApp/social crawlers (which don't execute JS). Mitigation: Vercel Middleware (`web/middleware.ts`) that intercepts ALL incoming requests, checks the user agent, and returns minimal HTML with correct OG tags for crawlers. Regular users pass through to the SPA. See Section 9.2.
 
-**Comparison page OG tags (v2.1 decision):** Use static OG tags for `/compare/:id` ("See your personalized Migros vs Coop comparison") rather than dynamic counts. Dynamic OG would require the edge function to query Supabase for each crawler request -- unnecessary complexity. The Wordle card (screenshot sharing) is the primary sharing mechanism for personalized content, not link previews.
+**Comparison page OG tags (v2.1 decision):** Use static OG tags for `/compare/:id` ("See your personalized Swiss grocery deal comparison") rather than dynamic counts. Dynamic OG would require the edge function to query Supabase for each crawler request -- unnecessary complexity. The Wordle card (screenshot sharing) is the primary sharing mechanism for personalized content, not link previews.
 
 ### 4.16a Frontend: Web Share API (NEW v2.1)
 
@@ -1146,12 +1144,12 @@ const CRAWLER_USER_AGENTS = ['WhatsApp', 'facebookexternalhit', 'Twitterbot', 'L
 
 const OG_TAGS: Record<string, { title: string, description: string }> = {
   '/': {
-    title: 'basketch -- Migros vs Coop deals this week',
-    description: 'See which store has better deals this week. Migros vs Coop, compared.',
+    title: 'basketch -- Swiss grocery deals this week',
+    description: 'See which store has better deals this week. 7 stores, compared.',
   },
   '/deals': {
     title: 'All deals this week -- basketch',
-    description: 'Browse Migros and Coop deals side by side',
+    description: 'Browse deals from 7 Swiss grocery stores side by side',
   },
   '/onboarding': {
     title: 'Set up your list -- basketch',
@@ -1162,7 +1160,7 @@ const OG_TAGS: Record<string, { title: string, description: string }> = {
 // Default for /compare/:id and unknown paths
 const DEFAULT_OG = {
   title: 'My grocery deals -- basketch',
-  description: 'See your personalized Migros vs Coop comparison',
+  description: 'See your personalized Swiss grocery deal comparison',
 }
 
 export default function middleware(request: Request) {
@@ -1415,9 +1413,9 @@ The following decisions from v1.1 remain valid:
 - **Likelihood:** Medium | **Impact:** High
 - **Mitigation:** Fallback chain: aktionis.ch -> oferlo.ch -> Rappn.ch
 
-### R2: Migros API Wrapper Breaks (unchanged)
-- **Likelihood:** Medium | **Impact:** High
-- **Mitigation:** aktionis.ch also lists Migros deals. Pepesto API as emergency backup.
+### R2: Aktionis.ch Scraping Breaks (updated for multi-store pivot)
+- **Likelihood:** Medium | **Impact:** High (single source for all 7 stores)
+- **Mitigation:** Fallback chain per R1. Per-store error isolation -- one store failing doesn't block others. Monitor HTML structure changes.
 
 ### R3: Category Mapping Inaccuracy (unchanged)
 - **Likelihood:** High | **Impact:** Low
@@ -1666,7 +1664,7 @@ basketch/
 - [x] At least 2 alternatives considered for every major decision (ADR-001 through ADR-011)
 - [x] Security addressed: RLS, secrets management, input validation, OWASP review, favorites RLS limitation documented
 - [x] Observability addressed: pipeline logging, data freshness checks, health indicators, kill criteria monitoring
-- [x] Failure modes identified for every external dependency (Migros API, aktionis.ch, Supabase)
+- [x] Failure modes identified for every external dependency (aktionis.ch, Supabase)
 - [x] Cost implications quantified (CHF 0/month at current and 10x load)
 - [x] All environment variables and secrets accounted for
 - [x] Build order ensures each step is independently verifiable

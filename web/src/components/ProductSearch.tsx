@@ -83,7 +83,12 @@ export function ProductSearch(props: {
           {results.map((result, i) => (
             <li key={result.productGroup?.id ?? `deal-${i}`} className="flex items-center justify-between gap-2 border-b border-border py-2.5 last:border-b-0">
               <div className="min-w-0 flex-1">
-                <div className="font-medium">{result.label}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{result.label}</span>
+                  {Object.keys(result.storeDeals).length === 0 && (
+                    <span className="rounded bg-surface px-1.5 py-0.5 text-xs text-muted border border-border">Regular price</span>
+                  )}
+                </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
                   {ALL_STORES.filter((s) => result.storeDeals[s] || result.regularPrices[s] != null).map((store) => (
                     <StorePrice

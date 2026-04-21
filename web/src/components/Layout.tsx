@@ -12,6 +12,7 @@ function NavLink(props: { to: string; onClick?: (e: React.MouseEvent) => void; c
     <Link
       to={props.to}
       onClick={props.onClick}
+      aria-current={isActive ? 'page' : undefined}
       className={cn(
         'flex min-h-[44px] items-center text-sm no-underline',
         isActive ? 'font-semibold text-accent' : 'text-muted hover:text-current',
@@ -27,7 +28,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const myListPath = basketId ? `/compare/${basketId}` : '/onboarding'
+  const myListPath = basketId ? `/compare/${basketId}` : '/deals'
 
   function handleMyListClick(e: React.MouseEvent) {
     e.preventDefault()
@@ -35,7 +36,7 @@ export function Layout() {
     if (basketId) {
       navigate(`/compare/${basketId}`)
     } else {
-      navigate('/onboarding')
+      navigate('/deals')
     }
   }
 
@@ -52,7 +53,7 @@ export function Layout() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden gap-4 sm:flex" aria-label="Main navigation">
+          <nav className="hidden gap-4 md:flex" aria-label="Main navigation">
             <NavLink to="/deals">Deals</NavLink>
             <NavLink to={myListPath} onClick={handleMyListClick}>My List</NavLink>
             <NavLink to="/about">About</NavLink>
@@ -61,7 +62,7 @@ export function Layout() {
           {/* Mobile hamburger button */}
           <button
             type="button"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center sm:hidden"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center md:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={mobileMenuOpen}
@@ -80,7 +81,7 @@ export function Layout() {
 
         {/* Mobile nav dropdown */}
         {mobileMenuOpen && (
-          <nav className="mx-auto mt-2 flex max-w-[640px] flex-col gap-1 border-t border-border pt-2 sm:hidden" aria-label="Mobile navigation">
+          <nav className="mx-auto mt-2 flex max-w-[640px] flex-col gap-1 border-t border-border pt-2 md:hidden" aria-label="Mobile navigation">
             <NavLink to="/deals">Deals</NavLink>
             <NavLink to={myListPath} onClick={handleMyListClick}>My List</NavLink>
             <NavLink to="/about">About</NavLink>

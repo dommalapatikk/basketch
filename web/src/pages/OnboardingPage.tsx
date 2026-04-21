@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { FavoriteItemRow, StarterPackRow } from '@shared/types'
 import { addFavoriteItemsBatch, fetchBasket } from '../lib/queries'
@@ -37,7 +37,9 @@ export function OnboardingPage() {
   const [items, setItems] = useState<FavoriteItemRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [failedPack, setFailedPack] = useState<StarterPackRow | null>(null)
   const stepHeadingRef = useRef<HTMLHeadingElement>(null)
+  const initialSyncDone = useRef(false)
 
   // Focus heading when step changes for screen reader users
   useEffect(() => {
@@ -48,12 +50,29 @@ export function OnboardingPage() {
   const editFavoriteId = editId ?? undefined
   const { data: existingItems, loading: editItemsLoading } = useFavoriteItems(editFavoriteId)
 
-  // Sync existing items into local state
+  // Sync existing items into local state — once only on initial load.
+  //
+  // Guard: only accept existingItems when loading has settled to false.
+  // This prevents a background refetch (triggered by a cache miss after
+  // a mutation cleared the cache) from updating existingItems and
+  // re-entering this effect after the user has already edited their list.
+  // `initialSyncDone` blocks re-entry within a single mount; the
+  // `!editItemsLoading` guard ensures we only accept the first settled
+  // read, not a later doFetch result that races with a remove mutation.
   useEffect(() => {
-    if (existingItems && existingItems.length > 0 && items.length === 0 && editId) {
+    if (!initialSyncDone.current && !editItemsLoading && existingItems && existingItems.length > 0 && editId) {
       setItems(existingItems)
+      initialSyncDone.current = true
     }
-  }, [existingItems, editId, items.length])
+  }, [existingItems, editItemsLoading, editId])
+
+  // B-03: guard against direct navigation to ?step=save without a basket
+  useEffect(() => {
+    if (step === 'save' && !favoriteId && !editId) {
+      setError('We couldn\'t restore your session — let\'s start from the beginning.')
+      setSearchParams({ step: 'pick' })
+    }
+  }, [step, favoriteId, editId, setSearchParams])
 
   const loading = actionLoading || editItemsLoading
 
@@ -86,11 +105,12 @@ export function OnboardingPage() {
     )
 
     if (imported.length === 0) {
-      setError('Could not import starter pack items. Try starting from scratch.')
+      setError('Could not import starter pack items.')
+      setFailedPack(pack)
       setActionLoading(false)
-      goToStep('edit')
       return
     }
+    setFailedPack(null)
 
     if (imported.length < pack.items.length) {
       setError(`Imported ${imported.length} of ${pack.items.length} items. Some could not be added.`)
@@ -157,6 +177,7 @@ export function OnboardingPage() {
   }
 
   const stepIndex = step === 'pick' ? 0 : step === 'edit' ? 1 : 2
+  const stepTitles = ['Choose a starter pack', 'Review your items', 'Save your list']
   const subtitles = [
     'Pick items you buy regularly. We\'ll compare deals for you.',
     'Remove what you don\'t buy. Add anything missing.',
@@ -178,10 +199,15 @@ export function OnboardingPage() {
           onClick={handleBack}
           type="button"
         >
-          &larr; Back
+          &larr; {step === 'edit' && !editId ? 'Back to pack selection' : 'Back'}
         </button>
       )}
-      <h1 ref={stepHeadingRef} tabIndex={-1} className="mb-1 text-2xl font-bold tracking-tight outline-none">Set up your list</h1>
+      {step === 'pick' && !editId && (
+        <div className="mb-3 text-right text-sm">
+          <Link to="/" className="text-accent hover:underline">Already have a list? Find it here →</Link>
+        </div>
+      )}
+      <h1 ref={stepHeadingRef} tabIndex={-1} className="mb-1 text-2xl font-bold tracking-tight outline-none">{stepTitles[stepIndex]}</h1>
       <p className="mb-4 text-sm text-muted">{subtitles[stepIndex]}</p>
 
       {/* Step progress bar */}
@@ -209,7 +235,16 @@ export function OnboardingPage() {
 
       {error && (
         <div className="mb-4 rounded-md bg-error-light p-4 text-center text-sm text-error" role="alert">
-          {error}
+          <p>{error}</p>
+          {failedPack && (
+            <button
+              type="button"
+              className="mt-2 text-sm font-semibold underline"
+              onClick={() => { setError(null); handlePackSelect(failedPack) }}
+            >
+              Try again
+            </button>
+          )}
         </div>
       )}
 
@@ -241,19 +276,25 @@ export function OnboardingPage() {
             >
               Back
             </Button>
-            <Button
-              fullWidth
-              onClick={handleDoneEditing}
-              disabled={items.length === 0}
-              type="button"
-              title={items.length === 0 ? 'Add at least one item to continue' : undefined}
-            >
-              Next — compare deals ({items.length} items)
-            </Button>
+            {items.length === 0 ? (
+              <Button
+                fullWidth
+                variant="outline"
+                onClick={() => window.location.href = '/deals'}
+                type="button"
+              >
+                Browse deals to add items
+              </Button>
+            ) : (
+              <Button
+                fullWidth
+                onClick={handleDoneEditing}
+                type="button"
+              >
+                Next — compare deals ({items.length} item{items.length !== 1 ? 's' : ''})
+              </Button>
+            )}
           </div>
-          {items.length === 0 && (
-            <p className="mt-2 text-center text-xs text-muted">Add at least one item to continue</p>
-          )}
         </div>
       )}
 

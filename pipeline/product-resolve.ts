@@ -60,7 +60,8 @@ export async function resolveProducts(
     existing.set(p.source_name, { id: p.id, product_group: p.product_group })
   }
 
-  // Step 2: Match deals to existing products, collect new ones
+  // Step 2: Match deals to existing products, collect new ones + offer date updates
+  const offerDateUpdates: { id: string; offer_valid_from: string; offer_valid_to: string | null }[] = []
   const newProducts: {
     canonical_name: string
     brand: string | null
@@ -70,6 +71,8 @@ export async function resolveProducts(
     product_form: string
     product_group: string | null
     source_name: string
+    offer_valid_from: string | null
+    offer_valid_to: string | null
   }[] = []
 
   for (const deal of deals) {
@@ -81,12 +84,23 @@ export async function resolveProducts(
         productId: existingProduct.id,
         productGroup: existingProduct.product_group,
       })
+      // Queue offer date update for existing product
+      if (deal.validFrom) {
+        offerDateUpdates.push({
+          id: existingProduct.id,
+          offer_valid_from: deal.validFrom,
+          offer_valid_to: deal.validTo ?? null,
+        })
+      }
     } else {
       // Extract metadata for new product
       const meta: ProductMetadata = extractProductMetadata(sourceName, deal.sourceCategory)
 
       // Auto-assign product group
       const groupAssignment = assignProductGroup(sourceName)
+      if (!groupAssignment) {
+        console.log(`[product-group-assign] [UNMATCHED] ${store}: ${sourceName}`)
+      }
 
       // Build canonical name: strip brand prefix if found
       let canonicalName = deal.productName
@@ -111,6 +125,8 @@ export async function resolveProducts(
         product_form: groupAssignment?.productForm ?? meta.productForm,
         product_group: groupAssignment?.groupId ?? null,
         source_name: sourceName,
+        offer_valid_from: deal.validFrom ?? null,
+        offer_valid_to: deal.validTo ?? null,
       })
     }
   }
@@ -152,6 +168,25 @@ export async function resolveProducts(
 
     console.log(
       `[product-resolve] [INFO] Created ${toInsert.length} new ${store} products`,
+    )
+  }
+
+  // Step 4: Update offer dates on existing products (batch by ID)
+  if (offerDateUpdates.length > 0) {
+    for (let i = 0; i < offerDateUpdates.length; i += BATCH_SIZE) {
+      const batch = offerDateUpdates.slice(i, i + BATCH_SIZE)
+      // Use individual updates since Supabase doesn't support batch update by different IDs
+      await Promise.all(
+        batch.map(({ id, offer_valid_from, offer_valid_to }) =>
+          supabase
+            .from('products')
+            .update({ offer_valid_from, offer_valid_to })
+            .eq('id', id),
+        ),
+      )
+    }
+    console.log(
+      `[product-resolve] [INFO] Updated offer dates on ${offerDateUpdates.length} existing ${store} products`,
     )
   }
 

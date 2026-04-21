@@ -2,8 +2,11 @@
 
 **Author:** Kiran Dommalapati
 **Date:** 9 April 2026
-**Version:** 2.0
+**Version:** 2.1
+**Updated:** 21 April 2026
 **Scope:** V1 — Bern region
+
+> **What changed in v2.1 (21 Apr 2026):** Unified experience shipped. The onboarding form is no longer the primary entry point. Users now build their list directly from the Deals page using add/remove toggles. "My List" nav goes to /deals for new users (not /onboarding). UC-1b updated. UC-11 promoted to Must-have. New UC-12: Unified deals+list experience added. See `docs/human-tester-guide.md` for current test scenarios.
 
 ---
 
@@ -13,9 +16,9 @@
 Every Swiss shopper knows where the promotions are — before leaving the house.
 
 ### Product Goal
-Help a Bern-based shopper see which of their regular products are on promotion this week at Migros or Coop — and where the strongest deals are. Setup in under 60 seconds, weekly check in under 30 seconds. Plus browse all weekly promotions by category with Migros vs Coop side-by-side.
+Help a Bern-based shopper see which of their regular products are on promotion this week across Swiss supermarkets — and where the strongest deals are. Setup in under 60 seconds, weekly check in under 30 seconds. Plus browse all weekly promotions by category at their selected stores, side-by-side.
 
-**Tagline:** "Your weekly promotions, compared. Migros vs Coop."
+**Tagline:** "Your weekly promotions, compared. 7 stores, one view."
 
 **What basketch is:** A promotions comparison tool — showing which of your items are on sale where this week.
 **What basketch is NOT:** A price comparison tool — it does not compare regular shelf prices across stores. See PRD Section 6b for why this is a deliberate product choice.
@@ -90,11 +93,11 @@ After 4 weeks of usage by 10 friends, ask three questions (adapted from Sean Ell
 - Shops once a week, usually **Saturday morning**
 - Has both a Migros and a Coop within 10 minutes
 - Buys a mix: fresh food for the week + restocks pantry/household when deals are good
-- Willing to split the trip between two stores **if the promotions are clear and easy to see**
+- Willing to split the trip across multiple stores **if the promotions are clear and easy to see**
 - Currently picks one store based on habit or proximity, occasionally checks the other
 
 **Goals:**
-1. Catch the best promotions each week without spending extra time checking two stores
+1. Catch the best promotions each week without spending extra time checking multiple stores
 2. Know in advance which store has more promotions this week — for each type of shopping
 3. Stock up on long-life and household items when they're significantly discounted
 
@@ -104,7 +107,7 @@ After 4 weeks of usage by 10 friends, ask three questions (adapted from Sean Ell
 3. "I only find out about a deal after I've already bought it at the other store."
 4. "The supermarket apps and websites are cluttered — I don't want to scroll through 200 items to find what matters."
 
-**Quote:** *"Just tell me: Migros or Coop this week? For what?"*
+**Quote:** *"Just tell me: which store this week? For what?"*
 
 ### Secondary Persona: "Marco" — The Deal Hunter
 
@@ -130,7 +133,7 @@ After 4 weeks of usage by 10 friends, ask three questions (adapted from Sean Ell
 
 | Profile | Why not |
 |---------|---------|
-| Price-obsessed optimizer who compares across 5+ stores (Aldi, Lidl, Denner, etc.) | basketch MVP covers only Migros and Coop. Power users need a broader tool. |
+| Price-obsessed optimizer who compares regular shelf prices across stores | basketch covers 7 Swiss supermarkets but shows promotions only, not regular prices. Power users need a price comparison tool. |
 | Tourist or non-resident | Site assumes familiarity with Swiss stores and German product names. |
 | Someone who only shops at one store by principle | No comparison needed — they already decided. |
 
@@ -151,42 +154,44 @@ After 4 weeks of usage by 10 friends, ask three questions (adapted from Sean Ell
 ## 4. User Journey Map
 
 ```
-FIRST VISIT — Sarah Sets Up Her Favorites
+FIRST VISIT — Sarah Discovers and Builds Her List (v2.1 — Unified Experience)
 
-Timeline: Open basketch → Pick template → Customize → See comparison → Save
+Timeline: Open basketch → Browse deals → Tap + → Sticky bar → Compare → Bookmark
 
-[Open basketch]
+[Open basketch.vercel.app]
    |
-   +-- "How do you cook?" → Swiss Basics / Indian Kitchen / Mediterranean / General
-   +-- Tap "Swiss Basics" → 15 items pre-loaded (milk, bread, butter, eggs, cheese...)
-   +-- Remove what she doesn't buy, add 2-3 items via search
-   +-- Total setup time: ~45 seconds
+   +-- Sees weekly verdict: "More fresh deals at Migros this week"
+   +-- Taps "Browse all deals" → /deals page
    |
-   +-- SEE COMPARISON (aha moment!)
-   |   "3 of your items are on sale at Coop this week"
-   |   "On sale at Migros: milk (-25%), bread (-20%)"
-   |   "On sale at Coop: cheese (-30%), yogurt (-20%), cleaning spray (-40%)"
+   [/deals page]
+   +-- Sees all deals sorted by discount %, category tabs across top
+   +-- Taps "🥬 Fruits & Vegetables" → filtered to that category
+   +-- Taps + on Erdbeeren (Migros, 40% off) → turns green
+   +-- Taps + on Milch (Coop, 25% off) → turns green
+   +-- Sticky bar appears: "2 items in your list →"
+   +-- Continues browsing, adds 5-8 items total
    |
-   +-- "Want to save this? Enter your email."
-   +-- kiran@email.com → saved
+   +-- Taps sticky bar → /compare/:id
    |
-   Done. Next week: enter email → see updated comparison.
+   [/compare/:id — her personal page]
+   +-- Sees items grouped by category: Fruits & Veg, Dairy & Eggs, Drinks
+   +-- Each category shows ALL deals from all stores that week (not just her exact item)
+   +-- Taps "Copy link" → shares via WhatsApp with partner
+   +-- Bookmarks the page
+   |
+   Total setup time: under 60 seconds. No form. No email required.
 
 
-RETURN VISIT — Sarah Checks Her Comparison (Weekly)
+RETURN VISIT — Weekly (Under 30 Seconds)
 
-Timeline: Open bookmark → See comparison → Go shopping
-
-[Open bookmark or saved link]
+[Open bookmark /compare/:id]
    |
-   +-- Comparison page loads instantly with this week's deals
-   +-- Promotions summary: "3 items on sale at Migros | 2 items on sale at Coop"
-   +-- Split list: On sale at Migros (3 items) | On sale at Coop (2 items)
-   +-- Go shopping with the right list
+   +-- Deals automatically updated since last Thursday
+   +-- Sees new promotions in her categories
+   +-- Goes shopping
    |
-   Total: under 10 seconds
-
-   Alternative: If bookmark lost, enter email on home page → find list
+   Alternative: Tap "My List" in nav → same page
+   Alternative: Go to /deals, tap + on new items → sticky bar shows updated count
 ```
 
 ---
@@ -269,7 +274,7 @@ Basketch generates fresh, unique content every week (deal comparisons, verdicts)
 |-----------|------------------------|---------------|
 | Weekly verdict page | "Migros Angebote diese Woche", "Coop Aktionen Bern" | `/woche/2026-kw16` |
 | Category pages | "beste Angebote Frischprodukte", "Waschmittel Aktion Schweiz" | `/kategorie/frisch`, `/kategorie/non-food` |
-| Store comparison | "Migros oder Coop", "Migros vs Coop Preisvergleich" | `/vergleich` |
+| Store comparison | "Migros oder Coop", "Migros vs Coop Preisvergleich", "Supermarkt Aktionen Vergleich Schweiz" | `/vergleich` |
 | Historical archive | "Migros Aktionen April 2026" | `/archiv/2026-04` |
 
 **Why SEO works for basketch:** Every Thursday, new content is generated automatically. Search engines reward fresh, structured, regularly-updated content. This is a flywheel: more weeks of data = more indexed pages = more organic traffic = more users.
@@ -515,8 +520,8 @@ AND no re-authentication or onboarding is required
 | # | Step | Detail |
 |---|------|--------|
 | 1 | Trigger | GitHub Actions fires cron at Wednesday 21:00 UTC |
-| 2 | Fetch Migros | Call migros-api-wrapper, retrieve current week's discounts |
-| 3 | Fetch Coop | Scrape aktionis.ch/vendors/coop, parse deal data |
+| 2 | Fetch deals | Scrape aktionis.ch for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg), parse deal data |
+| 3 | — | *(merged into step 2 — all stores fetched from aktionis.ch)* |
 | 4 | Categorize | Map each product to Fresh / Long-life / Non-food using keyword rules |
 | 5 | Store | Upsert deals to Supabase (update existing, add new, mark expired) |
 | 6 | Log | Record success/failure per source, deal counts, runtime |
@@ -656,6 +661,57 @@ THEN deals are grouped by store (Migros and Coop separately)
 
 ---
 
+### UC-12: Unified Deals + List Experience (v2.1 — Primary Flow)
+
+**Persona:** Sarah, Marco  
+**Job:** JTBD-1, JTBD-2  
+**Trigger:** User opens /deals and sees items they buy regularly  
+**Priority:** Must-have (shipped 21 Apr 2026)
+
+**What changed from v2.0:** The primary way to build a list is now directly from the Deals page. The onboarding form (starter pack → edit → save) still exists as an alternative path, but is no longer the default entry point.
+
+**Main Flow:**
+
+| # | Sarah does... | System does... |
+|---|---------------|----------------|
+| 1 | Opens /deals | Shows all deals, "All deals" view by default, sorted by discount % |
+| 2 | Browses by category tab and store pills | Filters deals in real time |
+| 3 | Taps + on a deal she buys regularly | Button turns green (added to list); toast confirms |
+| 4 | Taps green checkmark on same deal | Removes item; button returns to grey + |
+| 5 | Adds 5-8 items | Sticky bar appears: "N items in your list →" |
+| 6 | Taps sticky bar link | Navigates to /compare/:id |
+| 7 | Views comparison grouped by category | All deals from all stores shown per category |
+| 8 | Taps "Copy link" or "Share list" | Copies URL or opens native share sheet |
+| 9 | Bookmarks /compare/:id | Returns weekly to same URL |
+
+**Acceptance Criteria:**
+
+```
+GIVEN Sarah opens /deals
+WHEN the page loads
+THEN deals are shown in list view by default (not compare view)
+  AND each deal card has a + button to add to list
+  AND tapping + adds item and turns button green
+  AND tapping green checkmark removes item and reverts to grey +
+  AND a toast notification confirms each add/remove
+  AND a sticky bottom bar appears after adding any item
+  AND sticky bar shows correct item count
+  AND sticky bar links to /compare/:basketId
+  AND "My List" nav link goes to /compare/:id for users with items
+  AND "My List" nav link goes to /deals for users with no items
+  AND "My List" nav does NOT go to /onboarding for new users
+```
+
+**Edge cases:**
+
+| Condition | Behaviour |
+|-----------|-----------|
+| User not yet assigned a basket | basket created in DB on first + tap, stored in localStorage |
+| Remove fails (DB error) | Toast shows exact error message |
+| User clears localStorage | /deals still works, but sticky bar won't show previous list |
+
+---
+
 ## 9. Risk Register
 
 ### R1: Data Source Becomes Unavailable
@@ -664,21 +720,21 @@ THEN deals are grouped by store (Migros and Coop separately)
 |-----------|--------|
 | **Risk** | aktionis.ch goes offline, changes structure, or blocks automated access |
 | **Likelihood** | Medium (site has been stable since 2006, but no guarantees) |
-| **Impact** | High — Coop data disappears from the site |
+| **Impact** | High — all store data disappears from the site |
 | **Detection** | Pipeline logs error; monitoring alert fires |
 | **Mitigation** | Fallback chain: aktionis.ch -> oferlo.ch (JSON-LD structured data) -> Rappn.ch (Next.js API). All three aggregators verified in Phase 0. |
-| **Response plan** | Show "Coop data unavailable" banner. Switch to backup source within 1 day. |
+| **Response plan** | Show "Deal data unavailable" banner. Switch to backup source within 1 day. |
 
-### R2: Migros API Wrapper Breaks
+### R2: aktionis.ch Structure Changes for Specific Stores
 
 | Attribute | Detail |
 |-----------|--------|
-| **Risk** | Open-source migros-api-wrapper stops working (Migros changes auth, npm package unmaintained) |
-| **Likelihood** | Medium (last updated 2024, active maintainer) |
-| **Impact** | High — Migros data disappears |
-| **Detection** | Pipeline logs auth failure or empty results |
-| **Mitigation** | Fallback: aktionis.ch also lists Migros deals. Pepesto API (paid, EUR 0.05/request) as emergency backup. |
-| **Response plan** | Switch data source within 1 day. Worst case: both stores via aktionis.ch. |
+| **Risk** | aktionis.ch changes HTML structure or URL patterns for one or more stores |
+| **Likelihood** | Medium (site has been stable, but per-store pages may evolve independently) |
+| **Impact** | Medium — affected store(s) lose data until scraper is updated |
+| **Detection** | Pipeline logs empty results or parse errors for specific stores |
+| **Mitigation** | Fallback chain per store: aktionis.ch -> oferlo.ch (JSON-LD structured data) -> Rappn.ch (Next.js API). Pepesto API (paid, EUR 0.05/request) as emergency backup. |
+| **Response plan** | Update scraper selectors within 1 day. Show "[Store] data unavailable" banner for affected stores. |
 
 ### R3: Category Mapping Inaccuracy
 
@@ -733,7 +789,7 @@ THEN deals are grouped by store (Migros and Coop separately)
 | **No app** | Web only. Mobile-optimised site. | Nobody installs an app to check grocery deals. PWA possible in Phase 3. |
 | **Cost** | CHF 0/month | Free tiers only: Supabase, Vercel, GitHub Actions. Portfolio project, not a business. |
 | **Language** | English UI (MVP) | Author's preference. German product names come from source data. German UI in future if demand exists. |
-| **Two stores only** | Migros and Coop | These are the two stores 80% of Swiss residents split between. Aldi/Lidl/Denner in future phases. |
+| **Seven stores** | Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg (defaults: Migros, Coop, Denner) | All sourced from aktionis.ch. Covers the stores 90%+ of Swiss residents shop at. |
 
 ---
 

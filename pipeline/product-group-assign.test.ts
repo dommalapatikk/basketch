@@ -106,6 +106,78 @@ describe('assignProductGroup', () => {
   })
 
   // ============================================================
+  // BERRIES — must distinguish specific fruits
+  // ============================================================
+  it('assigns strawberries correctly', () => {
+    expect(assignProductGroup('erdbeeren 500g')?.groupId).toBe('strawberries')
+    expect(assignProductGroup('erdbeeren clery')?.groupId).toBe('strawberries')
+  })
+
+  it('assigns blueberries correctly', () => {
+    expect(assignProductGroup('heidelbeeren 125g')?.groupId).toBe('blueberries')
+    expect(assignProductGroup('naturaplan bio heidelbeeren')?.groupId).toBe('blueberries')
+  })
+
+  it('assigns raspberries correctly', () => {
+    expect(assignProductGroup('himbeeren 125g')?.groupId).toBe('raspberries')
+    expect(assignProductGroup('migros bio himbeeren')?.groupId).toBe('raspberries')
+  })
+
+  it('does NOT assign strawberry yogurt drinks to strawberries', () => {
+    expect(assignProductGroup('actimel joghurtdrink erdbeere')?.groupId).not.toBe('strawberries')
+    expect(assignProductGroup('lc1 erdbeer 12x')?.groupId).not.toBe('strawberries')
+  })
+
+  // ============================================================
+  // CHEESE — must distinguish varieties
+  // ============================================================
+  it('assigns gruyere correctly', () => {
+    expect(assignProductGroup('gruyère aoc 200g')?.groupId).toBe('gruyere')
+  })
+
+  it('assigns emmentaler correctly', () => {
+    expect(assignProductGroup('emmentaler mild 250g')?.groupId).toBe('emmentaler')
+  })
+
+  it('assigns appenzeller correctly', () => {
+    expect(assignProductGroup('appenzeller kräftig-würzig')?.groupId).toBe('appenzeller')
+  })
+
+  it('does NOT assign appenzeller bärli-biber to cheese', () => {
+    expect(assignProductGroup('appenzeller bärli-biber')?.groupId).not.toBe('appenzeller')
+  })
+
+  // ============================================================
+  // WINE / BEER
+  // ============================================================
+  it('assigns red wine correctly', () => {
+    expect(assignProductGroup('primitivo puglia 75cl')?.groupId).toBe('wine-red')
+    expect(assignProductGroup('merlot ticino 75cl')?.groupId).toBe('wine-red')
+  })
+
+  it('assigns white wine correctly', () => {
+    expect(assignProductGroup('chardonnay pays d\'oc 75cl')?.groupId).toBe('wine-white')
+    expect(assignProductGroup('prosecco spumante 75cl')?.groupId).toBe('wine-white')
+  })
+
+  it('assigns beer correctly', () => {
+    expect(assignProductGroup('feldschlösschen lager 6x50cl')?.groupId).toBe('beer')
+  })
+
+  it('does NOT assign schweinesteak to wine', () => {
+    // "wein" in "schwein" should not trigger wine
+    expect(assignProductGroup('schweinesteak 300g')?.groupId).not.toBe('wine-red')
+  })
+
+  // ============================================================
+  // FROZEN PIZZA
+  // ============================================================
+  it('assigns frozen pizza correctly', () => {
+    expect(assignProductGroup('pizza margherita')?.groupId).toBe('frozen-pizza')
+    expect(assignProductGroup('tiefkühlpizza prosciutto')?.groupId).toBe('frozen-pizza')
+  })
+
+  // ============================================================
   // RETURNS NULL FOR UNKNOWN PRODUCTS
   // ============================================================
   it('returns null for unrecognized products', () => {
