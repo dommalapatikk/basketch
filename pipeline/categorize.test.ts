@@ -124,8 +124,8 @@ describe('categorizeDeal', () => {
       ['Hakle Toilettenpapier 24 Rollen', 'paper-goods'],
       ['Chips Original 170g', 'snacks'],
       ['Lindt Lindor 200g', 'chocolate'],
-      ['Rivella rot 50cl', 'drinks'],
-      ['Nescafé Kaffee Gold 200g', 'coffee-tea'],
+      ['Rivella rot 50cl', 'soft-drinks'],
+      ['Nescafé Kaffee Gold 200g', 'coffee'],
     ])('assigns sub_category "%s" -> %s', (productName, expectedSub) => {
       const deal = makeDeal({ productName })
       const result = categorizeDeal(deal)
