@@ -103,7 +103,7 @@ export const BROWSE_CATEGORIES: BrowseCategoryInfo[] = [
   // Long-life
   { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['snacks', 'chocolate'], topCategory: 'long-life' },
   { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'], topCategory: 'long-life' },
-  { id: 'drinks', label: 'Drinks', emoji: '☕', subCategories: ['drinks', 'coffee-tea'], topCategory: 'long-life' },
+  { id: 'drinks', label: 'Drinks', emoji: '🥤', subCategories: ['water', 'juice', 'beer', 'wine', 'soft-drinks', 'coffee', 'tea', 'drinks', 'coffee-tea'], topCategory: 'long-life' },
   { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen'], topCategory: 'long-life' },
   { id: 'pantry-canned', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'], topCategory: 'long-life' },
   // Non-food
