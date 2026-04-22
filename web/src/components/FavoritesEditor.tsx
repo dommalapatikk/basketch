@@ -143,10 +143,19 @@ export function FavoritesEditor(props: {
             return (
               <li
                 key={item.id}
-                className={`flex items-center justify-between border-b border-border py-2.5 last:border-b-0 transition-colors ${
+                className={`flex items-center gap-3 border-b border-border py-2.5 last:border-b-0 transition-colors ${
                   isNew ? 'border-l-2 border-l-success pl-2' : ''
                 }`}
               >
+                {/* 48×48 category thumbnail */}
+                <div
+                  className="flex size-12 shrink-0 items-center justify-center rounded-lg text-xl"
+                  style={{ backgroundColor: '#f4f5f7' }}
+                  aria-hidden="true"
+                >
+                  {catInfo ? catInfo.emoji : item.label.charAt(0).toUpperCase()}
+                </div>
+
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{item.label}</div>
                   {catInfo ? (
