@@ -50,6 +50,7 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     sourceUrl: null,
     category: 'fresh',
     subCategory: 'dairy',
+    taxonomyConfidence: 0.7,
     ...overrides,
   }
 }

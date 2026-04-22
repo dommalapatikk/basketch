@@ -60,10 +60,22 @@ const SUB_CATEGORY_META: Record<string, { label: string; emoji: string }> = {
 }
 
 /**
+ * Group key used for bands whose deals have no sub-category. Rendered as
+ * "Other" only when the deal confidence is high enough — see v4 spec §13.
+ * The literal underscore must never leak into the DOM; callers map this to
+ * the display label via OTHER_LABEL below.
+ */
+const OTHER_BAND_KEY = 'other'
+const OTHER_LABEL = 'Other'
+const OTHER_EMOJI = '📦'
+
+/**
  * Group DealRows by sub_category and map them to BandDeal[].
  * Returns an array of band data sorted by deal count (most deals first).
+ * Deals with null sub_category are bucketed under a single "Other" band so
+ * the literal `_uncategorised` key never reaches the UI.
  */
-function groupDealsBySubCategory(deals: DealRow[]): Array<{
+export function groupDealsBySubCategory(deals: DealRow[]): Array<{
   subCategory: string
   label: string
   emoji: string
@@ -72,7 +84,7 @@ function groupDealsBySubCategory(deals: DealRow[]): Array<{
   const grouped = new Map<string, DealRow[]>()
 
   for (const deal of deals) {
-    const key = deal.sub_category ?? '_uncategorised'
+    const key = deal.sub_category ?? OTHER_BAND_KEY
     const existing = grouped.get(key) ?? []
     existing.push(deal)
     grouped.set(key, existing)
@@ -82,8 +94,12 @@ function groupDealsBySubCategory(deals: DealRow[]): Array<{
 
   for (const [key, groupDeals] of grouped) {
     const meta = SUB_CATEGORY_META[key]
-    const label = meta?.label ?? key.replace(/-/g, ' ')
-    const emoji = meta?.emoji ?? '📦'
+    const label = key === OTHER_BAND_KEY
+      ? OTHER_LABEL
+      : (meta?.label ?? key.replace(/-/g, ' '))
+    const emoji = key === OTHER_BAND_KEY
+      ? OTHER_EMOJI
+      : (meta?.emoji ?? '📦')
 
     // Per-store best deal: cheapest promo deal per store, then cheapest regular per store
     const storePromoMap = new Map<Store, DealRow>()

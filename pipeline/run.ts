@@ -9,10 +9,17 @@ import type { Store, UnifiedDeal } from '../shared/types'
 import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
 
 import { categorizeDeal } from './categorize'
+import { filterGrocery } from './grocery-filter'
 import { extractProductMetadata } from './product-metadata'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
 import { isValidDealEntry } from './validate'
+
+/**
+ * Confidence threshold: deals below this score are rejected as "likely
+ * miscategorised" and never written to the DB. See v4 spec §13.
+ */
+const MIN_TAXONOMY_CONFIDENCE = 0.4
 
 function readDealsFile(filename: string): UnifiedDeal[] {
   const filePath = path.resolve(process.cwd(), filename)
@@ -98,12 +105,37 @@ async function main(): Promise<void> {
   }
   console.log(`[pipeline] [INFO] Normalised ${allRaw.length} product names`)
 
+  // Step 1b: Reject non-grocery items at ingest (Parkside, Silvercrest, etc.).
+  // See v4 spec §13 and pipeline/grocery-filter.ts.
+  const groceryOnly: UnifiedDeal[] = []
+  const rejectionReasons = new Map<string, number>()
+  for (const deal of allRaw) {
+    const decision = filterGrocery(deal)
+    if (decision.keep) {
+      groceryOnly.push(deal)
+    } else {
+      const key = `${decision.reason}:${decision.matched ?? ''}`
+      rejectionReasons.set(key, (rejectionReasons.get(key) ?? 0) + 1)
+    }
+  }
+  const rejected = allRaw.length - groceryOnly.length
+  if (rejected > 0) {
+    const breakdown = [...rejectionReasons.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(', ')
+    console.log(
+      `[pipeline] [INFO] Grocery filter rejected ${rejected} non-grocery items (${breakdown})`,
+    )
+  }
+
   // Step 2: Extract metadata (brand, quantity, unit, organic flag)
   // Metadata is used downstream by product resolver; log summary here for visibility
   let organicCount = 0
   let brandCount = 0
   let quantityCount = 0
-  for (const deal of allRaw) {
+  for (const deal of groceryOnly) {
     const meta = extractProductMetadata(deal.productName, deal.sourceCategory)
     if (meta.isOrganic) organicCount++
     if (meta.brand) brandCount++
@@ -113,13 +145,17 @@ async function main(): Promise<void> {
     `[pipeline] [INFO] Metadata: ${brandCount} brands, ${quantityCount} quantities, ${organicCount} organic`,
   )
 
-  // Step 3: Categorize all deals and filter out 0% discount entries (not real deals)
-  const categorized = allRaw
+  // Step 3: Categorize all deals, filter out 0% discount entries, and drop any
+  // deal whose taxonomy confidence is too low (likely miscategorised). See §13.
+  const categorized = groceryOnly
     .map((deal) => categorizeDeal(deal))
     .filter((d) => (d.discountPercent ?? 0) > 0)
+    .filter((d) => d.taxonomyConfidence >= MIN_TAXONOMY_CONFIDENCE)
 
-  const filtered = allRaw.length - categorized.length
-  console.log(`[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with 0% discount)`)
+  const filtered = groceryOnly.length - categorized.length
+  console.log(
+    `[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with 0% discount or confidence < ${MIN_TAXONOMY_CONFIDENCE})`,
+  )
 
   // Resolve products per store dynamically
   const storeNames = Array.from(storeStatusMap.keys())

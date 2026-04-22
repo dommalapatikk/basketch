@@ -167,4 +167,49 @@ describe('categorizeDeal', () => {
       expect(result.category).toBe('fresh')
     })
   })
+
+  describe('taxonomy confidence per tier', () => {
+    it('brand match → 0.95', () => {
+      const deal = makeDeal({ productName: 'lindt lindor 200g' })
+      expect(categorizeDeal(deal).taxonomyConfidence).toBe(0.95)
+    })
+
+    it('source category match → 0.85', () => {
+      const deal = makeDeal({
+        productName: 'bio produkt',
+        sourceCategory: 'Frische Milchprodukte',
+      })
+      expect(categorizeDeal(deal).taxonomyConfidence).toBe(0.85)
+    })
+
+    it('keyword match → 0.70', () => {
+      const deal = makeDeal({ productName: 'vollmilch 1l' })
+      expect(categorizeDeal(deal).taxonomyConfidence).toBe(0.70)
+    })
+
+    it('no match (DEFAULT_CATEGORY fallback) → 0.30', () => {
+      const deal = makeDeal({ productName: 'unknown product xyz' })
+      expect(categorizeDeal(deal).taxonomyConfidence).toBe(0.30)
+    })
+  })
+
+  describe('v4 format fields attached when derivable', () => {
+    it('liquid deal gets pricePerUnit in CHF/L', () => {
+      const deal = makeDeal({
+        productName: 'schweizer mineralwasser 6x1.5l pet',
+        salePrice: 2.60,
+        quantityDisplay: '6 x 1.5 L',
+      })
+      const result = categorizeDeal(deal)
+      expect(result.canonicalUnit).toBe('L')
+      expect(result.canonicalUnitValue).toBe(9)
+      expect(result.pricePerUnit).toBeCloseTo(0.29, 2)
+    })
+
+    it('leaves format fields undefined when nothing parseable', () => {
+      const deal = makeDeal({ productName: 'mystery product no units' })
+      const result = categorizeDeal(deal)
+      expect(result.pricePerUnit).toBeUndefined()
+    })
+  })
 })

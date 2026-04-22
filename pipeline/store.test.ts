@@ -41,6 +41,7 @@ function makeDeal(index: number): Deal {
     sourceCategory: null,
     sourceUrl: null,
     category: 'fresh',
+    taxonomyConfidence: 0.7,
   }
 }
 

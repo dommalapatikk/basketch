@@ -54,6 +54,42 @@ export function aktionisSlugToStore(slug: string): Store | null {
 export type Category = 'fresh' | 'long-life' | 'non-food'
 
 // ============================================================
+// v4 format / container / canonical unit types (spec §3)
+// ============================================================
+
+export type Format = 'still' | 'sparkling' | 'lightly-sparkling' | 'flavoured'
+export type Container = 'pet' | 'glass' | 'can' | 'carton' | 'pouch'
+export type CanonicalUnit = 'L' | 'kg' | '100g' | 'piece'
+
+/** Format dimension for a sub-category schema (e.g. Type / Container / Pack). */
+export interface FormatDimension {
+  id: string
+  label: string
+  values: string[]
+}
+
+/**
+ * Canonical schema for a sub-category, driving format-aware comparison.
+ * Source of truth for: canonical unit, which format dimensions to chip on,
+ * and the default format chip to select on band entry.
+ */
+export interface SubCategorySchema {
+  id: string
+  label: string
+  icon: string
+  canonicalUnit: CanonicalUnit
+  formatDimensions: FormatDimension[]
+  defaultFormat?: string
+}
+
+/**
+ * Confidence score that a deal's (category, sub_category) assignment is correct.
+ * Tier mapping: brand=0.95, source-category=0.85, keyword=0.7, fallback=0.3.
+ * Deals below 0.4 are rejected at ingest; 0.4–0.7 bucket as "Other"; ≥0.7 render normally.
+ */
+export type TaxonomyConfidence = number
+
+// ============================================================
 // Constants
 // ============================================================
 
@@ -266,14 +302,42 @@ export interface UnifiedDeal {
   imageUrl: string | null
   sourceCategory: string | null // original category from source
   sourceUrl: string | null      // link to deal on source site
+
+  // Optional fields emitted by aktionis Python scraper (see aktionis/normalize.py).
+  // format-extract consumes these as authoritative when present and falls back to
+  // regex on productName/description only when they are absent.
+  quantity?: number             // e.g. 9 (total litres for 6x1.5L)
+  quantityUnit?: string         // 'ml' | 'cl' | 'dl' | 'l' | 'g' | 'kg' | 'pcs'
+  quantityDisplay?: string      // raw human string, e.g. '6 x 1.5 L'
+  unitPriceAmount?: number      // e.g. 0.29 (CHF per unit)
+  unitPricePerQty?: number      // e.g. 1 (per 1 L) or 100 (per 100 g)
+  unitPriceUnit?: string        // 'l' | 'kg' | 'g' | 'ml' | 'cl'
+  description?: string          // raw card description
 }
 
 /**
  * Categorized deal, ready for storage.
+ * Phase 1 (v4): adds format dimensions + canonical unit pricing + confidence.
  */
 export interface Deal extends UnifiedDeal {
   category: Category
   subCategory?: string | null
+
+  // v4 format dimensions — undefined when not derivable
+  format?: Format
+  container?: Container
+  packSize?: number             // e.g. 6 for a 6-pack; 1 for single
+  unitVolumeMl?: number         // volume of one unit, for liquids
+  unitWeightG?: number          // weight of one unit, for solids
+  unitCount?: number            // count per pack, for piece items
+
+  // v4 canonical unit pricing
+  canonicalUnit?: CanonicalUnit
+  canonicalUnitValue?: number   // total (e.g. 9 litres for 6×1.5L)
+  pricePerUnit?: number         // salePrice / canonicalUnitValue
+
+  // v4 taxonomy confidence (0..1) — see TaxonomyConfidence
+  taxonomyConfidence: TaxonomyConfidence
 }
 
 // ============================================================
@@ -300,6 +364,17 @@ export interface DealRow {
   source_url: string | null
   product_id: string | null
   is_active: boolean
+  // v4 format + canonical unit fields (nullable — not all deals are format-aware)
+  format: Format | null
+  container: Container | null
+  pack_size: number | null
+  unit_volume_ml: number | null
+  unit_weight_g: number | null
+  unit_count: number | null
+  canonical_unit: CanonicalUnit | null
+  canonical_unit_value: number | null
+  price_per_unit: number | null
+  taxonomy_confidence: number   // NOT NULL — default 0.3 if unknown
   fetched_at: string
   created_at: string
   updated_at: string
@@ -661,5 +736,15 @@ export function dealToRow(
     source_url: deal.sourceUrl,
     product_id: productId ?? null,
     is_active: true,
+    format: deal.format ?? null,
+    container: deal.container ?? null,
+    pack_size: deal.packSize ?? null,
+    unit_volume_ml: deal.unitVolumeMl ?? null,
+    unit_weight_g: deal.unitWeightG ?? null,
+    unit_count: deal.unitCount ?? null,
+    canonical_unit: deal.canonicalUnit ?? null,
+    canonical_unit_value: deal.canonicalUnitValue ?? null,
+    price_per_unit: deal.pricePerUnit ?? null,
+    taxonomy_confidence: deal.taxonomyConfidence,
   }
 }

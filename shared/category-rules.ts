@@ -526,24 +526,54 @@ function matchKeywords(productName: string): { category: Category, subCategory: 
   return { category: DEFAULT_CATEGORY, subCategory: null }
 }
 
+/** Which rule tier produced a match. Drives taxonomy confidence scoring. */
+export type CategoryMatchTier = 'brand' | 'source' | 'keyword' | 'fallback'
+
+export interface CategoryMatchResult {
+  category: Category
+  subCategory: string | null
+  tier: CategoryMatchTier
+}
+
+/**
+ * Taxonomy confidence per match tier. Source of truth for `categorizeDeal`
+ * and for `MIN_TAXONOMY_CONFIDENCE` in pipeline/run.ts. See v4 spec §13.
+ */
+export const TAXONOMY_CONFIDENCE_BY_TIER: Record<CategoryMatchTier, number> = {
+  brand:    0.95,
+  source:   0.85,
+  keyword:  0.70,
+  fallback: 0.30,
+}
+
 /**
  * Three-tier product categorization:
  * 1. Brand match (highest confidence — definitive)
  * 2. Source category match (from Migros API — high confidence)
  * 3. Keyword match on product name (fallback — lowest confidence)
+ * 4. Fallback to DEFAULT_CATEGORY with null sub-category (no signal)
  */
 export function matchCategory(
   productName: string,
   sourceCategory?: string | null,
-): { category: Category, subCategory: string | null } {
+): CategoryMatchResult {
   // Tier 1: Brand match
   const brandMatch = matchBrand(productName)
-  if (brandMatch) return brandMatch
+  if (brandMatch) {
+    return { ...brandMatch, tier: 'brand' }
+  }
 
   // Tier 2: Source category match
   const sourceMatch = matchSourceCategory(sourceCategory ?? null)
-  if (sourceMatch) return sourceMatch
+  if (sourceMatch) {
+    return { ...sourceMatch, tier: 'source' }
+  }
 
   // Tier 3: Keyword fallback
-  return matchKeywords(productName)
+  const kw = matchKeywords(productName)
+  return {
+    category: kw.category,
+    subCategory: kw.subCategory,
+    tier: kw.subCategory == null ? 'fallback' : 'keyword',
+  }
 }
