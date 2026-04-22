@@ -42,6 +42,50 @@ function makeRow(overrides: Partial<DealRow> = {}): DealRow {
   }
 }
 
+describe('groupDealsBySubCategory — v4 field mapping', () => {
+  it('copies pricePerUnit / canonicalUnit / format / container / packSize / unitVolumeMl from DealRow', () => {
+    const rows = [
+      makeRow({
+        sub_category: 'water',
+        store: 'lidl',
+        price_per_unit: 0.29,
+        canonical_unit: 'L',
+        format: 'still',
+        container: 'pet',
+        pack_size: 6,
+        unit_volume_ml: 1500,
+      }),
+    ]
+    const bands = groupDealsBySubCategory(rows)
+    const deal = bands[0]?.bandDeals[0]
+    expect(deal?.pricePerUnit).toBe(0.29)
+    expect(deal?.canonicalUnit).toBe('L')
+    expect(deal?.format).toBe('still')
+    expect(deal?.container).toBe('pet')
+    expect(deal?.packSize).toBe(6)
+    expect(deal?.unitVolumeMl).toBe(1500)
+  })
+
+  it('returns totalDealCount = raw row count per band', () => {
+    const rows = [
+      makeRow({ id: 'a', sub_category: 'water', store: 'lidl' }),
+      makeRow({ id: 'b', sub_category: 'water', store: 'lidl' }),
+      makeRow({ id: 'c', sub_category: 'water', store: 'migros' }),
+    ]
+    const bands = groupDealsBySubCategory(rows)
+    expect(bands[0]?.totalDealCount).toBe(3)
+    // per-store collapsing still applies
+    expect(bands[0]?.bandDeals.length).toBe(2)
+  })
+
+  it('leaves v4 fields undefined when DealRow has nulls', () => {
+    const bands = groupDealsBySubCategory([makeRow({ sub_category: 'water' })])
+    const deal = bands[0]?.bandDeals[0]
+    expect(deal?.pricePerUnit).toBeUndefined()
+    expect(deal?.format).toBeUndefined()
+  })
+})
+
 describe('groupDealsBySubCategory — _uncategorised regression', () => {
   it('never emits a band with a label starting with "_"', () => {
     const rows = [

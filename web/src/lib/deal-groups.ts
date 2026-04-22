@@ -49,17 +49,45 @@ export const OTHER_LABEL = 'Other'
 export const OTHER_EMOJI = '📦'
 
 /**
- * Group DealRows by sub_category and map them to BandDeal[].
- * Returns an array of band data sorted by promo count (most promos first).
- * Deals with null sub_category are bucketed under a single "Other" band so
- * the literal `_uncategorised` key never reaches the UI.
+ * Map a single DealRow to a BandDeal, copying v4 format fields when present.
+ * Null DB columns become undefined on the view model per view-model conventions.
  */
-export function groupDealsBySubCategory(deals: DealRow[]): Array<{
+function rowToBandDeal(deal: DealRow, hasPromo: boolean): BandDeal {
+  return {
+    id: deal.id,
+    store: deal.store,
+    productName: deal.product_name,
+    salePrice: deal.sale_price,
+    regularPrice: deal.original_price,
+    discountPercent: deal.discount_percent,
+    hasPromo,
+    pricePerUnit: deal.price_per_unit ?? undefined,
+    canonicalUnit: deal.canonical_unit ?? undefined,
+    format: deal.format ?? undefined,
+    container: deal.container ?? undefined,
+    packSize: deal.pack_size ?? undefined,
+    unitVolumeMl: deal.unit_volume_ml ?? undefined,
+  }
+}
+
+export interface BandGroup {
   subCategory: string
   label: string
   emoji: string
   bandDeals: BandDeal[]
-}> {
+  /** Total raw deal count in this sub-category before per-store collapsing. */
+  totalDealCount: number
+}
+
+/**
+ * Group DealRows by sub_category and map them to BandDeal[].
+ * Returns an array of band data sorted by promo count (most promos first).
+ * Deals with null sub_category are bucketed under a single "Other" band so
+ * the literal `_uncategorised` key never reaches the UI.
+ * Each band also carries `totalDealCount` (the raw count before per-store
+ * collapsing) so headers can render "N stores · best per store · See all M →".
+ */
+export function groupDealsBySubCategory(deals: DealRow[]): BandGroup[] {
   const grouped = new Map<string, DealRow[]>()
 
   for (const deal of deals) {
@@ -69,7 +97,7 @@ export function groupDealsBySubCategory(deals: DealRow[]): Array<{
     grouped.set(key, existing)
   }
 
-  const bands: Array<{ subCategory: string; label: string; emoji: string; bandDeals: BandDeal[] }> = []
+  const bands: BandGroup[] = []
 
   for (const [key, groupDeals] of grouped) {
     const meta = SUB_CATEGORY_META[key]
@@ -103,34 +131,18 @@ export function groupDealsBySubCategory(deals: DealRow[]): Array<{
 
     const promoDeals = [...storePromoMap.values()].sort((a, b) => a.sale_price - b.sale_price)
     for (const deal of promoDeals) {
-      bandDeals.push({
-        id: deal.id,
-        store: deal.store,
-        productName: deal.product_name,
-        salePrice: deal.sale_price,
-        regularPrice: deal.original_price,
-        discountPercent: deal.discount_percent,
-        hasPromo: true,
-      })
+      bandDeals.push(rowToBandDeal(deal, true))
     }
 
     const regularDeals = [...storeRegularMap.values()]
       .filter((d) => !storePromoMap.has(d.store))
       .sort((a, b) => a.sale_price - b.sale_price)
     for (const deal of regularDeals) {
-      bandDeals.push({
-        id: deal.id,
-        store: deal.store,
-        productName: deal.product_name,
-        salePrice: deal.sale_price,
-        regularPrice: deal.original_price,
-        discountPercent: deal.discount_percent,
-        hasPromo: false,
-      })
+      bandDeals.push(rowToBandDeal(deal, false))
     }
 
     if (bandDeals.length > 0) {
-      bands.push({ subCategory: key, label, emoji, bandDeals })
+      bands.push({ subCategory: key, label, emoji, bandDeals, totalDealCount: groupDeals.length })
     }
   }
 

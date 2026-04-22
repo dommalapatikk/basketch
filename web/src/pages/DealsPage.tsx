@@ -17,7 +17,7 @@ import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
 import { MyListPanel } from '../components/MyListPanel'
 import type { BandDeal } from '../components/SubCategoryBand'
-import { SubCategoryBand } from '../components/SubCategoryBand'
+import { DealBand } from '../components/DealBand'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -876,11 +876,13 @@ export function DealsPage() {
                 </p>
 
                 {subCategoryBands.map((band) => (
-                  <SubCategoryBand
+                  <DealBand
                     key={band.subCategory}
-                    subCategory={band.label}
+                    subCategory={band.subCategory}
+                    label={band.label}
                     emoji={band.emoji}
                     deals={band.bandDeals}
+                    totalDealCount={band.totalDealCount}
                     onAdd={handleBandAdd}
                     addedIds={localAddedIds}
                   />

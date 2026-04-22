@@ -1,6 +1,11 @@
-import type { Store } from '@shared/types'
+import type { CanonicalUnit, Container, Format, Store } from '@shared/types'
 import { ALL_STORES, STORE_META } from '@shared/types'
 
+/**
+ * Hand-curated view model for a single row in a band. Consumed by the
+ * legacy SubCategoryBand (this file) and the v4-aware DealBand (Phase 2).
+ * v4 fields are optional: legacy Comparison path leaves them undefined.
+ */
 export interface BandDeal {
   id: string
   store: Store
@@ -9,6 +14,14 @@ export interface BandDeal {
   regularPrice: number | null
   discountPercent: number
   hasPromo: boolean
+
+  // v4 format dimensions — optional, populated by deal-groups mapper when available
+  pricePerUnit?: number
+  canonicalUnit?: CanonicalUnit
+  format?: Format
+  container?: Container
+  packSize?: number
+  unitVolumeMl?: number
 }
 
 export interface SubCategoryBandProps {
