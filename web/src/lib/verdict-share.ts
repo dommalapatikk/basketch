@@ -34,14 +34,24 @@ export function verdictSummary(verdict: WeeklyVerdict): string {
 const SITE_URL = 'https://basketch.vercel.app'
 
 /**
- * Build the text blob sent to WhatsApp. Four lines, ready to paste.
- * Uses weekOf as a stable slug (no DB change needed).
+ * Permalink URL for the verdict of a given week.
+ * The VerdictPage route at /v/:weekOf reconstructs the verdict from the
+ * deal rows whose validity range includes weekOf — no DB-side snapshot needed.
+ */
+export function verdictPermalinkUrl(verdict: WeeklyVerdict): string {
+  return `${SITE_URL}/v/${verdict.weekOf}`
+}
+
+/**
+ * Build the text blob sent to WhatsApp. Three lines, ready to paste.
+ * Links to the permalink page so the recipient sees the frozen verdict,
+ * not whatever the live /deals page shows after the week rolls over.
  */
 export function verdictShareText(verdict: WeeklyVerdict): string {
   return [
     'basketch verdict',
     verdictSummary(verdict),
-    `See the deals → ${SITE_URL}/deals`,
+    `See the verdict → ${verdictPermalinkUrl(verdict)}`,
   ].join('\n')
 }
 

@@ -11,6 +11,7 @@ const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(m => ({ 
 const ComparisonPage = lazy(() => import('./pages/ComparisonPage').then(m => ({ default: m.ComparisonPage })))
 const DealsPage = lazy(() => import('./pages/DealsPage').then(m => ({ default: m.DealsPage })))
 const CategoryPage = lazy(() => import('./pages/CategoryPage').then(m => ({ default: m.CategoryPage })))
+const VerdictPage = lazy(() => import('./pages/VerdictPage').then(m => ({ default: m.VerdictPage })))
 const AboutPage = lazy(() => import('./pages/AboutPage').then(m => ({ default: m.AboutPage })))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })))
 
@@ -27,6 +28,7 @@ export function App() {
                   <Route path="/onboarding" element={<OnboardingPage />} />
                   <Route path="/deals" element={<DealsPage />} />
                   <Route path="/c/:subCategoryId" element={<CategoryPage />} />
+                  <Route path="/v/:weekOf" element={<VerdictPage />} />
                   <Route path="/compare/:favoriteId" element={<ComparisonPage />} />
                   <Route path="/about" element={<AboutPage />} />
                   <Route path="*" element={<NotFoundPage />} />

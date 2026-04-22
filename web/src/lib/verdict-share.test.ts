@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 
 import type { WeeklyVerdict } from '@shared/types'
 
-import { verdictShareText, verdictSummary, verdictWhatsAppUrl } from './verdict-share'
+import { verdictPermalinkUrl, verdictShareText, verdictSummary, verdictWhatsAppUrl } from './verdict-share'
 
 function makeVerdict(overrides: Partial<WeeklyVerdict> = {}): WeeklyVerdict {
   return {
@@ -55,13 +55,21 @@ describe('verdictSummary', () => {
   })
 })
 
+describe('verdictPermalinkUrl', () => {
+  it('points at the /v/:weekOf route on the live site', () => {
+    expect(verdictPermalinkUrl(makeVerdict({ weekOf: '2026-04-23' }))).toBe(
+      'https://basketch.vercel.app/v/2026-04-23',
+    )
+  })
+})
+
 describe('verdictShareText', () => {
-  it('produces 3 lines with summary + link', () => {
+  it('produces 3 lines with summary + permalink', () => {
     const text = verdictShareText(makeVerdict())
     const lines = text.split('\n')
     expect(lines).toHaveLength(3)
     expect(lines[0]).toBe('basketch verdict')
-    expect(lines[2]).toMatch(/^See the deals → https?:\/\//)
+    expect(lines[2]).toMatch(/^See the verdict → https?:\/\/.+\/v\/\d{4}-\d{2}-\d{2}$/)
   })
 })
 

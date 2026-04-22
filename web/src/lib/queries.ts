@@ -61,6 +61,27 @@ export async function fetchActiveDeals(filters?: {
 }
 
 /**
+ * Fetch deals that were active during a specific week (permalink verdict page).
+ * Unlike fetchActiveDeals, this ignores is_active so historical weeks still return
+ * rows after the pipeline deactivates them.
+ *
+ * A deal "covers" weekOf iff valid_from <= weekOf AND (valid_to IS NULL OR valid_to >= weekOf).
+ */
+export async function fetchDealsForWeek(weekOf: string): Promise<DealRow[]> {
+  const { data, error } = await supabase
+    .from('deals')
+    .select('*')
+    .lte('valid_from', weekOf)
+    .or(`valid_to.is.null,valid_to.gte.${weekOf}`)
+    .order('discount_percent', { ascending: false })
+
+  if (error) {
+    throw new Error(`[queries] fetchDealsForWeek: ${error.message}`)
+  }
+  return data as DealRow[]
+}
+
+/**
  * Fetch deals for a browse category (maps browse category to sub_categories).
  * Date filter safety net applied.
  */
