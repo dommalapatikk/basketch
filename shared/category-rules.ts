@@ -50,16 +50,19 @@ export const BRAND_CATEGORIES: Record<string, BrandCategory> = {
   'rapelli': { category: 'fresh', subCategory: 'deli' },
   'möckli': { category: 'fresh', subCategory: 'deli' },
   'optigal': { category: 'fresh', subCategory: 'poultry' },
-  // Drinks brands
-  'coca-cola': { category: 'long-life', subCategory: 'drinks' },
-  'rivella': { category: 'long-life', subCategory: 'drinks' },
-  'aproz': { category: 'long-life', subCategory: 'drinks' },
-  // Coffee/tea brands
-  'nespresso': { category: 'long-life', subCategory: 'coffee-tea' },
-  'nestea': { category: 'long-life', subCategory: 'drinks' },
-  'lavazza': { category: 'long-life', subCategory: 'coffee-tea' },
-  'tchibo': { category: 'long-life', subCategory: 'coffee-tea' },
-  'la semeuse': { category: 'long-life', subCategory: 'coffee-tea' },
+  // Water brands
+  'aproz': { category: 'long-life', subCategory: 'water' },
+  'valser': { category: 'long-life', subCategory: 'water' },
+  'henniez': { category: 'long-life', subCategory: 'water' },
+  // Soft drink brands
+  'coca-cola': { category: 'long-life', subCategory: 'soft-drinks' },
+  'rivella': { category: 'long-life', subCategory: 'soft-drinks' },
+  'nestea': { category: 'long-life', subCategory: 'soft-drinks' },
+  // Coffee brands
+  'nespresso': { category: 'long-life', subCategory: 'coffee' },
+  'lavazza': { category: 'long-life', subCategory: 'coffee' },
+  'tchibo': { category: 'long-life', subCategory: 'coffee' },
+  'la semeuse': { category: 'long-life', subCategory: 'coffee' },
   // Pasta brands
   'barilla': { category: 'long-life', subCategory: 'pasta-rice' },
   'ben\'s original': { category: 'long-life', subCategory: 'pasta-rice' },
@@ -100,7 +103,7 @@ export const SOURCE_CATEGORY_MAP: Record<string, BrandCategory> = {
   // Let keyword matching handle sub-category assignment for these source categories.
   'milchprodukte, eier & frische fertiggerichte': { category: 'fresh', subCategory: 'dairy' },
   'brot, backwaren & frühstück': { category: 'fresh', subCategory: 'bread' },
-  'getränke, kaffee & tee': { category: 'long-life', subCategory: 'drinks' },
+  // 'getränke, kaffee & tee' intentionally omitted — too broad. Let keyword matching assign the specific sub-category.
   'tiefkühlprodukte': { category: 'long-life', subCategory: 'frozen' },
   'waschen & putzen': { category: 'non-food', subCategory: 'cleaning' },
   'haushalt & wohnen': { category: 'non-food', subCategory: 'household' },
@@ -113,7 +116,7 @@ export const SOURCE_CATEGORY_MAP: Record<string, BrandCategory> = {
   'chips & snacks': { category: 'long-life', subCategory: 'snacks' },
   'butter & margarine': { category: 'fresh', subCategory: 'dairy' },
   'milchgetränke': { category: 'fresh', subCategory: 'dairy' },
-  'softdrinks': { category: 'long-life', subCategory: 'drinks' },
+  'softdrinks': { category: 'long-life', subCategory: 'soft-drinks' },
   // Test/generic source categories
   'frische milchprodukte': { category: 'fresh', subCategory: 'dairy' },
   'haushalt & putzmittel': { category: 'non-food', subCategory: 'cleaning' },
@@ -251,21 +254,66 @@ export const CATEGORY_RULES: CategoryRule[] = [
   },
 
   // ============================================================
-  // Long-life > drinks
+  // Long-life > water
   // ============================================================
   {
-    keywords: ['wasser', 'mineralwasser', 'saft', 'juice', 'limonade', 'cola', 'bier', 'beer', 'wein', 'wine', 'prosecco', 'sirup', 'eistee', 'energy', 'rivella'],
+    keywords: ['mineralwasser', 'wasser', 'still water', 'sparkling water', 'quellwasser'],
     category: 'long-life',
-    subCategory: 'drinks',
+    subCategory: 'water',
   },
 
   // ============================================================
-  // Long-life > coffee-tea
+  // Long-life > juice
   // ============================================================
   {
-    keywords: ['kaffee', 'coffee', 'espresso', 'nespresso', 'tee', 'tea', 'kakao', 'ovomaltine'],
+    keywords: ['saft', 'juice', 'fruchtsaft', 'orangensaft', 'apfelsaft', 'multivitamin', 'smoothie'],
     category: 'long-life',
-    subCategory: 'coffee-tea',
+    subCategory: 'juice',
+  },
+
+  // ============================================================
+  // Long-life > beer
+  // ============================================================
+  {
+    keywords: ['bier', 'beer', 'lager', 'ale', 'weizen', 'pils'],
+    category: 'long-life',
+    subCategory: 'beer',
+  },
+
+  // ============================================================
+  // Long-life > wine  (note: 'wein' blocked by 'schwein' via KEYWORD_BLOCKERS)
+  // ============================================================
+  {
+    keywords: ['wein', 'wine', 'prosecco', 'sekt', 'champagner', 'champagne', 'rosé', 'rose', 'rotwein', 'weisswein', 'weißwein', 'cava', 'port'],
+    category: 'long-life',
+    subCategory: 'wine',
+  },
+
+  // ============================================================
+  // Long-life > soft-drinks  (eistee before 'tea' rule so it lands here, not tea)
+  // ============================================================
+  {
+    keywords: ['eistee', 'ice tea', 'iced tea', 'limonade', 'cola', 'sirup', 'energy drink', 'energydrink', 'rivella', 'fanta', 'sprite', 'pepsi', 'monster', 'red bull', 'redbull', 'gatorade', 'powerade'],
+    category: 'long-life',
+    subCategory: 'soft-drinks',
+  },
+
+  // ============================================================
+  // Long-life > coffee
+  // ============================================================
+  {
+    keywords: ['kaffee', 'coffee', 'espresso', 'cappuccino', 'latte', 'nespresso', 'kakao', 'ovomaltine', 'kaffeekapseln', 'kaffeepads'],
+    category: 'long-life',
+    subCategory: 'coffee',
+  },
+
+  // ============================================================
+  // Long-life > tea  (tee/tea require whole-word match via WHOLE_WORD_KEYWORDS — avoids 'steak')
+  // ============================================================
+  {
+    keywords: ['tee', 'tea', 'teebeutel', 'kräutertee', 'pfefferminztee', 'grüner tee', 'infusion'],
+    category: 'long-life',
+    subCategory: 'tea',
   },
 
   // ============================================================

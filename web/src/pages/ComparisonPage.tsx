@@ -1,16 +1,47 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
+import type { CategoryMatch, Store } from '@shared/types'
+import { ALL_STORES } from '@shared/types'
 import { useCategoryMatches, usePageTitle } from '../lib/hooks'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { Button, buttonVariants } from '../components/ui/Button'
 import { DataFreshness } from '../components/DataFreshness'
 import { CategoryDealsSection } from '../components/CategoryDealsSection'
+import type { BandDeal } from '../components/SubCategoryBand'
+import { SubCategoryBand } from '../components/SubCategoryBand'
 import { ShareButton } from '../components/ShareButton'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
+
+/** Convert a CategoryMatch to BandDeal[] — one best deal per store, sorted cheapest-promo-first. */
+function matchToBandDeals(match: CategoryMatch): BandDeal[] {
+  const bands: BandDeal[] = []
+  for (const store of ALL_STORES as Store[]) {
+    const storeDeals = match.dealsByStore[store] ?? []
+    if (storeDeals.length === 0) continue
+    const promoDeals = storeDeals.filter((d) => d.discount_percent > 0)
+      .sort((a, b) => a.sale_price - b.sale_price)
+    const regularDeals = storeDeals.sort((a, b) => a.sale_price - b.sale_price)
+    const best = promoDeals[0] ?? regularDeals[0]
+    if (!best) continue
+    bands.push({
+      id: best.id,
+      store: best.store,
+      productName: best.product_name,
+      salePrice: best.sale_price,
+      regularPrice: best.original_price,
+      discountPercent: best.discount_percent,
+      hasPromo: best.discount_percent > 0,
+    })
+  }
+  return bands.sort((a, b) => {
+    if (a.hasPromo !== b.hasPromo) return a.hasPromo ? -1 : 1
+    return a.salePrice - b.salePrice
+  })
+}
 
 const LAST_SEEN_PIPELINE_KEY = 'basketch_lastSeenPipeline'
 
@@ -19,6 +50,7 @@ export function ComparisonPage() {
   const { favoriteId } = useParams<{ favoriteId: string }>()
   const [copied, setCopied] = useState(false)
   const [showNewDeals, setShowNewDeals] = useState(false)
+  const [compareView, setCompareView] = useState<'per-item' | 'per-store'>('per-item')
 
   const { data: result, items: basketItems, itemCount, loading, error, refetch } = useCategoryMatches(favoriteId)
 
@@ -118,6 +150,10 @@ export function ComparisonPage() {
 
   const categoryCount = result?.categories.length ?? 0
   const unmappedCount = result?.unmappedItems.length ?? 0
+  const bandsByMatch = (result?.categories ?? []).map((match) => ({
+    match,
+    bands: matchToBandDeals(match),
+  }))
 
   return (
     <div>
@@ -163,17 +199,62 @@ export function ComparisonPage() {
         </div>
       )}
 
+      {/* View toggle — per-item (price ladder) vs per-store (shopping route) */}
+      {categoryCount > 0 && (
+        <div
+          className="mb-4 flex rounded-full border border-border bg-surface p-0.5"
+          role="group"
+          aria-label="Compare view"
+        >
+          <button
+            type="button"
+            aria-pressed={compareView === 'per-item'}
+            onClick={() => setCompareView('per-item')}
+            className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+              compareView === 'per-item' ? 'bg-accent text-white' : 'text-muted hover:text-current'
+            }`}
+          >
+            Per item · all 7 stores
+          </button>
+          <button
+            type="button"
+            aria-pressed={compareView === 'per-store'}
+            onClick={() => setCompareView('per-store')}
+            className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+              compareView === 'per-store' ? 'bg-accent text-white' : 'text-muted hover:text-current'
+            }`}
+          >
+            Per store · shopping route
+          </button>
+        </div>
+      )}
+
       {/* Category sections */}
       {result && result.categories.length > 0 ? (
-        result.categories.map((match) => (
-          <CategoryDealsSection
-            key={match.browseCategory}
-            match={match}
-            basketItems={basketItems}
-            onItemAdded={refetch}
-            onItemRemoved={refetch}
-          />
-        ))
+        compareView === 'per-item' ? (
+          /* Per-item view — price ladder per category, all 7 stores */
+          bandsByMatch.map(({ match, bands }) => (
+            <SubCategoryBand
+              key={match.browseCategory}
+              subCategory={match.browseCategoryLabel}
+              emoji={match.browseCategoryEmoji}
+              deals={bands}
+              onAdd={() => {/* read-only on compare page */}}
+              addedIds={new Set()}
+            />
+          ))
+        ) : (
+          /* Per-store view — shopping route grouped by store */
+          result.categories.map((match) => (
+            <CategoryDealsSection
+              key={match.browseCategory}
+              match={match}
+              basketItems={basketItems}
+              onItemAdded={refetch}
+              onItemRemoved={refetch}
+            />
+          ))
+        )
       ) : (
         <div className="rounded-md border border-border bg-surface p-6 text-center text-sm text-muted">
           No category deals found. Add more items to your list or check back Thursday when new deals are published.

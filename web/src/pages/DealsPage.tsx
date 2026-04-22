@@ -1,8 +1,22 @@
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow, Store } from '@shared/types'
 import { ALL_STORES, BROWSE_CATEGORIES, DEFAULT_STORES, STORE_META } from '@shared/types'
+
+import { useActiveDeals, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
+import { useBasketContext } from '../lib/basket-context'
+import { addBasketItem, fetchLatestPipelineRun } from '../lib/queries'
+import { useCachedQuery } from '../lib/use-cached-query'
+import { DataFreshness } from '../components/DataFreshness'
+import { DealCard, findKeywordForDeal } from '../components/DealCard'
+import { DealCompareRow } from '../components/DealCompareRow'
+import { LoadingState } from '../components/LoadingState'
+import { ErrorState } from '../components/ErrorState'
+import { StaleBanner } from '../components/StaleBanner'
+import { ShareButton } from '../components/ShareButton'
+import type { BandDeal } from '../components/SubCategoryBand'
+import { SubCategoryBand } from '../components/SubCategoryBand'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -11,19 +25,130 @@ const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'non-food', label: 'Household' },
 ]
 
-import { Link } from 'react-router-dom'
+// Sub-category display metadata — emoji per DB sub_category value
+const SUB_CATEGORY_META: Record<string, { label: string; emoji: string }> = {
+  fruit: { label: 'Fruit', emoji: '🍎' },
+  vegetables: { label: 'Vegetables', emoji: '🥦' },
+  meat: { label: 'Meat', emoji: '🥩' },
+  poultry: { label: 'Poultry', emoji: '🍗' },
+  fish: { label: 'Fish', emoji: '🐟' },
+  deli: { label: 'Deli', emoji: '🧆' },
+  dairy: { label: 'Dairy', emoji: '🥛' },
+  eggs: { label: 'Eggs', emoji: '🥚' },
+  bread: { label: 'Bakery', emoji: '🍞' },
+  snacks: { label: 'Snacks', emoji: '🍿' },
+  chocolate: { label: 'Chocolate', emoji: '🍫' },
+  'pasta-rice': { label: 'Pasta & Rice', emoji: '🍝' },
+  water: { label: 'Water', emoji: '💧' },
+  juice: { label: 'Juice', emoji: '🧃' },
+  beer: { label: 'Beer', emoji: '🍺' },
+  wine: { label: 'Wine', emoji: '🍷' },
+  'soft-drinks': { label: 'Soft Drinks', emoji: '🥤' },
+  coffee: { label: 'Coffee', emoji: '☕' },
+  tea: { label: 'Tea', emoji: '🍵' },
+  drinks: { label: 'Drinks', emoji: '🧃' },
+  'coffee-tea': { label: 'Coffee & Tea', emoji: '☕' },
+  'ready-meals': { label: 'Ready Meals', emoji: '🍕' },
+  frozen: { label: 'Frozen', emoji: '🧊' },
+  canned: { label: 'Canned Goods', emoji: '🥫' },
+  condiments: { label: 'Condiments', emoji: '🧂' },
+  cleaning: { label: 'Cleaning', emoji: '🧹' },
+  laundry: { label: 'Laundry', emoji: '🧺' },
+  'paper-goods': { label: 'Paper Goods', emoji: '🧻' },
+  household: { label: 'Household', emoji: '🏠' },
+  'personal-care': { label: 'Personal Care', emoji: '🧴' },
+}
 
-import { useActiveDeals, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
-import { useBasketContext } from '../lib/basket-context'
-import { fetchLatestPipelineRun } from '../lib/queries'
-import { useCachedQuery } from '../lib/use-cached-query'
-import { DataFreshness } from '../components/DataFreshness'
-import { DealCard } from '../components/DealCard'
-import { DealCompareRow } from '../components/DealCompareRow'
-import { LoadingState } from '../components/LoadingState'
-import { ErrorState } from '../components/ErrorState'
-import { StaleBanner } from '../components/StaleBanner'
-import { ShareButton } from '../components/ShareButton'
+/**
+ * Group DealRows by sub_category and map them to BandDeal[].
+ * Returns an array of band data sorted by deal count (most deals first).
+ */
+function groupDealsBySubCategory(deals: DealRow[]): Array<{
+  subCategory: string
+  label: string
+  emoji: string
+  bandDeals: BandDeal[]
+}> {
+  const grouped = new Map<string, DealRow[]>()
+
+  for (const deal of deals) {
+    const key = deal.sub_category ?? '_uncategorised'
+    const existing = grouped.get(key) ?? []
+    existing.push(deal)
+    grouped.set(key, existing)
+  }
+
+  const bands: Array<{ subCategory: string; label: string; emoji: string; bandDeals: BandDeal[] }> = []
+
+  for (const [key, groupDeals] of grouped) {
+    const meta = SUB_CATEGORY_META[key]
+    const label = meta?.label ?? key.replace(/-/g, ' ')
+    const emoji = meta?.emoji ?? '📦'
+
+    // Per-store best deal: cheapest promo deal per store, then cheapest regular per store
+    const storePromoMap = new Map<Store, DealRow>()
+    const storeRegularMap = new Map<Store, DealRow>()
+
+    for (const deal of groupDeals) {
+      const hasPromo = deal.discount_percent > 0
+      if (hasPromo) {
+        const existing = storePromoMap.get(deal.store)
+        if (!existing || deal.sale_price < existing.sale_price) {
+          storePromoMap.set(deal.store, deal)
+        }
+      } else {
+        const existing = storeRegularMap.get(deal.store)
+        if (!existing || deal.sale_price < existing.sale_price) {
+          storeRegularMap.set(deal.store, deal)
+        }
+      }
+    }
+
+    const bandDeals: BandDeal[] = []
+
+    // Add promo deals sorted cheapest first
+    const promoDeals = [...storePromoMap.values()].sort((a, b) => a.sale_price - b.sale_price)
+    for (const deal of promoDeals) {
+      bandDeals.push({
+        id: deal.id,
+        store: deal.store,
+        productName: deal.product_name,
+        salePrice: deal.sale_price,
+        regularPrice: deal.original_price,
+        discountPercent: deal.discount_percent,
+        hasPromo: true,
+      })
+    }
+
+    // Add regular-price deals (stores with item but no current promo)
+    // Only include stores not already in promo list
+    const regularDeals = [...storeRegularMap.values()]
+      .filter((d) => !storePromoMap.has(d.store))
+      .sort((a, b) => a.sale_price - b.sale_price)
+    for (const deal of regularDeals) {
+      bandDeals.push({
+        id: deal.id,
+        store: deal.store,
+        productName: deal.product_name,
+        salePrice: deal.sale_price,
+        regularPrice: deal.original_price,
+        discountPercent: deal.discount_percent,
+        hasPromo: false,
+      })
+    }
+
+    if (bandDeals.length > 0) {
+      bands.push({ subCategory: key, label, emoji, bandDeals })
+    }
+  }
+
+  // Sort bands: most promo deals first
+  return bands.sort((a, b) => {
+    const aPromos = a.bandDeals.filter((d) => d.hasPromo).length
+    const bPromos = b.bandDeals.filter((d) => d.hasPromo).length
+    return bPromos - aPromos
+  })
+}
 
 const INITIAL_SHOW = 50
 
@@ -58,11 +183,21 @@ export function DealsPage() {
   const [searchQuery, setSearchQuery] = useState('')
 
   // Basket for "add to list" buttons
-  const { basketId } = useBasketContext()
+  const { basketId, getOrCreate } = useBasketContext()
   const { data: basketItems, refetch: refetchBasket } = useBasketItems(basketId ?? undefined)
 
   // Show count for infinite scroll
   const [showCount, setShowCount] = useState(INITIAL_SHOW)
+
+  // Starter pack banner dismissal
+  const [starterBannerDismissed, setStarterBannerDismissed] = useState(() => {
+    try { return localStorage.getItem('basketch_starterBannerDismissed') === '1' } catch { return false }
+  })
+
+  function dismissStarterBanner() {
+    try { localStorage.setItem('basketch_starterBannerDismissed', '1') } catch { /* ignore */ }
+    setStarterBannerDismissed(true)
+  }
 
   // ── URL state ──
   // ?category=fresh         → top-level tab selected
@@ -295,7 +430,41 @@ export function DealsPage() {
   }, [comparisons, activeStores, inferredTopLevel])
 
   const visibleDeals = filteredDeals.slice(0, showCount)
-  const remaining = filteredDeals.length - showCount
+
+  // Map from deal ID → full DealRow for basket add lookups
+  const dealRowById = useMemo(() => {
+    const map = new Map<string, DealRow>()
+    for (const deal of (deals ?? [])) {
+      map.set(deal.id, deal)
+    }
+    return map
+  }, [deals])
+
+  // Set of deal IDs already added (optimistic UI for SubCategoryBand add buttons)
+  const [localAddedIds, setLocalAddedIds] = useState<Set<string>>(new Set())
+
+  async function handleBandAdd(bandDeal: BandDeal) {
+    const fullDeal = dealRowById.get(bandDeal.id)
+    if (!fullDeal) return
+    try {
+      const bid = await getOrCreate()
+      const meta = findKeywordForDeal(fullDeal)
+      await addBasketItem(bid, {
+        keyword: meta.keyword,
+        label: meta.label,
+        category: fullDeal.category as Category,
+        excludeTerms: meta.excludeTerms,
+        preferTerms: meta.preferTerms,
+      })
+      setLocalAddedIds((prev) => new Set(prev).add(bandDeal.id))
+      refetchBasket()
+    } catch {
+      // silent — DealCard pattern: no error UI for band adds, user can retry
+    }
+  }
+
+  // Sub-category bands for the band list view
+  const subCategoryBands = useMemo(() => groupDealsBySubCategory(filteredDeals), [filteredDeals])
 
   // Roving tabindex keyboard handling for top tabs
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, tabs: string) {
@@ -363,8 +532,17 @@ export function DealsPage() {
           </button>
         </div>
       </div>
-      <div className="mb-3">
+      <div className="mb-3 flex items-center justify-between">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
+        {/* Region chip — persistent setting indicator */}
+        <button
+          type="button"
+          aria-label="Region: Switzerland (all regions)"
+          title="Region filter — all Swiss stores shown"
+          className="flex items-center gap-1 rounded-[999px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] hover:border-[#2563eb] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2"
+        >
+          📍 Switzerland ▾
+        </button>
       </div>
 
       {isStale && pipelineRun && (
@@ -562,6 +740,26 @@ export function DealsPage() {
         </div>
       )}
 
+      {/* ── Starter pack banner (dismissible, shown to first-time visitors) ── */}
+      {!starterBannerDismissed && (basketItems?.length ?? 0) === 0 && (
+        <div className="mb-3 flex items-center justify-between rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3">
+          <span className="text-sm text-[#1d4ed8]">
+            New here?{' '}
+            <Link to="/onboarding" className="font-semibold underline">
+              Start with Swiss Basics →
+            </Link>
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss starter pack suggestion"
+            onClick={dismissStarterBanner}
+            className="ml-3 flex size-7 shrink-0 items-center justify-center rounded-full text-[#1d4ed8] hover:bg-[#dbeafe] focus-visible:ring-2 focus-visible:ring-[#2563eb]"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       <div id="deals-tabpanel" role="tabpanel" aria-labelledby={`tab-${inferredTopLevel}`}>
       {viewMode === 'compare' ? (
@@ -588,7 +786,7 @@ export function DealsPage() {
           </div>
         )
       ) : (
-        /* ── List view: flat deal grid ── */
+        /* ── List view: sub-category bands ── */
         <>
           {!hasResults && (
             <div className="py-12 text-center text-sm text-muted">
@@ -598,8 +796,25 @@ export function DealsPage() {
             </div>
           )}
           {hasResults && (
-            <div className="space-y-2 pb-20">
-              {visibleDeals.map((deal) => (
+            <div className="pb-20">
+              {/* Result count */}
+              <p className="mb-3 text-xs text-muted">
+                Showing {subCategoryBands.length} sub-categor{subCategoryBands.length !== 1 ? 'ies' : 'y'} · {totalFiltered} deal{totalFiltered !== 1 ? 's' : ''}
+              </p>
+
+              {subCategoryBands.map((band) => (
+                <SubCategoryBand
+                  key={band.subCategory}
+                  subCategory={band.label}
+                  emoji={band.emoji}
+                  deals={band.bandDeals}
+                  onAdd={handleBandAdd}
+                  addedIds={localAddedIds}
+                />
+              ))}
+
+              {/* Fallback: flat cards for deals without sub_category (shouldn't normally appear) */}
+              {subCategoryBands.length === 0 && visibleDeals.map((deal) => (
                 <DealCard
                   key={deal.id}
                   deal={deal}
@@ -609,15 +824,6 @@ export function DealsPage() {
                   onItemRemoved={refetchBasket}
                 />
               ))}
-              {remaining > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
-                  className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px]"
-                >
-                  Show more deals ({remaining} left)
-                </button>
-              )}
             </div>
           )}
         </>
