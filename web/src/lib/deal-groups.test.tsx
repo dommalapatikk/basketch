@@ -1,11 +1,12 @@
 // Regression test: `_uncategorised` must never leak into the UI.
-// Groups null sub_category rows under a single "Other" band per v4 §13.
+// Tests the pure grouping helper directly to avoid pulling the supabase
+// client import chain (which throws in CI when VITE_SUPABASE_* is unset).
 
 import { describe, it, expect } from 'vitest'
 
 import type { DealRow } from '@shared/types'
 
-import { groupDealsBySubCategory } from './DealsPage'
+import { groupDealsBySubCategory } from './deal-groups'
 
 function makeRow(overrides: Partial<DealRow> = {}): DealRow {
   return {
