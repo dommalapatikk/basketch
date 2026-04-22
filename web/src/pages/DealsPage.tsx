@@ -10,6 +10,7 @@ import { addBasketItem, fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
 import { calculateVerdict } from '../lib/verdict'
 import { groupDealsBySubCategory, SUB_CATEGORY_META } from '../lib/deal-groups'
+import { iconForBrowseCategory, iconForSubCategory } from '../lib/category-icons'
 import { DataFreshness } from '../components/DataFreshness'
 import { DealCard, findKeywordForDeal } from '../components/DealCard'
 import { LoadingState } from '../components/LoadingState'
@@ -486,7 +487,13 @@ export function DealsPage() {
                       : 'text-[#444] hover:bg-[#f4f6fa]'
                   }`}
                 >
-                  {cat.emoji} {cat.label}
+                  <span className='inline-flex items-center gap-1.5'>
+                    {(() => {
+                      const Icon = iconForBrowseCategory(cat.id)
+                      return <Icon className='size-4 shrink-0' strokeWidth={1.5} aria-hidden='true' />
+                    })()}
+                    {cat.label}
+                  </span>
                   <span className={`ml-1 text-[11px] ${activeSub === cat.id ? '' : 'text-[#999]'}`}>
                     ({count})
                   </span>
@@ -527,7 +534,13 @@ export function DealsPage() {
                         : 'text-[#666] hover:bg-white/60'
                     }`}
                   >
-                    {meta?.emoji ?? '📦'} {meta?.label ?? sc}
+                    <span className='inline-flex items-center gap-1.5'>
+                      {(() => {
+                        const Icon = iconForSubCategory(sc)
+                        return <Icon className='size-3.5 shrink-0' strokeWidth={1.5} aria-hidden='true' />
+                      })()}
+                      {meta?.label ?? sc}
+                    </span>
                   </button>
                 )
               })}
@@ -690,7 +703,13 @@ export function DealsPage() {
                           : 'border border-border bg-pill-bg text-current hover:border-accent'
                       }`}
                     >
-                      {cat.emoji} {cat.label} ({count})
+                      <span className='inline-flex items-center gap-1.5'>
+                        {(() => {
+                          const Icon = iconForBrowseCategory(cat.id)
+                          return <Icon className='size-4 shrink-0' strokeWidth={1.5} aria-hidden='true' />
+                        })()}
+                        {cat.label} ({count})
+                      </span>
                     </button>
                   )
                 })}
@@ -755,7 +774,13 @@ export function DealsPage() {
                               : 'text-[#666] hover:bg-white/70'
                           }`}
                         >
-                          {meta?.emoji ?? '📦'} {meta?.label ?? sc}
+                          <span className='inline-flex items-center gap-1.5'>
+                      {(() => {
+                        const Icon = iconForSubCategory(sc)
+                        return <Icon className='size-3.5 shrink-0' strokeWidth={1.5} aria-hidden='true' />
+                      })()}
+                      {meta?.label ?? sc}
+                    </span>
                         </button>
                       )
                     })}

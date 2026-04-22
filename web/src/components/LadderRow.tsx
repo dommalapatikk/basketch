@@ -4,6 +4,7 @@
 import { STORE_META } from '@shared/types'
 
 import type { BandDeal } from './SubCategoryBand'
+import { DealImage } from './DealImage'
 import { deltaVsHero, formatChf, formatPerUnit } from '../lib/deal-format'
 
 interface LadderRowProps {
@@ -30,6 +31,8 @@ export function LadderRow({ deal, hero, isAdded, onAdd, isLast }: LadderRowProps
         style={{ backgroundColor: meta.hex }}
         aria-hidden='true'
       />
+
+      <DealImage store={deal.store} size={48} />
 
       <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
         <div className='flex items-center gap-2'>

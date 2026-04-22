@@ -5,6 +5,7 @@
 import { STORE_META } from '@shared/types'
 
 import type { BandDeal } from './SubCategoryBand'
+import { DealImage } from './DealImage'
 import { formatChf, formatPerUnit, formatPackDescriptor } from '../lib/deal-format'
 
 interface HeroProps {
@@ -32,7 +33,9 @@ export function Hero({ deal, isAdded, onAdd, badgeLabel }: HeroProps) {
         aria-hidden='true'
       />
 
-      <div className='flex w-full flex-col pl-2'>
+      <DealImage store={deal.store} size={72} />
+
+      <div className='flex w-full flex-col pl-1'>
         <div className='flex items-start justify-between gap-2'>
           <div className='flex items-center gap-2'>
             <span

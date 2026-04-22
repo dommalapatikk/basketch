@@ -12,6 +12,7 @@ import { schemaFor } from '@shared/sub-category-schemas'
 import { useActiveDeals, usePageTitle } from '../lib/hooks'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
+import { iconForSubCategory } from '../lib/category-icons'
 import { formatChf, formatPerUnit, titleCase } from '../lib/deal-format'
 import { SUB_CATEGORY_META } from '../lib/deal-groups'
 
@@ -22,6 +23,10 @@ export function CategoryPage() {
   const schema = schemaFor(subCategoryId)
   const meta = SUB_CATEGORY_META[subCategoryId]
   const label = meta?.label ?? subCategoryId.replace(/-/g, ' ')
+  const HeaderIconComponent = iconForSubCategory(subCategoryId)
+  const HeaderIcon = () => (
+    <HeaderIconComponent className='size-6 text-[#1a1a1a]' strokeWidth={1.5} aria-hidden='true' />
+  )
 
   usePageTitle(`${label} — all deals`)
 
@@ -95,8 +100,9 @@ export function CategoryPage() {
       </nav>
 
       <header className='mb-4'>
-        <h1 className='text-[22px] font-bold'>
-          {meta?.emoji ?? '📦'} {label}
+        <h1 className='flex items-center gap-2 text-[22px] font-bold'>
+          <HeaderIcon />
+          {label}
         </h1>
         <p className='mt-1 text-[13px] text-[#666]'>
           {categoryDeals.length} deals · {new Set(categoryDeals.map((d) => d.store)).size} stores

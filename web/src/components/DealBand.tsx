@@ -10,6 +10,7 @@ import { ALL_STORES } from '@shared/types'
 
 import { schemaFor } from '@shared/sub-category-schemas'
 
+import { iconForSubCategory } from '../lib/category-icons'
 import { FormatChips, type FormatChip } from './FormatChips'
 import { Hero } from './Hero'
 import { LadderRow } from './LadderRow'
@@ -19,7 +20,8 @@ import type { BandDeal } from './SubCategoryBand'
 interface DealBandProps {
   subCategory: string
   label: string
-  emoji: string
+  /** Retained for backwards-compatibility with v3 callers; unused in v4 render. */
+  emoji?: string
   deals: BandDeal[]
   /** Total raw deal count before per-store collapsing — drives "See all N →". */
   totalDealCount: number
@@ -47,8 +49,9 @@ function pickDefaultFormat(deals: BandDeal[], fallback?: string): string | null 
 }
 
 export function DealBand(props: DealBandProps) {
-  const { subCategory, label, emoji, deals, totalDealCount, onAdd, addedIds } = props
+  const { subCategory, label, deals, totalDealCount, onAdd, addedIds } = props
   const schema = schemaFor(subCategory)
+  const Icon = iconForSubCategory(subCategory)
 
   const chips = useMemo<FormatChip[]>(() => {
     if (!schema) return []
@@ -106,7 +109,7 @@ export function DealBand(props: DealBandProps) {
       {/* Header */}
       <div className='flex items-center justify-between gap-2 border-b border-[#e5e5e5] px-4 py-3'>
         <div className='flex items-center gap-2'>
-          <span aria-hidden='true'>{emoji}</span>
+          <Icon className='size-5 shrink-0 text-[#1a1a1a]' strokeWidth={1.5} aria-hidden='true' />
           <h2 className='text-[15px] font-bold'>{label}</h2>
           <span className='text-[12px] text-[#666]'>
             · {storesWithDeals.size} store{storesWithDeals.size === 1 ? '' : 's'} · best per store

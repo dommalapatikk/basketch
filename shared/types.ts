@@ -24,14 +24,21 @@ export interface StoreMeta {
   hexLight: string
 }
 
+/**
+ * Store colours — v4 spec §5 row 15 official palette.
+ * hex      = brand background (for solid fills)
+ * hexText  = brand text (WCAG-AA on white)
+ * hexLight = tinted background (for highlights)
+ * LIDL uses yellow+red (bg=yellow, text=red per official badge).
+ */
 export const STORE_META: Record<Store, StoreMeta> = {
   migros:  { slug: 'migros',  label: 'Migros',  aktionisSlug: 'migros',       hex: '#FF6600', hexText: '#CC5200', hexLight: '#FFF0E6' },
-  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         hex: '#00AA46', hexText: '#007A32', hexLight: '#E6F7ED' },
-  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         hex: '#015AA2', hexText: '#014480', hexLight: '#E6EFF8' },
-  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  hex: '#001E78', hexText: '#001460', hexLight: '#E6E8F5' },
-  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       hex: '#E4332B', hexText: '#B32821', hexLight: '#FCECEA' },
-  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         hex: '#157946', hexText: '#0F5C35', hexLight: '#E9F5EE' },
-  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         hex: '#104680', hexText: '#0C3460', hexLight: '#E8EDF5' },
+  coop:    { slug: 'coop',    label: 'Coop',     aktionisSlug: 'coop',         hex: '#E30613', hexText: '#B3040F', hexLight: '#FCECEC' },
+  lidl:    { slug: 'lidl',    label: 'LIDL',     aktionisSlug: 'lidl',         hex: '#FFF000', hexText: '#E10915', hexLight: '#FFFBCC' },
+  aldi:    { slug: 'aldi',    label: 'ALDI',     aktionisSlug: 'aldi-suisse',  hex: '#00225E', hexText: '#001A4A', hexLight: '#E6E8F0' },
+  denner:  { slug: 'denner',  label: 'Denner',   aktionisSlug: 'denner',       hex: '#E20613', hexText: '#B3040F', hexLight: '#FCECEC' },
+  spar:    { slug: 'spar',    label: 'SPAR',     aktionisSlug: 'spar',         hex: '#E30613', hexText: '#009640', hexLight: '#FCECEC' },
+  volg:    { slug: 'volg',    label: 'Volg',     aktionisSlug: 'volg',         hex: '#E30613', hexText: '#B3040F', hexLight: '#FFF9CC' },
 }
 
 export const ALL_STORES = Object.keys(STORE_META) as Store[]
