@@ -21,10 +21,14 @@ export interface FormatExtract {
 // Format (still / sparkling / flavoured) — keyword lookup on productName
 // ============================================================
 
+// Negation-specific keywords must come before their base form. "ohne kohlensäure"
+// (still) MUST match before "kohlensäure" (sparkling), otherwise a still water
+// gets labelled sparkling. Order within this list reflects priority.
 const FORMAT_KEYWORDS: Array<{ keywords: string[]; format: Format }> = [
-  { keywords: ['mit kohlensäure', 'sparkling', 'kohlensäure', 'gazeuse', 'frizzante', 'mineralwasser prickelnd'], format: 'sparkling' },
-  { keywords: ['leicht prickelnd', 'lightly sparkling', 'leggermente frizzante'], format: 'lightly-sparkling' },
+  // Specific negations first — protect against substring matches below.
   { keywords: ['ohne kohlensäure', 'naturelle', 'still water', 'stilles wasser', 'plat'], format: 'still' },
+  { keywords: ['leicht prickelnd', 'lightly sparkling', 'leggermente frizzante'], format: 'lightly-sparkling' },
+  { keywords: ['mit kohlensäure', 'sparkling', 'kohlensäure', 'gazeuse', 'frizzante', 'mineralwasser prickelnd'], format: 'sparkling' },
   { keywords: ['aromatisiert', 'flavoured', 'flavored'], format: 'flavoured' },
 ]
 

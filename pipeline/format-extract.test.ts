@@ -70,6 +70,18 @@ describe('extractFormat — water band', () => {
     expect(result.format).toBe('sparkling')
   })
 
+  it('detects still format via "ohne kohlensäure" — negation beats substring', () => {
+    // Regression: "kohlensäure" used to match sparkling before "ohne kohlensäure"
+    // could match still. Rule order now protects this.
+    const deal = makeDeal({
+      productName: 'valais mineralwasser ohne kohlensäure',
+      subCategory: 'water',
+      salePrice: 4.50,
+    })
+    const result = extractFormat(deal)
+    expect(result.format).toBe('still')
+  })
+
   it('returns undefined canonical fields when volume cannot be parsed', () => {
     const deal = makeDeal({
       productName: 'mystery water product',
