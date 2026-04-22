@@ -20,7 +20,12 @@ import { MyListPanel } from '../components/MyListPanel'
 import type { BandDeal } from '../components/SubCategoryBand'
 import { DealBand } from '../components/DealBand'
 import { BottomSheet } from '../components/BottomSheet'
+import { RegionSelect } from '../components/RegionSelect'
+import type { Canton } from '@shared/regions'
+import { isValidCanton, storesInCanton } from '@shared/regions'
 import { SlidersHorizontal } from 'lucide-react'
+
+const REGION_STORAGE_KEY = 'basketch_region'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -51,6 +56,29 @@ export function DealsPage() {
   // Panel state
   const [listPanelOpen, setListPanelOpen] = useState(false)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
+
+  // Region — persisted via URL (?region=BE) and mirrored to localStorage.
+  // Defaults to "all" (Ganze Schweiz) when neither is set.
+  const urlRegion = searchParams.get('region')
+  const activeRegion: Canton | 'all' = useMemo(() => {
+    if (urlRegion === 'all') return 'all'
+    if (isValidCanton(urlRegion)) return urlRegion
+    try {
+      const stored = localStorage.getItem(REGION_STORAGE_KEY)
+      if (stored === 'all' || isValidCanton(stored)) return stored as Canton | 'all'
+    } catch { /* ignore */ }
+    return 'all'
+  }, [urlRegion])
+
+  const storesAllowedByRegion = useMemo(() => new Set(storesInCanton(activeRegion)), [activeRegion])
+
+  function setRegion(next: Canton | 'all') {
+    try { localStorage.setItem(REGION_STORAGE_KEY, next) } catch { /* ignore */ }
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('region')
+    else params.set('region', next)
+    setSearchParams(params)
+  }
 
   // Basket for "add to list" buttons
   const { basketId, getOrCreate } = useBasketContext()
@@ -95,12 +123,26 @@ export function DealsPage() {
         ? normalisedCategory as BrowseCategory
         : null
 
-  // Active store filters — parse from URL or default to all stores
+  // Active store filters — parse from URL or default to all stores, then
+  // intersect with the region's canton coverage (hide Volg in Genève, etc.).
   const activeStores: Set<Store> = useMemo(() => {
-    if (!urlStores) return new Set(DEFAULT_STORES)
-    const parsed = urlStores.split(',').filter((s): s is Store => ALL_STORES.includes(s as Store))
-    return parsed.length > 0 ? new Set(parsed) : new Set(DEFAULT_STORES)
-  }, [urlStores])
+    const rawSelection: Set<Store> = urlStores
+      ? (() => {
+          const parsed = urlStores.split(',').filter((s): s is Store => ALL_STORES.includes(s as Store))
+          return parsed.length > 0 ? new Set(parsed) : new Set(DEFAULT_STORES)
+        })()
+      : new Set(DEFAULT_STORES)
+    const allowed = new Set<Store>()
+    for (const s of rawSelection) {
+      if (storesAllowedByRegion.has(s)) allowed.add(s)
+    }
+    // Guard: never render an empty store set. If the canton removed all picks,
+    // fall back to the canton's full set (still region-scoped).
+    if (allowed.size === 0) {
+      for (const s of storesAllowedByRegion) allowed.add(s)
+    }
+    return allowed
+  }, [urlStores, storesAllowedByRegion])
 
   // When activeSub is set via backward compat (no top param), infer the top-level
   const inferredTopLevel: Category | 'all' = useMemo(() => {
@@ -544,7 +586,7 @@ export function DealsPage() {
       <div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Stores</p>
         <div className="flex flex-col gap-1">
-          {ALL_STORES.map((store) => {
+          {ALL_STORES.filter((s) => storesAllowedByRegion.has(s)).map((store) => {
             const meta = STORE_META[store]
             const count = storeCounts.get(store) ?? 0
             const isActive = activeStores.has(store)
@@ -578,17 +620,9 @@ export function DealsPage() {
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">This week's deals</h1>
       </div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
-        {/* Region chip — persistent setting indicator */}
-        <button
-          type="button"
-          aria-label="Region: Switzerland (all regions)"
-          title="Region filter — all Swiss stores shown"
-          className="flex items-center gap-1 rounded-[999px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] hover:border-[#2563eb] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2"
-        >
-          📍 Switzerland ▾
-        </button>
+        <RegionSelect value={activeRegion} onChange={setRegion} />
       </div>
 
       {/* Verdict summary strip */}
