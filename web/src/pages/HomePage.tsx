@@ -101,9 +101,26 @@ export function HomePage() {
 
   return (
     <div>
-      {/* Headline */}
+      {/* Headline — verdict-answer framing */}
       <h1 className="py-4 text-center text-2xl font-extrabold leading-tight tracking-tight">
-        Which store wins this week?
+        {verdict
+          ? (() => {
+              const winners = verdict.categories.filter((c) => c.winner !== 'tie')
+              if (winners.length === 0) return 'Similar deals across stores this week'
+              const uniqueWinners = [...new Set(winners.map((c) => c.winner))]
+              if (uniqueWinners.length === 1) {
+                const meta = STORE_META[uniqueWinners[0] as Store]
+                return `${meta.label} wins this week`
+              }
+              // Multiple winners per category — show split verdict
+              const parts = winners.map((c) => {
+                const meta = STORE_META[c.winner as Store]
+                const label = c.category === 'fresh' ? 'Fresh' : c.category === 'long-life' ? 'Long-life' : 'Household'
+                return `${meta.label} for ${label}`
+              })
+              return parts.join(' · ')
+            })()
+          : 'Which store wins this week?'}
       </h1>
 
       {/* Loading */}

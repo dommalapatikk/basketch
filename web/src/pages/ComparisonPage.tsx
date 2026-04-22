@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
 import type { CategoryMatch, Store } from '@shared/types'
-import { ALL_STORES } from '@shared/types'
+import { ALL_STORES, STORE_META } from '@shared/types'
 import { useCategoryMatches, usePageTitle } from '../lib/hooks'
 import { fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
@@ -155,6 +155,28 @@ export function ComparisonPage() {
     bands: matchToBandDeals(match),
   }))
 
+  // Compute verdict sentence: tally cheapest store across all bands
+  const verdictSentence = (() => {
+    if (bandsByMatch.length === 0) return null
+    const storeCheapestCount = new Map<Store, number>()
+    for (const { bands } of bandsByMatch) {
+      const hero = bands[0]
+      if (hero && hero.hasPromo) {
+        storeCheapestCount.set(hero.store, (storeCheapestCount.get(hero.store) ?? 0) + 1)
+      }
+    }
+    if (storeCheapestCount.size === 0) return null
+    const sorted = [...storeCheapestCount.entries()].sort((a, b) => b[1] - a[1])
+    const [firstStore, firstCount] = sorted[0]!
+    const secondEntry = sorted[1]
+    const firstMeta = STORE_META[firstStore]
+    if (secondEntry && secondEntry[1] > 0) {
+      const secondMeta = STORE_META[secondEntry[0]]
+      return `Buy ${firstCount} item${firstCount !== 1 ? 's' : ''} at ${firstMeta.label}, ${secondEntry[1]} at ${secondMeta.label} — see this week's best prices below.`
+    }
+    return `Buy ${firstCount} item${firstCount !== 1 ? 's' : ''} at ${firstMeta.label} — see this week's best prices below.`
+  })()
+
   return (
     <div>
       {/* Header */}
@@ -196,6 +218,13 @@ export function ComparisonPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Verdict sentence */}
+      {verdictSentence && (
+        <div className="mb-3 rounded-md border border-[#bfe3cb] bg-[#e6f4ec] px-3 py-2">
+          <p className="text-[13px] font-semibold text-[#147a2d]">🏆 {verdictSentence}</p>
         </div>
       )}
 
@@ -241,6 +270,7 @@ export function ComparisonPage() {
               deals={bands}
               onAdd={() => {/* read-only on compare page */}}
               addedIds={new Set()}
+              heroBadgeLabel="★ BUY HERE"
             />
           ))
         ) : (

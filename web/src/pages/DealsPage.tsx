@@ -4,17 +4,17 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow, Store } from '@shared/types'
 import { ALL_STORES, BROWSE_CATEGORIES, DEFAULT_STORES, STORE_META } from '@shared/types'
 
-import { useActiveDeals, useBasketItems, useDealComparisons, usePageTitle } from '../lib/hooks'
+import { useActiveDeals, useBasketItems, usePageTitle } from '../lib/hooks'
 import { useBasketContext } from '../lib/basket-context'
 import { addBasketItem, fetchLatestPipelineRun } from '../lib/queries'
 import { useCachedQuery } from '../lib/use-cached-query'
+import { calculateVerdict } from '../lib/verdict'
 import { DataFreshness } from '../components/DataFreshness'
 import { DealCard, findKeywordForDeal } from '../components/DealCard'
-import { DealCompareRow } from '../components/DealCompareRow'
 import { LoadingState } from '../components/LoadingState'
 import { ErrorState } from '../components/ErrorState'
 import { StaleBanner } from '../components/StaleBanner'
-import { ShareButton } from '../components/ShareButton'
+import { MyListPanel } from '../components/MyListPanel'
 import type { BandDeal } from '../components/SubCategoryBand'
 import { SubCategoryBand } from '../components/SubCategoryBand'
 
@@ -159,17 +159,7 @@ function matchDealToSubCategories(deal: DealRow, subCategories: string[]): boole
 export function DealsPage() {
   usePageTitle('This Week\'s Deals')
   const { data: deals, loading, error, refetch } = useActiveDeals()
-  const { data: comparisons, products: compProducts } = useDealComparisons()
 
-  // Build product lookup by ID for compare view display names
-  const productMap = useMemo(() => {
-    if (!compProducts) return null
-    const map = new Map<string, typeof compProducts[number]>()
-    for (const p of compProducts) {
-      map.set(p.id, p)
-    }
-    return map
-  }, [compProducts])
   const { data: pipelineRun } = useCachedQuery(
     'pipeline-run:latest',
     fetchLatestPipelineRun,
@@ -177,10 +167,10 @@ export function DealsPage() {
   )
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // View mode: 'list' (flat deals) or 'compare' (side-by-side)
-  const [viewMode, setViewMode] = useState<'list' | 'compare'>('list')
-
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Panel state
+  const [listPanelOpen, setListPanelOpen] = useState(false)
 
   // Basket for "add to list" buttons
   const { basketId, getOrCreate } = useBasketContext()
@@ -200,11 +190,6 @@ export function DealsPage() {
   }
 
   // ── URL state ──
-  // ?category=fresh         → top-level tab selected
-  // ?category=fresh&sub=meat-fish → top-level + browse sub-filter
-  // ?category=fruits-vegetables   → browse category direct link (backward compat)
-  // ?stores=migros,coop     → store filter pills
-  // (no params)             → all deals
   const urlCategory = searchParams.get('category')
   const urlSub = searchParams.get('sub')
   const urlStores = searchParams.get('stores')
@@ -221,17 +206,16 @@ export function DealsPage() {
       ? normalisedCategory as Category
       : 'all'
 
-  // Determine active browse sub-filter (also accept 'other-*' synthetic keys)
+  // Determine active browse sub-filter
   const isValidSub = (s: string) => browseIds.includes(s as BrowseCategory) || s.startsWith('other-')
   const activeSub: BrowseCategory | null =
     urlSub && isValidSub(urlSub)
       ? urlSub as BrowseCategory
-      // Backward compat: ?category=fruits-vegetables (browse ID without top param)
       : normalisedCategory && browseIds.includes(normalisedCategory as BrowseCategory)
         ? normalisedCategory as BrowseCategory
         : null
 
-  // Active store filters — parse from URL or default to Migros + Coop
+  // Active store filters — parse from URL or default to all stores
   const activeStores: Set<Store> = useMemo(() => {
     if (!urlStores) return new Set(DEFAULT_STORES)
     const parsed = urlStores.split(',').filter((s): s is Store => ALL_STORES.includes(s as Store))
@@ -292,7 +276,6 @@ export function DealsPage() {
     if (urlCategory) categoryParams['category'] = urlCategory
     if (urlSub) categoryParams['sub'] = urlSub
 
-    // If all stores selected, remove the param (cleaner URL)
     if (next.size === ALL_STORES.length) {
       setSearchParams(categoryParams)
     } else {
@@ -322,7 +305,6 @@ export function DealsPage() {
           break
         }
       }
-      // Count uncategorised deals per top-level category using a synthetic key
       if (!matched && deal.category) {
         const otherKey = `other-${deal.category}` as BrowseCategory
         counts.set(otherKey, (counts.get(otherKey) ?? 0) + 1)
@@ -336,12 +318,10 @@ export function DealsPage() {
     if (!deals) return new Map<Store, number>()
     let subset = deals
 
-    // Filter by top-level category
     if (inferredTopLevel !== 'all') {
       subset = subset.filter((d) => d.category === inferredTopLevel)
     }
 
-    // Filter by browse sub-category
     if (activeSub) {
       const cat = BROWSE_CATEGORIES.find((c) => c.id === activeSub)
       if (cat) {
@@ -361,15 +341,12 @@ export function DealsPage() {
     if (!deals) return [] as DealRow[]
     let filtered = deals
 
-    // Apply top-level filter
     if (inferredTopLevel !== 'all') {
       filtered = filtered.filter((d) => d.category === inferredTopLevel)
     }
 
-    // Apply browse sub-filter
     if (activeSub) {
       if (activeSub.startsWith('other-')) {
-        // "Other" pill: deals that don't match any defined subcategory for this top-level
         const allSubCats = BROWSE_CATEGORIES
           .filter((c) => c.topCategory === inferredTopLevel)
           .flatMap((c) => c.subCategories)
@@ -382,18 +359,41 @@ export function DealsPage() {
       }
     }
 
-    // Apply store filter
     filtered = filtered.filter((d) => activeStores.has(d.store))
 
-    // Apply search query
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase()
       filtered = filtered.filter((d) => d.product_name.toLowerCase().includes(q))
     }
 
-    // Sort by discount % descending
     return [...filtered].sort((a, b) => (b.discount_percent ?? 0) - (a.discount_percent ?? 0))
   }, [deals, inferredTopLevel, activeSub, activeStores, searchQuery])
+
+  // ── L3 sub-sub filter (Level 3 sub-category) ──
+  // Shown when a Level 2 browse category (activeSub) is selected.
+  // Derived from distinct deal.sub_category values in filteredDeals.
+  const [activeSubSub, setActiveSubSub] = useState<string | null>(null)
+
+  const distinctSubCategories = useMemo(() => {
+    if (!activeSub) return []
+    const seen = new Set<string>()
+    for (const deal of filteredDeals) {
+      if (deal.sub_category) seen.add(deal.sub_category)
+    }
+    return [...seen]
+  }, [filteredDeals, activeSub])
+
+  // When the L2 filter changes, reset L3 filter
+  const prevActiveSub = useMemo(() => activeSub, [activeSub])
+  if (prevActiveSub !== activeSub && activeSubSub !== null) {
+    setActiveSubSub(null)
+  }
+
+  // Apply L3 filter on top of filteredDeals
+  const l3FilteredDeals = useMemo(() => {
+    if (!activeSubSub) return filteredDeals
+    return filteredDeals.filter((d) => d.sub_category === activeSubSub)
+  }, [filteredDeals, activeSubSub])
 
   // ── Labels ──
   const topLevelLabel = inferredTopLevel !== 'all'
@@ -409,27 +409,14 @@ export function DealsPage() {
     : false
 
   const totalDeals = deals?.length ?? 0
-  const totalFiltered = filteredDeals.length
+  const totalFiltered = l3FilteredDeals.length
   const hasResults = totalFiltered > 0
   const allStoresSelected = activeStores.size === ALL_STORES.length
   const isCategoryFilterActive = inferredTopLevel !== 'all' || activeSub !== null
   const isStoreFilterActive = !allStoresSelected
   const isFilterActive = isCategoryFilterActive || isStoreFilterActive
 
-  // Filtered comparisons for side-by-side view
-  const filteredComparisons = useMemo(() => {
-    if (!comparisons) return []
-    return comparisons.matched.filter((c) => {
-      // Must have deals in at least 2 selected stores
-      const matchedStores = (Object.keys(c.storeDeals) as Store[]).filter((s) => activeStores.has(s))
-      if (matchedStores.length < 2) return false
-      // Category filter
-      if (inferredTopLevel !== 'all' && c.category !== inferredTopLevel) return false
-      return true
-    })
-  }, [comparisons, activeStores, inferredTopLevel])
-
-  const visibleDeals = filteredDeals.slice(0, showCount)
+  const visibleDeals = l3FilteredDeals.slice(0, showCount)
 
   // Map from deal ID → full DealRow for basket add lookups
   const dealRowById = useMemo(() => {
@@ -459,12 +446,47 @@ export function DealsPage() {
       setLocalAddedIds((prev) => new Set(prev).add(bandDeal.id))
       refetchBasket()
     } catch {
-      // silent — DealCard pattern: no error UI for band adds, user can retry
+      // silent
     }
   }
 
-  // Sub-category bands for the band list view
-  const subCategoryBands = useMemo(() => groupDealsBySubCategory(filteredDeals), [filteredDeals])
+  // Sub-category bands for the band list view (from L3-filtered deals)
+  const subCategoryBands = useMemo(() => groupDealsBySubCategory(l3FilteredDeals), [l3FilteredDeals])
+
+  // ── Verdict strip ──
+  const verdictText = useMemo(() => {
+    if (!deals || deals.length === 0) return null
+    const verdict = calculateVerdict(deals)
+    const parts: string[] = []
+    for (const cat of verdict.categories) {
+      if (cat.winner !== 'tie') {
+        const store = cat.winner
+        const meta = STORE_META[store]
+        const catLabel = cat.category === 'fresh' ? 'Fresh'
+          : cat.category === 'long-life' ? 'Long-life'
+          : 'Household'
+        parts.push(`${meta.label} (${catLabel})`)
+      }
+    }
+    if (parts.length === 0) return null
+    return `🏆 This week: ${parts.join(' · ')}`
+  }, [deals])
+
+  // ── Basket store breakdown for sticky bar ──
+  const basketStoreBreakdown = useMemo(() => {
+    if (!basketItems || basketItems.length === 0) return ''
+    // Group by category as a proxy (BasketItem has no store field)
+    const catCounts = new Map<string, number>()
+    for (const item of basketItems) {
+      catCounts.set(item.category, (catCounts.get(item.category) ?? 0) + 1)
+    }
+    return [...catCounts.entries()]
+      .map(([cat, count]) => {
+        const label = cat === 'fresh' ? 'Fresh' : cat === 'long-life' ? 'Long-life' : 'Household'
+        return `${label} (${count})`
+      })
+      .join(' · ')
+  }, [basketItems])
 
   // Roving tabindex keyboard handling for top tabs
   function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, tabs: string) {
@@ -505,32 +527,179 @@ export function DealsPage() {
     )
   }
 
+  // ── Sidebar filter content (used on desktop) ──
+  const sidebarFilters = (
+    <div className="space-y-5">
+      {/* Region */}
+      <div>
+        <button
+          type="button"
+          aria-label="Region: Switzerland (all regions)"
+          title="Region filter — all Swiss stores shown"
+          className="flex w-full items-center gap-1 rounded-[999px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] hover:border-[#2563eb] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2"
+        >
+          📍 Switzerland ▾
+        </button>
+      </div>
+
+      {/* Type */}
+      <div>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Type</p>
+        <div className="flex flex-col gap-1" role="tablist" aria-label="Filter by department">
+          {TOP_LEVEL_CATEGORIES.map((tab) => {
+            const isActive = inferredTopLevel === tab.id
+            const count = tab.id === 'all'
+              ? totalDeals
+              : topLevelCounts.get(tab.id) ?? 0
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                data-tab-group="sidebar-top"
+                onClick={() => setTopLevel(tab.id as Category | 'all')}
+                className={`min-h-[44px] rounded-[6px] px-3 py-1.5 text-left text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                  isActive
+                    ? 'bg-accent text-white'
+                    : 'text-[#444] hover:bg-[#f4f6fa]'
+                }`}
+              >
+                {tab.label}
+                <span className={`ml-1 text-[11px] ${isActive ? 'text-white/80' : 'text-[#999]'}`}>
+                  ({count})
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Category */}
+      {visibleBrowseCategories.length > 0 && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Category</p>
+          <div className="flex flex-col gap-1" role="tablist" aria-label="Filter by category">
+            {/* All pill */}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSub === null}
+              onClick={() => setSubFilter(null)}
+              className={`min-h-[44px] rounded-[6px] px-3 py-1.5 text-left text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                activeSub === null
+                  ? 'bg-pill-active-bg text-pill-active-text'
+                  : 'text-[#444] hover:bg-[#f4f6fa]'
+              }`}
+            >
+              All {topLevelLabel}
+              <span className={`ml-1 text-[11px] ${activeSub === null ? '' : 'text-[#999]'}`}>
+                ({topLevelCounts.get(inferredTopLevel) ?? totalDeals})
+              </span>
+            </button>
+            {visibleBrowseCategories.map((cat) => {
+              const count = browseCounts.get(cat.id) ?? 0
+              if (count === 0) return null
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSub === cat.id}
+                  onClick={() => setSubFilter(cat.id)}
+                  className={`min-h-[44px] rounded-[6px] px-3 py-1.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    activeSub === cat.id
+                      ? 'bg-pill-active-bg font-medium text-pill-active-text'
+                      : 'text-[#444] hover:bg-[#f4f6fa]'
+                  }`}
+                >
+                  {cat.emoji} {cat.label}
+                  <span className={`ml-1 text-[11px] ${activeSub === cat.id ? '' : 'text-[#999]'}`}>
+                    ({count})
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Sub-category (L3) — sidebar version */}
+      {activeSub !== null && distinctSubCategories.length > 1 && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Sub-category</p>
+          <div className="rounded-[8px] bg-[#f4f6fa] p-1.5">
+            <div className="flex flex-col gap-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveSubSub(null)}
+                className={`min-h-[36px] rounded-[6px] px-2.5 py-1 text-left text-[12px] font-medium transition-colors ${
+                  activeSubSub === null
+                    ? 'bg-white shadow-sm font-semibold'
+                    : 'text-[#666] hover:bg-white/60'
+                }`}
+              >
+                All
+              </button>
+              {distinctSubCategories.map((sc) => {
+                const meta = SUB_CATEGORY_META[sc]
+                return (
+                  <button
+                    key={sc}
+                    type="button"
+                    onClick={() => setActiveSubSub(sc)}
+                    className={`min-h-[36px] rounded-[6px] px-2.5 py-1 text-left text-[12px] transition-colors ${
+                      activeSubSub === sc
+                        ? 'bg-white font-semibold shadow-sm'
+                        : 'text-[#666] hover:bg-white/60'
+                    }`}
+                  >
+                    {meta?.emoji ?? '📦'} {meta?.label ?? sc}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stores */}
+      <div>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Stores</p>
+        <div className="flex flex-col gap-1">
+          {ALL_STORES.map((store) => {
+            const meta = STORE_META[store]
+            const count = storeCounts.get(store) ?? 0
+            const isActive = activeStores.has(store)
+            const isEmpty = count === 0
+            return (
+              <button
+                key={store}
+                type="button"
+                aria-pressed={isActive}
+                disabled={isEmpty && !isActive}
+                onClick={() => toggleStore(store)}
+                className={`min-h-[44px] rounded-[6px] border px-3 py-1.5 text-left text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2${isEmpty && !isActive ? ' cursor-not-allowed opacity-40' : ''}`}
+                style={isActive
+                  ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
+                  : { color: meta.hexText, borderColor: meta.hexText, backgroundColor: 'white' }}
+              >
+                {meta.label}
+                <span className={`ml-1 text-[11px] ${isActive ? 'opacity-80' : ''}`}>
+                  ({count})
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">This week's deals</h1>
-        <div className="flex rounded-full border border-border bg-surface p-0.5">
-          <button
-            type="button"
-            aria-pressed={viewMode === 'compare'}
-            onClick={() => setViewMode('compare')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              viewMode === 'compare' ? 'bg-accent text-white' : 'text-muted hover:text-current'
-            }`}
-          >
-            Compare
-          </button>
-          <button
-            type="button"
-            aria-pressed={viewMode === 'list'}
-            onClick={() => setViewMode('list')}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              viewMode === 'list' ? 'bg-accent text-white' : 'text-muted hover:text-current'
-            }`}
-          >
-            All deals
-          </button>
-        </div>
       </div>
       <div className="mb-3 flex items-center justify-between">
         <DataFreshness lastUpdated={pipelineRun?.run_at ?? null} />
@@ -545,310 +714,377 @@ export function DealsPage() {
         </button>
       </div>
 
+      {/* Verdict summary strip */}
+      {verdictText && (
+        <div className="mb-3">
+          <span className="inline-flex items-center gap-1 rounded-full border border-[#bfe3cb] bg-[#e6f4ec] px-2.5 py-1 text-[11.5px] font-semibold text-[#147a2d]">
+            {verdictText}
+          </span>
+        </div>
+      )}
+
       {isStale && pipelineRun && (
         <div className="mb-3">
           <StaleBanner lastUpdated={pipelineRun.run_at} />
         </div>
       )}
 
-      {/* ── Tier 1: Top-level tabs (Google Flights style) ── */}
-      <div
-        className="mb-2 flex border-b border-border"
-        role="tablist"
-        aria-label="Filter by department"
-      >
-        {TOP_LEVEL_CATEGORIES.map((tab) => {
-          const isActive = inferredTopLevel === tab.id
-          const count = tab.id === 'all'
-            ? totalDeals
-            : topLevelCounts.get(tab.id) ?? 0
-          return (
-            <button
-              key={tab.id}
-              id={`tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls="deals-tabpanel"
-              tabIndex={isActive ? 0 : -1}
-              data-tab-group="top"
-              onClick={() => setTopLevel(tab.id as Category | 'all')}
-              onKeyDown={(e) => handleTabKeyDown(e, 'top')}
-              className={`min-h-[44px] flex-1 px-2 py-3 text-center text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                isActive
-                  ? 'border-b-2 border-accent text-accent'
-                  : 'text-muted hover:text-current'
-              }`}
-            >
-              {tab.label} ({count})
-            </button>
-          )
-        })}
-      </div>
+      {/* Desktop layout — sidebar + main content */}
+      <div className="md:grid md:grid-cols-[220px_1fr] md:gap-6">
+        {/* Sidebar — hidden on mobile */}
+        <aside className="hidden md:block" aria-label="Filters">
+          {sidebarFilters}
+        </aside>
 
-      {/* ── Tier 2: Browse category pills ── */}
-      {visibleBrowseCategories.length > 0 && (
-        <div className="mb-3">
+        {/* Main content */}
+        <div>
+          {/* ── Tier 1: Top-level tabs (mobile only) ── */}
           <div
-            className="flex flex-wrap gap-2 py-1"
+            className="mb-2 flex border-b border-border md:hidden"
             role="tablist"
-            aria-label="Filter by category"
+            aria-label="Filter by department"
           >
-            {/* "All [TopLevel]" pill */}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeSub === null}
-              tabIndex={activeSub === null ? 0 : -1}
-              data-tab-group="browse"
-              onClick={() => setSubFilter(null)}
-              onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-              className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                activeSub === null
-                  ? 'bg-pill-active-bg text-pill-active-text'
-                  : 'border border-border bg-pill-bg text-current hover:border-accent'
-              }`}
+            {TOP_LEVEL_CATEGORIES.map((tab) => {
+              const isActive = inferredTopLevel === tab.id
+              const count = tab.id === 'all'
+                ? totalDeals
+                : topLevelCounts.get(tab.id) ?? 0
+              return (
+                <button
+                  key={tab.id}
+                  id={`tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls="deals-tabpanel"
+                  tabIndex={isActive ? 0 : -1}
+                  data-tab-group="top"
+                  onClick={() => setTopLevel(tab.id as Category | 'all')}
+                  onKeyDown={(e) => handleTabKeyDown(e, 'top')}
+                  className={`min-h-[44px] flex-1 px-2 py-3 text-center text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    isActive
+                      ? 'border-b-2 border-accent text-accent'
+                      : 'text-muted hover:text-current'
+                  }`}
+                >
+                  {tab.label} ({count})
+                </button>
+              )
+            })}
+          </div>
+
+          {/* ── Tier 2: Browse category pills (mobile only) ── */}
+          {visibleBrowseCategories.length > 0 && (
+            <div className="mb-3 md:hidden">
+              <div
+                className="flex flex-wrap gap-2 py-1"
+                role="tablist"
+                aria-label="Filter by category"
+              >
+                {/* "All [TopLevel]" pill */}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSub === null}
+                  tabIndex={activeSub === null ? 0 : -1}
+                  data-tab-group="browse"
+                  onClick={() => setSubFilter(null)}
+                  onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
+                  className={`min-h-[44px] rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                    activeSub === null
+                      ? 'bg-pill-active-bg text-pill-active-text'
+                      : 'border border-border bg-pill-bg text-current hover:border-accent'
+                  }`}
+                >
+                  {inferredTopLevel === 'all' ? `All (${totalDeals})` : `All ${topLevelLabel} (${topLevelCounts.get(inferredTopLevel) ?? 0})`}
+                </button>
+                {visibleBrowseCategories.map((cat) => {
+                  const count = browseCounts.get(cat.id) ?? 0
+                  if (count === 0) return null
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeSub === cat.id}
+                      tabIndex={activeSub === cat.id ? 0 : -1}
+                      data-tab-group="browse"
+                      onClick={() => setSubFilter(cat.id)}
+                      onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
+                      className={`min-h-[44px] rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                        activeSub === cat.id
+                          ? 'bg-pill-active-bg text-pill-active-text'
+                          : 'border border-border bg-pill-bg text-current hover:border-accent'
+                      }`}
+                    >
+                      {cat.emoji} {cat.label} ({count})
+                    </button>
+                  )
+                })}
+                {/* "Other" pill for uncategorised deals within this top-level */}
+                {inferredTopLevel !== 'all' && (() => {
+                  const otherKey = `other-${inferredTopLevel}` as BrowseCategory
+                  const otherCount = browseCounts.get(otherKey) ?? 0
+                  if (otherCount === 0) return null
+                  return (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeSub === otherKey}
+                      tabIndex={activeSub === otherKey ? 0 : -1}
+                      data-tab-group="browse"
+                      onClick={() => setSubFilter(otherKey)}
+                      onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
+                      className={`min-h-[44px] rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                        activeSub === otherKey
+                          ? 'bg-pill-active-bg text-pill-active-text'
+                          : 'border border-border bg-pill-bg text-current hover:border-accent'
+                      }`}
+                    >
+                      📦 Other ({otherCount})
+                    </button>
+                  )
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* ── L3 sub-sub-category filter (shown when L2 active, mobile + desktop) ── */}
+          {activeSub !== null && distinctSubCategories.length > 1 && (
+            <div className="mb-3 md:hidden">
+              <div className="rounded-lg bg-[#f4f6fa] p-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[#8a8f98]">
+                    Sub
+                  </span>
+                  <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubSub(null)}
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+                        activeSubSub === null
+                          ? 'bg-white font-semibold shadow-sm'
+                          : 'text-[#666] hover:bg-white/70'
+                      }`}
+                    >
+                      All
+                    </button>
+                    {distinctSubCategories.map((sc) => {
+                      const meta = SUB_CATEGORY_META[sc]
+                      return (
+                        <button
+                          key={sc}
+                          type="button"
+                          onClick={() => setActiveSubSub(sc)}
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 ${
+                            activeSubSub === sc
+                              ? 'bg-white font-semibold shadow-sm'
+                              : 'text-[#666] hover:bg-white/70'
+                          }`}
+                        >
+                          {meta?.emoji ?? '📦'} {meta?.label ?? sc}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Store filter pills (horizontal scroll, mobile only) ── */}
+          <div className="mb-3 md:hidden">
+            <div
+              className="flex gap-2 overflow-x-auto py-1 pb-1 scrollbar-none"
+              role="group"
+              aria-label="Filter by store"
             >
-              {inferredTopLevel === 'all' ? `All (${totalDeals})` : `All ${topLevelLabel} (${topLevelCounts.get(inferredTopLevel) ?? 0})`}
-            </button>
-            {visibleBrowseCategories.map((cat) => {
-              const count = browseCounts.get(cat.id) ?? 0
-              if (count === 0) return null
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSub === cat.id}
-                  tabIndex={activeSub === cat.id ? 0 : -1}
-                  data-tab-group="browse"
-                  onClick={() => setSubFilter(cat.id)}
-                  onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-                  className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                    activeSub === cat.id
-                      ? 'bg-pill-active-bg text-pill-active-text'
-                      : 'border border-border bg-pill-bg text-current hover:border-accent'
-                  }`}
-                >
-                  {cat.emoji} {cat.label} ({count})
-                </button>
-              )
-            })}
-            {/* "Other" pill for uncategorised deals within this top-level */}
-            {inferredTopLevel !== 'all' && (() => {
-              const otherKey = `other-${inferredTopLevel}` as BrowseCategory
-              const otherCount = browseCounts.get(otherKey) ?? 0
-              if (otherCount === 0) return null
-              return (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSub === otherKey}
-                  tabIndex={activeSub === otherKey ? 0 : -1}
-                  data-tab-group="browse"
-                  onClick={() => setSubFilter(otherKey)}
-                  onKeyDown={(e) => handleTabKeyDown(e, 'browse')}
-                  className={`rounded-full px-3 py-1.5 text-xs min-h-[44px] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                    activeSub === otherKey
-                      ? 'bg-pill-active-bg text-pill-active-text'
-                      : 'border border-border bg-pill-bg text-current hover:border-accent'
-                  }`}
-                >
-                  📦 Other ({otherCount})
-                </button>
-              )
-            })()}
+              {ALL_STORES.map((store) => {
+                const meta = STORE_META[store]
+                const count = storeCounts.get(store) ?? 0
+                const isActive = activeStores.has(store)
+                const isEmpty = count === 0
+                return (
+                  <button
+                    key={store}
+                    type="button"
+                    aria-pressed={isActive}
+                    disabled={isEmpty && !isActive}
+                    onClick={() => toggleStore(store)}
+                    className={`shrink-0 rounded-full border bg-white px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2${isEmpty && !isActive ? ' cursor-not-allowed opacity-40' : ''}`}
+                    style={isActive
+                      ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
+                      : { color: meta.hexText, borderColor: meta.hexText }}
+                  >
+                    {meta.label} ({count})
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* ── Store filter pills (horizontal scroll) ── */}
-      <div className="mb-3">
-        <div
-          className="flex gap-2 overflow-x-auto py-1 pb-1 scrollbar-none"
-          role="group"
-          aria-label="Filter by store"
-        >
-          {ALL_STORES.map((store) => {
-            const meta = STORE_META[store]
-            const count = storeCounts.get(store) ?? 0
-            const isActive = activeStores.has(store)
-            const isEmpty = count === 0
-              return (
-                <button
-                  key={store}
-                  type="button"
-                  aria-pressed={isActive}
-                  disabled={isEmpty && !isActive}
-                  onClick={() => toggleStore(store)}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border bg-white${isEmpty && !isActive ? ' opacity-40 cursor-not-allowed' : ''}`}
-                  style={isActive
-                    ? { backgroundColor: meta.hex, color: 'white', borderColor: meta.hex }
-                    : { color: meta.hexText, borderColor: meta.hexText }}
-                >
-                  {meta.label} ({count})
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-      {/* Search bar */}
-      <div className="mb-3 relative">
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setShowCount(INITIAL_SHOW) }}
-          placeholder="Search deals…"
-          aria-label="Search deals"
-          className="w-full rounded-md border border-border bg-surface py-2 pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => setSearchQuery('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-current"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {/* Active filter banner */}
-      {isFilterActive && (
-        <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
-          <span className="text-sm text-muted">
-            {viewMode === 'compare'
-              ? filteredComparisons.length > 0
-                ? `${filteredComparisons.length} ${activeLabel} product${filteredComparisons.length !== 1 ? 's' : ''} available for comparison`
-                : `No ${activeLabel} deals available for comparison across ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`
-              : <>Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}
-                {isStoreFilterActive && ` from ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`}</>
-            }
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setShowCount(INITIAL_SHOW)
-              setSearchParams({})
-            }}
-            className="min-h-[44px] px-2 text-sm font-semibold text-accent hover:underline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-          >
-            Clear filter
-          </button>
-        </div>
-      )}
-
-      {/* ── Starter pack banner (dismissible, shown to first-time visitors) ── */}
-      {!starterBannerDismissed && (basketItems?.length ?? 0) === 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3">
-          <span className="text-sm text-[#1d4ed8]">
-            New here?{' '}
-            <Link to="/onboarding" className="font-semibold underline">
-              Start with Swiss Basics →
-            </Link>
-          </span>
-          <button
-            type="button"
-            aria-label="Dismiss starter pack suggestion"
-            onClick={dismissStarterBanner}
-            className="ml-3 flex size-7 shrink-0 items-center justify-center rounded-full text-[#1d4ed8] hover:bg-[#dbeafe] focus-visible:ring-2 focus-visible:ring-[#2563eb]"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* Content */}
-      <div id="deals-tabpanel" role="tabpanel" aria-labelledby={`tab-${inferredTopLevel}`}>
-      {viewMode === 'compare' ? (
-        /* ── Compare view: side-by-side matched deals ── */
-        filteredComparisons.length > 0 ? (
-          <div className="space-y-3">
-            <p className="text-sm text-muted">{filteredComparisons.length} products found at multiple stores</p>
-            {filteredComparisons.slice(0, showCount).map((comp) => (
-              <DealCompareRow key={comp.id} comparison={comp} selectedStores={activeStores} productMap={productMap} />
-            ))}
-            {filteredComparisons.length > showCount && (
+          {/* Search bar */}
+          <div className="relative mb-3">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setShowCount(INITIAL_SHOW) }}
+              placeholder="Search deals…"
+              aria-label="Search deals"
+              className="w-full rounded-md border border-border bg-surface py-2 pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            {searchQuery && (
               <button
                 type="button"
-                onClick={() => setShowCount((prev) => prev + INITIAL_SHOW)}
-                className="w-full rounded-md border border-border bg-surface py-3 text-center text-sm font-medium text-accent hover:bg-gray-50 min-h-[44px]"
+                aria-label="Clear search"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-current"
               >
-                Show more ({filteredComparisons.length - showCount} left)
+                ✕
               </button>
             )}
           </div>
-        ) : (
-          <div className="py-12 text-center text-sm text-muted">
-            No matching products found across selected stores. Try selecting more stores above.
+
+          {/* Active filter banner */}
+          {isFilterActive && (
+            <div className="mb-3 flex items-center justify-between rounded-md border border-border bg-surface px-3 py-2">
+              <span className="text-sm text-muted">
+                Showing {totalFiltered} {activeLabel} deal{totalFiltered !== 1 ? 's' : ''}
+                {isStoreFilterActive && ` from ${[...activeStores].map((s) => STORE_META[s].label).join(', ')}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCount(INITIAL_SHOW)
+                  setActiveSubSub(null)
+                  setSearchParams({})
+                }}
+                className="min-h-[44px] px-2 text-sm font-semibold text-accent hover:underline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              >
+                Clear filter
+              </button>
+            </div>
+          )}
+
+          {/* ── Starter pack banner (dismissible) ── */}
+          {!starterBannerDismissed && (basketItems?.length ?? 0) === 0 && (
+            <div className="mb-3 flex items-center justify-between rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3">
+              <span className="text-sm text-[#1d4ed8]">
+                New here?{' '}
+                <Link to="/onboarding" className="font-semibold underline">
+                  Start with Swiss Basics →
+                </Link>
+              </span>
+              <button
+                type="button"
+                aria-label="Dismiss starter pack suggestion"
+                onClick={dismissStarterBanner}
+                className="ml-3 flex size-7 shrink-0 items-center justify-center rounded-full text-[#1d4ed8] hover:bg-[#dbeafe] focus-visible:ring-2 focus-visible:ring-[#2563eb]"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Content */}
+          <div id="deals-tabpanel" role="tabpanel" aria-labelledby={`tab-${inferredTopLevel}`}>
+            {!hasResults && (
+              <div className="py-12 text-center text-sm text-muted">
+                No deals from {isStoreFilterActive
+                  ? [...activeStores].map((s) => STORE_META[s].label).join(', ')
+                  : 'selected stores'} in {activeLabel.toLowerCase()} this week. Try another category or store.
+              </div>
+            )}
+            {hasResults && (
+              <div className="pb-20">
+                {/* Result count */}
+                <p className="mb-3 text-xs text-muted">
+                  Showing {subCategoryBands.length} sub-categor{subCategoryBands.length !== 1 ? 'ies' : 'y'} · {totalFiltered} deal{totalFiltered !== 1 ? 's' : ''}
+                </p>
+
+                {subCategoryBands.map((band) => (
+                  <SubCategoryBand
+                    key={band.subCategory}
+                    subCategory={band.label}
+                    emoji={band.emoji}
+                    deals={band.bandDeals}
+                    onAdd={handleBandAdd}
+                    addedIds={localAddedIds}
+                  />
+                ))}
+
+                {/* Fallback: flat cards for deals without sub_category */}
+                {subCategoryBands.length === 0 && visibleDeals.map((deal) => (
+                  <DealCard
+                    key={deal.id}
+                    deal={deal}
+                    store={deal.store}
+                    basketItems={basketItems ?? undefined}
+                    onItemAdded={refetchBasket}
+                    onItemRemoved={refetchBasket}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )
-      ) : (
-        /* ── List view: sub-category bands ── */
-        <>
-          {!hasResults && (
-            <div className="py-12 text-center text-sm text-muted">
-              No deals from {isStoreFilterActive
-                ? [...activeStores].map((s) => STORE_META[s].label).join(', ')
-                : 'selected stores'} in {activeLabel.toLowerCase()} this week. Try another category or store.
-            </div>
-          )}
-          {hasResults && (
-            <div className="pb-20">
-              {/* Result count */}
-              <p className="mb-3 text-xs text-muted">
-                Showing {subCategoryBands.length} sub-categor{subCategoryBands.length !== 1 ? 'ies' : 'y'} · {totalFiltered} deal{totalFiltered !== 1 ? 's' : ''}
-              </p>
-
-              {subCategoryBands.map((band) => (
-                <SubCategoryBand
-                  key={band.subCategory}
-                  subCategory={band.label}
-                  emoji={band.emoji}
-                  deals={band.bandDeals}
-                  onAdd={handleBandAdd}
-                  addedIds={localAddedIds}
-                />
-              ))}
-
-              {/* Fallback: flat cards for deals without sub_category (shouldn't normally appear) */}
-              {subCategoryBands.length === 0 && visibleDeals.map((deal) => (
-                <DealCard
-                  key={deal.id}
-                  deal={deal}
-                  store={deal.store}
-                  basketItems={basketItems ?? undefined}
-                  onItemAdded={refetchBasket}
-                  onItemRemoved={refetchBasket}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
+        </div>
       </div>
 
       {/* Sticky bottom bar — my list */}
       {(basketItems?.length ?? 0) > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-white px-4 py-3 shadow-md">
+        <div
+          className="fixed bottom-0 left-0 right-0 z-40 cursor-pointer bg-[#111] px-4 py-3 text-white shadow-md"
+          onClick={() => setListPanelOpen(true)}
+          role="button"
+          tabIndex={0}
+          aria-label="Open my list"
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setListPanelOpen(true) }}
+        >
           <div className="mx-auto flex max-w-lg items-center gap-3">
-            <Link
-              to={`/compare/${basketId}`}
-              className="flex-1 text-sm font-medium text-accent hover:underline"
+            {/* Count chip */}
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-[12px] font-bold text-[#111]">
+              {basketItems?.length}
+            </span>
+            {/* Label + breakdown */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">My list · {basketItems?.length} {basketItems?.length === 1 ? 'item' : 'items'}</p>
+              {basketStoreBreakdown && (
+                <p className="truncate text-[11px] text-white/70">{basketStoreBreakdown}</p>
+              )}
+            </div>
+            {/* Open list button */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setListPanelOpen(true) }}
+              className="shrink-0 rounded-full border border-white/40 px-3 py-1 text-[12px] font-semibold text-white hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#111]"
             >
-              {basketItems?.length} item{basketItems?.length !== 1 ? 's' : ''} in your list →
-            </Link>
-            <ShareButton
-              title="My grocery deals — basketch"
-              text="Check out my split shopping list for Swiss grocery stores"
+              Open list
+            </button>
+            {/* WhatsApp share */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                const itemList = (basketItems ?? []).map((i) => `• ${i.label}`).join('\n')
+                const text = `My grocery shopping list (basketch):\n${itemList}\n\nCompare prices: ${window.location.origin}/compare/${basketId}`
+                window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+              }}
+              className="shrink-0 rounded-full bg-[#25d366] px-3 py-1 text-[12px] font-semibold text-white hover:bg-[#1fba59] focus-visible:ring-2 focus-visible:ring-[#25d366] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111]"
             >
-              Share list
-            </ShareButton>
+              WhatsApp
+            </button>
           </div>
         </div>
       )}
+
+      {/* My List Panel overlay */}
+      <MyListPanel
+        open={listPanelOpen}
+        onClose={() => setListPanelOpen(false)}
+        basketId={basketId}
+        items={basketItems ?? []}
+        onItemRemoved={refetchBasket}
+      />
     </div>
   )
 }

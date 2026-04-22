@@ -17,6 +17,7 @@ export interface SubCategoryBandProps {
   deals: BandDeal[]
   onAdd: (deal: BandDeal) => void
   addedIds: Set<string>
+  heroBadgeLabel?: string
 }
 
 function formatChf(n: number): string {
@@ -30,7 +31,7 @@ function deltaLabel(heroPrice: number, price: number): string {
 }
 
 export function SubCategoryBand(props: SubCategoryBandProps) {
-  const { subCategory, emoji, deals, onAdd, addedIds } = props
+  const { subCategory, emoji, deals, onAdd, addedIds, heroBadgeLabel } = props
 
   const promoDeals = deals.filter((d) => d.hasPromo)
   const regularDeals = deals.filter((d) => !d.hasPromo)
@@ -76,55 +77,60 @@ export function SubCategoryBand(props: SubCategoryBandProps) {
       </div>
 
       <div className='p-4'>
-        {/* Tier 1 — Hero deal */}
-        {heroDeal && (
-          <HeroDealCard
-            deal={heroDeal}
-            isAdded={addedIds.has(heroDeal.id)}
-            onAdd={() => onAdd(heroDeal)}
-          />
-        )}
+        <div className='md:grid md:grid-cols-[1fr_1.1fr] md:gap-4'>
+          {/* Tier 1 — Hero deal */}
+          {heroDeal && (
+            <HeroDealCard
+              deal={heroDeal}
+              isAdded={addedIds.has(heroDeal.id)}
+              onAdd={() => onAdd(heroDeal)}
+              badgeLabel={heroBadgeLabel}
+            />
+          )}
 
-        {/* Tier 2 — Price ladder */}
-        {(ladderPromoDeals.length > 0 || ladderRegularDeals.length > 0) && (
-          <div className='mt-3'>
-            <p className='mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]'>
-              Other stores · best {subCategory} deal each
-            </p>
-            <div className='overflow-hidden rounded-[6px] border border-[#e5e5e5]'>
-              {ladderPromoDeals.map((deal, i) => (
-                <LadderRow
-                  key={deal.id}
-                  deal={deal}
-                  heroPrice={heroDeal?.salePrice ?? deal.salePrice}
-                  isAdded={addedIds.has(deal.id)}
-                  onAdd={() => onAdd(deal)}
-                  isLast={i === ladderPromoDeals.length - 1 && ladderRegularDeals.length === 0}
-                  isGreyed={false}
-                />
-              ))}
-              {ladderRegularDeals.map((deal, i) => (
-                <LadderRow
-                  key={deal.id}
-                  deal={deal}
-                  heroPrice={heroDeal?.salePrice ?? deal.salePrice}
-                  isAdded={addedIds.has(deal.id)}
-                  onAdd={() => onAdd(deal)}
-                  isLast={i === ladderRegularDeals.length - 1}
-                  isGreyed
-                />
-              ))}
-            </div>
+          {/* Tier 2 — Price ladder + no-deal footer */}
+          <div>
+            {(ladderPromoDeals.length > 0 || ladderRegularDeals.length > 0) && (
+              <div className='mt-3 md:mt-0'>
+                <p className='mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]'>
+                  Other stores · best {subCategory} deal each
+                </p>
+                <div className='overflow-hidden rounded-[6px] border border-[#e5e5e5]'>
+                  {ladderPromoDeals.map((deal, i) => (
+                    <LadderRow
+                      key={deal.id}
+                      deal={deal}
+                      heroPrice={heroDeal?.salePrice ?? deal.salePrice}
+                      isAdded={addedIds.has(deal.id)}
+                      onAdd={() => onAdd(deal)}
+                      isLast={i === ladderPromoDeals.length - 1 && ladderRegularDeals.length === 0}
+                      isGreyed={false}
+                    />
+                  ))}
+                  {ladderRegularDeals.map((deal, i) => (
+                    <LadderRow
+                      key={deal.id}
+                      deal={deal}
+                      heroPrice={heroDeal?.salePrice ?? deal.salePrice}
+                      isAdded={addedIds.has(deal.id)}
+                      onAdd={() => onAdd(deal)}
+                      isLast={i === ladderRegularDeals.length - 1}
+                      isGreyed
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tier 3 — No-deal footer */}
+            {missingStores.length > 0 && (
+              <p className='mt-3 text-[12px] text-[#8a8f98]'>
+                📭 No {subCategory} deals at:{' '}
+                {missingStores.map((s) => STORE_META[s].label).join(' · ')}
+              </p>
+            )}
           </div>
-        )}
-
-        {/* Tier 3 — No-deal footer */}
-        {missingStores.length > 0 && (
-          <p className='mt-3 text-[12px] text-[#8a8f98]'>
-            📭 No {subCategory} deals at:{' '}
-            {missingStores.map((s) => STORE_META[s].label).join(' · ')}
-          </p>
-        )}
+        </div>
       </div>
     </section>
   )
@@ -136,10 +142,11 @@ interface HeroDealCardProps {
   deal: BandDeal
   isAdded: boolean
   onAdd: () => void
+  badgeLabel?: string
 }
 
 function HeroDealCard(props: HeroDealCardProps) {
-  const { deal, isAdded, onAdd } = props
+  const { deal, isAdded, onAdd, badgeLabel } = props
   const meta = STORE_META[deal.store]
 
   return (
@@ -148,12 +155,12 @@ function HeroDealCard(props: HeroDealCardProps) {
       style={{ borderColor: meta.hex, backgroundColor: meta.hexLight }}
       aria-label={`${deal.productName}, ${formatChf(deal.salePrice)}, cheapest at ${meta.label}`}
     >
-      {/* CHEAPEST badge */}
+      {/* Badge */}
       <span
         className='absolute right-3 top-3 rounded-[999px] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white'
         style={{ backgroundColor: meta.hex }}
       >
-        ★ CHEAPEST
+        {badgeLabel ?? '★ CHEAPEST'}
       </span>
 
       {/* Store label */}
