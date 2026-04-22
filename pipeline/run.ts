@@ -11,15 +11,18 @@ import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
 import { categorizeDeal } from './categorize'
 import { filterGrocery } from './grocery-filter'
 import { extractProductMetadata } from './product-metadata'
-import { storeDeals, logPipelineRun, deactivateExpiredDeals, normalizeProductName, productLookupKey } from './store'
+import { storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
 import { isValidDealEntry } from './validate'
 
 /**
  * Confidence threshold: deals below this score are rejected as "likely
  * miscategorised" and never written to the DB. See v4 spec §13.
+ * Lowered from 0.4 → 0.3 after live data showed 42% of real aktionis deals
+ * were fallback-tier (no brand/source/keyword match) but still valid groceries.
+ * Non-grocery items are already rejected upstream by grocery-filter.
  */
-const MIN_TAXONOMY_CONFIDENCE = 0.4
+const MIN_TAXONOMY_CONFIDENCE = 0.3
 
 function readDealsFile(filename: string): UnifiedDeal[] {
   const filePath = path.resolve(process.cwd(), filename)
@@ -55,6 +58,7 @@ function readDealsFile(filename: string): UnifiedDeal[] {
 
 async function main(): Promise<void> {
   const startTime = Date.now()
+  const startDate = new Date(startTime)
   console.log('[pipeline] [INFO] Starting pipeline run')
 
   // Discover all *-deals.json files in the current working directory
@@ -145,16 +149,20 @@ async function main(): Promise<void> {
     `[pipeline] [INFO] Metadata: ${brandCount} brands, ${quantityCount} quantities, ${organicCount} organic`,
   )
 
-  // Step 3: Categorize all deals, filter out 0% discount entries, and drop any
-  // deal whose taxonomy confidence is too low (likely miscategorised). See §13.
+  // Step 3: Categorize all deals and drop any whose taxonomy confidence is too
+  // low (likely miscategorised non-grocery). See §13.
+  //
+  // We intentionally DO NOT filter out discount_percent=0 rows. aktionis.ch
+  // often shows a sale price without the crossed-out original price, which
+  // makes discount_percent compute to 0 even though the card was listed as
+  // a promo. Dropping these lost ~40% of Migros / LIDL stock unnecessarily.
   const categorized = groceryOnly
     .map((deal) => categorizeDeal(deal))
-    .filter((d) => (d.discountPercent ?? 0) > 0)
     .filter((d) => d.taxonomyConfidence >= MIN_TAXONOMY_CONFIDENCE)
 
   const filtered = groceryOnly.length - categorized.length
   console.log(
-    `[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with 0% discount or confidence < ${MIN_TAXONOMY_CONFIDENCE})`,
+    `[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with confidence < ${MIN_TAXONOMY_CONFIDENCE})`,
   )
 
   // Resolve products per store dynamically
@@ -178,6 +186,14 @@ async function main(): Promise<void> {
 
   // Store deals with product_id references
   const storedCount = await storeDeals(categorized, productIds)
+
+  // Sync-purge: any previously-active row for a successfully-refreshed store
+  // that wasn't touched in this run is stale and should be deactivated.
+  // Stores with failed fetches keep their last-known data (failure-safe).
+  const successfulStores = [...storeStatusMap.entries()]
+    .filter(([, r]) => r.status === 'success' && r.count > 0)
+    .map(([store]) => store)
+  await deactivateStaleForStores(successfulStores, startDate)
 
   // Check for significant storage loss (more than 10% of deals failed to store)
   const storageShortfall = categorized.length - storedCount

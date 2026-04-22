@@ -156,3 +156,54 @@ export async function deactivateExpiredDeals(): Promise<number> {
   }
   return count
 }
+
+/**
+ * Sync-purge stale rows after a successful fetch.
+ *
+ * The upsert conflict key is (store, product_name, valid_from). When aktionis
+ * changes the valid_from date on a card between runs, upsert creates a NEW
+ * row instead of updating, and the old row stays is_active=true until its
+ * valid_to passes. Coop accumulated ~450 such stale rows before this was
+ * caught.
+ *
+ * For each store that we successfully refreshed in this run, mark any
+ * is_active=true row whose updated_at is older than runStartedAt as inactive.
+ * Skipped stores keep their previous data intact (failure-safe).
+ *
+ * Returns the total number of rows deactivated across all successful stores.
+ */
+export async function deactivateStaleForStores(
+  successfulStores: string[],
+  runStartedAt: Date,
+): Promise<number> {
+  if (successfulStores.length === 0) return 0
+
+  const cutoff = runStartedAt.toISOString()
+  const { data, error } = await supabase
+    .from('deals')
+    .update({ is_active: false })
+    .eq('is_active', true)
+    .in('store', successfulStores)
+    .lt('updated_at', cutoff)
+    .select('id, store')
+
+  if (error) {
+    console.error('[storage] [ERROR] Failed to deactivate stale deals:', error.message)
+    return 0
+  }
+
+  const count = data?.length ?? 0
+  if (count > 0) {
+    const byStore: Record<string, number> = {}
+    for (const row of data ?? []) {
+      const s = (row as { store: string }).store
+      byStore[s] = (byStore[s] ?? 0) + 1
+    }
+    const breakdown = Object.entries(byStore)
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => `${s}=${n}`)
+      .join(', ')
+    console.log(`[storage] [INFO] Deactivated ${count} stale deals (${breakdown})`)
+  }
+  return count
+}
