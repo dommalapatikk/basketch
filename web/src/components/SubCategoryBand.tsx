@@ -22,6 +22,8 @@ export interface BandDeal {
   container?: Container
   packSize?: number
   unitVolumeMl?: number
+  /** Product photo URL from aktionis CDN; null if the scraper didn't find one. */
+  imageUrl?: string | null
 }
 
 export interface SubCategoryBandProps {

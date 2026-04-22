@@ -32,7 +32,7 @@ export function LadderRow({ deal, hero, isAdded, onAdd, isLast }: LadderRowProps
         aria-hidden='true'
       />
 
-      <DealImage store={deal.store} size={48} />
+      <DealImage store={deal.store} size={48} photoUrl={deal.imageUrl} alt={deal.productName} />
 
       <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
         <div className='flex items-center gap-2'>

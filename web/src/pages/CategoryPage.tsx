@@ -15,6 +15,7 @@ import { ErrorState } from '../components/ErrorState'
 import { iconForSubCategory } from '../lib/category-icons'
 import { formatChf, formatPerUnit, titleCase } from '../lib/deal-format'
 import { SUB_CATEGORY_META } from '../lib/deal-groups'
+import { DealImage } from '../components/DealImage'
 
 type SortKey = 'price-per-unit' | 'discount' | 'price'
 
@@ -215,6 +216,7 @@ function DealListItem({ deal }: { deal: DealRow }) {
     ?? formatChf(deal.sale_price)
   return (
     <li className='flex items-center gap-3 rounded-[8px] border border-[#e5e5e5] bg-white p-3'>
+      <DealImage store={deal.store} size={40} photoUrl={deal.image_url} alt={deal.product_name} />
       <span
         className='shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white'
         style={{ backgroundColor: meta.hex }}

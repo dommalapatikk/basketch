@@ -33,7 +33,7 @@ export function Hero({ deal, isAdded, onAdd, badgeLabel }: HeroProps) {
         aria-hidden='true'
       />
 
-      <DealImage store={deal.store} size={72} />
+      <DealImage store={deal.store} size={72} photoUrl={deal.imageUrl} alt={deal.productName} />
 
       <div className='flex w-full flex-col pl-1'>
         <div className='flex items-start justify-between gap-2'>

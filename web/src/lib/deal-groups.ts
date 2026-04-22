@@ -67,6 +67,7 @@ function rowToBandDeal(deal: DealRow, hasPromo: boolean): BandDeal {
     container: deal.container ?? undefined,
     packSize: deal.pack_size ?? undefined,
     unitVolumeMl: deal.unit_volume_ml ?? undefined,
+    imageUrl: deal.image_url,
   }
 }
 
