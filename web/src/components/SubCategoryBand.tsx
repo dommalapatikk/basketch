@@ -77,7 +77,7 @@ export function SubCategoryBand(props: SubCategoryBandProps) {
       </div>
 
       <div className='p-4'>
-        <div className='md:grid md:grid-cols-[1fr_1.1fr] md:gap-4'>
+        <div className={heroDeal ? 'md:grid md:grid-cols-[1fr_1.1fr] md:gap-4' : ''}>
           {/* Tier 1 — Hero deal */}
           {heroDeal && (
             <HeroDealCard

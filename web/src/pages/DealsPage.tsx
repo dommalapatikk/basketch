@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import type { BrowseCategory, BrowseCategoryInfo, Category, DealRow, Store } from '@shared/types'
@@ -384,10 +384,7 @@ export function DealsPage() {
   }, [filteredDeals, activeSub])
 
   // When the L2 filter changes, reset L3 filter
-  const prevActiveSub = useMemo(() => activeSub, [activeSub])
-  if (prevActiveSub !== activeSub && activeSubSub !== null) {
-    setActiveSubSub(null)
-  }
+  useEffect(() => { setActiveSubSub(null) }, [activeSub])
 
   // Apply L3 filter on top of filteredDeals
   const l3FilteredDeals = useMemo(() => {

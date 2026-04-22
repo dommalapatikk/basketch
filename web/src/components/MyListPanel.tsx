@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { BasketItem } from '@shared/types'
 import { STORE_META } from '@shared/types'
 import { removeBasketItem } from '../lib/queries'
@@ -19,6 +20,26 @@ export interface MyListPanelProps {
 
 export function MyListPanel(props: MyListPanelProps) {
   const { open, onClose, basketId, items, onItemRemoved } = props
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!open) return
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [open, onClose])
+
+  // Move focus into dialog when it opens
+  useEffect(() => {
+    if (!open || !dialogRef.current) return
+    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    focusable[0]?.focus()
+  }, [open])
 
   if (!open) return null
 
@@ -54,7 +75,7 @@ export function MyListPanel(props: MyListPanelProps) {
 
   const itemCount = items.length
 
-  // Group items by category (since BasketItem has no store field)
+  // Group items by category
   const byCategory = new Map<string, BasketItem[]>()
   for (const item of items) {
     const key = item.category
@@ -72,7 +93,6 @@ export function MyListPanel(props: MyListPanelProps) {
     'non-food': 'Household',
   }
 
-  // Pick a store color per category for visual grouping
   const categoryColors: Record<string, { hex: string; hexLight: string }> = {
     fresh: { hex: STORE_META.migros.hex, hexLight: STORE_META.migros.hexLight },
     'long-life': { hex: STORE_META.denner.hex, hexLight: STORE_META.denner.hexLight },
@@ -134,7 +154,7 @@ export function MyListPanel(props: MyListPanelProps) {
                         key={item.id}
                         className={`flex min-h-[48px] items-center gap-3 px-3 py-2 ${i < catItems.length - 1 ? 'border-b border-[#e5e5e5]' : ''}`}
                       >
-                        {/* Thumbnail — tinted box with category emoji */}
+                        {/* Thumbnail */}
                         <div
                           className='flex size-12 shrink-0 items-center justify-center rounded-[8px] text-[20px]'
                           style={{ backgroundColor: colors.hexLight }}
@@ -148,12 +168,12 @@ export function MyListPanel(props: MyListPanelProps) {
                           {item.label}
                         </span>
 
-                        {/* Remove button */}
+                        {/* Remove button — min 44px touch target */}
                         <button
                           type='button'
                           onClick={() => handleRemove(item.id)}
                           aria-label={`Remove ${item.label} from list`}
-                          className='flex size-8 shrink-0 items-center justify-center rounded-full text-[#8a8f98] hover:bg-[#fee2e2] hover:text-[#dc2626] focus-visible:ring-2 focus-visible:ring-[#dc2626] focus-visible:ring-offset-2'
+                          className='flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full text-[#8a8f98] hover:bg-[#fee2e2] hover:text-[#dc2626] focus-visible:ring-2 focus-visible:ring-[#dc2626] focus-visible:ring-offset-2'
                         >
                           <svg className='size-4' viewBox='0 0 20 20' fill='currentColor' aria-hidden='true'>
                             <path fillRule='evenodd' d='M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z' clipRule='evenodd' />
@@ -168,7 +188,7 @@ export function MyListPanel(props: MyListPanelProps) {
           </div>
         )}
 
-        {/* Desktop: estimated total note */}
+        {/* Desktop: hint note */}
         {items.length > 0 && (
           <p className='mt-4 hidden rounded-[8px] bg-[#f4f6fa] px-3 py-2 text-[12px] text-[#8a8f98] md:block'>
             View deals for prices — tap Browse deals to see this week&apos;s prices at each store.
@@ -222,29 +242,20 @@ export function MyListPanel(props: MyListPanelProps) {
         onClick={onClose}
       />
 
-      {/* Mobile bottom sheet */}
+      {/* Single dialog — bottom sheet on mobile, right drawer on desktop */}
       <div
+        ref={dialogRef}
         role='dialog'
         aria-modal='true'
         aria-label='My list'
-        className='fixed bottom-0 left-0 right-0 z-50 max-h-[85vh] overflow-hidden rounded-t-[16px] bg-white shadow-xl md:hidden'
+        className='fixed bottom-0 left-0 right-0 z-50 flex max-h-[85vh] flex-col overflow-hidden rounded-t-[16px] bg-white shadow-xl md:left-auto md:top-0 md:max-h-none md:w-[400px] md:rounded-none'
       >
-        {panelContent}
-      </div>
-
-      {/* Desktop right drawer */}
-      <div
-        role='dialog'
-        aria-modal='true'
-        aria-label='My list'
-        className='fixed bottom-0 right-0 top-0 z-50 hidden w-[400px] overflow-hidden bg-white shadow-xl md:flex md:flex-col'
-      >
-        {/* Close button top right — desktop only */}
+        {/* Desktop-only absolute close button */}
         <button
           type='button'
           onClick={onClose}
           aria-label='Close list panel'
-          className='absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f4f6fa] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2'
+          className='absolute right-3 top-3 z-10 hidden size-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f4f6fa] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 md:flex'
         >
           <svg className='size-5' viewBox='0 0 20 20' fill='currentColor' aria-hidden='true'>
             <path fillRule='evenodd' d='M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z' clipRule='evenodd' />

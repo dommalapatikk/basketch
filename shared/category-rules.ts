@@ -465,11 +465,14 @@ function matchSourceCategory(sourceCategory: string | null): BrandCategory | nul
 /** Keywords that must match as whole words to avoid false positives.
  * Only add a keyword here if it causes proven false positives as a substring. */
 const WHOLE_WORD_KEYWORDS = new Set([
-  'lauch',  // "bärlauchschnitzel" is meat, not vegetables
-  'speck',  // "bratspeck" as ingredient shouldn't trigger deli
-  'tea',    // "steak" contains "tea"
-  'egg',    // "leggero" contains "egg"
-  'reis',   // "preiselbeer" contains "reis"
+  'lauch',   // "bärlauchschnitzel" is meat, not vegetables
+  'speck',   // "bratspeck" as ingredient shouldn't trigger deli
+  'tea',     // "steak" contains "tea"
+  'egg',     // "leggero" contains "egg"
+  'reis',    // "preiselbeer" contains "reis"
+  'pils',    // "pilze" (mushrooms) starts with "pils"
+  'weizen',  // "weizenmehl" (flour) contains "weizen"
+  'kakao',   // "kakaobutter", "kakaonibs" are not hot drinks
 ])
 
 /** Known false-positive substrings: if the keyword match is actually
