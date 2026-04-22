@@ -198,7 +198,7 @@ function FilterChip({ active, onClick, label, accent }: FilterChipProps) {
     <button
       type='button'
       onClick={onClick}
-      className={`min-h-[36px] rounded-full border px-3 py-1 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 ${
+      className={`min-h-[44px] rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 ${
         active ? 'border-[#1a1a1a] bg-[#1a1a1a] text-white' : 'border-[#e5e5e5] bg-white text-[#1a1a1a] hover:border-[#1a1a1a]'
       }`}
       style={active && accent ? { borderColor: accent, backgroundColor: accent } : undefined}

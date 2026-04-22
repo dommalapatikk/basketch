@@ -32,7 +32,7 @@ export function FormatChips({ chips, selected, onChange }: FormatChipsProps) {
             role='tab'
             aria-selected={isActive}
             onClick={() => onChange(isActive ? null : chip.value)}
-            className={`shrink-0 min-h-[36px] rounded-full px-3 py-1 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 ${
+            className={`shrink-0 min-h-[44px] rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2 ${
               isActive
                 ? 'bg-[#1a1a1a] text-white'
                 : 'border border-[#e5e5e5] bg-white text-[#1a1a1a] hover:border-[#1a1a1a]'

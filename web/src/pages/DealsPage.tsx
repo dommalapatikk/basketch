@@ -19,6 +19,8 @@ import { StaleBanner } from '../components/StaleBanner'
 import { MyListPanel } from '../components/MyListPanel'
 import type { BandDeal } from '../components/SubCategoryBand'
 import { DealBand } from '../components/DealBand'
+import { BottomSheet } from '../components/BottomSheet'
+import { SlidersHorizontal } from 'lucide-react'
 
 const TOP_LEVEL_CATEGORIES: { id: Category | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -48,6 +50,7 @@ export function DealsPage() {
 
   // Panel state
   const [listPanelOpen, setListPanelOpen] = useState(false)
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false)
 
   // Basket for "add to list" buttons
   const { basketId, getOrCreate } = useBasketContext()
@@ -404,18 +407,6 @@ export function DealsPage() {
   // ── Sidebar filter content (used on desktop) ──
   const sidebarFilters = (
     <div className="space-y-5">
-      {/* Region */}
-      <div>
-        <button
-          type="button"
-          aria-label="Region: Switzerland (all regions)"
-          title="Region filter — all Swiss stores shown"
-          className="flex w-full items-center gap-1 rounded-[999px] border border-[#e5e5e5] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#666] hover:border-[#2563eb] focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2"
-        >
-          📍 Switzerland ▾
-        </button>
-      </div>
-
       {/* Type */}
       <div>
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8f98]">Type</p>
@@ -985,6 +976,33 @@ export function DealsPage() {
         items={basketItems ?? []}
         onItemRemoved={refetchBasket}
       />
+
+      {/* Mobile filter trigger — visible only on &lt;md; opens bottom sheet */}
+      <button
+        type="button"
+        onClick={() => setFilterSheetOpen(true)}
+        aria-label={`Open filters. ${filteredDeals.length} deals visible`}
+        className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 md:hidden flex min-h-[44px] items-center gap-2 rounded-full bg-[#1a1a1a] px-4 text-[13px] font-semibold text-white shadow-lg focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-2"
+      >
+        <SlidersHorizontal className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        Filters · {filteredDeals.length}
+      </button>
+
+      {/* Filter bottom sheet (mobile) */}
+      <BottomSheet
+        open={filterSheetOpen}
+        title="Filters"
+        onClose={() => setFilterSheetOpen(false)}
+        onApply={() => setFilterSheetOpen(false)}
+        onClear={() => {
+          setShowCount(INITIAL_SHOW)
+          setSearchQuery('')
+          setSearchParams({})
+        }}
+        applyLabel={`Show ${filteredDeals.length} deals`}
+      >
+        {sidebarFilters}
+      </BottomSheet>
     </div>
   )
 }

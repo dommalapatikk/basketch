@@ -63,7 +63,7 @@ export function LadderRow({ deal, hero, isAdded, onAdd, isLast }: LadderRowProps
         type='button'
         onClick={onAdd}
         aria-label={isAdded ? `${deal.productName} added to list` : `Add ${deal.productName} to list`}
-        className={`flex size-8 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-1 ${
+        className={`flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[#2563eb] focus-visible:ring-offset-1 ${
           isAdded
             ? 'bg-[#e8f5ec] text-[#147a2d]'
             : 'bg-[#eef0f3] text-[#666] hover:bg-[#e5e5e5]'
