@@ -168,20 +168,22 @@ export function HomePage() {
             </Link>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Browse deals and tap + to build your personal list.</span>
-            <Link
-              to="/deals"
-              className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
-            >
-              Browse &rarr;
-            </Link>
-          </div>
-        )}
-        {!(storedFavoriteId && hasListItems) && (
-          <div className="mt-3 border-t border-border pt-3">
-            <EmailLookup />
-          </div>
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Browse deals and tap + to build your personal list.</span>
+              <Link
+                to="/deals"
+                className="min-h-[44px] inline-flex items-center text-sm font-semibold text-accent no-underline hover:underline"
+              >
+                Browse &rarr;
+              </Link>
+            </div>
+            <div className="mt-3 border-t border-border pt-3">
+              <p className="mb-2 text-sm font-medium">Open your saved list</p>
+              <EmailLookup />
+              <p className="mt-1.5 text-xs text-muted">Nothing is sent to your inbox.</p>
+            </div>
+          </>
         )}
       </section>
 

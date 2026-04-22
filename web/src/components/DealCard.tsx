@@ -39,7 +39,7 @@ const KEYWORD_META: Map<string, StarterPackItem> = (() => {
  * Returns the keyword + its metadata (excludeTerms, preferTerms, label).
  * Falls back to using the raw product name if no starter pack keyword matches.
  */
-function findKeywordForDeal(deal: DealRow): {
+export function findKeywordForDeal(deal: DealRow): {
   keyword: string
   label: string
   excludeTerms?: string[]
