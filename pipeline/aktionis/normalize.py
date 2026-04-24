@@ -2,7 +2,7 @@
 
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bs4 import Tag
 
@@ -308,6 +308,13 @@ def normalize_aktionis_deal(raw_data: dict, store_name: str) -> dict | None:
             valid_to = raw_data.get("valid_to_desc")
         if valid_from is None:
             valid_from = datetime.now().strftime("%Y-%m-%d")
+        # LIDL (and any source that omits date metadata) gets a 7-day default
+        # window from valid_from. Without this, valid_to=NULL → frontend's
+        # `.gte('valid_to', today)` filter hides every row from the site.
+        if valid_to is None:
+            valid_to = (
+                datetime.strptime(valid_from, "%Y-%m-%d") + timedelta(days=7)
+            ).strftime("%Y-%m-%d")
 
         # Source URL
         href = raw_data.get("href")
