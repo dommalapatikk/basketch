@@ -2,11 +2,10 @@
 
 import { Filter, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useState } from 'react'
 
-import { useRouter, usePathname } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { type DealsFilters, serializeFilters } from '@/lib/filters'
+import type { DealsFilters } from '@/lib/filters'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import { countMatches, type DealFacet } from '@/server/data/filter-deals'
@@ -15,6 +14,7 @@ import { Drawer, DrawerClose, DrawerContent, DrawerTrigger } from '@/components/
 
 type Props = {
   filters: DealsFilters
+  onChange: (next: DealsFilters) => void
   facets: DealFacet[]
   matchedCount: number
   locale: string
@@ -25,16 +25,13 @@ type Props = {
 // (backdrop tap or close X) discards. The "Show n deals" count updates live
 // from `facets` — a slim projection of the deals payload — so we don't need a
 // network round-trip per toggle.
-export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
+export function FilterSheet({ filters, onChange, facets, matchedCount, locale }: Props) {
   const t = useTranslations('filters')
   const tDeals = useTranslations('deals')
-  const router = useRouter()
-  const pathname = usePathname()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
 
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<DealsFilters>(filters)
-  const [, startTransition] = useTransition()
 
   // Reset draft to the latest committed filters every time the sheet opens.
   function onOpenChange(next: boolean) {
@@ -84,12 +81,9 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
     setDraft({ type: 'all', category: null, stores: [...STORE_KEYS], q: filters.q })
 
   function commit() {
-    const qs = serializeFilters(draft)
-    // Same reasoning as FilterRail: yield to keep the close animation smooth
-    // and let the new RSC payload stream in without blocking the UI thread.
-    startTransition(() => {
-      router.replace(`${pathname}${qs}` as never, { scroll: false })
-    })
+    // Hand the draft to the parent (DealsClient) which owns the source of
+    // truth + URL update. Closing the drawer is independent of that.
+    onChange(draft)
     setOpen(false)
   }
 

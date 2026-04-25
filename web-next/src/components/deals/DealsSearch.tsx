@@ -4,35 +4,33 @@ import { Search, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useEffect, useRef, useState } from 'react'
 
-import { useRouter, usePathname } from '@/i18n/navigation'
-import { type DealsFilters, serializeFilters } from '@/lib/filters'
+import type { DealsFilters } from '@/lib/filters'
 
 type Props = {
   filters: DealsFilters
+  onChange: (next: DealsFilters) => void
 }
 
-// Debounced URL push so each keystroke doesn't re-render the server tree.
-// 250 ms feels responsive without thrashing the network.
+// Debounced commit so each keystroke doesn't re-derive sections + counts
+// against the snapshot. 250 ms feels responsive while collapsing fast-typing
+// bursts into one update.
 const DEBOUNCE_MS = 250
 
-export function DealsSearch({ filters }: Props) {
+export function DealsSearch({ filters, onChange }: Props) {
   const t = useTranslations('deals')
-  const router = useRouter()
-  const pathname = usePathname()
   const [value, setValue] = useState(filters.q)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Reset local state when the URL filter changes from elsewhere (Reset pill etc).
+  // Reset local state when the parent filter changes from elsewhere (Reset pill etc).
   useEffect(() => {
     setValue(filters.q)
   }, [filters.q])
 
   function push(next: string) {
-    const qs = serializeFilters({ ...filters, q: next })
-    router.replace(`${pathname}${qs}` as never, { scroll: false })
+    onChange({ ...filters, q: next })
   }
 
-  function onChange(v: string) {
+  function handleChange(v: string) {
     setValue(v)
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => push(v), DEBOUNCE_MS)
@@ -53,7 +51,7 @@ export function DealsSearch({ filters }: Props) {
       <input
         type="search"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         placeholder={t('search_placeholder')}
         aria-label={t('search_placeholder')}
         className="h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-line-strong)] bg-[var(--color-paper)] pl-9 pr-10 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-3)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus)]"

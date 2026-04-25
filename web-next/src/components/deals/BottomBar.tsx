@@ -15,6 +15,7 @@ import { FilterSheet } from './FilterSheet'
 
 type Props = {
   filters: DealsFilters
+  onChange: (next: DealsFilters) => void
   facets: DealFacet[]
   matchedCount: number
   locale: string
@@ -23,7 +24,7 @@ type Props = {
 // Mobile-only sticky action bar — three equal slots separated by 1px dividers.
 // Spec §5.3: My list | Filters · n | Share. Share lights up once the Zustand
 // list store has ≥ 1 item.
-export function BottomBar({ filters, facets, matchedCount, locale }: Props) {
+export function BottomBar({ filters, onChange, facets, matchedCount, locale }: Props) {
   const t = useTranslations('deals')
   const items = useListStore((s) => s.items)
   const shareDisabled = items.length === 0
@@ -59,6 +60,7 @@ export function BottomBar({ filters, facets, matchedCount, locale }: Props) {
         <div className="flex flex-1 items-stretch">
           <FilterSheet
             filters={filters}
+            onChange={onChange}
             facets={facets}
             matchedCount={matchedCount}
             locale={locale}

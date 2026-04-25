@@ -2,10 +2,9 @@
 
 import { X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useCallback, useTransition } from 'react'
+import { useCallback } from 'react'
 
-import { useRouter, usePathname } from '@/i18n/navigation'
-import { activeFilterCount, type DealsFilters, serializeFilters } from '@/lib/filters'
+import { activeFilterCount, type DealsFilters } from '@/lib/filters'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
@@ -13,6 +12,7 @@ import type { DealCategory } from '@/lib/types'
 
 type Props = {
   filters: DealsFilters
+  onChange: (next: DealsFilters) => void
   totalDealCount: number
   storeCounts: Record<StoreKey, number>
   subCategories: Array<{ key: string; count: number }>
@@ -23,28 +23,23 @@ const TYPES: Array<DealCategory | 'all'> = ['all', 'fresh', 'longlife', 'househo
 
 export function FilterRail({
   filters,
+  onChange,
   totalDealCount,
   storeCounts,
   subCategories,
   locale,
 }: Props) {
   const t = useTranslations('filters')
-  const router = useRouter()
-  const pathname = usePathname()
-  const [, startTransition] = useTransition()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
 
-  // startTransition keeps the click responsive on mobile: the URL/RSC swap
-  // is treated as non-urgent so React stays interactive while the new deal
-  // list streams in. Without this, throttled CPUs block the main thread.
+  // Hand-off to parent (DealsClient) which owns the filter state + URL update.
+  // No router.replace here — that path forces a server-tree re-render and is
+  // exactly what HR10 was trying to eliminate.
   const apply = useCallback(
     (next: DealsFilters) => {
-      const qs = serializeFilters(next)
-      startTransition(() => {
-        router.replace(`${pathname}${qs}` as never, { scroll: false })
-      })
+      onChange(next)
     },
-    [pathname, router],
+    [onChange],
   )
 
   const setType = (type: DealCategory | 'all') => apply({ ...filters, type, category: null })

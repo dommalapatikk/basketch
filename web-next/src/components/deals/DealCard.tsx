@@ -1,3 +1,5 @@
+'use client'
+
 import Image from 'next/image'
 
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'

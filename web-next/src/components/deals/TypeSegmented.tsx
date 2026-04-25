@@ -3,32 +3,31 @@
 import { useTranslations } from 'next-intl'
 import { useCallback } from 'react'
 
-import { useRouter, usePathname } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { type DealsFilters, serializeFilters } from '@/lib/filters'
+import type { DealsFilters } from '@/lib/filters'
 import type { DealCategory } from '@/lib/types'
 
 const TYPES: Array<DealCategory | 'all'> = ['all', 'fresh', 'longlife', 'household']
 
 type Props = {
   filters: DealsFilters
+  onChange: (next: DealsFilters) => void
   locale: string
 }
 
 // Mobile-only type selector — sits at the top of /deals on small screens.
-// Desktop uses the FilterRail's radio list instead.
-export function TypeSegmented({ filters, locale }: Props) {
+// Desktop uses the FilterRail's radio list instead. Filter changes call
+// the parent's onChange (DealsClient), which handles state + URL update
+// purely in the browser — no router.replace, no server roundtrip.
+export function TypeSegmented({ filters, onChange, locale }: Props) {
   const t = useTranslations('filters')
-  const router = useRouter()
-  const pathname = usePathname()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
 
   const apply = useCallback(
     (type: DealCategory | 'all') => {
-      const qs = serializeFilters({ ...filters, type, category: null })
-      router.replace(`${pathname}${qs}` as never, { scroll: false })
+      onChange({ ...filters, type, category: null })
     },
-    [filters, pathname, router],
+    [filters, onChange],
   )
 
   return (
