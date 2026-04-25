@@ -89,6 +89,69 @@ describe('subCategoryCounts', () => {
     expect(result[0]).toEqual({ key: 'Dairy', count: 2 })
     expect(result[1]).toEqual({ key: 'Bread', count: 1 })
   })
+
+  it('breaks count ties alphabetically (asc)', () => {
+    const deals = [
+      D({ id: '1', subCategory: 'Cheese' }),
+      D({ id: '2', subCategory: 'Apples' }),
+      D({ id: '3', subCategory: 'Bread' }),
+    ]
+    const result = subCategoryCounts(deals, DEFAULT_FILTERS)
+    expect(result.map((r) => r.key)).toEqual(['Apples', 'Bread', 'Cheese'])
+  })
+
+  it('keeps every sub-category in the type universe even when stores filter zeroes them out', () => {
+    // HR7 / v2.1 §E.2: changing stores must dim chips to 0, not delete them.
+    const deals = [
+      D({ id: '1', store: 'migros', category: 'fresh', subCategory: 'Dairy' }),
+      D({ id: '2', store: 'coop', category: 'fresh', subCategory: 'Bread' }),
+      D({ id: '3', store: 'lidl', category: 'fresh', subCategory: 'Fruit' }),
+    ]
+    const result = subCategoryCounts(deals, { ...DEFAULT_FILTERS, type: 'fresh', stores: ['migros'] })
+    const keys = result.map((r) => r.key)
+    expect(keys).toContain('Dairy')
+    expect(keys).toContain('Bread')
+    expect(keys).toContain('Fruit')
+    expect(result.find((r) => r.key === 'Dairy')?.count).toBe(1)
+    expect(result.find((r) => r.key === 'Bread')?.count).toBe(0)
+    expect(result.find((r) => r.key === 'Fruit')?.count).toBe(0)
+  })
+
+  it('sinks zero-count chips to the bottom (still alphabetised within zero group)', () => {
+    // v2.1 §D.5: sort = count desc, alpha asc on ties, zero-count last.
+    const deals = [
+      D({ id: '1', store: 'migros', category: 'fresh', subCategory: 'Cheese' }),
+      D({ id: '2', store: 'coop', category: 'fresh', subCategory: 'Apples' }),
+      D({ id: '3', store: 'coop', category: 'fresh', subCategory: 'Bread' }),
+    ]
+    const result = subCategoryCounts(deals, {
+      ...DEFAULT_FILTERS,
+      type: 'fresh',
+      stores: ['migros'],
+    })
+    expect(result.map((r) => r.key)).toEqual(['Cheese', 'Apples', 'Bread'])
+    expect(result.map((r) => r.count)).toEqual([1, 0, 0])
+  })
+
+  it('respects the q filter for counts but not for the universe', () => {
+    const deals = [
+      D({ id: '1', category: 'fresh', subCategory: 'Dairy', productName: 'Milch 1L' }),
+      D({ id: '2', category: 'fresh', subCategory: 'Dairy', productName: 'Käse' }),
+      D({ id: '3', category: 'fresh', subCategory: 'Bread', productName: 'Brot' }),
+    ]
+    const result = subCategoryCounts(deals, { ...DEFAULT_FILTERS, type: 'fresh', q: 'milch' })
+    expect(result.find((r) => r.key === 'Dairy')?.count).toBe(1)
+    expect(result.find((r) => r.key === 'Bread')?.count).toBe(0)
+  })
+
+  it('excludes sub-categories that do not exist under the active type filter', () => {
+    const deals = [
+      D({ id: '1', category: 'fresh', subCategory: 'Dairy' }),
+      D({ id: '2', category: 'household', subCategory: 'Cleaning' }),
+    ]
+    const result = subCategoryCounts(deals, { ...DEFAULT_FILTERS, type: 'fresh' })
+    expect(result.map((r) => r.key)).toEqual(['Dairy'])
+  })
 })
 
 describe('filter parity (desktop ↔ mobile)', () => {

@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
-import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
+import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { DealCategory } from '@/lib/types'
 import { countMatches, type DealFacet } from '@/server/data/filter-deals'
@@ -46,18 +46,34 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
 
   const previewCount = useMemo(() => countMatches(facets, draft), [facets, draft])
 
+  // HR7 (spec v2 §1) + v2.1 §D.5 / §E.2 — sub-category chips reflect every
+  // sub-category present in the type-filtered universe regardless of which
+  // stores the user has selected. Counts respect the full draft filter
+  // (stores + q), so chips dim to 0 instead of disappearing. Sort: count
+  // desc, alpha asc on ties, zero-count chips at the bottom.
   const subCats = useMemo(() => {
+    const q = draft.q.trim().toLowerCase()
+    const storeSet = new Set<StoreKey>(draft.stores)
     const map = new Map<string, number>()
     for (const d of facets) {
       if (draft.type !== 'all' && d.category !== draft.type) continue
       const k = (d.subCategory ?? '').trim()
       if (!k) continue
+      if (!map.has(k)) map.set(k, 0)
+      if (!storeSet.has(d.store)) continue
+      if (q && !d.productName.toLowerCase().includes(q)) continue
       map.set(k, (map.get(k) ?? 0) + 1)
     }
     return Array.from(map.entries())
       .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [facets, draft.type])
+      .sort((a, b) => {
+        const aZero = a.count === 0
+        const bZero = b.count === 0
+        if (aZero !== bZero) return aZero ? 1 : -1
+        if (a.count !== b.count) return b.count - a.count
+        return a.key.localeCompare(b.key)
+      })
+  }, [facets, draft.type, draft.stores, draft.q])
 
   const setType = (type: DealCategory | 'all') =>
     setDraft((d) => ({ ...d, type, category: null }))
@@ -118,33 +134,52 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
 
           {draft.type !== 'all' && subCats.length > 0 ? (
             <Section label={t('category')}>
-              <div className="flex flex-wrap gap-2">
-                {subCats.slice(0, 24).map((sc) => {
-                  const selected = draft.category === sc.key
-                  return (
-                    <button
-                      key={sc.key}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleCategory(sc.key)}
-                      className={`inline-flex items-center gap-2 rounded-[var(--radius-pill)] border px-3 py-1.5 text-xs transition-colors ${
-                        selected
-                          ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
-                          : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)]'
-                      }`}
-                    >
-                      <span className="truncate">{subCategoryLabel(sc.key, locale)}</span>
-                      <span className="font-mono tabular-nums opacity-70">{sc.count}</span>
-                    </button>
-                  )
-                })}
+              {/*
+               * Spec v2 §5.3 + §6.4: chips wrap, the container caps at 40vh
+               * with internal scroll and a 12 px fade mask at the bottom edge
+               * so the user can tell more chips exist below. Mask is a CSS
+               * `mask-image` linear-gradient — degrades to no mask in browsers
+               * that don't support it (chips still scroll).
+               */}
+              <div
+                className="max-h-[40vh] overflow-y-auto pb-3"
+                style={{
+                  WebkitMaskImage:
+                    'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
+                  maskImage:
+                    'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
+                }}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {subCats.map((sc) => {
+                    const selected = draft.category === sc.key
+                    const disabled = sc.count === 0 && !selected
+                    return (
+                      <button
+                        key={sc.key}
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={disabled}
+                        onClick={() => toggleCategory(sc.key)}
+                        className={`inline-flex items-center gap-2 rounded-[var(--radius-pill)] border px-3 py-1.5 text-xs transition-colors ${
+                          selected
+                            ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
+                            : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)]'
+                        } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                      >
+                        <span className="truncate">{subCategoryLabel(sc.key, locale)}</span>
+                        <span className="font-mono tabular-nums opacity-70">{sc.count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </Section>
           ) : null}
 
           <Section label={t('stores')}>
             <div className="flex flex-wrap gap-2">
-              {STORE_KEYS.map((s) => {
+              {STORE_DISPLAY_ORDER.map((s) => {
                 const selected = draft.stores.includes(s)
                 return (
                   <button

@@ -10,8 +10,7 @@ const tagVariants = cva(
   {
     variants: {
       tone: {
-        positive:
-          'bg-[color-mix(in_oklab,var(--color-positive)_12%,var(--color-paper))] text-[var(--color-positive)]',
+        positive: 'bg-positive-bg text-[var(--color-positive)]',
         neutral: 'bg-[var(--color-page)] text-[var(--color-ink-3)]',
         signal:
           'bg-[color-mix(in_oklab,var(--color-signal)_12%,var(--color-paper))] text-[var(--color-signal)]',

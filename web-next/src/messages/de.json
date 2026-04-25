@@ -4,6 +4,36 @@
     "about": "Über basketch",
     "skip_to_content": "Zum Inhalt springen"
   },
+  "about": {
+    "title": "Über basketch",
+    "intro": "basketch vergleicht die wöchentlichen Aktionen von sieben Schweizer Supermärkten — Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg — und zeigt, welcher Laden diese Woche pro Kategorie gewinnt.",
+    "how_it_works": {
+      "heading": "So funktioniert es",
+      "step1": "Jede Woche holen wir die neusten Aktionen von 7 Schweizer Supermärkten — den genauen Aktualisierungszeitpunkt findest du auf der Aktionen-Seite.",
+      "step2": "Wir ordnen jede Aktion in Frisch, Lange haltbar oder Haushalt ein und berechnen das Wochenfazit.",
+      "step3": "Das Fazit siehst du sofort. Durchstöbere alle Aktionen oder verfolge deine üblichen Artikel für einen persönlichen Vergleich."
+    },
+    "data_sources": {
+      "heading": "Datenquellen",
+      "body": "Alle Aktionsdaten stammen von aktionis.ch, einem öffentlichen Schweizer Angebotsverzeichnis seit 2006.",
+      "stores_label": "Erfasste Läden: Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg.",
+      "note": "Wir nutzen nur öffentlich zugängliche Daten. Kein Scraping geschützter Webseiten. Die Aktionsdaten werden wöchentlich aktualisiert."
+    },
+    "what_we_compare": {
+      "heading": "Was wir vergleichen",
+      "body": "basketch vergleicht wöchentliche Aktionen, nicht die regulären Regalpreise. Aktionen ändern sich jede Woche und sind der Grund, weshalb sich ein Ladenwechsel lohnen kann. Reguläre Preise sind stabil — was Milch kostet, weisst du bereits."
+    },
+    "privacy": {
+      "heading": "Datenschutz",
+      "bullet1": "Kein Konto nötig.",
+      "bullet2": "Keine Tracking-Cookies.",
+      "bullet3": "E-Mail ist freiwillig und dient nur dazu, deine Liste zu finden."
+    },
+    "contact": {
+      "heading": "Kontakt & Feedback",
+      "body": "Feedback willkommen — basketch ist ein kleines Schweizer Projekt. Erreichbar unter hello@basketch.app."
+    }
+  },
   "home": {
     "kicker": "Diese Woche",
     "updated_prefix": "aktualisiert",

@@ -1,3 +1,4 @@
+import { ShoppingBasket } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { Link } from '@/i18n/navigation'
@@ -17,7 +18,12 @@ export function Header() {
         {t('skip_to_content')}
       </a>
       <div className="mx-auto flex h-[72px] max-w-[1240px] items-center justify-between px-4 md:px-10">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
+        <Link
+          href="/"
+          aria-label="basketch — home"
+          className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight"
+        >
+          <ShoppingBasket size={20} strokeWidth={1.75} aria-hidden />
           basketch
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-8 md:flex">

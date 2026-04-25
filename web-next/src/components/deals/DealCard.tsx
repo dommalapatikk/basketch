@@ -11,7 +11,6 @@ import { AddToListButton } from './AddToListButton'
 export type DealCardVariant = 'primary' | 'compact'
 
 type CommonProps = {
-  // M6: id + category needed so the +List button can store the item.
   id: string
   category: DealCategory
   store: StoreKey
@@ -29,9 +28,9 @@ type CommonProps = {
 
 export type DealCardProps = CommonProps & { variant: DealCardVariant }
 
-// Spec §6.1: one component, two variants. Single 3px store rail (never doubled).
-// Brand color appears only as the rail and the dot inside the store pill.
-// Outer wrapper is an <article> with aria-labelledby — see §9 a11y rules.
+// v2.1 HR1: store color appears ONLY inside the 6 px dot of the store pill.
+// No rail, no left border, no top stripe. v2.1 HR4/HR8: strict CSS grid with
+// minmax(0, 1fr) on text columns prevents the price/title overlap (B5).
 export function DealCard(props: DealCardProps) {
   return props.variant === 'primary' ? <Primary {...props} /> : <Compact {...props} />
 }
@@ -51,36 +50,26 @@ function Primary({
   href,
   cheapestLabel = 'Cheapest',
 }: CommonProps) {
-  const brand = STORE_BRAND[store]
   const titleId = titleIdFor(href)
   return (
     <article
       aria-labelledby={titleId}
-      className="relative flex overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] pl-3 transition-colors hover:border-[var(--color-line-strong)]"
+      className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-3 transition-colors hover:border-[var(--color-line-strong)] sm:grid-cols-[176px_minmax(0,1fr)] sm:gap-5 sm:p-4 md:grid-cols-[192px_minmax(0,1fr)] md:gap-6 md:p-5"
     >
-      {/* 3px brand rail */}
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ background: brand.color }}
-      />
-
-      {/* Image — 120×120 on mobile (spec §6.1), 176×176 on sm+. Always shown. */}
-      <div className="m-3 h-[120px] w-[120px] shrink-0 overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-page)] sm:m-4 sm:h-[176px] sm:w-[176px]">
+      <div className="aspect-square w-full overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-page)]">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt=""
             width={192}
             height={192}
-            sizes="(min-width: 640px) 192px, 120px"
+            sizes="(min-width: 768px) 192px, (min-width: 640px) 176px, 120px"
             className="h-full w-full object-contain p-2"
           />
         ) : null}
       </div>
 
-      {/* Content */}
-      <div className="flex flex-1 flex-col gap-3 p-4 sm:p-5">
+      <div className="flex min-w-0 flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <StorePill store={store} size="md" />
           {isCheapest ? (
@@ -142,31 +131,26 @@ function Compact({
   return (
     <article
       aria-labelledby={titleId}
-      // Fixed width on mobile so the parent's horizontal-scroll rail snaps
-      // properly; auto width on lg+ where rows stack vertically.
-      className="relative flex w-[280px] shrink-0 snap-start items-center gap-3 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] py-2 pl-3 pr-3 transition-colors hover:border-[var(--color-line-strong)] lg:w-auto lg:shrink lg:snap-none"
+      // 4-column grid: image | text (store pill + name stacked) | price | button.
+      // minmax(0, 1fr) on text col enforces truncation rather than overflow (HR4).
+      // Mobile snap-rail width 280 px stays — name truncates inside its column.
+      className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_minmax(0,1fr)_auto_auto] items-center gap-3 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] lg:w-auto lg:shrink lg:snap-none"
     >
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ background: brand.color }}
-      />
-
-      <div className="ml-1 h-12 w-12 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)]">
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)]">
         {imageUrl ? (
           <Image
             src={imageUrl}
             alt=""
-            width={48}
-            height={48}
-            sizes="48px"
+            width={40}
+            height={40}
+            sizes="40px"
             className="h-full w-full object-contain p-1"
           />
         ) : null}
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
           <span
             aria-hidden
             className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
@@ -227,9 +211,6 @@ function StorePill({ store, size }: { store: StoreKey; size: 'sm' | 'md' }) {
   )
 }
 
-// Stable id derived from href so React can wire aria-labelledby. The id only
-// needs to be unique per article on a page, which holds as long as source URLs
-// are unique. Plain function (not a hook) — naming reflects that.
 function titleIdFor(href: string): string {
   return `dc-${hash(href)}`
 }

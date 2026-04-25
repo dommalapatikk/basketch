@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { setRequestLocale } from 'next-intl/server'
 import { getTranslations } from 'next-intl/server'
 import { Suspense } from 'react'
@@ -19,10 +20,24 @@ import { DealCard } from '@/components/deals/DealCard'
 import { DealsSearch } from '@/components/deals/DealsSearch'
 import { FilterRail } from '@/components/deals/FilterRail'
 import { TypeSegmented } from '@/components/deals/TypeSegmented'
+import { IconHeading } from '@/components/ui/IconHeading'
 
 type Props = {
   params: Promise<{ locale: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params
+  const t = await getTranslations({ locale, namespace: 'deals' })
+  const isDe = locale === 'de'
+  return {
+    title: `${t('headline')} · basketch`,
+    description: isDe
+      ? 'Wochenangebote von Migros, Coop, LIDL, ALDI, Denner, SPAR und Volg im Vergleich.'
+      : 'This week’s promotions from Migros, Coop, LIDL, ALDI, Denner, SPAR and Volg, side by side.',
+    alternates: { canonical: isDe ? '/deals' : `/${locale}/deals` },
+  }
 }
 
 // Page shell is static — only the title prerenders. The header subline (date
@@ -130,6 +145,7 @@ async function DealsBody({
             {sections.map((s) => (
               <SubCategorySection
                 key={s.subCategory}
+                subCategoryKey={s.subCategory}
                 title={subCategoryLabel(s.subCategory, locale)}
                 primary={s.primary}
                 others={s.others}
@@ -185,6 +201,7 @@ function BodySkeleton() {
 }
 
 function SubCategorySection({
+  subCategoryKey,
   title,
   primary,
   others,
@@ -192,6 +209,7 @@ function SubCategorySection({
   othersLabel,
   locale,
 }: {
+  subCategoryKey: string
   title: string
   primary: ReturnType<typeof buildSections>[number]['primary']
   others: ReturnType<typeof buildSections>[number]['others']
@@ -200,15 +218,16 @@ function SubCategorySection({
   locale: string
 }) {
   const subline = `${others.length + 1} ${others.length === 0 ? (locale === 'de' ? 'Aktion' : 'deal') : locale === 'de' ? 'Aktionen' : 'deals'}`
+  const headingId = `sec-${slug(title)}`
   return (
-    <section aria-labelledby={`sec-${slug(title)}`} className="scroll-mt-24">
+    <section aria-labelledby={headingId} className="scroll-mt-24">
       <header className="sticky top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)]/85 px-2 py-2 backdrop-blur">
-        <h2
-          id={`sec-${slug(title)}`}
-          className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-ink-3)]"
-        >
-          {title}
-        </h2>
+        <IconHeading
+          id={headingId}
+          subCategory={subCategoryKey}
+          label={title}
+          className="flex items-center gap-2 text-h2 text-base font-semibold tracking-tight text-[var(--color-ink)]"
+        />
         <span className="font-mono text-xs tabular-nums text-[var(--color-ink-3)]">{subline}</span>
       </header>
 

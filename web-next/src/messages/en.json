@@ -4,6 +4,36 @@
     "about": "About basketch",
     "skip_to_content": "Skip to content"
   },
+  "about": {
+    "title": "About basketch",
+    "intro": "basketch compares the weekly grocery promotions across seven Swiss supermarkets — Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg — and tells you which store wins this week, by category.",
+    "how_it_works": {
+      "heading": "How it works",
+      "step1": "Every week we fetch the latest promotions from 7 Swiss supermarkets — check the freshness indicator on the deals page for the exact update time.",
+      "step2": "We categorise every deal into Fresh, Long-life, or Household and calculate a weekly verdict.",
+      "step3": "You see the verdict instantly. Browse all deals, or track your regular items for a personal comparison."
+    },
+    "data_sources": {
+      "heading": "Data sources",
+      "body": "All deal data comes from aktionis.ch, a public Swiss deal aggregator since 2006.",
+      "stores_label": "Stores tracked: Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg.",
+      "note": "We only use publicly available data. No scraping of protected websites. Deal data is refreshed weekly."
+    },
+    "what_we_compare": {
+      "heading": "What we compare",
+      "body": "basketch compares weekly promotions, not regular shelf prices. Promotions change every week and are the reason you might switch stores. Regular prices are stable — you already know what milk costs."
+    },
+    "privacy": {
+      "heading": "Privacy",
+      "bullet1": "No account required.",
+      "bullet2": "No tracking cookies.",
+      "bullet3": "Email is optional and only used to find your list."
+    },
+    "contact": {
+      "heading": "Contact & feedback",
+      "body": "Feedback welcome — basketch is a small Swiss project. Reach us at hello@basketch.app."
+    }
+  },
   "home": {
     "kicker": "This week",
     "updated_prefix": "updated",

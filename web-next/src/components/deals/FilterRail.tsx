@@ -7,7 +7,7 @@ import { useCallback } from 'react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { activeFilterCount, type DealsFilters, serializeFilters } from '@/lib/filters'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
+import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { DealCategory } from '@/lib/types'
 
@@ -156,7 +156,7 @@ export function FilterRail({
           {t('stores')}
         </p>
         <ul className="mt-3 flex flex-wrap gap-2">
-          {STORE_KEYS.map((s) => {
+          {STORE_DISPLAY_ORDER.map((s) => {
             const count = storeCounts[s] ?? 0
             const selected = filters.stores.includes(s)
             const disabled = count === 0

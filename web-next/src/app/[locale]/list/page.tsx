@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { setRequestLocale } from 'next-intl/server'
 import { getTranslations } from 'next-intl/server'
 import { Suspense } from 'react'
@@ -11,6 +12,16 @@ import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
 type Props = {
   params: Promise<{ locale: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params
+  const t = await getTranslations({ locale, namespace: 'list' })
+  return {
+    title: `${t('title')} · basketch`,
+    description: t('description'),
+    robots: { index: false, follow: false },
+  }
 }
 
 // /list?items=abc,def — recipient lands here from a shared link. We resolve

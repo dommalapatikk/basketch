@@ -1,7 +1,5 @@
 import { cn } from '@/lib/utils'
 
-import { Tag } from './tag'
-
 export type PriceBlockProps = {
   current: number
   previous?: number | null
@@ -19,8 +17,9 @@ const formatCHF = (value: number, locale = 'de-CH') =>
     maximumFractionDigits: 2,
   }).format(value)
 
-// Spec §6.7: tabular numerals; current price is the hero; previous strikethrough in ink-3;
-// per-unit always rendered when available; savings = positive Tag (never red).
+// v2.1 HR6: savings rendered as plain text-positive — not a chip. Strikethrough on
+// previous price + the negative percentage carry the meaning. Wraps on narrow rows
+// rather than overlapping (HR4/HR8).
 export function PriceBlock({
   current,
   previous,
@@ -33,7 +32,7 @@ export function PriceBlock({
   const currentSize = size === 'lg' ? 'text-[28px] leading-8' : size === 'sm' ? 'text-base leading-5' : 'text-2xl leading-7'
   return (
     <div className={cn('flex flex-col gap-1', className)}>
-      <div className="flex items-baseline gap-2">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="text-[11px] font-semibold tracking-[0.04em] text-[var(--color-ink-3)]">CHF</span>
         <span
           className={cn(
@@ -44,7 +43,9 @@ export function PriceBlock({
           {formatCHF(current, locale)}
         </span>
         {savingsPct != null && savingsPct > 0 && (
-          <Tag tone="positive">−{Math.round(savingsPct)}%</Tag>
+          <span className="font-mono text-[13px] font-semibold tabular-nums text-[var(--color-positive)]">
+            −{Math.round(savingsPct)}%
+          </span>
         )}
       </div>
       {previous != null && previous > current && (

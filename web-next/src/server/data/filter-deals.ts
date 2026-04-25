@@ -53,26 +53,49 @@ export function storeCounts(deals: Deal[], f: DealsFilters): Record<StoreKey, nu
 }
 
 // Sub-categories that exist *in the current type filter*, with their counts.
-// Used by FilterRail's collapsible Category list and by the deals page section
-// headers. Returns sorted by count desc.
+//
+// Per HR7 (spec v2 §1) + v2.1 §E.2, the LIST of sub-categories must include
+// every distinct sub-category in the type-filtered universe regardless of
+// the active store / search selection — only the COUNTS are filtered. That
+// way enabling a previously-hidden store reveals the same chips, just with
+// new totals; chips at zero dim instead of disappearing.
+//
+// Sort order (spec v2.1 §D.5): count desc, alphabetical asc on ties, with
+// zero-count chips pushed to the bottom of the list (still alphabetised).
 export function subCategoryCounts(
   deals: Deal[],
   f: DealsFilters,
 ): Array<{ key: string; count: number }> {
-  const counts = new Map<string, number>()
   const q = f.q.trim().toLowerCase()
   const storeSet = new Set<StoreKey>(f.stores)
+
+  // Phase 1: collect every sub-category present under the type filter, then
+  // count each one against the FULL filter (type + stores + q). Computing
+  // the universe and the counts in one pass keeps it O(n).
+  const counts = new Map<string, number>()
   for (const d of deals) {
     if (f.type !== 'all' && d.category !== f.type) continue
-    if (!storeSet.has(d.store)) continue
-    if (q && !d.productName.toLowerCase().includes(q)) continue
     const key = d.subCategory?.trim() || ''
     if (!key) continue
+
+    // Ensure the chip exists even when the store/q filter zeroes it out.
+    if (!counts.has(key)) counts.set(key, 0)
+
+    if (!storeSet.has(d.store)) continue
+    if (q && !d.productName.toLowerCase().includes(q)) continue
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
+
   return Array.from(counts.entries())
     .map(([key, count]) => ({ key, count }))
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => {
+      // Zero-count chips sink to the bottom regardless of name.
+      const aZero = a.count === 0
+      const bZero = b.count === 0
+      if (aZero !== bZero) return aZero ? 1 : -1
+      if (a.count !== b.count) return b.count - a.count
+      return a.key.localeCompare(b.key)
+    })
 }
 
 export type DealsSection = {

@@ -16,9 +16,10 @@
   --color-signal: #2e4cde;
   --color-signal-ink: #0f1f8f;
   --color-positive: #0e7f59;
+  --color-positive-bg: #e5f4ed;
   --color-warning: #8a5a00;
   --color-danger: #b42318;
-  --color-focus: #94a5ff;
+  --color-focus: #5a6fe8;
 
   /* Store brand (data-only — dots, pills, 3px rails — never as backgrounds) */
   --store-migros: #ff6600;
@@ -68,6 +69,7 @@
     --color-signal: #8ca0ff;
     --color-signal-ink: #b1befd;
     --color-positive: #4fc28a;
+    --color-positive-bg: #1a2b22;
     --color-warning: #e0b061;
     --color-danger: #f08072;
     --color-focus: #6e86ff;
@@ -85,6 +87,7 @@
   --color-signal: #8ca0ff;
   --color-signal-ink: #b1befd;
   --color-positive: #4fc28a;
+  --color-positive-bg: #1a2b22;
   --color-warning: #e0b061;
   --color-danger: #f08072;
   --color-focus: #6e86ff;
@@ -102,6 +105,7 @@
   --color-signal: var(--color-signal);
   --color-signal-ink: var(--color-signal-ink);
   --color-positive: var(--color-positive);
+  --color-positive-bg: var(--color-positive-bg);
   --color-warning: var(--color-warning);
   --color-danger: var(--color-danger);
   --color-focus: var(--color-focus);
