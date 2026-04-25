@@ -1,5 +1,5 @@
 // Diagnostic for Patch C2 — measures what actually happens on a sub-cat click
-// against the LIVE production site basketch-redesign.vercel.app.
+// against a local prod build (mirror of diag-c2-live.mjs which targets basketch.vercel.app).
 // Outputs: click→URL latency, RSC network calls, payload bytes, main-thread tasks.
 
 import { chromium, devices } from 'playwright'

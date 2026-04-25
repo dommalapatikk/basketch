@@ -1,7 +1,7 @@
 # basketch — session summary
 
 **Date range:** 2026-04-24 → 2026-04-25
-**Outcome:** Full redesign (M0–M8) built and shipped, then v2.1 corrective patches applied based on external designer's audit. All 13 patch tasks complete; live at basketch-redesign.vercel.app.
+**Outcome:** Full redesign (M0–M8) built and shipped, then v2.1 corrective patches applied based on external designer's audit. All 13 patch tasks complete; live at basketch.vercel.app (renamed from basketch-redesign.vercel.app on 2026-04-25 after legacy Vite app was retired).
 
 ---
 
@@ -9,8 +9,8 @@
 
 | | |
 |---|---|
-| 🌐 New site (LIVE) | https://basketch-redesign.vercel.app |
-| 🌐 Old site (untouched) | https://basketch.vercel.app |
+| 🌐 Live site | https://basketch.vercel.app |
+| 🌐 Old Vite app | RETIRED 2026-04-25 — archived to `archive/web-vite/`, Vercel project deleted |
 | 🔀 PR | https://github.com/dommalapatikk/com/dommalapatikk/basketch/pull/1 |
 | 🌿 Branch | `redesign` (4 commits ahead of `main`) |
 | 🏗️ Vercel project | `dommalapatikks-projects/basketch-redesign` |
@@ -72,7 +72,7 @@ The `redesign` branch is now in CI's `push` trigger.
 
 **Vercel project `basketch-redesign` is misconfigured:** Root Directory is set to `.` (repo root), not `web-next/`. So git auto-deploy reads the repo-root `vercel.json` and builds the OLD `web/` Vite app, NOT the new `web-next/` Next.js app.
 
-**Why this hasn't been fatal yet:** I worked around it by deploying via `vercel build --prod && vercel deploy --prebuilt --prod` from `web-next/`. The current production at basketch-redesign.vercel.app is the correct v2.1 Next.js build.
+**Why this hasn't been fatal yet:** I worked around it by deploying via `vercel build --prod && vercel deploy --prebuilt --prod` from `web-next/`. The current production at basketch.vercel.app is the correct v2.1 Next.js build.
 
 **Fix needed (5 min, web dashboard):**
 1. Open https://vercel.com/dommalapatikks-projects/basketch-redesign/settings
@@ -83,7 +83,7 @@ Until this is fixed, future `git push origin redesign` will deploy the wrong bui
 
 ---
 
-## Verification (live at basketch-redesign.vercel.app)
+## Verification (live at basketch.vercel.app)
 
 Curl-tested 2026-04-25 15:51 CET:
 - ✅ `/` → 200, `<title>basketch — Schweizer Wochenangebote im Vergleich</title>`, served from Next.js (`_next/static`)
@@ -130,8 +130,8 @@ When you say "pick up basketch":
 6. Hit `vercel ls --cwd web-next` to see deployment state
 
 Folder map:
-- `web-next/` — new Next.js 16 app, **THIS is what's live at basketch-redesign.vercel.app**
-- `web/` — old Vite app, still live at basketch.vercel.app (untouched, do not delete yet)
+- `web-next/` — Next.js 16 app, **LIVE at basketch.vercel.app**
+- `archive/web-vite/` — RETIRED legacy Vite app (was at the old basketch.vercel.app project, deleted 2026-04-25)
 - `pipeline/` — TS+Python data pipeline, runs on GH Actions cron Mon/Tue/Thu
 - `docs/` — PRD, architecture, redesign ADR
 - `Documents for claude code to refer/` — design specs (basketch-redesign-spec.md = v1; basketch-redesign-spec-v2.1.md = v2 amendments)

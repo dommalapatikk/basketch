@@ -16,7 +16,7 @@ basketch/
 │   ├── categorize.ts      # Category + sub-category assignment
 │   ├── store.ts           # Supabase upsert logic
 │   └── run.ts             # Pipeline entry point
-├── web-next/              # Next.js 16 frontend (LIVE at basketch-redesign.vercel.app). Own package.json.
+├── web-next/              # Next.js 16 frontend (LIVE at basketch.vercel.app). Own package.json.
 │   └── src/
 │       ├── app/           # App Router pages, layouts, route handlers
 │       ├── components/    # DealCard, FilterRail, FilterSheet, BottomBar, IconHeading, etc.

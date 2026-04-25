@@ -3,7 +3,7 @@
 //
 //   1. NEXT_PUBLIC_SITE_URL — explicit canonical, set in production env.
 //   2. VERCEL_PROJECT_PRODUCTION_URL — auto-set by Vercel on every deployment;
-//      the stable production hostname (e.g. basketch-redesign.vercel.app).
+//      the stable production hostname (e.g. basketch.vercel.app).
 //   3. VERCEL_URL — the unique URL for *this* deployment; right for previews
 //      where each commit gets its own subdomain.
 //   4. localhost fallback — for `next dev`.

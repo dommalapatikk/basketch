@@ -60,7 +60,7 @@ jobs:
         run: cd pipeline/aktionis && python -m pytest
 
   # ---------------------------------------------------------------------------
-  # web-next/ — the v2.1 Next.js 16 build that lives at basketch-redesign.vercel.app.
+  # web-next/ — the v2.1 Next.js 16 build that lives at basketch.vercel.app.
   # Five jobs per v2.1 §G: lint+typecheck, vitest, build, playwright, axe (inside playwright).
   # ---------------------------------------------------------------------------
   lint-and-typecheck-web-next:

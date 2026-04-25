@@ -1,10 +1,10 @@
 // Diagnostic for Patch C2 — measures what actually happens on a sub-cat click
-// against the LIVE production site basketch-redesign.vercel.app.
+// against the LIVE production site basketch.vercel.app.
 // Outputs: click→URL latency, RSC network calls, payload bytes, main-thread tasks.
 
 import { chromium, devices } from 'playwright'
 
-const TARGET = 'https://basketch-redesign.vercel.app/en/deals?type=fresh'
+const TARGET = 'https://basketch.vercel.app/en/deals?type=fresh'
 // Accept any fresh sub-cat that exists this week (data shifts on Mon/Tue/Thu).
 const SUB_CAT_LABEL = /Dairy|Meat|Fish|Vegetables|Fruit|Poultry|Deli|Bread|Eggs/i
 const VIEWPORTS = [
