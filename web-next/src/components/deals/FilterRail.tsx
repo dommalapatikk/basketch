@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useCallback } from 'react'
+import { useCallback, useTransition } from 'react'
 
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { activeFilterCount, type DealsFilters, serializeFilters } from '@/lib/filters'
@@ -31,14 +31,18 @@ export function FilterRail({
   const t = useTranslations('filters')
   const router = useRouter()
   const pathname = usePathname()
+  const [, startTransition] = useTransition()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
 
-  // All filter mutations go through this — keeps URL push behaviour consistent
-  // (replace, not push, so back-button doesn't trap in filter combinations).
+  // startTransition keeps the click responsive on mobile: the URL/RSC swap
+  // is treated as non-urgent so React stays interactive while the new deal
+  // list streams in. Without this, throttled CPUs block the main thread.
   const apply = useCallback(
     (next: DealsFilters) => {
       const qs = serializeFilters(next)
-      router.replace(`${pathname}${qs}` as never, { scroll: false })
+      startTransition(() => {
+        router.replace(`${pathname}${qs}` as never, { scroll: false })
+      })
     },
     [pathname, router],
   )
@@ -117,8 +121,8 @@ export function FilterRail({
                 aria-pressed={filters.category === null}
                 className={`flex w-full items-center justify-between rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-sm transition-colors ${
                   filters.category === null
-                    ? 'bg-[var(--color-page)] text-[var(--color-ink)]'
-                    : 'text-[var(--color-ink-2)] hover:bg-[var(--color-page)]'
+                    ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-paper)]'
+                    : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
                 }`}
               >
                 <span>{t('category_all')}</span>
@@ -134,12 +138,16 @@ export function FilterRail({
                     aria-pressed={selected}
                     className={`flex w-full items-center justify-between rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-sm transition-colors ${
                       selected
-                        ? 'bg-[var(--color-page)] text-[var(--color-ink)]'
-                        : 'text-[var(--color-ink-2)] hover:bg-[var(--color-page)]'
+                        ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-paper)]'
+                        : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
                     }`}
                   >
                     <span className="truncate">{subCategoryLabel(sc.key, locale)}</span>
-                    <span className="font-mono text-xs tabular-nums text-[var(--color-ink-3)]">
+                    <span
+                      className={`font-mono text-xs tabular-nums ${
+                        selected ? 'text-[var(--color-paper)]/90' : 'text-[var(--color-ink-3)]'
+                      }`}
+                    >
                       {sc.count}
                     </span>
                   </button>

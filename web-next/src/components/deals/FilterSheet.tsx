@@ -2,7 +2,7 @@
 
 import { Filter, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
@@ -37,6 +37,7 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
 
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<DealsFilters>(filters)
+  const [, startTransition] = useTransition()
 
   // Reset draft to the latest committed filters every time the sheet opens.
   function onOpenChange(next: boolean) {
@@ -89,7 +90,11 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
 
   function commit() {
     const qs = serializeFilters(draft)
-    router.replace(`${pathname}${qs}` as never, { scroll: false })
+    // Same reasoning as FilterRail: yield to keep the close animation smooth
+    // and let the new RSC payload stream in without blocking the UI thread.
+    startTransition(() => {
+      router.replace(`${pathname}${qs}` as never, { scroll: false })
+    })
     setOpen(false)
   }
 

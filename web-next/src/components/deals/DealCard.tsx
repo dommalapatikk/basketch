@@ -64,7 +64,7 @@ function Primary({
             width={192}
             height={192}
             sizes="(min-width: 768px) 192px, (min-width: 640px) 176px, 120px"
-            className="h-full w-full object-contain p-2"
+            className="h-full w-full object-contain p-1"
           />
         ) : null}
       </div>
@@ -144,7 +144,7 @@ function Compact({
             width={40}
             height={40}
             sizes="40px"
-            className="h-full w-full object-contain p-1"
+            className="h-full w-full object-contain p-0.5"
           />
         ) : null}
       </div>
