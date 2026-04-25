@@ -36,6 +36,12 @@ export default defineConfig({
         // iPhone 13 device preset is 390x844 — set explicitly so the spec is
         // self-documenting and survives any future Playwright preset drift.
         viewport: { width: 390, height: 844 },
+        // iPhone 13 preset bundles defaultBrowserType:'webkit'. Override to
+        // chromium so CI doesn't need to install a second browser engine
+        // (CI only installs chromium per .github/workflows/ci.yml).
+        // The viewport + userAgent + touch flags are what we actually test
+        // against; the underlying engine doesn't change layout assertions.
+        defaultBrowserType: 'chromium',
       },
     },
   ],
