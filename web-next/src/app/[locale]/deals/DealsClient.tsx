@@ -275,8 +275,13 @@ function SubCategorySection({
     <section aria-labelledby={headingId} className="scroll-mt-24">
       {/* Patch G fix (Claude Cowork issue 2a): bg-page is now opaque — the
           previous /85 alpha let card text bleed through the sticky pill on
-          mobile, making both unreadable as the user scrolled past sections. */}
-      <header className="sticky top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)] px-2 py-2">
+          mobile, making both unreadable as the user scrolled past sections.
+          Patch G follow-up: sticky behaviour is desktop-only. On mobile the
+          virtualizer's absolutely-positioned row + sticky child interaction
+          parked the header BELOW the section content (visible in user
+          screenshot 2026-04-26). On mobile the header now scrolls with the
+          section and reads as a normal label above each card group. */}
+      <header className="lg:sticky lg:top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)] px-2 py-2">
         <IconHeading
           id={headingId}
           subCategory={subCategoryKey}
