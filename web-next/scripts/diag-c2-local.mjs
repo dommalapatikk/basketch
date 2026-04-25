@@ -1,11 +1,12 @@
 // Diagnostic for Patch C2 — measures what actually happens on a sub-cat click
-// against a local prod build (mirror of diag-c2-live.mjs which targets basketch.vercel.app).
+// against the LIVE production site basketch.vercel.app.
 // Outputs: click→URL latency, RSC network calls, payload bytes, main-thread tasks.
 
 import { chromium, devices } from 'playwright'
 
-const TARGET = 'http://localhost:3000/en/deals?type=household'
-const SUB_CAT_LABEL = /Cleaning/i
+const TARGET = 'http://localhost:3000/en/deals?type=fresh'
+// Accept any fresh sub-cat that exists this week (data shifts on Mon/Tue/Thu).
+const SUB_CAT_LABEL = /Dairy|Meat|Fish|Vegetables|Fruit|Poultry|Deli|Bread|Eggs/i
 const VIEWPORTS = [
   { name: 'desktop', preset: { viewport: { width: 1440, height: 900 } } },
   { name: 'mobile', preset: devices['iPhone 13'] },
@@ -58,15 +59,40 @@ async function runOne({ name, preset }) {
 
   // Find the sub-cat button. On desktop it's in FilterRail (single tap commits).
   // On mobile it's in FilterSheet — tap chip sets draft, then "Show n deals" commits.
+  // Helper: find a sub-cat button by name, or fall back to the first one inside
+  // the sub-category list. Logs which name it ended up clicking so the test
+  // remains reproducible across pipeline data shifts.
+  async function pickSubCat(scope) {
+    const named = scope.getByRole('button', { name: SUB_CAT_LABEL }).first()
+    if (await named.count()) {
+      const txt = (await named.innerText()).split('\n')[0].trim()
+      console.log(`  → matched named sub-cat: "${txt}"`)
+      return named
+    }
+    // Fallback: any button inside a sub-category list (after type chips, before stores).
+    const all = scope.locator('button[aria-pressed]')
+    const total = await all.count()
+    for (let i = 0; i < total; i++) {
+      const b = all.nth(i)
+      const t = (await b.innerText()).trim()
+      // skip type filters (single word category names) and stores
+      if (/^(All|Fresh|Long-life|Household)$/i.test(t.split('\n')[0])) continue
+      if (/^(Migros|Coop|LIDL|ALDI|Denner|SPAR|Volg)/i.test(t)) continue
+      console.log(`  → fallback sub-cat: "${t.split('\n')[0]}"`)
+      return b
+    }
+    return null
+  }
+
   let clickStart
   if (name === 'desktop') {
-    const subCat = page.getByRole('button', { name: SUB_CAT_LABEL }).first()
-    if (!(await subCat.count())) {
-      console.log(`  ⚠️  Sub-cat button not found.`)
+    const subCat = await pickSubCat(page)
+    if (!subCat) {
+      console.log(`  ⚠️  No sub-cat button found at all.`)
       await browser.close()
       return null
     }
-    console.log(`Clicking "${SUB_CAT_LABEL}" sub-cat (desktop, single tap commits)...`)
+    console.log(`Clicking sub-cat (desktop, single tap commits)...`)
     clickStart = Date.now()
     await subCat.click()
   } else {
@@ -75,9 +101,9 @@ async function runOne({ name, preset }) {
       await filterBtn.click()
       await page.waitForTimeout(800)
     }
-    const chip = page.getByRole('button', { name: SUB_CAT_LABEL }).first()
-    if (!(await chip.count())) {
-      console.log(`  ⚠️  Sub-cat chip not found in sheet.`)
+    const chip = await pickSubCat(page)
+    if (!chip) {
+      console.log(`  ⚠️  No sub-cat chip found in sheet.`)
       await browser.close()
       return null
     }
