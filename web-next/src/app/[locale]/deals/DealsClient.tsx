@@ -273,15 +273,13 @@ function SubCategorySection({
   const headingId = `sec-${slug(title)}`
   return (
     <section aria-labelledby={headingId} className="scroll-mt-24">
-      {/* Patch G fix (Claude Cowork issue 2a): bg-page is now opaque — the
-          previous /85 alpha let card text bleed through the sticky pill on
-          mobile, making both unreadable as the user scrolled past sections.
-          Patch G follow-up: sticky behaviour is desktop-only. On mobile the
-          virtualizer's absolutely-positioned row + sticky child interaction
-          parked the header BELOW the section content (visible in user
-          screenshot 2026-04-26). On mobile the header now scrolls with the
-          section and reads as a normal label above each card group. */}
-      <header className="lg:sticky lg:top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)] px-2 py-2">
+      {/* Sticky removed entirely — Patch G stage 2's virtualizer puts each
+          section inside an absolutely-positioned + transform-translated row,
+          which gives `position: sticky` a different containing block than the
+          document scroll. The header drifted below its section content on
+          BOTH mobile and desktop (user-reproduced 2026-04-26). Plain block
+          header, always above its cards, no sticky games. */}
+      <header className="-mx-2 mb-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)] px-2 py-2">
         <IconHeading
           id={headingId}
           subCategory={subCategoryKey}
