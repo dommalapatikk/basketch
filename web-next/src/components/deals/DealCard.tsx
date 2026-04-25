@@ -56,7 +56,12 @@ function Primary({
   return (
     <article
       aria-labelledby={titleId}
-      className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-3 transition-colors hover:border-[var(--color-line-strong)] sm:grid-cols-[176px_minmax(0,1fr)] sm:gap-5 sm:p-4 md:grid-cols-[192px_minmax(0,1fr)] md:gap-6 md:p-5"
+      // Patch G fix: content-visibility:auto lets the browser skip layout +
+      // paint for cards that are off-screen. contain-intrinsic-size reserves
+      // an accurate placeholder height (matches the rendered card at md) so
+      // scrolling doesn't cause CLS. ~140 cards in DOM but only ~6-8 paint
+      // at any time. W3C standard, no JS dependency.
+      className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-3 transition-colors hover:border-[var(--color-line-strong)] sm:grid-cols-[176px_minmax(0,1fr)] sm:gap-5 sm:p-4 md:grid-cols-[192px_minmax(0,1fr)] md:gap-6 md:p-5 [content-visibility:auto] [contain-intrinsic-size:0_240px]"
     >
       <div className="aspect-square w-full overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-page)]">
         {imageUrl ? (
@@ -137,7 +142,10 @@ function Compact({
       // beneath the name instead of competing for horizontal room at 280 px.
       // md+ keeps the original 4-col 1-row layout via md:contents on the
       // price+button wrapper, so no DOM duplication.
-      className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_1fr] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] md:grid-cols-[40px_minmax(0,1fr)_auto_auto] md:grid-rows-1 md:gap-y-0 lg:w-auto lg:shrink lg:snap-none"
+      // Patch G: content-visibility:auto skips layout/paint when off-screen
+      // (snap-rail extends off-canvas to the right; this short-circuits
+      // those reels until the user scrolls into them).
+      className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_1fr] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] md:grid-cols-[40px_minmax(0,1fr)_auto_auto] md:grid-rows-1 md:gap-y-0 lg:w-auto lg:shrink lg:snap-none [content-visibility:auto] [contain-intrinsic-size:280px_80px] lg:[contain-intrinsic-size:0_60px]"
     >
       <div className="row-span-2 h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)] md:row-span-1">
         {imageUrl ? (

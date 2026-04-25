@@ -12,6 +12,14 @@ export type DealsFilters = {
 
 const TYPE_VALUES = new Set<DealsFilters['type']>(['all', 'fresh', 'longlife', 'household'])
 
+// Accept hyphenated URL variants (?type=long-life) by mapping them to the
+// canonical value. Without this, links from the auditor + future Patch E
+// (which uses the hyphenated form) silently fall back to ?type=all and
+// serve the entire snapshot — a real perf bug we hit during Patch G review.
+const TYPE_ALIASES: Record<string, DealsFilters['type']> = {
+  'long-life': 'longlife',
+}
+
 export const DEFAULT_FILTERS: DealsFilters = {
   type: 'all',
   category: null,
@@ -27,8 +35,9 @@ export function parseFilters(
 ): DealsFilters {
   if (!raw) return DEFAULT_FILTERS
   const typeRaw = first(raw.type)
-  const type = TYPE_VALUES.has(typeRaw as DealsFilters['type'])
-    ? (typeRaw as DealsFilters['type'])
+  const typeAliased = (typeRaw && TYPE_ALIASES[typeRaw]) || typeRaw
+  const type = TYPE_VALUES.has(typeAliased as DealsFilters['type'])
+    ? (typeAliased as DealsFilters['type'])
     : 'all'
 
   const storesRaw = first(raw.stores)
