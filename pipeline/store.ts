@@ -3,10 +3,10 @@
 
 import 'dotenv/config'
 
-import { createClient } from '@supabase/supabase-js'
-
 import type { Deal } from '../shared/types'
 import { dealToRow } from '../shared/types'
+
+import { supabase } from './supabase-client'
 
 const BATCH_SIZE = 100
 
@@ -49,11 +49,6 @@ export function normalizeProductName(name: string): string {
   }
   return result.trim()
 }
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 /**
  * Upserts deals to Supabase in batches of 100.

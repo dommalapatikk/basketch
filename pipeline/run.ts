@@ -11,8 +11,15 @@ import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
 import { categorizeDeal } from './categorize'
 import { filterGrocery } from './grocery-filter'
 import { extractProductMetadata } from './product-metadata'
+import {
+  collectUnknownTags,
+  loadAliases,
+  reportUnknownTags,
+  resolveTaxonomy,
+} from './resolve-taxonomy'
 import { storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
+import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
 
 /**
@@ -165,10 +172,27 @@ async function main(): Promise<void> {
     `[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with confidence < ${MIN_TAXONOMY_CONFIDENCE})`,
   )
 
+  // Step 3b: Patch F — attach categorySlug from the alias map and log
+  // any source tags we don't know about. resolveTaxonomy is pure; the
+  // alias map is loaded once per run from taxonomy_alias.
+  const aliases = await loadAliases(supabase)
+  const resolved = categorized.map((d) => resolveTaxonomy(d, aliases))
+  const unknowns = collectUnknownTags(categorized, aliases)
+  if (unknowns.length > 0) {
+    console.warn(
+      `[pipeline] [WARN] ${unknowns.length} unmapped sub_category tag(s): ${unknowns.map((u) => u.source_tag).join(', ')}`,
+    )
+    await reportUnknownTags(supabase, unknowns)
+  }
+  const mappedCount = resolved.filter((d) => d.categorySlug != null).length
+  console.log(
+    `[pipeline] [INFO] Taxonomy alias: ${mappedCount}/${resolved.length} deals got a category_slug`,
+  )
+
   // Resolve products per store dynamically
   const storeNames = Array.from(storeStatusMap.keys())
   const resolvedMaps = await Promise.all(
-    storeNames.map((store) => resolveProducts(categorized.filter((d) => d.store === store), store)),
+    storeNames.map((store) => resolveProducts(resolved.filter((d) => d.store === store), store)),
   )
 
   // Merge product ID maps (store|source_name -> product_id)
@@ -184,8 +208,8 @@ async function main(): Promise<void> {
 
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
 
-  // Store deals with product_id references
-  const storedCount = await storeDeals(categorized, productIds)
+  // Store deals (now with categorySlug attached) + product_id references
+  const storedCount = await storeDeals(resolved, productIds)
 
   // Sync-purge: any previously-active row for a successfully-refreshed store
   // that wasn't touched in this run is stale and should be deactivated.
@@ -196,8 +220,8 @@ async function main(): Promise<void> {
   await deactivateStaleForStores(successfulStores, startDate)
 
   // Check for significant storage loss (more than 10% of deals failed to store)
-  const storageShortfall = categorized.length - storedCount
-  const storagePartialFailure = storedCount < categorized.length
+  const storageShortfall = resolved.length - storedCount
+  const storagePartialFailure = storedCount < resolved.length
   if (storagePartialFailure) {
     console.error(
       `[pipeline] [ERROR] Storage shortfall: stored ${storedCount} of ${categorized.length} deals (${storageShortfall} failed)`,
@@ -219,7 +243,7 @@ async function main(): Promise<void> {
     errors.push(`Sources failed: ${failedStores.join(', ')}`)
   }
   if (storagePartialFailure) {
-    errors.push(`Storage: stored ${storedCount}/${categorized.length} (${storageShortfall} failed)`)
+    errors.push(`Storage: stored ${storedCount}/${resolved.length} (${storageShortfall} failed)`)
   }
 
   // Build store_results for logPipelineRun
@@ -237,10 +261,10 @@ async function main(): Promise<void> {
     error_log: errors.length > 0 ? errors.join('; ') : null,
   })
 
-  // Fail if stored deals fall below 80% of categorized (significant data loss)
-  const storageRatio = categorized.length > 0 ? storedCount / categorized.length : 1
+  // Fail if stored deals fall below 80% of resolved (significant data loss)
+  const storageRatio = resolved.length > 0 ? storedCount / resolved.length : 1
   const STORAGE_THRESHOLD = 0.8
-  if (categorized.length > 0 && storageRatio < STORAGE_THRESHOLD) {
+  if (resolved.length > 0 && storageRatio < STORAGE_THRESHOLD) {
     console.error(
       `[pipeline] [ERROR] Storage ratio ${(storageRatio * 100).toFixed(1)}% is below ${STORAGE_THRESHOLD * 100}% threshold — failing pipeline`,
     )

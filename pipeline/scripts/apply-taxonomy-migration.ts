@@ -54,7 +54,7 @@ async function main() {
   const res = await fetch(`${url}/rest/v1/rpc/exec_sql`, {
     method: 'POST',
     headers: {
-      apikey: key,
+      apikey: key as string,
       Authorization: `Bearer ${key}`,
       'Content-Type': 'application/json',
     },

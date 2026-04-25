@@ -330,6 +330,11 @@ export interface Deal extends UnifiedDeal {
   category: Category
   subCategory?: string | null
 
+  // Patch F (4-level taxonomy): mid-level Category slug from taxonomy_alias.
+  // Populated by pipeline/resolve-taxonomy.ts AFTER categorize.ts; null when
+  // the categoriser's subCategory has no alias mapping (will be backfilled).
+  categorySlug?: string | null
+
   // v4 format dimensions — undefined when not derivable
   format?: Format
   container?: Container
@@ -361,6 +366,9 @@ export interface DealRow {
   product_name: string
   category: Category
   sub_category: string | null
+  // Patch F: mid-level Category slug. Nullable until backfill completes;
+  // FK to taxonomy_category(slug) enforced by the database.
+  category_slug: string | null
   original_price: number | null
   sale_price: number
   discount_percent: number      // NOT NULL — pipeline calculates from prices if source omits
@@ -733,6 +741,7 @@ export function dealToRow(
     product_name: deal.productName,
     category: deal.category,
     sub_category: deal.subCategory ?? null,
+    category_slug: deal.categorySlug ?? null,
     original_price: deal.originalPrice,
     sale_price: deal.salePrice,
     discount_percent: deal.discountPercent ?? 0,
