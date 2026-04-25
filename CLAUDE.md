@@ -1,7 +1,8 @@
 # basketch -- Project Instructions for Claude Code
 
 Swiss grocery deal comparison: Migros vs Coop weekly promotions, side by side, with a verdict.
-Built with React + Vite (frontend), TypeScript + Python (pipeline), Supabase (database), Vercel (hosting).
+Built with Next.js 16 (frontend, in `web-next/`), TypeScript + Python (pipeline), Supabase (database), Vercel (hosting).
+The legacy React + Vite frontend has been archived to `archive/web-vite/` — see `archive/web-vite/RETIRED.md`. Do not modify.
 
 ## Folder Structure (Flat -- No npm Workspaces)
 
@@ -15,12 +16,14 @@ basketch/
 │   ├── categorize.ts      # Category + sub-category assignment
 │   ├── store.ts           # Supabase upsert logic
 │   └── run.ts             # Pipeline entry point
-├── web/                   # React frontend. Own package.json.
-│   ├── middleware.ts      # Vercel Middleware (OG tags for crawlers)
+├── web-next/              # Next.js 16 frontend (LIVE at basketch-redesign.vercel.app). Own package.json.
 │   └── src/
-│       ├── lib/           # supabase.ts, queries.ts, use-cached-query.ts, verdict.ts, og-tags.ts
-│       ├── components/    # VerdictBanner, VerdictCard, DealCard, CategorySection, ShareButton, etc.
-│       └── pages/         # Home, Deals, Onboarding, Compare, About, NotFound
+│       ├── app/           # App Router pages, layouts, route handlers
+│       ├── components/    # DealCard, FilterRail, FilterSheet, BottomBar, IconHeading, etc.
+│       ├── lib/           # filters.ts, types.ts, store-tokens.ts, sub-category-labels.ts
+│       └── server/        # data/snapshot.ts (use cache), data/filter-deals.ts, verdict/algorithm.ts
+├── archive/
+│   └── web-vite/          # RETIRED legacy Vite frontend — do not modify (see RETIRED.md)
 ├── shared/                # Shared types -- NO package.json, imported via tsconfig paths
 │   ├── types.ts           # All types + BROWSE_CATEGORIES constant
 │   └── category-rules.ts # Category + sub-category keyword rules
