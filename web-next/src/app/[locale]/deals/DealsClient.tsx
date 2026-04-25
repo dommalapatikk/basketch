@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
 import { usePathname } from '@/i18n/navigation'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
@@ -39,6 +40,11 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   const pathname = usePathname()
   const [filters, setFilters] = useState<DealsFilters>(initialFilters)
   const [, startTransition] = useTransition()
+  // Patch G stage 2: virtualize the sections list against the window scroll
+  // so only the sections in (and near) the viewport actually render. Section
+  // headers stay sticky because the document is still the scroll root —
+  // we're not introducing an inner overflow container.
+  const sectionsRef = useRef<HTMLDivElement>(null)
 
   // window.history.replaceState updates the URL without triggering Next's
   // server re-render (router.replace would do that). Combined with local
@@ -84,6 +90,18 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   const noStores = filters.stores.length === 0
   const noResults = !noStores && filtered.length === 0
 
+  // Window-anchored virtualizer for the section list. estimateSize is a
+  // first-pass guess; measureElement on each row corrects it on mount, so
+  // dynamic heights (German labels wrap, primary card has perUnit etc.) are
+  // honoured without CLS once the page has settled. overscan keeps the next
+  // 2 sections rendered ahead of the viewport so scroll feels seamless.
+  const sectionVirtualizer = useWindowVirtualizer({
+    count: sections.length,
+    estimateSize: () => 520,
+    overscan: 2,
+    scrollMargin: sectionsRef.current?.offsetTop ?? 0,
+  })
+
   return (
     <>
       <header className="mb-8 flex flex-wrap items-baseline justify-between gap-3">
@@ -117,23 +135,57 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
         <div className="min-w-0 flex-1">
           <DealsSearch filters={filters} onChange={apply} />
 
-          <div className="mt-8 flex flex-col gap-12">
-            {noStores ? <NoStoresState message={t('no_stores_selected')} /> : null}
-            {noResults ? <NoResultsState message={t('no_deals_for_filters')} /> : null}
+          {noStores ? (
+            <div className="mt-8">
+              <NoStoresState message={t('no_stores_selected')} />
+            </div>
+          ) : null}
+          {noResults ? (
+            <div className="mt-8">
+              <NoResultsState message={t('no_deals_for_filters')} />
+            </div>
+          ) : null}
 
-            {sections.map((s) => (
-              <SubCategorySection
-                key={s.subCategory}
-                subCategoryKey={s.subCategory}
-                title={subCategoryLabel(s.subCategory, locale)}
-                primary={s.primary}
-                others={s.others}
-                cheapestLabel={t('cheapest')}
-                othersLabel={t('section_others')}
-                locale={locale}
-              />
-            ))}
-          </div>
+          {sections.length > 0 ? (
+            <div
+              ref={sectionsRef}
+              className="mt-8"
+              style={{
+                height: `${sectionVirtualizer.getTotalSize()}px`,
+                position: 'relative',
+                width: '100%',
+              }}
+            >
+              {sectionVirtualizer.getVirtualItems().map((vRow) => {
+                const s = sections[vRow.index]
+                return (
+                  <div
+                    key={s.subCategory}
+                    ref={sectionVirtualizer.measureElement}
+                    data-index={vRow.index}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${vRow.start - sectionVirtualizer.options.scrollMargin}px)`,
+                      paddingBottom: '48px',
+                    }}
+                  >
+                    <SubCategorySection
+                      subCategoryKey={s.subCategory}
+                      title={subCategoryLabel(s.subCategory, locale)}
+                      primary={s.primary}
+                      others={s.others}
+                      cheapestLabel={t('cheapest')}
+                      othersLabel={t('section_others')}
+                      locale={locale}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
 
