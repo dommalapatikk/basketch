@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import { memo } from 'react'
 
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
 import type { DealCategory } from '@/lib/types'
@@ -33,9 +34,17 @@ export type DealCardProps = CommonProps & { variant: DealCardVariant }
 // v2.1 HR1: store color appears ONLY inside the 6 px dot of the store pill.
 // No rail, no left border, no top stripe. v2.1 HR4/HR8: strict CSS grid with
 // minmax(0, 1fr) on text columns prevents the price/title overlap (B5).
-export function DealCard(props: DealCardProps) {
+// Patch G stage 3: memoised so unchanged cards skip re-render on filter
+// changes (huge win when going Fresh → All — 1.2k cards otherwise reconcile).
+function DealCardImpl(props: DealCardProps) {
   return props.variant === 'primary' ? <Primary {...props} /> : <Compact {...props} />
 }
+
+export const DealCard = memo(DealCardImpl, (a, b) => {
+  // Card identity = id. All other props are derived from the deal record so
+  // if id matches AND variant matches, we can safely skip re-render.
+  return a.id === b.id && a.variant === b.variant && a.isCheapest === b.isCheapest
+})
 
 function Primary({
   id,

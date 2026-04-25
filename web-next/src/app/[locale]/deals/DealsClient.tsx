@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, useTransition } from 'react'
+import { useDeferredValue, useMemo, useRef, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
@@ -60,12 +60,20 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     }
   }
 
+  // Patch G stage 3: useDeferredValue on the filter set lets React paint the
+  // filter UI (chip highlight, count) immediately while deferring the heavy
+  // sections re-render to a transition. Without this, going Fresh → All
+  // blocks the input thread for ~1 s on desktop while React reconciles ~1.2k
+  // cards. Filter UI computes against `filters` (instant); the snapshot pipeline
+  // computes against `deferredFilters` (allowed to fall behind).
+  const deferredFilters = useDeferredValue(filters)
+
   // Pure derivations from snapshot + filters. ~1.4k rows × 4 filter dims is
   // sub-millisecond on every device we care about, so memoization is for
   // referential stability of the props handed down, not raw perf.
   const filtered = useMemo(
-    () => filterDeals(snapshot.deals, filters),
-    [snapshot.deals, filters],
+    () => filterDeals(snapshot.deals, deferredFilters),
+    [snapshot.deals, deferredFilters],
   )
   const counts = useMemo(
     () => storeCounts(snapshot.deals, filters),
@@ -240,7 +248,10 @@ function SubCategorySection({
   const headingId = `sec-${slug(title)}`
   return (
     <section aria-labelledby={headingId} className="scroll-mt-24">
-      <header className="sticky top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)]/85 px-2 py-2 backdrop-blur">
+      {/* Patch G fix (Claude Cowork issue 2a): bg-page is now opaque — the
+          previous /85 alpha let card text bleed through the sticky pill on
+          mobile, making both unreadable as the user scrolled past sections. */}
+      <header className="sticky top-[72px] z-20 -mx-2 flex items-end justify-between gap-3 rounded-[var(--radius-sm)] bg-[var(--color-page)] px-2 py-2">
         <IconHeading
           id={headingId}
           subCategory={subCategoryKey}
