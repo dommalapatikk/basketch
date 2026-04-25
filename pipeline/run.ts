@@ -248,6 +248,38 @@ async function main(): Promise<void> {
   }
 
   console.log(`[pipeline] [INFO] Pipeline complete in ${durationMs}ms — stored ${storedCount} deals`)
+
+  // Bust the web-next snapshot cache so fresh data shows up immediately
+  // instead of waiting for the cacheLife('hours') safety belt to expire.
+  // No-op if either env var is missing — local runs and the legacy `web/`
+  // app don't depend on this.
+  await pingRevalidateWebhook()
+}
+
+async function pingRevalidateWebhook(): Promise<void> {
+  const url = process.env.WEB_REVALIDATE_URL
+  const secret = process.env.WEB_REVALIDATE_SECRET
+  if (!url || !secret) {
+    console.log('[pipeline] [INFO] revalidate webhook skipped — env vars not set')
+    return
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tag: 'deals' }),
+    })
+    if (!res.ok) {
+      console.error(`[pipeline] [WARN] revalidate webhook ${res.status} ${res.statusText}`)
+      return
+    }
+    console.log('[pipeline] [INFO] revalidate webhook ok')
+  } catch (err) {
+    console.error('[pipeline] [WARN] revalidate webhook failed:', err)
+  }
 }
 
 // Exit 0 on partial success (one source), exit 1 on unexpected crash
