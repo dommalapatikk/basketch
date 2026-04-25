@@ -1,0 +1,15 @@
+{
+  "nav": {
+    "deals": "Promozioni",
+    "about": "Chi siamo"
+  },
+  "home": {
+    "kicker": "Questa settimana",
+    "placeholder": "basketch è in fase di ricostruzione.",
+    "subline": "Le promozioni dei supermercati svizzeri, fianco a fianco. Presto online."
+  },
+  "footer": {
+    "disclaimer": "Non affiliato a nessun supermercato",
+    "source": "Dati da aktionis.ch"
+  }
+}

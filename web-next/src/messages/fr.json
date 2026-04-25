@@ -1,0 +1,15 @@
+{
+  "nav": {
+    "deals": "Promotions",
+    "about": "À propos"
+  },
+  "home": {
+    "kicker": "Cette semaine",
+    "placeholder": "basketch est en cours de refonte.",
+    "subline": "Les promotions des supermarchés suisses, côte à côte. Bientôt en ligne."
+  },
+  "footer": {
+    "disclaimer": "Non affilié à un supermarché",
+    "source": "Données de aktionis.ch"
+  }
+}

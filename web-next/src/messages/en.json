@@ -1,0 +1,93 @@
+{
+  "nav": {
+    "deals": "Deals",
+    "about": "About basketch",
+    "skip_to_content": "Skip to content"
+  },
+  "home": {
+    "kicker": "This week",
+    "updated_prefix": "updated",
+    "verdict_winner": "{store} wins {category}.",
+    "verdict_tied": "{category} is tied.",
+    "verdict_single_store": "Only one store offering {category} this week.",
+    "verdict_no_data": "No data for {category}.",
+    "stat": "Based on {deals} deals across {stores} Swiss stores.",
+    "cta_browse": "Browse all deals",
+    "cta_share": "Share this week's verdict",
+    "stale_banner": "Showing data from {date} — this week's update is delayed."
+  },
+  "category_card": {
+    "avg_off": "avg {pct}% off · {count} deals",
+    "tied": "Tied",
+    "single_store": "Only store",
+    "no_data": "No data"
+  },
+  "methodology": {
+    "title": "How it works",
+    "step1_t": "Weekly discounts",
+    "step1_d": "from aktionis.ch",
+    "step2_t": "Normalised prices",
+    "step2_d": "per L, kg, piece",
+    "step3_t": "Category winners",
+    "step3_d": "by avg % off"
+  },
+  "deals": {
+    "headline": "This week's deals",
+    "subline": "Updated {date} · {count} deals",
+    "search_placeholder": "Search deals…",
+    "section_others": "Other stores",
+    "no_deals_for_filters": "No deals match these filters. Try removing a filter.",
+    "no_stores_selected": "Select at least one store to see deals.",
+    "select_all_stores": "Select all",
+    "save_pct": "Save {pct}%",
+    "cheapest": "Cheapest",
+    "different_format": "Different format · per-unit shown where possible",
+    "show_n_deals": "{count, plural, one {Show # deal} other {Show # deals}}",
+    "clear": "Clear",
+    "my_list": "My list",
+    "share": "Share",
+    "add_to_list": "Add to list",
+    "remove_from_list": "Remove from list"
+  },
+  "filters": {
+    "title": "Filters",
+    "type_legend": "Type",
+    "type_all": "All",
+    "category": "Sub-category",
+    "category_all": "All sub-categories",
+    "stores": "Stores",
+    "reset": "Reset ({count})"
+  },
+  "list": {
+    "title": "My list",
+    "description": "Your saved deals",
+    "done": "Done",
+    "remove": "Remove",
+    "item_one": "item",
+    "item_other": "items",
+    "where_to_buy": "Where to buy",
+    "split_summary": "Your {items} items split best across {stores} stores:",
+    "estimated_total": "Estimated total",
+    "share_whatsapp": "Share on WhatsApp",
+    "copy_link": "Copy link",
+    "copied": "Copied",
+    "email": "Email",
+    "clear": "Clear list",
+    "empty_title": "Your list is empty",
+    "empty_body": "Add items from the Deals page and share them with a shopping buddy.",
+    "browse_deals": "Browse deals"
+  },
+  "errors": {
+    "not_found_title": "Page not found",
+    "not_found_body": "That page doesn't exist (or doesn't any more). Head back to this week's deals.",
+    "back_to_home": "Back to home",
+    "browse_deals": "Browse deals",
+    "server_error_title": "Something went wrong",
+    "server_error_body": "We've logged the error. Try again in a moment.",
+    "try_again": "Try again"
+  },
+  "footer": {
+    "disclaimer": "Not affiliated with any store",
+    "source": "Data from aktionis.ch"
+  }
+}

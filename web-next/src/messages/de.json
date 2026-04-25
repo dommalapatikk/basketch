@@ -1,0 +1,93 @@
+{
+  "nav": {
+    "deals": "Aktionen",
+    "about": "Über basketch",
+    "skip_to_content": "Zum Inhalt springen"
+  },
+  "home": {
+    "kicker": "Diese Woche",
+    "updated_prefix": "aktualisiert",
+    "verdict_winner": "{store} gewinnt {category}.",
+    "verdict_tied": "{category} ist unentschieden.",
+    "verdict_single_store": "Nur ein Anbieter für {category} diese Woche.",
+    "verdict_no_data": "Keine Daten für {category}.",
+    "stat": "Basierend auf {deals} Aktionen aus {stores} Schweizer Läden.",
+    "cta_browse": "Alle Aktionen ansehen",
+    "cta_share": "Wochenfazit teilen",
+    "stale_banner": "Letzte Daten vom {date} – das aktuelle Update verzögert sich."
+  },
+  "category_card": {
+    "avg_off": "ø {pct}% Rabatt · {count} Aktionen",
+    "tied": "Unentschieden",
+    "single_store": "Nur Anbieter",
+    "no_data": "Keine Daten"
+  },
+  "methodology": {
+    "title": "So funktioniert es",
+    "step1_t": "Wöchentliche Aktionen",
+    "step1_d": "von aktionis.ch",
+    "step2_t": "Normalisierte Preise",
+    "step2_d": "pro Liter, Kilo, Stück",
+    "step3_t": "Kategoriegewinner",
+    "step3_d": "nach Ø Rabatt"
+  },
+  "deals": {
+    "headline": "Aktionen dieser Woche",
+    "subline": "Aktualisiert {date} · {count} Aktionen",
+    "search_placeholder": "Aktionen durchsuchen…",
+    "section_others": "Andere Anbieter",
+    "no_deals_for_filters": "Keine Aktionen passen zu diesen Filtern. Versuche, einen Filter zu entfernen.",
+    "no_stores_selected": "Wähle mindestens einen Anbieter aus, um Aktionen zu sehen.",
+    "select_all_stores": "Alle auswählen",
+    "save_pct": "Spare {pct}%",
+    "cheapest": "Günstigste",
+    "different_format": "Anderes Format · pro Einheit angegeben",
+    "show_n_deals": "{count, plural, one {# Aktion anzeigen} other {# Aktionen anzeigen}}",
+    "clear": "Zurücksetzen",
+    "my_list": "Meine Liste",
+    "share": "Teilen",
+    "add_to_list": "Zur Liste hinzufügen",
+    "remove_from_list": "Aus Liste entfernen"
+  },
+  "filters": {
+    "title": "Filter",
+    "type_legend": "Sortiment",
+    "type_all": "Alle",
+    "category": "Unterkategorie",
+    "category_all": "Alle Unterkategorien",
+    "stores": "Anbieter",
+    "reset": "Zurücksetzen ({count})"
+  },
+  "list": {
+    "title": "Meine Liste",
+    "description": "Deine gespeicherten Aktionen",
+    "done": "Fertig",
+    "remove": "Entfernen",
+    "item_one": "Artikel",
+    "item_other": "Artikel",
+    "where_to_buy": "Wo einkaufen",
+    "split_summary": "Deine {items} Artikel verteilen sich am besten auf {stores} Läden:",
+    "estimated_total": "Geschätzte Summe",
+    "share_whatsapp": "Auf WhatsApp teilen",
+    "copy_link": "Link kopieren",
+    "copied": "Kopiert",
+    "email": "E-Mail",
+    "clear": "Liste leeren",
+    "empty_title": "Deine Liste ist leer",
+    "empty_body": "Füge Artikel von der Aktionen-Seite hinzu und teile sie mit jemandem zum Einkaufen.",
+    "browse_deals": "Aktionen ansehen"
+  },
+  "errors": {
+    "not_found_title": "Seite nicht gefunden",
+    "not_found_body": "Diese Seite gibt es nicht (oder nicht mehr). Geh zurück zu den Aktionen dieser Woche.",
+    "back_to_home": "Zur Startseite",
+    "browse_deals": "Aktionen ansehen",
+    "server_error_title": "Da ist etwas schiefgegangen",
+    "server_error_body": "Wir haben den Fehler protokolliert. Versuche es in einem Moment erneut.",
+    "try_again": "Erneut versuchen"
+  },
+  "footer": {
+    "disclaimer": "Nicht mit einem Supermarkt verbunden",
+    "source": "Daten von aktionis.ch"
+  }
+}

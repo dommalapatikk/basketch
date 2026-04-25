@@ -1,0 +1,174 @@
+@import 'tailwindcss';
+
+/* basketch design tokens — see /Users/kiran/ClaudeCode/Documents for claude code to refer/basketch-redesign-spec.md §3 */
+
+:root {
+  /* Surfaces & ink (light) */
+  --color-paper: #ffffff;
+  --color-page: #f6f6f3;
+  --color-ink: #0b0b0f;
+  --color-ink-2: #1f1f25;
+  --color-ink-3: #6b6b75;
+  --color-line: #e7e6e1;
+  --color-line-strong: #d8d7d1;
+
+  /* Signal & status */
+  --color-signal: #2e4cde;
+  --color-signal-ink: #0f1f8f;
+  --color-positive: #0e7f59;
+  --color-warning: #8a5a00;
+  --color-danger: #b42318;
+  --color-focus: #94a5ff;
+
+  /* Store brand (data-only — dots, pills, 3px rails — never as backgrounds) */
+  --store-migros: #ff6600;
+  --store-migros-contrast: #ffffff;
+  --store-coop: #e30613;
+  --store-lidl: #ffd60a;
+  --store-lidl-contrast: #0e1e3a;
+  --store-aldi: #00509d;
+  --store-denner: #c30010;
+  --store-spar: #e31f24;
+  --store-volg: #c8102e;
+
+  /* Category accents */
+  --cat-fresh: #ea7a2b;
+  --cat-longlife: #b6361c;
+  --cat-household: #2e4cde;
+  --cat-other: #6b6b75;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* Shadows (near-zero, hairline) */
+  --shadow-xs: 0 1px 0 rgba(11, 11, 15, 0.04);
+  --shadow-sm: 0 2px 8px rgba(11, 11, 15, 0.05);
+  --shadow-md: 0 8px 24px rgba(11, 11, 15, 0.08);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-paper: #101014;
+    --color-page: #0b0b0e;
+    --color-ink: #f4f3ee;
+    --color-ink-2: #d3d1c7;
+    --color-ink-3: #8f8e87;
+    --color-line: #24242a;
+    --color-line-strong: #33333b;
+    --color-signal: #8ca0ff;
+    --color-signal-ink: #b1befd;
+    --color-positive: #4fc28a;
+    --color-warning: #e0b061;
+    --color-danger: #f08072;
+    --color-focus: #6e86ff;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-paper: #101014;
+  --color-page: #0b0b0e;
+  --color-ink: #f4f3ee;
+  --color-ink-2: #d3d1c7;
+  --color-ink-3: #8f8e87;
+  --color-line: #24242a;
+  --color-line-strong: #33333b;
+  --color-signal: #8ca0ff;
+  --color-signal-ink: #b1befd;
+  --color-positive: #4fc28a;
+  --color-warning: #e0b061;
+  --color-danger: #f08072;
+  --color-focus: #6e86ff;
+}
+
+/* Tailwind v4 @theme block — exposes tokens as Tailwind utilities */
+@theme inline {
+  --color-paper: var(--color-paper);
+  --color-page: var(--color-page);
+  --color-ink: var(--color-ink);
+  --color-ink-2: var(--color-ink-2);
+  --color-ink-3: var(--color-ink-3);
+  --color-line: var(--color-line);
+  --color-line-strong: var(--color-line-strong);
+  --color-signal: var(--color-signal);
+  --color-signal-ink: var(--color-signal-ink);
+  --color-positive: var(--color-positive);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-focus: var(--color-focus);
+
+  /* Literal font names — Tailwind v4 @theme inline can't resolve next/font runtime vars.
+     The next/font className on <html> registers the actual @font-face for these names. */
+  --font-sans: 'Inter', 'Inter Fallback', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-xs: 0 1px 0 rgba(11, 11, 15, 0.04);
+  --shadow-sm: 0 2px 8px rgba(11, 11, 15, 0.05);
+  --shadow-md: 0 8px 24px rgba(11, 11, 15, 0.08);
+}
+
+html,
+body {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'tnum', 'lnum';
+}
+
+/* Tabular numerals for any explicit mono usage */
+.font-mono {
+  font-feature-settings: 'tnum', 'lnum';
+}
+
+/* Focus ring — spec §3.7 */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* M7.4 — add-to-list affordance. Plays once on the Check icon when an item
+   transitions into the list. Suppressed automatically by the rule above. */
+@keyframes basketch-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.motion-pop {
+  animation: basketch-pop 320ms var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
