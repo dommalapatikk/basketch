@@ -43,8 +43,9 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   const [, startTransition] = useTransition()
   // Patch G stage 2: virtualize the sections list against the window scroll
   // so only the sections in (and near) the viewport actually render. Section
-  // headers stay sticky because the document is still the scroll root —
-  // we're not introducing an inner overflow container.
+  // headers are NOT sticky (removed 2026-04-26 — sticky inside an
+  // absolutely-positioned + transform-translated virtualizer row gets a
+  // different containing block and drifts to the section's bottom edge).
   const sectionsRef = useRef<HTMLDivElement>(null)
 
   // window.history.replaceState updates the URL without triggering Next's
