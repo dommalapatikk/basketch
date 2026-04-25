@@ -30,3 +30,6 @@ Thumbs.db
 *.log
 .vercel
 supabase/.temp/
+
+# Stray Vite cache from retired web/ folder (now archived)
+web/
