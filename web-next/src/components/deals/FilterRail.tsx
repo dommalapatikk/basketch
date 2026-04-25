@@ -14,7 +14,7 @@ import type { DealCategory } from '@/lib/types'
 type Props = {
   filters: DealsFilters
   onChange: (next: DealsFilters) => void
-  totalDealCount: number
+  typeCounts: Record<DealCategory | 'all', number>
   storeCounts: Record<StoreKey, number>
   categories: Array<{ key: string; count: number }>     // Patch F: mid-level Category list
   subCategories: Array<{ key: string; count: number }>
@@ -36,7 +36,7 @@ function humaniseSlug(slug: string): string {
 export function FilterRail({
   filters,
   onChange,
-  totalDealCount,
+  typeCounts,
   storeCounts,
   categories,
   subCategories,
@@ -111,11 +111,11 @@ export function FilterRail({
                   }`}
                 >
                   <span>{label}</span>
-                  {tp === 'all' ? (
-                    <span className="font-mono text-xs tabular-nums opacity-70">
-                      {totalDealCount}
-                    </span>
-                  ) : null}
+                  <span
+                    className={`font-mono text-xs tabular-nums ${selected ? 'text-[var(--color-paper)]/80' : 'opacity-70'}`}
+                  >
+                    {typeCounts[tp] ?? 0}
+                  </span>
                 </button>
               </li>
             )

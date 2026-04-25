@@ -80,6 +80,21 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     () => storeCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
   )
+  // Static per-Type totals for the rail counter — independent of category /
+  // sub / store filters so the user can see "Long-life has 1,004 deals"
+  // before clicking, without the chip re-counting against their narrowing.
+  const typeCountsByType = useMemo(() => {
+    const acc: Record<string, number> = {
+      all: snapshot.deals.length,
+      fresh: 0,
+      longlife: 0,
+      household: 0,
+    }
+    for (const d of snapshot.deals) {
+      acc[d.category] = (acc[d.category] ?? 0) + 1
+    }
+    return acc as Record<'all' | 'fresh' | 'longlife' | 'household', number>
+  }, [snapshot.deals])
   // Patch F: 4-level facets — categories (mid-level) + sub-cats. Both honour
   // the "list-includes-everything, only counts react" rule so chips dim to
   // zero rather than disappear when other filters narrow.
@@ -142,7 +157,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
           <FilterRail
             filters={filters}
             onChange={apply}
-            totalDealCount={snapshot.deals.length}
+            typeCounts={typeCountsByType}
             storeCounts={counts}
             categories={cats}
             subCategories={subCats}
