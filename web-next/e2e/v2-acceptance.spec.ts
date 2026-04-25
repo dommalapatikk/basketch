@@ -48,11 +48,7 @@ async function gotoStable(page: Page, url: string) {
 // ---------------------------------------------------------------------------
 // AC1 — No store-color rail anywhere on a DealCard.
 // ---------------------------------------------------------------------------
-// TODO(backlog): AC1 mobile started failing in 2 ms after Patch G's
-// content-visibility CSS — bounding boxes of off-screen children now return
-// 0×0, breaking the rail-detector loop. Need to wait for elements to scroll
-// into view before measuring. Skipped to silence CI noise.
-test.describe.skip('AC1 — no store-color rail on DealCard', () => {
+test.describe('AC1 — no store-color rail on DealCard', () => {
   for (const path of ['/de/deals?type=household', '/de/deals']) {
     test(`no store-colored thin element inside any article on ${path}`, async ({ page }) => {
       await gotoStable(page, path)
@@ -134,11 +130,7 @@ test.describe('AC3 — about pages exist per locale', () => {
 // ---------------------------------------------------------------------------
 // AC4 — Localized 404. /<locale>/<random> returns 404 in the right language.
 // ---------------------------------------------------------------------------
-// TODO(backlog): AC4 — /en/asdf currently returns DE copy on prod. Pre-existing
-// since v2.1; not caused by Patches C/D/G. Skipped to silence CI noise.
-// Fix needed: ensure next-intl routing applies the matched locale to the
-// catch-all not-found, not the default locale.
-test.describe.skip('AC4 — localized 404', () => {
+test.describe('AC4 — localized 404', () => {
   for (const locale of ['de', 'en'] as const) {
     test(`/${locale}/asdf returns 404 in ${locale}`, async ({ page }) => {
       const res = await page.goto(`/${locale}/asdf`, { waitUntil: 'networkidle' })
@@ -188,11 +180,7 @@ test.describe('AC5 — no overlap on mobile DealCard', () => {
 // ---------------------------------------------------------------------------
 // AC7 — At most one positive chip per card (the "Cheapest" tag).
 // ---------------------------------------------------------------------------
-// TODO(backlog): AC7 — counts >1 positive chip per card. Pre-existing since
-// v2.1; not caused by Patches C/D/G. Skipped to silence CI noise. Fix needs a
-// re-walk of PriceBlock + Tag to confirm the savings tag is now plain text
-// (per Patch 7 / B7) and isn't being double-counted.
-test.describe.skip('AC7 — one positive chip per card max', () => {
+test.describe('AC7 — one positive chip per card max', () => {
   test('each article has ≤1 positive-toned chip on /de/deals', async ({ page }) => {
     await gotoStable(page, '/de/deals')
     const articles = page.locator('main article')
@@ -217,10 +205,7 @@ test.describe.skip('AC7 — one positive chip per card max', () => {
 // ---------------------------------------------------------------------------
 // AC8 — Every section <h2> in main has an <svg> child icon.
 // ---------------------------------------------------------------------------
-// TODO(backlog): AC8 — at least one h2 in /de/deals lacks a child svg.
-// Pre-existing since v2.1; not caused by Patches C/D/G. Probably an h2 emitted
-// somewhere outside IconHeading. Skipped to silence CI noise.
-test.describe.skip('AC8 — section icons in headings', () => {
+test.describe('AC8 — section icons in headings', () => {
   test('every h2 in main on /de/deals has an svg', async ({ page }) => {
     await gotoStable(page, '/de/deals')
     const headings = page.locator('main h2')
@@ -252,10 +237,7 @@ test.describe('AC9 — page titles', () => {
 // ---------------------------------------------------------------------------
 // AC11 — axe-core: no serious or critical violations on key routes.
 // ---------------------------------------------------------------------------
-// TODO(backlog): AC11 — axe finds color-contrast violation on the .bg-positive-bg
-// "Cheapest" tag. Pre-existing since v2.1. Fix needs adjusting the
-// --color-positive-bg token or text contrast. Skipped to silence CI noise.
-test.describe.skip('AC11 — axe-core sweep', () => {
+test.describe('AC11 — axe-core sweep', () => {
   for (const path of ['/de', '/de/deals', '/de/about'] as const) {
     test(`no serious/critical a11y violations on ${path}`, async ({ page }) => {
       const res = await page.goto(path, { waitUntil: 'networkidle' })
