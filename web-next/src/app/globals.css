@@ -15,7 +15,9 @@
   /* Signal & status */
   --color-signal: #2e4cde;
   --color-signal-ink: #0f1f8f;
-  --color-positive: #0e7f59;
+  /* AC11 fix: light-mode positive token darkened so the "Cheapest" tag
+     (10 px text on positive-bg) clears WCAG AA 4.5:1 — was 3.88:1 at #0e7f59. */
+  --color-positive: #095a40;
   --color-positive-bg: #e5f4ed;
   --color-warning: #8a5a00;
   --color-danger: #b42318;
