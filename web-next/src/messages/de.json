@@ -83,8 +83,10 @@
     "title": "Filter",
     "type_legend": "Sortiment",
     "type_all": "Alle",
-    "category": "Unterkategorie",
-    "category_all": "Alle Unterkategorien",
+    "category": "Kategorie",
+    "category_all": "Alle Kategorien",
+    "subcategory": "Unterkategorie",
+    "subcategory_all": "Alle Unterkategorien",
     "stores": "Anbieter",
     "reset": "Zurücksetzen ({count})"
   },

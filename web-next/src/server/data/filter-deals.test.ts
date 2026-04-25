@@ -48,7 +48,9 @@ describe('filterDeals', () => {
 
   it('filters by sub-category case-insensitively', () => {
     const deals = [D({ id: '1', subCategory: 'Dairy' }), D({ id: '2', subCategory: 'Bread' })]
-    expect(filterDeals(deals, { ...DEFAULT_FILTERS, category: 'dairy' }).length).toBe(1)
+    // Patch F: subCategory now lives on filters.subCategory; filters.category is the
+    // mid-level Category (drinks, snacks-sweets, ...).
+    expect(filterDeals(deals, { ...DEFAULT_FILTERS, subCategory: 'dairy' }).length).toBe(1)
   })
 
   it('filters by store', () => {

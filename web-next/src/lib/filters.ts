@@ -1,11 +1,14 @@
 import type { DealCategory } from './types'
 import { STORE_KEYS, type StoreKey } from './store-tokens'
 
-// URL contract — see spec §13.2 (`?type=&cat=&stores=&q=&region=&locale=`).
+// URL contract — Patch E §E2 (4-level): `?type=&cat=&sub=&stores=&q=`.
+// `cat` = mid-level Category slug (drinks, snacks-sweets, ...).
+// `sub` = sub-category slug (wine, chocolate, ...).
 // Region + locale are owned elsewhere (region is M5+, locale is in the path).
 export type DealsFilters = {
   type: DealCategory | 'all'
   category: string | null
+  subCategory: string | null
   stores: StoreKey[]
   q: string
 }
@@ -23,6 +26,7 @@ const TYPE_ALIASES: Record<string, DealsFilters['type']> = {
 export const DEFAULT_FILTERS: DealsFilters = {
   type: 'all',
   category: null,
+  subCategory: null,
   stores: [...STORE_KEYS],
   q: '',
 }
@@ -51,6 +55,7 @@ export function parseFilters(
   return {
     type,
     category: first(raw.cat) || null,
+    subCategory: first(raw.sub) || null,
     stores: stores.length ? stores : [],
     q: first(raw.q) ?? '',
   }
@@ -62,6 +67,7 @@ export function serializeFilters(f: DealsFilters): string {
   const p = new URLSearchParams()
   if (f.type !== 'all') p.set('type', f.type)
   if (f.category) p.set('cat', f.category)
+  if (f.subCategory) p.set('sub', f.subCategory)
   if (f.stores.length !== STORE_KEYS.length) p.set('stores', f.stores.join(','))
   if (f.q) p.set('q', f.q)
   const s = p.toString()
@@ -72,6 +78,7 @@ export function isFiltersDefault(f: DealsFilters): boolean {
   return (
     f.type === 'all' &&
     f.category === null &&
+    f.subCategory === null &&
     f.stores.length === STORE_KEYS.length &&
     f.q === ''
   )
@@ -82,6 +89,7 @@ export function activeFilterCount(f: DealsFilters): number {
   let n = 0
   if (f.type !== 'all') n += 1
   if (f.category) n += 1
+  if (f.subCategory) n += 1
   if (f.stores.length !== STORE_KEYS.length) n += 1
   if (f.q) n += 1
   return n

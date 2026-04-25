@@ -83,8 +83,10 @@
     "title": "Filters",
     "type_legend": "Type",
     "type_all": "All",
-    "category": "Sub-category",
-    "category_all": "All sub-categories",
+    "category": "Category",
+    "category_all": "All categories",
+    "subcategory": "Sub-category",
+    "subcategory_all": "All sub-categories",
     "stores": "Stores",
     "reset": "Reset ({count})"
   },

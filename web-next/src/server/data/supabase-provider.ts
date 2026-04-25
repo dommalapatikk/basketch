@@ -13,6 +13,7 @@ type DealRow = {
   store: string
   product_name: string
   category: string
+  category_slug: string | null
   sub_category: string | null
   sale_price: number
   original_price: number | null
@@ -31,7 +32,7 @@ type DealRow = {
 }
 
 const SELECT_COLUMNS =
-  'id,store,product_name,category,sub_category,sale_price,original_price,discount_percent,price_per_unit,canonical_unit,format,image_url,valid_from,valid_to,source_url,product_id,taxonomy_confidence,is_active,updated_at'
+  'id,store,product_name,category,category_slug,sub_category,sale_price,original_price,discount_percent,price_per_unit,canonical_unit,format,image_url,valid_from,valid_to,source_url,product_id,taxonomy_confidence,is_active,updated_at'
 
 // Pipeline (basketch/pipeline/categorize.ts) writes DB-side category labels that
 // don't match the spec's identifiers. Normalise here at the read boundary so
@@ -60,6 +61,7 @@ function mapRow(row: DealRow): Deal | null {
     store: row.store,
     productName: row.product_name,
     category,
+    categorySlug: row.category_slug,
     subCategory: row.sub_category,
     salePrice: Number(row.sale_price),
     originalPrice: row.original_price == null ? null : Number(row.original_price),

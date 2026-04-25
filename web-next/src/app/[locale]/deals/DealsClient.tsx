@@ -12,6 +12,7 @@ import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { WeeklySnapshot } from '@/lib/types'
 import {
   buildSections,
+  categoryCounts,
   filterDeals,
   storeCounts,
   subCategoryCounts,
@@ -79,6 +80,13 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     () => storeCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
   )
+  // Patch F: 4-level facets — categories (mid-level) + sub-cats. Both honour
+  // the "list-includes-everything, only counts react" rule so chips dim to
+  // zero rather than disappear when other filters narrow.
+  const cats = useMemo(
+    () => categoryCounts(snapshot.deals, filters),
+    [snapshot.deals, filters],
+  )
   const subCats = useMemo(
     () => subCategoryCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
@@ -89,6 +97,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
       snapshot.deals.map((d) => ({
         store: d.store,
         category: d.category,
+        categorySlug: d.categorySlug,
         subCategory: d.subCategory,
         productName: d.productName,
       })),
@@ -135,6 +144,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
             onChange={apply}
             totalDealCount={snapshot.deals.length}
             storeCounts={counts}
+            categories={cats}
             subCategories={subCats}
             locale={locale}
           />

@@ -8,6 +8,7 @@ import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import type { DealsFilters } from '@/lib/filters'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
+import { iconForSubCategory } from '@/components/ui/IconHeading'
 import { countMatches, type DealFacet } from '@/server/data/filter-deals'
 
 import { Drawer, DrawerClose, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
@@ -20,11 +21,23 @@ type Props = {
   locale: string
 }
 
+// Cheap label fallback for category slugs until next-intl messages cover them.
+function humaniseSlug(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => (w.length > 0 ? w[0]!.toUpperCase() + w.slice(1) : w))
+    .join(' ')
+}
+
 // Mobile bottom-sheet filter UI. Maintains a *draft* filter state so the user
 // can toggle freely; only `Show n deals` commits the draft to the URL. Cancel
 // (backdrop tap or close X) discards. The "Show n deals" count updates live
 // from `facets` — a slim projection of the deals payload — so we don't need a
 // network round-trip per toggle.
+//
+// Patch F: 4-level filter. Type stays at top of page (TypeSegmented). Sheet
+// hosts Category, Sub-category (progressive — only visible when a Category
+// is selected per HR16), and Stores.
 export function FilterSheet({ filters, onChange, facets, matchedCount, locale }: Props) {
   const t = useTranslations('filters')
   const tDeals = useTranslations('deals')
@@ -33,7 +46,6 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<DealsFilters>(filters)
 
-  // Reset draft to the latest committed filters every time the sheet opens.
   function onOpenChange(next: boolean) {
     if (next) setDraft(filters)
     setOpen(next)
@@ -41,18 +53,16 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
 
   const previewCount = useMemo(() => countMatches(facets, draft), [facets, draft])
 
-  // HR7 (spec v2 §1) + v2.1 §D.5 / §E.2 — sub-category chips reflect every
-  // sub-category present in the type-filtered universe regardless of which
-  // stores the user has selected. Counts respect the full draft filter
-  // (stores + q), so chips dim to 0 instead of disappearing. Sort: count
-  // desc, alpha asc on ties, zero-count chips at the bottom.
-  const subCats = useMemo(() => {
+  // Categories that exist under the active Type. Counts honour stores + q so
+  // chips dim to 0 instead of disappearing. Same "list-includes-everything,
+  // counts-react" rule as the desktop FilterRail.
+  const categories = useMemo(() => {
     const q = draft.q.trim().toLowerCase()
     const storeSet = new Set<StoreKey>(draft.stores)
     const map = new Map<string, number>()
     for (const d of facets) {
       if (draft.type !== 'all' && d.category !== draft.type) continue
-      const k = (d.subCategory ?? '').trim()
+      const k = (d.categorySlug ?? '').trim()
       if (!k) continue
       if (!map.has(k)) map.set(k, 0)
       if (!storeSet.has(d.store)) continue
@@ -70,19 +80,62 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
       })
   }, [facets, draft.type, draft.stores, draft.q])
 
+  // Sub-categories scoped to the active Category. Only computed (and only
+  // rendered) when a Category is selected — HR16 progressive disclosure.
+  const subCats = useMemo(() => {
+    if (!draft.category) return []
+    const q = draft.q.trim().toLowerCase()
+    const storeSet = new Set<StoreKey>(draft.stores)
+    const cat = draft.category.toLowerCase()
+    const map = new Map<string, number>()
+    for (const d of facets) {
+      if (draft.type !== 'all' && d.category !== draft.type) continue
+      if ((d.categorySlug ?? '').toLowerCase() !== cat) continue
+      const k = (d.subCategory ?? '').trim()
+      if (!k) continue
+      if (!map.has(k)) map.set(k, 0)
+      if (!storeSet.has(d.store)) continue
+      if (q && !d.productName.toLowerCase().includes(q)) continue
+      map.set(k, (map.get(k) ?? 0) + 1)
+    }
+    return Array.from(map.entries())
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => {
+        const aZero = a.count === 0
+        const bZero = b.count === 0
+        if (aZero !== bZero) return aZero ? 1 : -1
+        if (a.count !== b.count) return b.count - a.count
+        return a.key.localeCompare(b.key)
+      })
+  }, [facets, draft.type, draft.category, draft.stores, draft.q])
+
+  // State invariants per spec §E2: changing Category clears Sub-category.
   const toggleCategory = (k: string) =>
-    setDraft((d) => ({ ...d, category: d.category === k ? null : k }))
+    setDraft((d) => ({
+      ...d,
+      category: d.category === k ? null : k,
+      subCategory: null, // any Category change resets the sub-cat selection
+    }))
+  const toggleSubCategory = (k: string) =>
+    setDraft((d) => ({
+      ...d,
+      subCategory: d.subCategory === k ? null : k,
+    }))
   const toggleStore = (s: StoreKey) =>
     setDraft((d) => ({
       ...d,
       stores: d.stores.includes(s) ? d.stores.filter((x) => x !== s) : [...d.stores, s],
     }))
   const reset = () =>
-    setDraft({ type: 'all', category: null, stores: [...STORE_KEYS], q: filters.q })
+    setDraft({
+      type: 'all',
+      category: null,
+      subCategory: null,
+      stores: [...STORE_KEYS],
+      q: filters.q,
+    })
 
   function commit() {
-    // Hand the draft to the parent (DealsClient) which owns the source of
-    // truth + URL update. Closing the drawer is independent of that.
     onChange(draft)
     setOpen(false)
   }
@@ -101,35 +154,69 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
       </DrawerTrigger>
 
       <DrawerContent
-        // Patch D HR13: Type is now only at the top of the page (TypeSegmented).
-        // The sheet inherits the active Type via the title kicker so users
-        // know the scope of the sub-cat / store filters they're tweaking.
         title={`${draft.type === 'all' ? t('type_all') : labels[draft.type]} · ${t('title')}`}
         description={t('title')}
         className="pb-0"
       >
         <div className="flex flex-col gap-6">
-          {draft.type !== 'all' && subCats.length > 0 ? (
+          {/* Patch F: CATEGORY (mid-level) — chip grid with icons, only when Type ≠ all */}
+          {draft.type !== 'all' && categories.length > 0 ? (
             <Section label={t('category')}>
-              {/*
-               * Spec v2 §5.3 + §6.4: chips wrap, the container caps at 40vh
-               * with internal scroll and a 12 px fade mask at the bottom edge
-               * so the user can tell more chips exist below. Mask is a CSS
-               * `mask-image` linear-gradient — degrades to no mask in browsers
-               * that don't support it (chips still scroll).
-               */}
               <div
                 className="max-h-[40vh] overflow-y-auto pb-3"
                 style={{
                   WebkitMaskImage:
                     'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
-                  maskImage:
+                  maskImage: 'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
+                }}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {categories.map((c) => {
+                    const selected = draft.category === c.key
+                    const disabled = c.count === 0 && !selected
+                    const Icon = iconForSubCategory(c.key)
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={disabled}
+                        onClick={() => toggleCategory(c.key)}
+                        className={`inline-flex items-center gap-2 rounded-[var(--radius-pill)] border px-3 py-1.5 text-xs transition-colors ${
+                          selected
+                            ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
+                            : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)]'
+                        } ${disabled ? 'cursor-not-allowed opacity-40' : ''}`}
+                      >
+                        <Icon
+                          className={`size-3.5 shrink-0 ${selected ? 'text-[var(--color-paper)]/80' : 'text-[var(--color-ink-3)]'}`}
+                          strokeWidth={1.5}
+                          aria-hidden
+                        />
+                        <span className="truncate">{humaniseSlug(c.key)}</span>
+                        <span className="font-mono tabular-nums opacity-70">{c.count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </Section>
+          ) : null}
+
+          {/* Patch F HR16: SUB-CATEGORY — only when a Category is selected */}
+          {draft.category && subCats.length > 0 ? (
+            <Section label={t('subcategory')}>
+              <div
+                className="max-h-[40vh] overflow-y-auto pb-3"
+                style={{
+                  WebkitMaskImage:
                     'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
+                  maskImage: 'linear-gradient(to bottom, #000 calc(100% - 12px), transparent)',
                 }}
               >
                 <div className="flex flex-wrap gap-2">
                   {subCats.map((sc) => {
-                    const selected = draft.category === sc.key
+                    const selected = draft.subCategory === sc.key
                     const disabled = sc.count === 0 && !selected
                     return (
                       <button
@@ -137,7 +224,7 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
                         type="button"
                         aria-pressed={selected}
                         disabled={disabled}
-                        onClick={() => toggleCategory(sc.key)}
+                        onClick={() => toggleSubCategory(sc.key)}
                         className={`inline-flex items-center gap-2 rounded-[var(--radius-pill)] border px-3 py-1.5 text-xs transition-colors ${
                           selected
                             ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
@@ -190,7 +277,7 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
             onClick={reset}
             className="text-sm text-[var(--color-ink-3)] underline-offset-4 hover:underline"
           >
-            {tDeals('clear') /* falls back to filter "reset" copy if missing */}
+            {tDeals('clear')}
           </button>
           <button
             type="button"

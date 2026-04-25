@@ -9,6 +9,12 @@ export type Deal = {
   store: StoreKey
   productName: string
   category: DealCategory
+  // Patch F: mid-level Category slug (drinks, snacks-sweets, ...). Null when
+  // pipeline couldn't map sub_category through taxonomy_alias — those deals
+  // still render under their Type but have no Category to filter by.
+  // Optional in the type to keep existing test fixtures + read paths working;
+  // supabase-provider.mapRow always sets it explicitly (non-undefined).
+  categorySlug?: string | null
   subCategory: string | null
   salePrice: number
   originalPrice: number | null

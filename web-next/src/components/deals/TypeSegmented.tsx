@@ -23,9 +23,10 @@ export function TypeSegmented({ filters, onChange, locale }: Props) {
   const t = useTranslations('filters')
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
 
+  // Patch F: Type change clears both Category AND Sub-category per spec §E2.
   const apply = useCallback(
     (type: DealCategory | 'all') => {
-      onChange({ ...filters, type, category: null })
+      onChange({ ...filters, type, category: null, subCategory: null })
     },
     [filters, onChange],
   )
