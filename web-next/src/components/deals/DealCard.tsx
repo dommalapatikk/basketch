@@ -131,12 +131,13 @@ function Compact({
   return (
     <article
       aria-labelledby={titleId}
-      // 4-column grid: image | text (store pill + name stacked) | price | button.
-      // minmax(0, 1fr) on text col enforces truncation rather than overflow (HR4).
-      // Mobile snap-rail width 280 px stays — name truncates inside its column.
-      className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_minmax(0,1fr)_auto_auto] items-center gap-3 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] lg:w-auto lg:shrink lg:snap-none"
+      // Patch D HR12: below md, switch to 2-row grid so price + button drop
+      // beneath the name instead of competing for horizontal room at 280 px.
+      // md+ keeps the original 4-col 1-row layout via md:contents on the
+      // price+button wrapper, so no DOM duplication.
+      className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_1fr] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] md:grid-cols-[40px_minmax(0,1fr)_auto_auto] md:grid-rows-1 md:gap-y-0 lg:w-auto lg:shrink lg:snap-none"
     >
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)]">
+      <div className="row-span-2 h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)] md:row-span-1">
         {imageUrl ? (
           <Image
             src={imageUrl}
@@ -171,25 +172,27 @@ function Compact({
         </a>
       </div>
 
-      <PriceBlock
-        current={current}
-        previous={previous}
-        perUnit={perUnit}
-        savingsPct={savingsPct}
-        size="sm"
-        className="shrink-0 items-end text-right"
-      />
+      <div className="flex items-center justify-between gap-3 md:contents">
+        <PriceBlock
+          current={current}
+          previous={previous}
+          perUnit={perUnit}
+          savingsPct={savingsPct}
+          size="sm"
+          className="shrink-0 items-end text-right"
+        />
 
-      <AddToListButton
-        id={id}
-        store={store}
-        productName={productName}
-        category={category}
-        salePrice={current}
-        imageUrl={imageUrl}
-        sourceUrl={href}
-        size="sm"
-      />
+        <AddToListButton
+          id={id}
+          store={store}
+          productName={productName}
+          category={category}
+          salePrice={current}
+          imageUrl={imageUrl}
+          sourceUrl={href}
+          size="sm"
+        />
+      </div>
     </article>
   )
 }

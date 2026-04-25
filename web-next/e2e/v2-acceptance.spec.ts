@@ -293,3 +293,85 @@ test.describe('AC12 — keyboard order', () => {
     expect(logoReached, 'header logo never received focus within 8 tabs').toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// AC16 — Patch D HR12: mobile compact rows don't overlap pill / name / price
+// at 320 / 360 / 390 / 414 px viewports.
+// ---------------------------------------------------------------------------
+test.describe('AC16 — no overlap on compact rows across mobile widths', () => {
+  for (const width of [320, 360, 390, 414]) {
+    test(`width ${width}: compact pill, name, price boxes are non-intersecting`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 844 })
+      await gotoStable(page, '/de/deals')
+      // Compact cards live inside the snap-rail under "OTHER STORES" — width
+      // 280 px hard-coded on the article. Filter to those.
+      const compacts = page.locator('main article.w-\\[280px\\]')
+      const count = await compacts.count()
+      test.skip(count === 0, 'no compact cards on this page snapshot')
+
+      for (let i = 0; i < Math.min(count, 8); i++) {
+        const article = compacts.nth(i)
+        const pill = article.locator('span.uppercase').first()
+        const name = article.locator('a[id^="dc-"]').first()
+        const price = article.locator('text=/CHF|Fr\\./').first()
+        const [pBox, nBox, prBox] = await Promise.all([
+          pill.boundingBox(),
+          name.boundingBox(),
+          price.boundingBox(),
+        ])
+        if (!pBox || !nBox || !prBox) continue
+        // pairwise non-intersecting
+        function overlap(a: { x: number; y: number; width: number; height: number }, b: typeof a) {
+          return (
+            a.x < b.x + b.width &&
+            a.x + a.width > b.x &&
+            a.y < b.y + b.height &&
+            a.y + a.height > b.y
+          )
+        }
+        expect(overlap(pBox, prBox), `card #${i} pill overlaps price at ${width}px`).toBe(false)
+        expect(overlap(nBox, prBox), `card #${i} name overlaps price at ${width}px`).toBe(false)
+        // No horizontal overflow on the article itself.
+        const widths = await article.evaluate((el) => ({
+          scrollW: el.scrollWidth,
+          clientW: el.clientWidth,
+        }))
+        expect(widths.scrollW, `card #${i} horizontal overflow at ${width}px`).toBeLessThanOrEqual(
+          widths.clientW + 1, // 1px subpixel tolerance
+        )
+      }
+    })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// AC17 — Patch D HR13: filter sheet contains no Type section. Sheet title
+// reflects the active Type as a kicker (e.g. "Long-life · Filters").
+// ---------------------------------------------------------------------------
+test.describe('AC17 — Type is gone from FilterSheet, kicker shows scope', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+  test('opening the sheet on /en/deals?type=longlife shows kicker, no Type heading', async ({
+    page,
+  }) => {
+    // Today's URL contract uses ?type=longlife (one word). Patch E will rename
+    // to ?type=long-life — when that lands, update this regex too.
+    await gotoStable(page, '/en/deals?type=longlife')
+    const filterTrigger = page.getByRole('button', { name: /^Filters/i }).first()
+    test.skip(!(await filterTrigger.count()), 'no Filters trigger in BottomBar (desktop view?)')
+    await filterTrigger.click()
+    // Drawer renders into a portal; query its title via the vaul-injected element.
+    const drawerTitle = page.locator('[data-vaul-drawer] >> text=/Filters/i').first()
+    await drawerTitle.waitFor({ state: 'visible', timeout: 5000 })
+    const titleText = (await drawerTitle.innerText()).toLowerCase()
+    expect(titleText, 'drawer title should include the active Type as kicker').toMatch(
+      /long.?life/,
+    )
+    // No standalone "Type" section heading inside the drawer.
+    const typeHeading = page.locator('[data-vaul-drawer] p.uppercase', {
+      hasText: /^type/i,
+    })
+    expect(await typeHeading.count(), 'sheet must not contain a Type heading').toBe(0)
+  })
+})

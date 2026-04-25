@@ -9,12 +9,9 @@ import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
-import type { DealCategory } from '@/lib/types'
 import { countMatches, type DealFacet } from '@/server/data/filter-deals'
 
 import { Drawer, DrawerClose, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
-
-const TYPES: Array<DealCategory | 'all'> = ['all', 'fresh', 'longlife', 'household']
 
 type Props = {
   filters: DealsFilters
@@ -76,8 +73,6 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
       })
   }, [facets, draft.type, draft.stores, draft.q])
 
-  const setType = (type: DealCategory | 'all') =>
-    setDraft((d) => ({ ...d, type, category: null }))
   const toggleCategory = (k: string) =>
     setDraft((d) => ({ ...d, category: d.category === k ? null : k }))
   const toggleStore = (s: StoreKey) =>
@@ -111,32 +106,15 @@ export function FilterSheet({ filters, facets, matchedCount, locale }: Props) {
         </button>
       </DrawerTrigger>
 
-      <DrawerContent title={t('title')} description={t('type_legend')} className="pb-0">
+      <DrawerContent
+        // Patch D HR13: Type is now only at the top of the page (TypeSegmented).
+        // The sheet inherits the active Type via the title kicker so users
+        // know the scope of the sub-cat / store filters they're tweaking.
+        title={`${draft.type === 'all' ? t('type_all') : labels[draft.type]} · ${t('title')}`}
+        description={t('title')}
+        className="pb-0"
+      >
         <div className="flex flex-col gap-6">
-          <Section label={t('type_legend')}>
-            <div className="-mx-1 flex flex-wrap gap-2">
-              {TYPES.map((tp) => {
-                const selected = draft.type === tp
-                const label = tp === 'all' ? t('type_all') : labels[tp]
-                return (
-                  <button
-                    key={tp}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setType(tp)}
-                    className={`rounded-[var(--radius-pill)] border px-4 py-2 text-sm transition-colors ${
-                      selected
-                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
-                        : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)]'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </Section>
-
           {draft.type !== 'all' && subCats.length > 0 ? (
             <Section label={t('category')}>
               {/*
