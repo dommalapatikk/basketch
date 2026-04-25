@@ -15,10 +15,14 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#F6F6F3',
     theme_color: '#0B0B0F',
     icons: [
+      // SVG icon scales to any size including the home-screen tile.
+      // 192/512 PNGs would still be nice for stricter installers — file as
+      // a follow-up once we have an artwork pass.
       {
-        src: '/favicon.ico',
+        src: '/icon.svg',
         sizes: 'any',
-        type: 'image/x-icon',
+        type: 'image/svg+xml',
+        purpose: 'any',
       },
     ],
   }
