@@ -26,7 +26,7 @@ export function Header() {
           <ShoppingBasket size={20} strokeWidth={1.75} aria-hidden />
           basketch
         </Link>
-        <nav aria-label="Primary" className="hidden items-center gap-8 md:flex">
+        <nav aria-label="Primary" className="flex items-center gap-3 md:gap-8">
           <Link
             href="/deals"
             className="text-sm text-ink-2 transition-colors hover:text-ink"
@@ -35,7 +35,7 @@ export function Header() {
           </Link>
           <Link
             href="/about"
-            className="text-sm text-ink-2 transition-colors hover:text-ink"
+            className="hidden text-sm text-ink-2 transition-colors hover:text-ink sm:inline"
           >
             {t('about')}
           </Link>
