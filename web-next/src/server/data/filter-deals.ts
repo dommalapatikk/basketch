@@ -149,10 +149,16 @@ export type DealsSection = {
 }
 
 // Group filtered deals by sub_category, sort each group by discountPercent
-// desc, take the top deal as `primary` and up to `compactLimit` more as
-// `others`. Sections themselves are sorted by total deal count desc so
-// dense sub-categories surface first.
-export function buildSections(deals: Deal[], compactLimit = 4): DealsSection[] {
+// desc, take the top deal as `primary` and the rest as `others`. Sections
+// themselves are sorted by total deal count desc so dense sub-categories
+// surface first.
+//
+// Default `compactLimit = Infinity` — every deal in a sub-cat is reachable.
+// The previous default of 4 (1 primary + 4 compacts) hid 246/296 deals on
+// the Fresh page (10 sub-cats × 5 visible vs. 30+ deals each in dense ones
+// like Dairy). Caller can still pass a smaller cap if a list view ever
+// needs a curated subset.
+export function buildSections(deals: Deal[], compactLimit = Number.POSITIVE_INFINITY): DealsSection[] {
   const groups = new Map<string, Deal[]>()
   for (const d of deals) {
     const key = d.subCategory?.trim() || 'Other'
