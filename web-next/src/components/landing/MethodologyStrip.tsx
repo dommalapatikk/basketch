@@ -1,7 +1,10 @@
 import { useTranslations } from 'next-intl'
 
+import { Link } from '@/i18n/navigation'
+
 export function MethodologyStrip() {
   const t = useTranslations('methodology')
+  const tHidden = useTranslations('hidden_suggestions')
   const steps = [
     { n: '01', t: t('step1_t'), d: t('step1_d') },
     { n: '02', t: t('step2_t'), d: t('step2_d') },
@@ -28,6 +31,11 @@ export function MethodologyStrip() {
           </li>
         ))}
       </ol>
+      <p className="mt-6 text-xs text-[var(--color-ink-3)]">
+        <Link href="/settings/hidden" className="underline-offset-4 hover:underline">
+          {tHidden('page_title')}
+        </Link>
+      </p>
     </section>
   )
 }

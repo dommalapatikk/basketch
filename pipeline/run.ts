@@ -21,6 +21,7 @@ import { storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForS
 import { resolveProducts } from './product-resolve'
 import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
+import { populateV3Layer } from './v3-cutover'
 
 /**
  * Confidence threshold: deals below this score are rejected as "likely
@@ -210,6 +211,20 @@ async function main(): Promise<void> {
 
   // Store deals (now with categorySlug attached) + product_id references
   const storedCount = await storeDeals(resolved, productIds)
+
+  // v3 cutover step — populate concept/sku layer + deals.sku_id + refresh MVs.
+  // Additive: legacy v3.2 columns continue to be written by storeDeals above.
+  // See pipeline/v3-cutover.ts and docs/tech-stack-v3-validation.md §6.
+  try {
+    const v3Stats = await populateV3Layer(resolved)
+    console.log(
+      `[pipeline] [INFO] v3 cutover — concepts:${v3Stats.concepts_resolved}, skus:${v3Stats.skus_upserted}, linked:${v3Stats.deals_linked}`,
+    )
+  } catch (err) {
+    // Don't fail the pipeline if v3 cutover hits an issue — legacy columns are
+    // still populated. Log loud so the operator can fix in Supabase Studio.
+    console.error('[pipeline] [ERROR] v3 cutover failed (legacy data still saved):', err)
+  }
 
   // Sync-purge: any previously-active row for a successfully-refreshed store
   // that wasn't touched in this run is stale and should be deactivated.

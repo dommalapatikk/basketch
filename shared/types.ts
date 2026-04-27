@@ -68,6 +68,76 @@ export type Format = 'still' | 'sparkling' | 'lightly-sparkling' | 'flavoured'
 export type Container = 'pet' | 'glass' | 'can' | 'carton' | 'pouch'
 export type CanonicalUnit = 'L' | 'kg' | '100g' | 'piece'
 
+// ============================================================
+// v3 concept layer (per docs/design-3-new-surfaces.md + 9-table schema)
+// Variant axes are flat columns mirroring the `concept` Postgres table.
+// ============================================================
+
+export type ShelfLife = 'fresh' | 'long-life' | 'frozen'
+
+export interface ConceptFamily {
+  slug: string
+  display_name: string
+  category_slug: string | null
+  subcategory_slug: string | null
+  in_starter_pack: boolean
+  sort_order: number
+}
+
+export interface Concept {
+  id: string
+  slug: string
+  display_name: string
+  family_slug: string
+  fat_pct: number | null
+  volume_ml: number | null
+  weight_g: number | null
+  shelf_life: ShelfLife | null
+  origin: string | null
+  is_organic: boolean
+  is_vegan: boolean
+  is_vegetarian: boolean
+  is_lactose_free: boolean
+  is_gluten_free: boolean
+  allergens: string[]
+  in_starter_pack: boolean
+}
+
+/** Default-tile entry for the variant picker. Matches §1.4 of design spec. */
+export interface ConceptVariantTile {
+  conceptSlug: string
+  primaryLabel: string  // 'Whole milk' / 'Skim' / 'Semi-skimmed' / 'Long-life'
+  detailLabel: string   // '3.5 % fat · 1 L · Fresh'
+}
+
+/**
+ * Freshness state per (sku, store) — drives Surface 2's Availability Strip.
+ * A = on deal this week. B = off deal but seen recently. C = never seen here.
+ * See docs/design-3-new-surfaces.md §2.3.
+ */
+export type FreshnessState = 'A' | 'B' | 'C'
+
+/** One cell in the 7-store strip on My List + sub-cat band ladder rows. */
+export interface AvailabilityCell {
+  storeSlug: Store
+  state: FreshnessState
+  /** A: deal price; B: last-deal price (when known); C: null. */
+  dealPrice: number | null
+  /** A: discount %; B: last-deal discount %; C: null. */
+  discountPercent: number | null
+  /** A: deal valid_to; B: last_deal_seen_at; C: null. */
+  lastSeenAt: string | null
+  /** A: deal id (for tap-sheet "Open at store" link); else null. */
+  dealId: string | null
+}
+
+/** All 7 stores' freshness for a single concept on My List comparison page. */
+export interface AvailabilityRow {
+  conceptId: string
+  conceptSlug: string
+  cells: AvailabilityCell[]
+}
+
 /** Format dimension for a sub-category schema (e.g. Type / Container / Pack). */
 export interface FormatDimension {
   id: string

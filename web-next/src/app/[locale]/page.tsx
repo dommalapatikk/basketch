@@ -3,11 +3,15 @@ import { Suspense } from 'react'
 
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { getWeeklySnapshot } from '@/server/data/snapshot'
+import { getWorthPickingUpCandidates } from '@/server/data/worth-picking-up'
 
 import { CategoryVerdictCard } from '@/components/landing/CategoryVerdictCard'
 import { MethodologyStrip } from '@/components/landing/MethodologyStrip'
+import { ShareVerdictButton } from '@/components/landing/ShareVerdictButton'
 import { StaleBanner } from '@/components/landing/StaleBanner'
+import { V3PreviewSection } from '@/components/landing/V3PreviewSection'
 import { VerdictHero } from '@/components/landing/VerdictHero'
+import { WorthPickingUpClient } from '@/components/landing/WorthPickingUpClient'
 
 export default async function HomePage({
   params,
@@ -18,6 +22,10 @@ export default async function HomePage({
   setRequestLocale(locale)
   const snapshot = await getWeeklySnapshot({ locale })
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
+
+  // Surface 3 — Worth Picking Up. Solo project: no email yet, so always
+  // cold-start. Section omits itself when N=0 (calm-by-absence per §3.2).
+  const wpu = await getWorthPickingUpCandidates({ userEmail: null, locale })
 
   return (
     <section className="mx-auto max-w-[1240px] px-4 py-12 md:px-10 md:py-20">
@@ -40,6 +48,16 @@ export default async function HomePage({
           ))}
         </div>
       </div>
+
+      <ShareVerdictButton locale={locale} />
+
+      {wpu.candidates.length > 0 && (
+        <div className="mt-8">
+          <WorthPickingUpClient mode={wpu.mode} initialCandidates={wpu.candidates} />
+        </div>
+      )}
+
+      <V3PreviewSection />
 
       <MethodologyStrip />
     </section>

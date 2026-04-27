@@ -1,5 +1,6 @@
 'use client'
 
+import { ChevronDown } from 'lucide-react'
 import { useDeferredValue, useMemo, useRef, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
@@ -314,35 +315,87 @@ function SubCategorySection({
       </div>
 
       {others.length > 0 ? (
-        <div className="mt-6">
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-ink-3)]">
-            {othersLabel}
-          </p>
-          <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
-            {others.map((d) => (
-              <DealCard
-                key={d.id}
-                variant="compact"
-                id={d.id}
-                category={d.category}
-                store={d.store}
-                productName={d.productName}
-                imageUrl={d.imageUrl}
-                current={d.salePrice}
-                previous={d.originalPrice}
-                perUnit={
-                  d.pricePerUnit && d.canonicalUnit
-                    ? `CHF ${d.pricePerUnit.toFixed(2)}/${d.canonicalUnit}`
-                    : null
-                }
-                savingsPct={d.discountPercent}
-                href={d.sourceUrl ?? '#'}
-              />
-            ))}
-          </div>
-        </div>
+        <OtherStoresBlock
+          others={others}
+          othersLabel={othersLabel}
+          locale={locale}
+        />
       ) : null}
     </section>
+  )
+}
+
+// OtherStoresBlock — Swiss-restraint expand/collapse for the "other stores"
+// list inside each sub-cat band. Default-collapsed when there are >5 others
+// so a 340-deal section doesn't overwhelm the page; default-expanded for
+// small sections so nothing useful is hidden behind a tap.
+function OtherStoresBlock({
+  others,
+  othersLabel,
+  locale,
+}: {
+  others: ReturnType<typeof buildSections>[number]['others']
+  othersLabel: string
+  locale: string
+}) {
+  const COLLAPSE_THRESHOLD = 5
+  const startsCollapsed = others.length > COLLAPSE_THRESHOLD
+  const [collapsed, setCollapsed] = useState(startsCollapsed)
+  const visible = collapsed ? [] : others
+
+  const toggleLabel = collapsed
+    ? locale === 'de'
+      ? `Alle ${others.length} anzeigen`
+      : `Show all ${others.length}`
+    : locale === 'de'
+      ? 'Weniger anzeigen'
+      : 'Show less'
+
+  return (
+    <div className="mt-6">
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed((v) => !v)}
+        className="mb-3 flex h-9 w-full items-center justify-between rounded-[var(--radius-sm)] px-1 text-left transition-colors hover:bg-[var(--color-page)]"
+      >
+        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--color-ink-3)]">
+          {othersLabel} · {others.length}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-ink-2)]">
+          {toggleLabel}
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${collapsed ? '' : 'rotate-180'}`}
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        </span>
+      </button>
+      {!collapsed && (
+        <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0">
+          {visible.map((d) => (
+            <DealCard
+              key={d.id}
+              variant="compact"
+              id={d.id}
+              category={d.category}
+              store={d.store}
+              productName={d.productName}
+              imageUrl={d.imageUrl}
+              current={d.salePrice}
+              previous={d.originalPrice}
+              perUnit={
+                d.pricePerUnit && d.canonicalUnit
+                  ? `CHF ${d.pricePerUnit.toFixed(2)}/${d.canonicalUnit}`
+                  : null
+              }
+              savingsPct={d.discountPercent}
+              href={d.sourceUrl ?? '#'}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
