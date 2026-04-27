@@ -77,7 +77,7 @@ export function ShareVerdictButton({ locale }: Props) {
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-11 items-center gap-2 rounded-[var(--radius-md)] px-4 text-sm font-semibold text-white"
-          style={{ background: '#25D366' }}
+          style={{ background: '#128C7E' }}
         >
           <Share2 className="h-4 w-4" aria-hidden /> {t('whatsapp')}
         </a>
