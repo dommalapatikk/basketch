@@ -57,7 +57,9 @@ export default async function HomePage({
         </div>
       )}
 
-      <V3PreviewSection />
+      <Suspense fallback={null}>
+        <V3PreviewSection />
+      </Suspense>
 
       <MethodologyStrip />
     </section>

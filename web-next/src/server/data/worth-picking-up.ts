@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { unstable_cacheLife as cacheLife } from 'next/cache'
+
 import { createAnonClient } from '@/lib/supabase/anon-server'
 import { STORE_META, type Store } from '@/lib/v3-types'
 import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingUpCard'
@@ -7,11 +9,16 @@ import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingU
 // Server fetch for Surface 3 candidates.
 // Cold-start (no email or <5 user_interest rows): top discounted active deals.
 // Personal: pre-scored worth_picking_up_candidates MV joined with concept names.
+//
+// 'use cache' satisfies Next.js 16 Cache Components — without it, Next refuses
+// to prerender the home page (uncached data outside <Suspense>).
 
 export async function getWorthPickingUpCandidates(args: {
   userEmail?: string | null
   locale: string
 }): Promise<{ mode: 'personal' | 'cold-start'; candidates: WorthPickingUpCandidate[] }> {
+  'use cache'
+  cacheLife('hours')
   const sb = createAnonClient()
 
   // 1. Cold-start path — used until user has 5+ interest rows (PM Q11 locked).
