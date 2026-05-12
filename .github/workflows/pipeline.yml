@@ -126,6 +126,9 @@ jobs:
         run: ls -la pipeline/*-deals.json 2>/dev/null || echo "No deal files found"
 
       - name: Categorize and store
+        env:
+          WEB_REVALIDATE_URL: ${{ secrets.WEB_REVALIDATE_URL }}
+          WEB_REVALIDATE_SECRET: ${{ secrets.WEB_REVALIDATE_SECRET }}
         run: cd pipeline && npx tsx run.ts
 
   keep-alive:
