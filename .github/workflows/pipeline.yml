@@ -86,9 +86,14 @@ jobs:
         if: steps.should-run.outputs.run == 'true'
         run: pip install -r pipeline/aktionis/requirements.txt
 
-      - name: Fetch ${{ matrix.label }} deals
+      - name: Fetch ${{ matrix.label }} deals (with retry)
         if: steps.should-run.outputs.run == 'true'
-        run: cd pipeline/aktionis && python3 main.py ${{ matrix.slug }} ${{ matrix.store }} ${{ matrix.slug }}-deals.json
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 3
+          retry_wait_seconds: 300
+          command: cd pipeline/aktionis && python3 main.py ${{ matrix.slug }} ${{ matrix.store }} ${{ matrix.slug }}-deals.json
 
       - name: Upload deals artifact
         if: always() && steps.should-run.outputs.run == 'true'
@@ -125,11 +130,16 @@ jobs:
       - name: List downloaded artifacts
         run: ls -la pipeline/*-deals.json 2>/dev/null || echo "No deal files found"
 
-      - name: Categorize and store
+      - name: Categorize and store (with retry)
+        uses: nick-fields/retry@v3
         env:
           WEB_REVALIDATE_URL: ${{ secrets.WEB_REVALIDATE_URL }}
           WEB_REVALIDATE_SECRET: ${{ secrets.WEB_REVALIDATE_SECRET }}
-        run: cd pipeline && npx tsx run.ts
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 300
+          command: cd pipeline && npx tsx run.ts
 
   keep-alive:
     name: Supabase Keep-Alive
