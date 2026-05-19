@@ -9,7 +9,6 @@ import { CategoryVerdictCard } from '@/components/landing/CategoryVerdictCard'
 import { MethodologyStrip } from '@/components/landing/MethodologyStrip'
 import { ShareVerdictButton } from '@/components/landing/ShareVerdictButton'
 import { StaleBanner } from '@/components/landing/StaleBanner'
-import { V3PreviewSection } from '@/components/landing/V3PreviewSection'
 import { VerdictHero } from '@/components/landing/VerdictHero'
 import { WorthPickingUpClient } from '@/components/landing/WorthPickingUpClient'
 
@@ -56,10 +55,6 @@ export default async function HomePage({
           <WorthPickingUpClient mode={wpu.mode} initialCandidates={wpu.candidates} />
         </div>
       )}
-
-      <Suspense fallback={null}>
-        <V3PreviewSection />
-      </Suspense>
 
       <MethodologyStrip />
     </section>
