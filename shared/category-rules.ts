@@ -424,12 +424,17 @@ export const VERDICT_WEIGHTS = {
  * a non-letter (space, digit, punctuation, ·, start/end of string).
  */
 function isWholeWord(text: string, term: string): boolean {
-  const idx = text.indexOf(term)
-  if (idx === -1) return false
-  const before = idx === 0 ? ' ' : text[idx - 1]!
-  const after = idx + term.length >= text.length ? ' ' : text[idx + term.length]!
   const boundary = /[^a-zàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ]/
-  return boundary.test(before) && boundary.test(after)
+  // Scan every occurrence: a term can appear inside another word first
+  // (e.g. "ale" in "pale") and still be a standalone word later ("pale ale").
+  let idx = text.indexOf(term)
+  while (idx !== -1) {
+    const before = idx === 0 ? ' ' : text[idx - 1]!
+    const after = idx + term.length >= text.length ? ' ' : text[idx + term.length]!
+    if (boundary.test(before) && boundary.test(after)) return true
+    idx = text.indexOf(term, idx + 1)
+  }
+  return false
 }
 
 /**
@@ -473,6 +478,11 @@ const WHOLE_WORD_KEYWORDS = new Set([
   'pils',    // "pilze" (mushrooms) starts with "pils"
   'weizen',  // "weizenmehl" (flour) contains "weizen"
   'kakao',   // "kakaobutter", "kakaonibs" are not hot drinks
+  'ale',     // "valera" (hair dryer), "royale", "originale", "universaler" — not beer. "pale ale" still matches as a whole word.
+  'beer',    // English "beer" embedded in "beeren" (berries) etc. — German beers use "bier"/"lager"
+  'port',    // "sport", "portion", "import" are not port wine
+  'rose',    // "rosenkohl" (sprouts), "rosinen" (raisins), "rosmarin" are not rosé wine
+  'rosé',    // accented variant of the same wine keyword
 ])
 
 /** Known false-positive substrings: if the keyword match is actually
@@ -481,7 +491,7 @@ const KEYWORD_BLOCKERS: Record<string, string[]> = {
   'wein': ['schwein'],
   'tee': ['steak'],
   'oliven': ['olivenöl'],  // "olivenöl" is condiments, not canned olives
-  'fleisch': ['zahnfleisch', 'mundspülung', 'zahncreme', 'zahnpasta'],  // dental products contain "fleisch"
+  'fleisch': ['zahnfleisch', 'mundspülung', 'zahncreme', 'zahnpasta', 'fleischig'],  // dental products contain "fleisch"; "weissfleischig"/"gelbfleischig" describe fruit flesh colour, not meat
   'orangen': ['orangenblüten', 'orangenblüte'],  // orange blossom is cosmetic fragrance, not fruit
   'tomaten': ['risotto'],  // "risotto tomaten" is a pasta-rice product, not vegetables
   'gemüse': ['gemüsehacker', 'gemüseschäler', 'gemüsemesser', 'gemüsehobel'],  // kitchen utensils, not vegetables
