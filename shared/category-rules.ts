@@ -483,6 +483,7 @@ const WHOLE_WORD_KEYWORDS = new Set([
   'port',    // "sport", "portion", "import" are not port wine
   'rose',    // "rosenkohl" (sprouts), "rosinen" (raisins), "rosmarin" are not rosé wine
   'rosé',    // accented variant of the same wine keyword
+  'thon',    // French "thon" (tuna) embedded in "anthony" (a wine name) — not fish
 ])
 
 /** Known false-positive substrings: if the keyword match is actually
@@ -496,6 +497,15 @@ const KEYWORD_BLOCKERS: Record<string, string[]> = {
   'tomaten': ['risotto'],  // "risotto tomaten" is a pasta-rice product, not vegetables
   'gemüse': ['gemüsehacker', 'gemüseschäler', 'gemüsemesser', 'gemüsehobel'],  // kitchen utensils, not vegetables
   'milch': ['süssmandelmilch', 'mandelmilch'],  // cosmetic ingredients, not dairy
+  'braten': ['gebraten'],  // "gebratene nudeln/reis" (fried) is a cooking style, not a roast — "schweinsbraten"/"kalbsbraten" still match
+  'eier': ['ramseier'],  // "ramseier" (cider/juice brand), not eggs
+  'rahm': ['rahmen'],  // "ohne rahmen" (notebooks) is not cream
+  'brot': ['brother'],  // "brother" (printer cartridges) is not bread
+  'cola': ['chocola'],  // "chocolate"/"chocolat"/"chocolait" is not cola — real colas don't contain "chocola"
+  'mais': ['maison'],  // "maison" (a wine estate) is not corn
+  'mayo': ['mayor'],  // "viña mayor" (a wine) is not mayonnaise
+  'wasser': ['wasserkocher'],  // a kettle is an appliance, not water
+  'gewürz': ['gewürzmühle'],  // a spice grinder is an appliance, not a condiment
 }
 
 /**
