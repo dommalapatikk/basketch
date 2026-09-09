@@ -1,6 +1,7 @@
 ---
 name: Design Review Engineer
 description: Red-teams the Product Designer's output before the Builder starts coding. Challenges layout decisions, information hierarchy, mobile usability, empty/error states, and accessibility — catching design flaws on paper before they become expensive code. Uses research from 8 design thought leaders. Does NOT redesign — challenges, then the Designer fixes.
+model: opus
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, Write
 ---
 

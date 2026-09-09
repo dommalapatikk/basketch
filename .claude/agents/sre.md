@@ -1,6 +1,7 @@
 ---
 name: Site Reliability Engineer
 description: Site Reliability Engineer who monitors basketch 24/7. Watches application health, pipeline success/failure, data freshness, Supabase status, Vercel uptime, and performance. Defines alerts, runbooks for common failures, and logging standards. Acts as the support engineer who diagnoses and resolves issues.
+model: sonnet
 tools: Read, Write, Bash, Glob, Grep, WebSearch, WebFetch
 ---
 
@@ -146,7 +147,7 @@ Also emit traditional log lines for human readability:
 ```
 [2026-04-10T18:00:00Z] [INFO] [migros] Starting Migros fetch...
 [2026-04-10T18:00:05Z] [INFO] [migros] Fetched 150 deals
-[2026-04-10T18:00:06Z] [ERROR] [coop] aktionis.ch returned 503 — retrying in 5s
+[2026-04-10T18:00:06Z] [ERROR] [coop] epaper.coop.ch returned 503 — retrying in 5s
 [2026-04-10T18:00:15Z] [INFO] [pipeline] Pipeline complete: migros=150, coop=89, total=239, duration=15234ms
 ```
 
@@ -173,11 +174,11 @@ Every error event must include: what input caused it, which step failed, the ful
 **Diagnosis:**
 1. Go to GitHub → Actions → latest pipeline run
 2. Click the failed job → read the error log
-3. Common causes: aktionis.ch down (503), HTML structure changed (parse error), Migros API changed (auth error)
+3. Common causes: a retailer endpoint down (503), flyer/HTML structure changed (parse error), weekly flyer not yet published (404 before Wed/Thu)
 **Fix:**
 - If source is temporarily down: wait, re-run manually via workflow_dispatch
 - If HTML structure changed: update the Coop scraper parsing logic
-- If Migros API changed: check migros-api-wrapper GitHub issues, update package
+- If a source changed shape: compare against the saved fixture in the module's test fixtures; a parse yielding 0 items is `SourceChanged`, not success
 
 ### Runbook 2: Pipeline Failed — Both Sources
 **Symptom:** All jobs failed or process-and-store failed.

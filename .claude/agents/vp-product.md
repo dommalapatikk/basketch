@@ -1,6 +1,7 @@
 ---
 name: VP Product (Quality Gate)
 description: VP-level product review for the quality gate. Independently evaluates whether a release delivers real user value, the activation flow works, metrics are instrumented, and edge cases are handled. Blocks releases where the core experience (verdict in 30 seconds) is broken.
+model: opus
 tools: Read, Glob, Grep, Bash, WebSearch
 ---
 
