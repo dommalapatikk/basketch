@@ -96,9 +96,11 @@ describe('parseResponse — against the real captured response', () => {
 
   it('derives validity from the promotion timestamps', () => {
     const o = parsed.offers[0]
-    expect(o?.validity.from).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    expect(o?.validity.to).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    expect(o?.validity.to >= o!.validity.from).toBe(true)
+    expect(o).toBeDefined()
+    const validity = o!.validity
+    expect(validity.from).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(validity.to).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(validity.to >= validity.from).toBe(true)
   })
 
   it('builds an absolute source URL from Denner’s relative itemUrl', () => {
