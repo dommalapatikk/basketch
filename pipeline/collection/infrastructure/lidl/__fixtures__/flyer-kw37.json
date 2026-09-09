@@ -1,0 +1,1159 @@
+{
+ "flyer": {
+  "offerStartDate": "2026-09-10",
+  "offerEndDate": "2026-09-16",
+  "startDate": "2026-09-06",
+  "endDate": "2026-09-16",
+  "pages": [
+   {
+    "number": 1,
+    "links": [
+     {
+      "id": "01a06ccb-7072-7d86-a4c8-e7f9bc31b4e5",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058458",
+      "title": "Helle Trauben XXL",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 55.986509274874,
+      "left": 17.714285714286,
+      "productDetails": {
+       "productId": "10058458",
+       "title": "Helle Trauben XXL"
+      }
+     },
+     {
+      "id": "01a06ccb-4931-724c-b768-33e9d63a1e76",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058463",
+      "title": "CARNESI Black Angus Rumpsteak am Stück",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 48.903878583474,
+      "left": 35.428571428571,
+      "productDetails": {
+       "productId": "10058463",
+       "title": "CARNESI Black Angus Rumpsteak am Stück"
+      }
+     },
+     {
+      "id": "01a06ccb-653b-7d03-b287-8124f25c65cf",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058576",
+      "title": "ALESTO Cashewnüsse",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 50.927487352445,
+      "left": 58.285714285714,
+      "productDetails": {
+       "productId": "10058576",
+       "title": "ALESTO Cashewnüsse"
+      }
+     },
+     {
+      "id": "01a06ccb-5849-7942-a05b-e97840167453",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058468",
+      "title": "BELLAROM Alu-Kaffeekapseln",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 44.519392917369,
+      "left": 88.571428571429,
+      "productDetails": {
+       "productId": "10058468",
+       "title": "BELLAROM Alu-Kaffeekapseln"
+      }
+     },
+     {
+      "id": "01a06ccb-7f16-7224-8f89-8d2ac6ad9b99",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058501",
+      "title": "QUALITÉ SUISSE Poulet Minifilet Duopack",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 77.234401349073,
+      "left": 18.857142857143,
+      "productDetails": {
+       "productId": "10058501",
+       "title": "QUALITÉ SUISSE Poulet Minifilet Duopack"
+      }
+     },
+     {
+      "id": "01a06ccb-8b2d-7155-ac2a-3270a7e07205",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058639",
+      "title": "ITALIAMO Fladenbrot",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 79.932546374368,
+      "left": 52.0,
+      "productDetails": {
+       "productId": "10058639",
+       "title": "ITALIAMO Fladenbrot"
+      }
+     },
+     {
+      "id": "01a06ccb-97aa-7c69-941e-86896027b7fc",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058433",
+      "title": "LOOKS BY WOLFGANG JOOP Pyjama, 2-tlg.",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 78.246205733558,
+      "left": 68.0,
+      "productDetails": {
+       "productId": "10058433",
+       "title": "LOOKS BY WOLFGANG JOOP Pyjama, 2-tlg."
+      }
+     }
+    ]
+   },
+   {
+    "number": 2,
+    "links": [
+     {
+      "id": "01a06ccb-cdec-7493-95ce-b2bcfe7e0372",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058463",
+      "title": "CARNESI Black Angus Rumpsteak am Stück",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 48.903878583474,
+      "left": 22.857142857143,
+      "productDetails": {
+       "productId": "10058463",
+       "title": "CARNESI Black Angus Rumpsteak am Stück"
+      }
+     },
+     {
+      "id": "01a06ccb-d93e-7f3c-a608-d7e7ddea27b2",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058464",
+      "title": "CARNESI Kaninchenfleisch",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 47.554806070826,
+      "left": 71.428571428571,
+      "productDetails": {
+       "productId": "10058464",
+       "title": "CARNESI Kaninchenfleisch"
+      }
+     },
+     {
+      "id": "01a06ccb-f922-754d-b9d0-ae2d2a2b14e0",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058466",
+      "title": "DELUXE Rustico Holzofenbrot",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 77.908937605396,
+      "left": 15.428571428571,
+      "productDetails": {
+       "productId": "10058466",
+       "title": "DELUXE Rustico Holzofenbrot"
+      }
+     },
+     {
+      "id": "01a06ccc-17d5-75f8-8827-a22696c64cdb",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058468",
+      "title": "BELLAROM Alu-Kaffeekapseln",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 71.50084317032,
+      "left": 84.0,
+      "productDetails": {
+       "productId": "10058468",
+       "title": "BELLAROM Alu-Kaffeekapseln"
+      }
+     }
+    ]
+   },
+   {
+    "number": 3,
+    "links": [
+     {
+      "id": "01a06ccb-ac29-7898-8464-74f4ab4fcce6",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058451",
+      "title": "Bio Ingwer",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 23.524451939292007,
+      "left": 18.285714285714,
+      "productDetails": {
+       "productId": "10058451",
+       "title": "Bio Ingwer"
+      }
+     },
+     {
+      "id": "01a06ccc-28e9-727c-9aaa-edfabcd8602f",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058469",
+      "title": "BON GELATI Eiscreme",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 52.192242833052,
+      "left": 22.285714285714,
+      "productDetails": {
+       "productId": "10058469",
+       "title": "BON GELATI Eiscreme"
+      }
+     },
+     {
+      "id": "01a06ccc-4757-783d-b2a2-0470edfec9a0",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058470",
+      "title": "Barolo DOCA",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 53.878583473862,
+      "left": 61.142857142857,
+      "productDetails": {
+       "productId": "10058470",
+       "title": "Barolo DOCA"
+      }
+     },
+     {
+      "id": "01a06ccc-7c68-7ba8-aee9-2785c315ae6b",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058472",
+      "title": "CROWNFIELD Choco Shells/Choco Rice",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 78.836424957841,
+      "left": 50.857142857143,
+      "productDetails": {
+       "productId": "10058472",
+       "title": "CROWNFIELD Choco Shells/Choco Rice"
+      }
+     },
+     {
+      "id": "01a06ccc-8440-7df3-8991-4402ca5ca2b9",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058473",
+      "title": "Batterien AAA",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 78.836424957841,
+      "left": 87.428571428571,
+      "productDetails": {
+       "productId": "10058473",
+       "title": "Batterien AAA"
+      }
+     },
+     {
+      "id": "01a06ccc-7256-7352-8d30-048ada9a63d4",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058471",
+      "title": "DELUXE Gallus Sauerteigbrot",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 80.860033726813,
+      "left": 7.4285714285714,
+      "productDetails": {
+       "productId": "10058471",
+       "title": "DELUXE Gallus Sauerteigbrot"
+      }
+     }
+    ]
+   },
+   {
+    "number": 4,
+    "links": [
+     {
+      "id": "01a06ccd-189f-7c18-9d57-cc93716c60a1",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058453",
+      "title": "Schweizer Bio Rucola",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 31.618887015176995,
+      "left": 70.285714285714,
+      "productDetails": {
+       "productId": "10058453",
+       "title": "Schweizer Bio Rucola"
+      }
+     },
+     {
+      "id": "01a06ccd-0c84-77f2-930b-2e177ee343f3",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058452",
+      "title": "QUALITÉ SUISSE Schweizer Äpfel rot",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 44.772344013491,
+      "left": 23.428571428571,
+      "productDetails": {
+       "productId": "10058452",
+       "title": "QUALITÉ SUISSE Schweizer Äpfel rot"
+      }
+     },
+     {
+      "id": "01a06ccd-317e-7438-87eb-eb9287478e61",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058455",
+      "title": "QUALITÉ SUISSE Schweizer Kürbis Hokkaido",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 45.784148397976,
+      "left": 64.0,
+      "productDetails": {
+       "productId": "10058455",
+       "title": "QUALITÉ SUISSE Schweizer Kürbis Hokkaido"
+      }
+     }
+    ]
+   },
+   {
+    "number": 5,
+    "links": [
+     {
+      "id": "01a06ccd-428e-7047-a2fa-ef9bebc366ed",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058456",
+      "title": "Schweizer Bio Rüebli",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 7.335581787520994,
+      "left": 34.285714285714,
+      "productDetails": {
+       "productId": "10058456",
+       "title": "Schweizer Bio Rüebli"
+      }
+     },
+     {
+      "id": "01a06ccc-ca80-7196-99a4-20ab65363c05",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058341",
+      "title": "Zamioculas",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 11.382799325464006,
+      "left": 72.0,
+      "productDetails": {
+       "productId": "10058341",
+       "title": "Zamioculas"
+      }
+     },
+     {
+      "id": "01a06ccd-4e6d-731b-a0e6-95008a58ed6c",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058457",
+      "title": "QUALITÉ SUISSE Schweizer Birnen",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 27.908937605396005,
+      "left": 32.0,
+      "productDetails": {
+       "productId": "10058457",
+       "title": "QUALITÉ SUISSE Schweizer Birnen"
+      }
+     },
+     {
+      "id": "01a06ccc-d4d5-7bab-b978-d5dcea19d90d",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058342",
+      "title": "Chrysanthemen-Trio",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 27.234401349072996,
+      "left": 87.428571428571,
+      "productDetails": {
+       "productId": "10058342",
+       "title": "Chrysanthemen-Trio"
+      }
+     },
+     {
+      "id": "01a06ccd-5a7c-7d2b-8261-07dede744711",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058458",
+      "title": "Helle Trauben XXL",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 45.784148397976,
+      "left": 31.428571428571,
+      "productDetails": {
+       "productId": "10058458",
+       "title": "Helle Trauben XXL"
+      }
+     },
+     {
+      "id": "01a06ccc-e195-78e0-9120-c7000b8d7302",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058343",
+      "title": "Outdoor-Mix",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 43.760539629005,
+      "left": 88.0,
+      "productDetails": {
+       "productId": "10058343",
+       "title": "Outdoor-Mix"
+      }
+     },
+     {
+      "id": "01a06ccd-6765-79f4-a1e4-0b01f4e432dc",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058459",
+      "title": "Grapefruit",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 69.392917369309,
+      "left": 20.571428571429,
+      "productDetails": {
+       "productId": "10058459",
+       "title": "Grapefruit"
+      }
+     },
+     {
+      "id": "01a06ccc-ec1e-726c-b44f-6251702a7516",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058344",
+      "title": "Erica Gracilis",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 60.286677908938,
+      "left": 86.857142857143,
+      "productDetails": {
+       "productId": "10058344",
+       "title": "Erica Gracilis"
+      }
+     },
+     {
+      "id": "01a06ccd-80dc-7d4c-a7ba-b14f50b9ca8c",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058477",
+      "title": "CHEF SELECT Antipasti",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 87.268128161889,
+      "left": 21.714285714286,
+      "productDetails": {
+       "productId": "10058477",
+       "title": "CHEF SELECT Antipasti"
+      }
+     },
+     {
+      "id": "01a06ccc-f829-7549-abdb-5a2303676dde",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058345",
+      "title": "Blumenzwiebeln Tulpen",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 80.860033726813,
+      "left": 87.428571428571,
+      "productDetails": {
+       "productId": "10058345",
+       "title": "Blumenzwiebeln Tulpen"
+      }
+     }
+    ]
+   },
+   {
+    "number": 6,
+    "links": [
+     {
+      "id": "01a06ccd-8fdf-7fa7-ae3a-636ba693c2b5",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058478",
+      "title": "Käse-Laugenbrezel",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 27.908937605396005,
+      "left": 32.571428571429,
+      "productDetails": {
+       "productId": "10058478",
+       "title": "Käse-Laugenbrezel"
+      }
+     },
+     {
+      "id": "01a06ccd-99a9-744d-9d1d-eec766ea4eed",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058479",
+      "title": "Brezel mit Cremefüllung und Mandeltopping",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 27.571669477233996,
+      "left": 90.857142857143,
+      "productDetails": {
+       "productId": "10058479",
+       "title": "Brezel mit Cremefüllung und Mandeltopping"
+      }
+     },
+     {
+      "id": "01a06ccd-b5c8-781f-ac1d-23df09198b08",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058480",
+      "title": "Krustenbrot",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 52.866779089376,
+      "left": 21.714285714286,
+      "productDetails": {
+       "productId": "10058480",
+       "title": "Krustenbrot"
+      }
+     },
+     {
+      "id": "01a06ccd-c040-7ecf-97d3-1a5652c1d0fb",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058481",
+      "title": "QUALITÉ SUISSE Vanillestange",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 51.85497470489,
+      "left": 64.571428571429,
+      "productDetails": {
+       "productId": "10058481",
+       "title": "QUALITÉ SUISSE Vanillestange"
+      }
+     },
+     {
+      "id": "01a06ccd-f16e-76b8-a55a-fe851c37c8e6",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058482",
+      "title": "FISHER’S CHOICE ASC Forellenfilet mariniert",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 77.824620573356,
+      "left": 21.714285714286,
+      "productDetails": {
+       "productId": "10058482",
+       "title": "FISHER’S CHOICE ASC Forellenfilet mariniert"
+      }
+     },
+     {
+      "id": "01a06ccd-fdec-7bca-8943-0c03965a757b",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058483",
+      "title": "FISHER’S CHOICE GGN Dorade Rosé",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 78.161888701518,
+      "left": 54.285714285714,
+      "productDetails": {
+       "productId": "10058483",
+       "title": "FISHER’S CHOICE GGN Dorade Rosé"
+      }
+     },
+     {
+      "id": "01a06cce-0861-7848-a47e-c8a3853e2ff8",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058484",
+      "title": "FISHER’S CHOICE ASC Lachsfilet mit Haut",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 77.824620573356,
+      "left": 86.285714285714,
+      "productDetails": {
+       "productId": "10058484",
+       "title": "FISHER’S CHOICE ASC Lachsfilet mit Haut"
+      }
+     }
+    ]
+   },
+   {
+    "number": 7,
+    "links": [
+     {
+      "id": "01a06cce-25f6-72d3-aebf-767ceeaa26a2",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058485",
+      "title": "QUALITÉ SUISSE Cognac Steak",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 16.526138279932994,
+      "left": 34.857142857143,
+      "productDetails": {
+       "productId": "10058485",
+       "title": "QUALITÉ SUISSE Cognac Steak"
+      }
+     },
+     {
+      "id": "01a06cce-30a0-73b3-ac4d-44752fa0b30f",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058486",
+      "title": "QUALITÉ SUISSE Tessinerbraten",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 17.875210792580006,
+      "left": 86.857142857143,
+      "productDetails": {
+       "productId": "10058486",
+       "title": "QUALITÉ SUISSE Tessinerbraten"
+      }
+     },
+     {
+      "id": "01a06cce-3e23-7890-ac92-fd213b0d25cb",
+      "displayType": "product",
+      "url": "https://www.lidl.ch/p/de-CH/p10058487",
+      "title": "QUALITÉ SUISSE Bio Weiderind Filet Médaillons",
+      "icon": "link",
+      "width": 9.1428571428571,
+      "height": 5.3962900505902,
+      "top": 46.880269814503,
+      "left": 34.285714285714,
+      "productDetails": {
+       "productId": "10058487",
+       "title": "QUALITÉ SUISSE Bio Weiderind Filet Médaillons"
+      }
+     }
+    ]
+   },
+   {
+    "number": 8,
+    "links": []
+   },
+   {
+    "number": 9,
+    "links": []
+   }
+  ],
+  "products": {
+   "01a06ccb-7072-7d86-a4c8-e7f9bc31b4e5": {
+    "productId": "10058458",
+    "title": "Helle Trauben XXL",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/helle-trauben-xxl/p10058458",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/FPHssKJm_LmygQ9Cp0FYJkXqP_fKDsMRP-yhDXwvYy0/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS83MDBGNzJGNkJCMjkyMjQ2QThBODU2MzU/zNUI1MkUxRUEzMjk0QUFEQTA2NjhFQzVDREZGOUZCQ0IxQjQ4OTIzLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058458",
+    "price": "3.79",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Italien Pro 2 kg 1 kg = 1.90"
+   },
+   "01a06ccb-4931-724c-b768-33e9d63a1e76": {
+    "productId": "10058463",
+    "title": "CARNESI Black Angus Rumpsteak am Stück",
+    "brand": "CARNESI",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/carnesi-black-angus-rumpsteak-am-stueck/p10058463",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Mac1dq3BZcf6mwgqhSL2OpzP9xuuNs7ECk4jH6pAstI/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS84M0ZGRTRBOEM4OTNDQ0QwQTM1RjkyM0M/zQ0M1NjNDQThCODRFRTQyRDVENDdCMDczOTUwNUM5MjIwMThGQ0ZBLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058463",
+    "price": "2.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Uruguay Pro 100 g Ca. 600-800 g"
+   },
+   "01a06ccb-653b-7d03-b287-8124f25c65cf": {
+    "productId": "10058576",
+    "title": "ALESTO Cashewnüsse",
+    "brand": "ALESTO",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/alesto-cashewnuesse/p10058576",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/RY7L1l-EOmBJNolyY8MvZNWlSidJTTQgCrywzskFAbU/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS81QjVGNUM5NTVEODAyQ0I0MjQxNUMzODY/1NUVBQkI0MUI0RkVCMjkxOEIxQjQ3ODMwMkYyNkI1Njc3MThENjk2LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058576",
+    "price": "1.79",
+    "currencySymbol": "CHF",
+    "description": "Naturbelassen Pro 200 g 100 g = 0.90"
+   },
+   "01a06ccb-5849-7942-a05b-e97840167453": {
+    "productId": "10058468",
+    "title": "BELLAROM Alu-Kaffeekapseln",
+    "brand": "BELLAROM",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/bellarom-alu-kaffeekapseln/p10058468",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/iDleS4NGw31cR5K44bOPo1dxDaavK2hrONCIi5A8GNU/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS85M0FGMTQ0QkUwMEQ0MzdGRUZGMzhDOUY/zOTBCRUVBM0Q0QjJDRUY0QTA2OEYyQ0IwODZEQ0E1NkI3RkRCQTgxLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058468",
+    "price": "2.95",
+    "currencySymbol": "CHF",
+    "description": "Diverse Sorten 4/12 &ndash; 9/12 Nespresso&reg; kompatibel Pro 20 St&uuml;ck 1 Stk. = 0.15"
+   },
+   "01a06ccb-7f16-7224-8f89-8d2ac6ad9b99": {
+    "productId": "10058501",
+    "title": "QUALITÉ SUISSE Poulet Minifilet Duopack",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-poulet-minifilet-duopack/p10058501",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/kfJsLwYrJURcbYfKqGe_zaWrF5ue_3plz0udMgD4f70/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS84RDYzNjIwRjEzMTYyNUIzQzUxMjA1MEV/FNUM5QjE3RkFBMzM0MTlCQjYyRDJFMkM1NDdBQTk1N0RDRDA2NkM1LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058501",
+    "price": "7.89",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro 2 x 250 g 100 g = 1.58"
+   },
+   "01a06ccb-8b2d-7155-ac2a-3270a7e07205": {
+    "productId": "10058639",
+    "title": "ITALIAMO Fladenbrot",
+    "brand": "ITALIAMO",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/italiamo-fladenbrot/p10058639",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/phNZXvczPKADbMLUdjK-MUdzT2Jldu4ImBqTPG4rwoM/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9EQTMwMDQ2M0NBRDQyREIwMDA4RDJEREF/GNURDNTBFNkNBQzYzQkRDRjQ2N0JFOTlDRjY2NDk3NkNGQkUwQ0U1LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058639",
+    "price": "1.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 390 g 100 g = 0.51"
+   },
+   "01a06ccb-97aa-7c69-941e-86896027b7fc": {
+    "productId": "10058433",
+    "title": "LOOKS BY WOLFGANG JOOP Pyjama, 2-tlg.",
+    "brand": "LOOKS BY WOLFGANG JOOP",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/looks-by-wolfgang-joop-pyjama-2-tlg/p10058433",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/b_HMxxFQJ_vEcTCc7K74fcVhpfsKytqZ6XYr82O26qE/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS80QUVBNEE1MjgxNjFFQzUyNDBFNTc3NEF/DRjI4NUFCMjE1Q0U5QTc4RDk2REVFMDNDN0U2OTZDQzhDN0YxQjdELnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058433",
+    "price": "19.9",
+    "currencySymbol": "CHF",
+    "description": "Aus reiner Baumwolle Pro Set Finde jetzt deine Gr&ouml;sse"
+   },
+   "01a06ccb-cdec-7493-95ce-b2bcfe7e0372": {
+    "productId": "10058463",
+    "title": "CARNESI Black Angus Rumpsteak am Stück",
+    "brand": "CARNESI",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/carnesi-black-angus-rumpsteak-am-stueck/p10058463",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Mac1dq3BZcf6mwgqhSL2OpzP9xuuNs7ECk4jH6pAstI/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS84M0ZGRTRBOEM4OTNDQ0QwQTM1RjkyM0M/zQ0M1NjNDQThCODRFRTQyRDVENDdCMDczOTUwNUM5MjIwMThGQ0ZBLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058463",
+    "price": "2.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Uruguay Pro 100 g Ca. 600-800 g"
+   },
+   "01a06ccb-d93e-7f3c-a608-d7e7ddea27b2": {
+    "productId": "10058464",
+    "title": "CARNESI Kaninchenfleisch",
+    "brand": "CARNESI",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/carnesi-kaninchenfleisch/p10058464",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/QNua4I7-URJOJdYns0gvMw6ARYzveToqYVJhuh0s8jM/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wQzRBMUMwODM0M0NGODIwNTc5MDI4NzU/2QzMwRjE2MTc4MkFBNzI0M0Y3M0REOTZBNjQwMTBDRDFGRDlEMTM1LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058464",
+    "price": "1.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Ungarn Pro 100 g Ca. 500-700 g"
+   },
+   "01a06ccb-f922-754d-b9d0-ae2d2a2b14e0": {
+    "productId": "10058466",
+    "title": "DELUXE Rustico Holzofenbrot",
+    "brand": "DELUXE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/deluxe-rustico-holzofenbrot/p10058466",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/eOliCq0-8kv7fg9CxzuYNtNcbMLV6dPb7XA0U-YPNX0/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS83QzYyRDM5NDk3NDMxMTIwM0Y5REFBNDg/3NDk4NDU1NjEzMTI5Q0RFQTdEMUQ2MTBDNDc4MTczQkY2NTQ0NDM2LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058466",
+    "price": "2.19",
+    "currencySymbol": "CHF",
+    "description": "Pro 430 g 100 g = 0.51"
+   },
+   "01a06ccc-17d5-75f8-8827-a22696c64cdb": {
+    "productId": "10058468",
+    "title": "BELLAROM Alu-Kaffeekapseln",
+    "brand": "BELLAROM",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/bellarom-alu-kaffeekapseln/p10058468",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/iDleS4NGw31cR5K44bOPo1dxDaavK2hrONCIi5A8GNU/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS85M0FGMTQ0QkUwMEQ0MzdGRUZGMzhDOUY/zOTBCRUVBM0Q0QjJDRUY0QTA2OEYyQ0IwODZEQ0E1NkI3RkRCQTgxLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058468",
+    "price": "2.95",
+    "currencySymbol": "CHF",
+    "description": "Diverse Sorten 4/12 &ndash; 9/12 Nespresso&reg; kompatibel Pro 20 St&uuml;ck 1 Stk. = 0.15"
+   },
+   "01a06ccb-ac29-7898-8464-74f4ab4fcce6": {
+    "productId": "10058451",
+    "title": "Bio Ingwer",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/bio-ingwer/p10058451",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/hK2jSE8gB7iCaUU9HTcI378uuHFzLuX1mRUS4dQhd1g/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9DMkQ3QjZCOTM4QjdDOUQ3ODQ3RjEzQjJ/DRTdBNzZFOTA4OTQyNUU2MzUxNkEyOEI4MjFFMjk3QkI0MjdGNTNBLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058451",
+    "price": "3.29",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: China Pro kg"
+   },
+   "01a06ccc-28e9-727c-9aaa-edfabcd8602f": {
+    "productId": "10058469",
+    "title": "BON GELATI Eiscreme",
+    "brand": "BON GELATI",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/bon-gelati-eiscreme/p10058469",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/1hnCAWti1p9z4KyfTSgFaahFsMhLGqUfAFazjVor8SA/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9FM0JDQ0ZENjkyQkRFN0E1NEQwOEI2Rjg/zRUFENTlFODg0NkVFMEQyRkRBRkNGMDI2MkM0NDdCNDY1MEM3OEExLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058469",
+    "price": "1.99",
+    "currencySymbol": "CHF",
+    "description": "Stracciatella, Erdbeer Pro 1000 ml"
+   },
+   "01a06ccc-4757-783d-b2a2-0470edfec9a0": {
+    "productId": "10058470",
+    "title": "Barolo DOCA",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/barolo-doca/p10058470",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/V8RBtBghy8iVXNtuqf5xwHrIJ29wPtaSiX9_-8uUkgk/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8yQ0YyMTFGQzY4MkQ2Qzc0M0FCNTA2Qjk/wRjYyODI2OUI2QzhGMTlBQjI5MjA0Q0VGOTM5MkI5MkNDMkE3MkIzLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058470",
+    "price": "9.95",
+    "currencySymbol": "CHF",
+    "description": "Italien &ndash; Piemont Pro 0,75 l 1 l = 13.27"
+   },
+   "01a06ccc-7c68-7ba8-aee9-2785c315ae6b": {
+    "productId": "10058472",
+    "title": "CROWNFIELD Choco Shells/Choco Rice",
+    "brand": "CROWNFIELD",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/crownfield-choco-shells-choco-rice/p10058472",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/gZaTk8rEwGqoUbOjCeqpNZxx6tPtvZv15wZZQhIrRMc/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8zMkE2MkVCMjFBOTJERjY3REU2RkU0RTM/zNUM5NjQ1MUUzRTk3Qzg1QTQ4REVFMTI5MzAzNjA3RUQyMUUyNzJCLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058472",
+    "price": "2.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 500 g 100 g = 0.60"
+   },
+   "01a06ccc-8440-7df3-8991-4402ca5ca2b9": {
+    "productId": "10058473",
+    "title": "Batterien AAA",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/batterien-aaa/p10058473",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/thvJcVLf9U6an5FGcASdO1_2U9eebubP5KpyfrkTuTA/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8zODI5MEVFMENENEUwOEVBRjkxRUU4Mjg/0NDVGODVBMzFBMzlGOEQ4MEE3NzY4OTZCNDQ4OEEzNTFBOTY3NjIyLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058473",
+    "price": "4.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 12 St&uuml;ck 1 St&uuml;ck = 0.42"
+   },
+   "01a06ccc-7256-7352-8d30-048ada9a63d4": {
+    "productId": "10058471",
+    "title": "DELUXE Gallus Sauerteigbrot",
+    "brand": "DELUXE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/deluxe-gallus-sauerteigbrot/p10058471",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/jBPbvgKy7EvzxpkPrYm21jAlw_3c3SYLb464t5ZxIfg/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8xMDk2MDFEMUMwODE0NThBNzY2OTFDRUZ/DQTE2QUYyQjRFMzI5MTI5OUE2QUJDQjNDM0EwN0RCQkIxREI1RDdBLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058471",
+    "price": "2.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 400 g 100 g = 0.75"
+   },
+   "01a06ccd-189f-7c18-9d57-cc93716c60a1": {
+    "productId": "10058453",
+    "title": "Schweizer Bio Rucola",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/schweizer-bio-rucola/p10058453",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/J3vi-8QpN2Wtjjz8Vln33g2EZp-0SWCnNe7Dx8rr7U4/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS85MUYxNDhFNEFFMEIzNkYwRDkyRjYwOUN/BMzFBOTEyODU0RDY1RjA5NUM0RjVCNkM1NzI4RkYwODYwOUY5OEUwLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058453",
+    "price": "1.49",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro 100 g"
+   },
+   "01a06ccd-0c84-77f2-930b-2e177ee343f3": {
+    "productId": "10058452",
+    "title": "QUALITÉ SUISSE Schweizer Äpfel rot",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-schweizer-aepfel-rot/p10058452",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/JffP918qEM-yS4yqzj1Cbcj0t6O4z88sCqEAM3GN5ns/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8zMDNBOTgzNjBFMjc3MjBBQzdBOUZDNDY/wMENDQkJFRjhGOTYyNzU0QzE0N0MxNTY2REZFQTg4MEUxNjY4N0I4LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058452",
+    "price": "1.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro kg"
+   },
+   "01a06ccd-317e-7438-87eb-eb9287478e61": {
+    "productId": "10058455",
+    "title": "QUALITÉ SUISSE Schweizer Kürbis Hokkaido",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-schweizer-kuerbis-hokkaido/p10058455",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/4BDxLj-ckHGuznBEbuEwgd6wNEjib7EQQdWvk0qq1JI/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9BQUZGNjcxRDMyQzYxNjdENTAwNzNFMjh/GNzZCMkYzODdCRUU3RDg4RjQ1RUU3REEzODY0OTExRkM5NDgwRTAwLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058455",
+    "price": "2.19",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro kg"
+   },
+   "01a06ccd-428e-7047-a2fa-ef9bebc366ed": {
+    "productId": "10058456",
+    "title": "Schweizer Bio Rüebli",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/schweizer-bio-rueebli/p10058456",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/vtQQjkPV7QkyP9y1x74G771KcfNhkWEITZCz1i6WlLk/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS83MDQzODA1MDJGQUVBQTQ4NjRFRUM2OUE/4QkExNEU0NEM5QzIzM0ZEMTNEQzRGRUE0NDkyMDVGMUY1NUMwMkM5LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058456",
+    "price": "2.59",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro 1 kg"
+   },
+   "01a06ccc-ca80-7196-99a4-20ab65363c05": {
+    "productId": "10058341",
+    "title": "Zamioculas",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/zamioculas/p10058341",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/19ieFahb6dZP3Y0V9-WxYjZNu8j2GevYMCNKCy1ECd4/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wRUY0REM3QTY4RUYxQTcyNjRFRkY2MzU/yRDg3Njg2ODA0MTM1MjZEQ0MyMjU2MTgwNjBFOUJCNTkzODREMEVFLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058341",
+    "price": "7.99",
+    "currencySymbol": "CHF",
+    "description": "H&ouml;he: ca. 45 cm Pro St&uuml;ck"
+   },
+   "01a06ccd-4e6d-731b-a0e6-95008a58ed6c": {
+    "productId": "10058457",
+    "title": "QUALITÉ SUISSE Schweizer Birnen",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-schweizer-birnen/p10058457",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/25O-ksE2BPr9yR9CoeR0fwnVmUWeHPaN3jn2B3z2LAU/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9DRjM1MjQzRjg1Q0VFQ0UzNzQwMzBCMTc/1MDg4MEVFRDEzN0RGRjlGQTVFNzE3NzNBNUZBMTdDQTREMzU0MDA1LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058457",
+    "price": "2.39",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro kg"
+   },
+   "01a06ccc-d4d5-7bab-b978-d5dcea19d90d": {
+    "productId": "10058342",
+    "title": "Chrysanthemen-Trio",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/chrysanthemen-trio/p10058342",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/HmxmTE_xhHW4rsc-_MBPMTxbpghivXTtG423d9DmgqY/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS85M0YwRjc1QjhCQTUzNjgxNjhEQUVERDh/BMEQ4NkQ4N0U2QjQwNTI4QkFBOUFDN0M0QUExNDkxODc3RkJFRjcxLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058342",
+    "price": "3.29",
+    "currencySymbol": "CHF",
+    "description": "H&ouml;he: ca. 28 cm Diverse Bl&uuml;tenfarben Pro St&uuml;ck"
+   },
+   "01a06ccd-5a7c-7d2b-8261-07dede744711": {
+    "productId": "10058458",
+    "title": "Helle Trauben XXL",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/helle-trauben-xxl/p10058458",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/FPHssKJm_LmygQ9Cp0FYJkXqP_fKDsMRP-yhDXwvYy0/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS83MDBGNzJGNkJCMjkyMjQ2QThBODU2MzU/zNUI1MkUxRUEzMjk0QUFEQTA2NjhFQzVDREZGOUZCQ0IxQjQ4OTIzLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058458",
+    "price": "3.79",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Italien Pro 2 kg 1 kg = 1.90"
+   },
+   "01a06ccc-e195-78e0-9120-c7000b8d7302": {
+    "productId": "10058343",
+    "title": "Outdoor-Mix",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/outdoor-mix/p10058343",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/aXFqtc-1Rj6Ol2-HRZZna-ynOyJxuwrUhIZbizcsdJE/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS80NEU5NDdCMkY0RUI3RTU5M0ZCQjlFRTc/5OTU5MDY1QTdFRTc1Q0IyNDU3QUVGNEM1NUNGMjEzQTc0MTY3NTYzLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058343",
+    "price": "5.99",
+    "currencySymbol": "CHF",
+    "description": "H&ouml;he: ca. 15 &ndash; 25 cm Diverse Sorten Pro Tray"
+   },
+   "01a06ccd-6765-79f4-a1e4-0b01f4e432dc": {
+    "productId": "10058459",
+    "title": "Grapefruit",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/grapefruit/p10058459",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/fH7Z3FHIrxij19c_n3Qj7B6C59Jo1MVbSM0lswcwTow/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9FNTcyN0QyNkRDQjc1NEVFQTNERDVENzB/FQ0UwMjMzMkJFMjgyRDNDNDc5MjI4QTQ3OUY1MzMyQkM0QzNBMEUwLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058459",
+    "price": "0.45",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: S&uuml;dafrika Pro St&uuml;ck"
+   },
+   "01a06ccc-ec1e-726c-b44f-6251702a7516": {
+    "productId": "10058344",
+    "title": "Erica Gracilis",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/erica-gracilis/p10058344",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Iuw-KgEIL1i_MkzOqmzS_FDRyZLKxotd92GJ7JKxYbM/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wMzEwNDExMThGQTRFRUM0QkM3RjkyNEY/xQ0Y0NkREQkM4QUJCREE1MTgzNTUwQjNDNTc3MzNFODdBMUZDQjg0LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058344",
+    "price": "2.29",
+    "currencySymbol": "CHF",
+    "description": "H&ouml;he: ca. 30 cm Bl&uuml;tenfarbe: rosa/lila Pro St&uuml;ck"
+   },
+   "01a06ccd-80dc-7d4c-a7ba-b14f50b9ca8c": {
+    "productId": "10058477",
+    "title": "CHEF SELECT Antipasti",
+    "brand": "CHEF SELECT",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/chef-select-antipasti/p10058477",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/LOICS0-nsx7UI3zIoCRnG5o3IR4rMZLpzc2C63nJsCo/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS85QzgyRjRCMEQyQTQzQkQ2NzNBQkZEQzI/zNkI3QjBEMjM4QjBBMjcyQkM0OTVCMjBFMDk0NDhBNURGRjYxOUU3LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058477",
+    "price": "1.69",
+    "currencySymbol": "CHF",
+    "description": "Diverse Sorten Pro 150 g 100 g = 1.13"
+   },
+   "01a06ccc-f829-7549-abdb-5a2303676dde": {
+    "productId": "10058345",
+    "title": "Blumenzwiebeln Tulpen",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/blumenzwiebeln-tulpen/p10058345",
+    "categoryPrimary": "Non Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/OrTaTBfmISjMbQ1YJ1T-0IBNxeM9BMjQTsacd2YqZDs/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wRDY2MzQxMkNCNjI4NTlDQzg5NzYzQ0V/ENTA2NDg1QzE1OTNCMTIxQ0FDRThFNzk3MTNFQ0YxRTEzNTBBNzQ2LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058345",
+    "price": "9.99",
+    "currencySymbol": "CHF",
+    "description": "Beutelinhalt: 40 St&uuml;ck Mehrj&auml;hrig Pro Packung"
+   },
+   "01a06ccd-8fdf-7fa7-ae3a-636ba693c2b5": {
+    "productId": "10058478",
+    "title": "Käse-Laugenbrezel",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/kaese-laugenbrezel/p10058478",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/OYbjiY8W8GglWOyS0QbgJKSiWE3fqpNVZomP843x6cA/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS84Nzc2NEJDQTMwRTBENEFCNDQ0RUM3MTc/zQUVERTk5OEY2NjIyRTUxQzRGM0NGNDZDMTAwOTQ4NzRBNjdERjkxLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058478",
+    "price": "0.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 100 g"
+   },
+   "01a06ccd-99a9-744d-9d1d-eec766ea4eed": {
+    "productId": "10058479",
+    "title": "Brezel mit Cremefüllung und Mandeltopping",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/brezel-mit-cremefuellung-und-mandeltopping/p10058479",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Z04Kv64tmpaVctqD0zRfi9lMDNiobC83bEPBmFmoefw/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8yRDkzMTU2ODFERkY0NkU5QUEwMTJBOEJ/DMTkwNkFDNzFENDM5RjM1RDU5OERFODM4Q0Q0Qjc3ODA3NTI0MzY0LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058479",
+    "price": "0.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 134 g 100 g = 0.74"
+   },
+   "01a06ccd-b5c8-781f-ac1d-23df09198b08": {
+    "productId": "10058480",
+    "title": "Krustenbrot",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/krustenbrot/p10058480",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Oa6MYYBKCpOVTfxBajGuJ6hGftriZRZyG_UtPlOXrDc/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9ERTMzM0I4REJGNTg0RTNDRkIyNDNDRDN/GRkVBMjg3QTBDOTczODQyNDBGOTQ0M0RFREJGNTE2NjU2RTc0OTY1LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058480",
+    "price": "1.99",
+    "currencySymbol": "CHF",
+    "description": "Pro 1000 g"
+   },
+   "01a06ccd-c040-7ecf-97d3-1a5652c1d0fb": {
+    "productId": "10058481",
+    "title": "QUALITÉ SUISSE Vanillestange",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-vanillestange/p10058481",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/kbX6elUJNwlR38Kc6ugt34TPbZwVAxFxhJZB0Ev4ip0/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9GMkVBMTE2MkIyOEI4QTQwMTk5QkEzQkI/yQzA5Njc4MzkyNUQyMTE4NkVCOTA5OTQ2ODA2NDYzOTYzQUI0NUI3LnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058481",
+    "price": "0.69",
+    "currencySymbol": "CHF",
+    "description": "Pro 80 g 100 g = 0.86"
+   },
+   "01a06ccd-f16e-76b8-a55a-fe851c37c8e6": {
+    "productId": "10058482",
+    "title": "FISHER’S CHOICE ASC Forellenfilet mariniert",
+    "brand": "FISHER’S CHOICE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/fisher-s-choice-asc-forellenfilet-mariniert/p10058482",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/Naq_j0Fu2kiom1fDgPJ7-zjaNtolsZmACgrxXviWDGw/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8zM0MwREIzRUI1RkUwNTU1MEQ2NzlBNzd/BRjA0RTFDMEQ4M0MxNzkzQzlFNTQ4MUY4MzVEQjA5MUY3MjJCRThELnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058482",
+    "price": "1.89",
+    "currencySymbol": "CHF",
+    "description": "Mit Dijon Marinade Herkunft: T&uuml;rkei Pro 100 g Ca. 225-275 g"
+   },
+   "01a06ccd-fdec-7bca-8943-0c03965a757b": {
+    "productId": "10058483",
+    "title": "FISHER’S CHOICE GGN Dorade Rosé",
+    "brand": "FISHER’S CHOICE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/fisher-s-choice-ggn-dorade-rose/p10058483",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/BijBJXTUXGKyh7dCv40doPyusQlaqbRKPndQh8woFTw/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS9ERDVENEEyOEU4QkM0NTJDNDU1N0YxMjN/CQTA0ODgyOTA1QkQ3RDZEQkI4RDdDMTNEMjZGMEFDNTA5RUE3OUQyLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058483",
+    "price": "1.79",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Griechenland Pro 100 g Ca. 700 g"
+   },
+   "01a06cce-0861-7848-a47e-c8a3853e2ff8": {
+    "productId": "10058484",
+    "title": "FISHER’S CHOICE ASC Lachsfilet mit Haut",
+    "brand": "FISHER’S CHOICE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/fisher-s-choice-asc-lachsfilet-mit-haut/p10058484",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/PFZwvme3vamO8Qyzh0Rp21C12F3HrgxahQ2Mgx9vRiE/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wOUEzQTNCNkU4RENBQ0Y0MkEzREJFMTA/4QjJGOUUyODg3Njk4MDExOEJCRDA2Q0ZCNTFFQUE4QjVCM0VGMjRBLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058484",
+    "price": "7.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Norwegen Pro 300 g 100 g = 2.66"
+   },
+   "01a06cce-25f6-72d3-aebf-767ceeaa26a2": {
+    "productId": "10058485",
+    "title": "QUALITÉ SUISSE Cognac Steak",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-cognac-steak/p10058485",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/FIrsMq-UZmLVhO0FBhUN_nmnfXUOXhGM-0SmDkfWMiI/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wMDUyNjlGMTcyMEZGODgyMDkyQ0IzQzc/1QTY4NDcyREVFNzYwOTRFM0NBMDI2QzNGQzA1MDVGRDExRDM4RERCLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058485",
+    "price": "5.99",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro 2 x 180 g 100 g = 1.66"
+   },
+   "01a06cce-30a0-73b3-ac4d-44752fa0b30f": {
+    "productId": "10058486",
+    "title": "QUALITÉ SUISSE Tessinerbraten",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-tessinerbraten/p10058486",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/m9-cACMHxPF7cF-mCTQZW8YitU69qJZ4Ef981YEK4DU/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS8wMTgyOTZDMEQyMzNFM0IxQzA1OTE2NTQ/xQzI4RjAwQUVDMUJGQzhBNEM2MTk2ODRERjZBQTZDMjYxNkI3RkMzLnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058486",
+    "price": "1.49",
+    "currencySymbol": "CHF",
+    "description": "Herkunft: Schweiz Pro 100 g Ca. 700-1000 g"
+   },
+   "01a06cce-3e23-7890-ac92-fd213b0d25cb": {
+    "productId": "10058487",
+    "title": "QUALITÉ SUISSE Bio Weiderind Filet Médaillons",
+    "brand": "QUALITÉ SUISSE",
+    "currencyText": "CHF",
+    "canonicalUrl": "/p/de-CH/qualite-suisse-bio-weiderind-filet-medaillons/p10058487",
+    "categoryPrimary": "Food",
+    "image": "https://imgproxy-retcat.assets.schwarz/tAGyW9wPGCpEIeyExjcBgbFyeGj4FW6Y9-r8b0hRomA/sm:0/exar:1:ce/w:427/h:320/cz/M6Ly9wcm9kLWNhd/GFsb2ctbWVkaWEvY2gvMS82Mjc4NjhCODYzNjkyNUI3NzJBMkRCMUQ/xODZEOENBQjM2OTI0OENDQjlFN0VENjBCOUVCNDQ4RDUzRjI1MjFELnBuZw.png",
+    "url": "https://www.lidl.ch/p/de-CH/p10058487",
+    "price": "8.29",
+    "currencySymbol": "CHF",
+    "description": "Mind. 21 Tage gereift Herkunft: Schweiz Pro 100 g Ca. 120-250 g"
+   }
+  }
+ }
+}
