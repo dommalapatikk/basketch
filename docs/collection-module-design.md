@@ -225,6 +225,69 @@ Sample output:
 
 ---
 
+---
+
+## BUILD STATUS — 2026-09-09
+
+Branch `feat/collection-module`. **167 tests, `tsc --noEmit` 0 errors, layering verified by grep.**
+
+### Built and verified against live sources
+
+| Store | Adapter | Live result | Notes |
+|---|---|---|---|
+| **Denner** | `infrastructure/denner/denner-api-source.ts` | **244 offers, 0.8s**, 2 warnings | 100% carry Denner's own category. 244→231 deduped. The 2 warnings are `auf alle …` promos with `price: 0`, correctly refused. |
+| **Volg** | `infrastructure/volg/volg-html-source.ts` | **25 offers, 0.2s**, 0 warnings | All 25 have both prices + discount |
+| **Coop** | `infrastructure/coop/coop-aktionis-source.ts` | **924 offers, 2.8s**, 0 warnings | 924→910 deduped. All have original price + image. |
+
+**~1,193 offers collecting today.**
+
+### Not built
+
+- ❌ **Spar** — flyer PDF; needs `PdfWordExtractor` + `ProductTileLocator`
+- ❌ **Aldi** — same PDF services; no categories anywhere, often no original price
+- ❌ **Lidl** — flyer JSON + the Lidl Plus member-price correction pass
+- ❌ **Migros** — Issuu JPEGs → OCR (proven free, not yet integrated)
+- ❌ **Categorisation model** — the reason this project started
+- ❌ **`run.ts` wiring** — nothing imports the collection module
+- ❌ **`pipeline.yml`** — still runs the old Python scrapers
+- ❌ **Frontend CropRegion rendering**
+
+> ⚠️ **Nothing runs on a schedule yet.** The live site is still fed by the old pipeline with `sourceCategory = None` hardcoded, so the tomato-purée bug is still in production.
+
+### Adapter-specific knowledge worth keeping
+
+**Denner** — `refiningId` goes inside `parameters`, no leading `&`; top-level and `prd_*` placements silently return page 1. `pageId:12` current week, `13` next. Items at `blocks.searches[blockName="Weekly special"].slots[].item`, fields under `attributeInfo[]` keyed by `attributeName`. Badge `SPECIAL` carries no percentage → no discount (the ALDI rule catches it).
+
+**Volg** — three sections with **different validity windows** (`Frische-Aktionen` Wed–Sat, others Mon–Sat). Dates carry **no year**; inferred from an injected reference with Dec→Jan rollover handling. The date sits **inside** the `c-section__subtitle` element, not after it. No per-product links; `sourceUrl` is the page.
+
+**Coop/aktionis** — everything is on the listing card (`data-upox-id`, `price-new`, `price-old`, `price-discount`, `card-date`, image, href), so **no per-deal fetches** — ~20 requests instead of ~1000. The pagination widget shows only **6 links though ~20 pages exist**, so walk until a page yields no unseen id. Validity is **per-deal** (`27.08–09.09` alongside `07.09–09.09`, all ending together). `sourceCategory` deliberately null — aktionis' 39 labels are a third party's, not Coop's.
+
+*Open question:* manual count found 1006 unique Coop deals; the adapter collected 924. Likely offers expiring on the last valid day — unconfirmed, re-check on a mid-week run.
+
+### Vercel — resolved 2026-09-09
+
+Preview deployments failed with `supabaseUrl is required` while prerendering `/de`. **Not caused by this module** — zero files under `web-next/` or `shared/` differ from main.
+
+Real cause: env vars existed for Preview but were **pinned to the `redesign` git branch**, so other branches got none.
+
+Two fixes:
+1. **Code** (`8c13c10`) — `createAnonClient()` no longer throws on missing config; it names the missing variable and returns a client pointed at an RFC 2606 `.invalid` host so existing fail-soft paths handle it. Protects every future branch.
+2. **Config** — the three variables added scoped to `feat/collection-module` (purely additive; Vercel rejects an all-branches Preview entry while branch-scoped ones exist).
+
+Preview now Ready and serving real data.
+
+*Still latent:* each new branch needs its own env scoping, or someone removes the `redesign` pin. The code fix means a missed one renders empty rather than failing the build.
+
+### Next steps, in order
+
+1. **Spar + Aldi together** — they share the PDF services; first real exercise of `CropRegion`
+2. **Lidl** — including the member-price correction
+3. **Migros** — wire in `rapidocr-onnxruntime` at 2× upscale
+4. **Categorisation model** — scored against Denner's categories every run
+5. **Wire it up** — `run.ts`, `pipeline.yml`, retire the Python scrapers. *This is the step that changes what visitors see.*
+
+---
+
 ## Open — to decide with the agent team
 
 1. **Language** — TypeScript throughout (matches the domain model and `shared/types.ts`) vs Python for collection (matches existing scrapers). Lean: TS for the domain, Python only where a scraper needs it.
