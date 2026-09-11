@@ -969,3 +969,27 @@ export function dealToRow(
     attributes: deal.attributes ?? {},
   }
 }
+
+/**
+ * The top-level group a browse category belongs to.
+ *
+ * ⚠️ THE COLUMN NAMES ARE THE REVERSE OF WHAT THEY SUGGEST. `deals.category`
+ * holds the TOP-LEVEL group — fresh | long-life | non-food, enforced by the
+ * deals_category_check constraint — while the finer browse value lives in
+ * `deals.sub_category`.
+ *
+ * That reversal is exactly why this was got wrong. On 2026-09-11 the live path
+ * wrote the classifier's browse category ('dairy') straight into
+ * `deals.category`, and every row was rejected:
+ *
+ *   Upsert batch 1 failed: violates check constraint "deals_category_check"
+ *   Upserted 0 of 922 deals
+ *
+ * Three cutover attempts classified thousands of products correctly and wrote
+ * none of them. The mapping lives in ONE named function, in the shared kernel,
+ * so no write site has to remember the reversal.
+ */
+export function topCategoryFor(browseCategory: string | null | undefined): string | null {
+  if (!browseCategory) return null
+  return BROWSE_CATEGORIES.find((c) => c.id === browseCategory)?.topCategory ?? null
+}

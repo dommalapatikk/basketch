@@ -7,6 +7,7 @@ import {
   MIN_DEALS_FOR_VERDICT,
   dealToRow,
   isStorageState,
+  topCategoryFor,
 } from './types'
 import type { Deal } from './types'
 
@@ -216,5 +217,50 @@ describe('isStorageState', () => {
     expect(isStorageState(null)).toBe(false)
     expect(isStorageState(undefined)).toBe(false)
     expect(isStorageState(3)).toBe(false)
+  })
+})
+
+describe('topCategoryFor', () => {
+  /**
+   * THE BUG THAT MADE EVERY LIVE CUTOVER WRITE ZERO ROWS, 2026-09-11.
+   *
+   *   [storage] [ERROR] Upsert batch 1 failed: new row for relation "deals"
+   *   violates check constraint "deals_category_check"
+   *   [storage] [INFO] Upserted 0 of 922 deals
+   *
+   * `deals.category` accepts only the three TOP-LEVEL groups. The classifier
+   * returns BROWSE categories — 'dairy', 'meat-fish' — and the live path wrote
+   * that value straight into the column, so every row was rejected and nothing
+   * ever reached the site.
+   *
+   * The column names are the reverse of what they suggest: `category` holds the
+   * top-level group and `sub_category` holds the finer value. That reversal is
+   * exactly why this was written wrong, and it is why the mapping lives in one
+   * named function rather than being done by hand at each write site.
+   */
+  it('maps a browse category to its top-level group', () => {
+    expect(topCategoryFor('dairy')).toBe('fresh')
+  })
+
+  it('only ever returns a value the CHECK constraint allows', () => {
+    const allowed = new Set(['fresh', 'long-life', 'non-food'])
+    for (const c of BROWSE_CATEGORIES) {
+      const top = topCategoryFor(c.id)
+      expect(top).not.toBeNull()
+      expect(allowed.has(top as string)).toBe(true)
+    }
+  })
+
+  it('never passes a browse category through unchanged', () => {
+    // The precise defect: 'dairy' reaching deals.category unmapped.
+    for (const c of BROWSE_CATEGORIES) {
+      if (c.id === 'fresh' || c.id === 'long-life' || c.id === 'non-food') continue
+      expect(topCategoryFor(c.id)).not.toBe(c.id)
+    }
+  })
+
+  it('returns null for something that is not a browse category', () => {
+    expect(topCategoryFor('tinned-goods')).toBeNull()
+    expect(topCategoryFor(null)).toBeNull()
   })
 })

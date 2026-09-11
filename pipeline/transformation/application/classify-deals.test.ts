@@ -274,7 +274,10 @@ describe('the happy path', () => {
     const r = await run([deal('Emmi Milch'), deal('Denner Milchdrink')])
     expect(r.stats.classified).toBe(2)
     expect(r.deals).toHaveLength(2)
-    expect(r.deals[0]?.category).toBe('dairy')
+    // `category` is the TOP-LEVEL group; the browse value goes to sub_category.
+    // This assertion previously read `toBe('dairy')` — it encoded the defect
+    // that made three cutovers write zero rows, and passed the whole time.
+    expect(r.deals[0]?.category).toBe('fresh')
     expect(r.deals[0]?.subCategory).toBe('dairy')
   })
 
@@ -576,5 +579,90 @@ describe('a dead judge is reported, not silently accepted', () => {
     // blip would be worse than shipping unjudged, and we have no baseline yet.
     const r = await run([deal('Emmi Milch')], { judge: deadJudge as never })
     expect(r.deals.length).toBe(1)
+  })
+})
+
+describe('the run reports where its time went', () => {
+  /**
+   * THE MEASURING DEVICE, added 2026-09-11 after three wrong diagnoses.
+   *
+   * The log recorded WHAT happened and never HOW LONG anything took, so every
+   * question about the cold start's 369s/chunk had to be answered by reasoning
+   * from call counts. I blamed the classifier, then rate limits, then 429
+   * backoff — all wrong, and each wrong answer cost a failed cutover.
+   *
+   * With a per-stage line, the residual is visible: if the stage totals sum to
+   * the chunk total, the model is complete; if they do not, the gap is the
+   * thing nobody has accounted for, and it can be seen rather than argued about.
+   */
+  it('logs a per-stage timing line for every chunk', async () => {
+    const lines: string[] = []
+    await run([deal('Emmi Milch')], { log: (m) => lines.push(m) })
+    const timing = lines.find((l) => l.includes('chunk') && l.includes('classify'))
+    expect(timing).toBeDefined()
+  })
+
+  it('names every stage, so an unaccounted gap is visible', async () => {
+    const lines: string[] = []
+    await run([deal('Emmi Milch')], { log: (m) => lines.push(m) })
+    const timing = lines.find((l) => l.includes('chunk') && l.includes('classify')) ?? ''
+    for (const stage of ['classify', 'judge', 'enrich', 'save', 'total']) {
+      expect(timing).toContain(stage)
+    }
+  })
+
+  it('reports the chunk position, so a slow chunk can be located', async () => {
+    const lines: string[] = []
+    const many = Array.from({ length: 250 }, (_, i) => deal(`Produkt ${i} Test`))
+    await run(many, { log: (m) => lines.push(m) })
+    const timings = lines.filter((l) => l.includes('chunk') && l.includes('classify'))
+    expect(timings.length).toBeGreaterThan(1)
+    expect(timings[0]).toMatch(/chunk 1\/\d/)
+  })
+})
+
+describe('the category written to the database survives its CHECK constraint', () => {
+  /**
+   * THE BUG THAT WROTE ZERO ROWS, THREE CUTOVERS RUNNING.
+   *
+   *   Upsert batch 1 failed: violates check constraint "deals_category_check"
+   *   Upserted 0 of 922 deals
+   *
+   * Classification worked perfectly — 688 products categorised — and then every
+   * single row was rejected at the database, because `deals.category` accepts
+   * only the three top-level groups and this bridge was handing it the
+   * classifier's BROWSE category ('dairy').
+   *
+   * Nothing caught it because every test asserted on `subCategory`.
+   */
+  const ALLOWED = new Set(['fresh', 'long-life', 'non-food'])
+
+  it('writes a top-level group, never a browse category', async () => {
+    const r = await run([deal('Emmi Milch')])
+    expect(ALLOWED.has(r.deals[0]?.category as string)).toBe(true)
+  })
+
+  it('does not pass the classifier browse category straight through', async () => {
+    // The classifier answers 'dairy'. That is correct for sub_category and
+    // fatal for category.
+    const r = await run([deal('Emmi Milch')])
+    expect(r.deals[0]?.category).not.toBe('dairy')
+    expect(r.deals[0]?.subCategory).toBe('dairy')
+  })
+
+  it('holds for a cached product too, not only a freshly classified one', async () => {
+    // The cache-hit path builds the deal separately and had the same defect.
+    const subject = deal('Emmi Milch')
+    const cache = createInMemoryCache()
+    await run([subject], { cache })
+    const second = await run([subject], { cache })
+    expect(second.stats.cacheHits).toBe(1)
+    expect(ALLOWED.has(second.deals[0]?.category as string)).toBe(true)
+  })
+
+  it('holds for every product in a large run', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => deal(`Produkt ${i} Test`))
+    const r = await run(many)
+    for (const d of r.deals) expect(ALLOWED.has(d.category as string)).toBe(true)
   })
 })

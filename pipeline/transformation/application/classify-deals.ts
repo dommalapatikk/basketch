@@ -15,7 +15,7 @@
 // retires it: an uncertain product keeps its price and loses only its label.
 
 import type { Deal, UnifiedDeal } from '../../../shared/types'
-import { isPublishable } from '../../../shared/types'
+import { isPublishable, topCategoryFor } from '../../../shared/types'
 import { markUncertain, storageFrom } from '../domain/classification'
 import { isOk } from '../../collection/domain/result'
 import type { CachedClassification, ClassificationCache } from '../domain/classification-cache'
@@ -122,10 +122,13 @@ async function persistChunk(
   // afford" — the same reason judgeSampleRate lives there. A condition in the
   // caller is the anti-pattern the DDD rules name.
   enrich: boolean,
-): Promise<void> {
+): Promise<{ enrichMs: number; saveMs: number }> {
   const classified = chunk.filter((o) => o.status === 'classified' && o.classification !== null)
+  let enrichMs = 0
+  let saveMs = 0
 
   if (deps.enricher && enrich && classified.length > 0) {
+    const t0 = Date.now()
     const toEnrich = classified.map((o) => ({
       request: o.request,
       // biome-ignore lint/style/noNonNullAssertion: filtered above
@@ -138,6 +141,7 @@ async function persistChunk(
     } catch (e) {
       log(`[transform] enrichment failed for this chunk: ${e instanceof Error ? e.message : String(e)}`)
     }
+    enrichMs = Date.now() - t0
   }
 
   const toCache = classified.map((o) => ({
@@ -150,9 +154,13 @@ async function persistChunk(
   }))
 
   if (toCache.length > 0) {
+    const t0 = Date.now()
     const saved = await deps.cache.save(toCache)
+    saveMs = Date.now() - t0
     log(`[transform] cached ${isOk(saved) ? saved.value : 0} classifications`)
   }
+
+  return { enrichMs, saveMs }
 }
 
 /**
@@ -185,7 +193,15 @@ function toDeal(deal: UnifiedDeal, fields: DealFields): Deal {
   return {
     ...deal,
     discountPercent: deal.discountPercent ?? 0,
-    category: fields.category as Deal['category'],
+    // ⚠️ THE COLUMN NAMES ARE REVERSED. `deals.category` takes the TOP-LEVEL
+    // group (fresh | long-life | non-food, enforced by deals_category_check);
+    // the classifier's browse category ('dairy') belongs in sub_category.
+    //
+    // Writing the browse value here is what made three live cutovers classify
+    // thousands of products correctly and then write NONE of them:
+    //   Upsert batch 1 failed: violates check constraint "deals_category_check"
+    //   Upserted 0 of 922 deals
+    category: topCategoryFor(fields.category) as Deal['category'],
     subCategory: fields.subCategory,
     taxonomyConfidence: fields.confidence,
     isUncertain: fields.isUncertain,
@@ -320,7 +336,10 @@ export async function classifyDeals(
     // of a chunk. Resetting it per chunk would quietly disable the guardrail.
     let budget = ZERO_SPEND
 
+    const chunkCount = Math.ceil(toClassify.length / CHUNK_SIZE)
     for (let start = 0; start < toClassify.length; start += CHUNK_SIZE) {
+      const chunkNo = Math.floor(start / CHUNK_SIZE) + 1
+      const chunkStart = Date.now()
       const slice = toClassify.slice(start, start + CHUNK_SIZE)
 
       const pending: ClassificationRequest[] = slice.map(({ deal }) => ({
@@ -330,6 +349,7 @@ export async function classifyDeals(
         retailer: deal.store,
       }))
 
+      const graphStart = Date.now()
       const final = (await graph.invoke({
         pending,
         outcomes: [],
@@ -338,13 +358,38 @@ export async function classifyDeals(
         halted: null,
       })) as { outcomes: Outcome[]; halted: string | null; budget?: typeof ZERO_SPEND }
 
+      const graphMs = Date.now() - graphStart
       outcomes.push(...final.outcomes)
       if (final.budget) budget = final.budget
 
       // Enrich and persist THIS chunk before starting the next one. A crash
       // after this point costs the chunks not yet reached, never the ones
       // already paid for.
-      await persistChunk(final.outcomes, deps, attributesByName, log, plan.enrich)
+      const { enrichMs, saveMs } = await persistChunk(
+        final.outcomes,
+        deps,
+        attributesByName,
+        log,
+        plan.enrich,
+      )
+
+      // THE MEASURING DEVICE. Added after three wrong diagnoses of the cold
+      // start, every one of them reasoning from call counts because the log
+      // recorded what happened and never how long it took.
+      //
+      // `graph` covers classification, the judge and reflection together —
+      // they are one state machine and cannot be timed separately from here.
+      // The point of `total` is the RESIDUAL: if the named stages do not sum
+      // to it, the gap is whatever nobody has accounted for, and it becomes
+      // visible instead of arguable.
+      const judged = final.outcomes.filter((o) => o.judgeVerdict != null).length
+      log(
+        `[transform] chunk ${chunkNo}/${chunkCount}: ` +
+          `classify+judge ${(graphMs / 1000).toFixed(1)}s (${slice.length} products, ${judged} judged) · ` +
+          `enrich ${(enrichMs / 1000).toFixed(1)}s · ` +
+          `save ${(saveMs / 1000).toFixed(1)}s · ` +
+          `total ${((Date.now() - chunkStart) / 1000).toFixed(1)}s`,
+      )
 
       if (final.halted) {
         log(`[transform] HALTED: ${final.halted}`)
