@@ -145,3 +145,41 @@ describe('resolveProducts', () => {
     expect(result.get('Vollmilch 1L')?.productId).toBe('deduped-1')
   })
 })
+
+describe('offer-date updates report what the database accepted', () => {
+  /**
+   * THE DEFECT, same shape as writeEnrichment on 2026-09-11.
+   *
+   * The offer-date pass fired its updates through `Promise.all` and threw the
+   * settled values away. A Supabase query builder RESOLVES with `{ error }` on a
+   * PostgREST failure — it does not reject — so `Promise.all` completes happily
+   * and every error is discarded. The step then logged
+   * `Updated offer dates on N existing products` where N was the number of rows
+   * it INTENDED to write, never the number the database accepted.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('does not claim rows it never wrote when every update fails', async () => {
+    mockSelectEqResult.mockResolvedValueOnce({
+      data: [{ id: 'prod-1', source_name: 'Vollmilch 1L', product_group: null }],
+      error: null,
+    })
+    mockUpdateEqResult.mockResolvedValueOnce({ error: { message: 'permission denied for table products' } })
+    const errors: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.join(' ')) })
+    const infos: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { infos.push(a.join(' ')) })
+
+    await resolveProducts([makeDeal()], 'migros')
+
+    spy.mockRestore()
+    logSpy.mockRestore()
+
+    // The failure must be visible...
+    expect(errors.join('\n')).toMatch(/offer date/i)
+    // ...and the success line must not claim the row it failed to write.
+    expect(infos.join('\n')).not.toMatch(/Updated offer dates on 1 /)
+  })
+})

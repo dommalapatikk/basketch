@@ -68,7 +68,7 @@ import { resolveProducts } from './product-resolve'
 import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
 import { populateV3Layer } from './v3-cutover'
-import { countByStore, storesSafeToSweep } from './storage/domain/stale-sweep'
+import { storesSafeToSweep } from './storage/domain/stale-sweep'
 
 /**
  * RETIRED 2026-09-10 by decision D3.
@@ -419,7 +419,8 @@ async function main(): Promise<void> {
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
 
   // Store deals (now with categorySlug attached) + product_id references
-  const storedCount = await storeDeals(resolved, productIds)
+  const writeResult = await storeDeals(resolved, productIds)
+  const storedCount = writeResult.total
 
   // Second pass: the columns UnifiedDeal cannot carry. Runs only in LIVE mode,
   // and a failure here costs images and price-basis flags, never the deals
@@ -460,8 +461,21 @@ async function main(): Promise<void> {
   const collectionSucceeded = [...storeStatusMap.entries()]
     .filter(([, r]) => r.status === 'success' && r.count > 0)
     .map(([store]) => store)
-  const storedByStore = countByStore(resolved)
+  // ⚠️ AND THE COUNT MUST COME FROM THE DATABASE. The first version of this
+  // guard passed countByStore(resolved) — the deals HANDED TO the writer — so a
+  // run whose every row was rejected still reported seven healthy stores.
+  // Replay 2026-09-11's `Upserted 0 of 922` against that and the sweep
+  // deactivates every deal on the site. A guard fed a lie is not a guard.
+  const storedByStore = writeResult.byStore
   const successfulStores = storesSafeToSweep({ collectionSucceeded, storedByStore })
+
+  // The blunt backstop, above and beyond the per-store guard: if the write
+  // accepted NOTHING, no sweep can be correct, whatever the per-store map says.
+  if (writeResult.attempted > 0 && writeResult.total === 0) {
+    console.error(
+      `[pipeline] [ERROR] Wrote 0 of ${writeResult.attempted} deals — skipping the stale sweep entirely. Every deal currently on the site stays visible.`,
+    )
+  }
 
   const skipped = collectionSucceeded.filter((s) => !successfulStores.includes(s))
   if (skipped.length > 0) {
@@ -471,7 +485,9 @@ async function main(): Promise<void> {
       `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
     )
   }
-  await deactivateStaleForStores(successfulStores, startDate)
+  if (writeResult.attempted === 0 || writeResult.total > 0) {
+    await deactivateStaleForStores(successfulStores, startDate)
+  }
 
   // Check for significant storage loss (more than 10% of deals failed to store)
   const storageShortfall = resolved.length - storedCount

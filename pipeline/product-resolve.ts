@@ -173,10 +173,20 @@ export async function resolveProducts(
 
   // Step 4: Update offer dates on existing products (batch by ID)
   if (offerDateUpdates.length > 0) {
+    // ⚠️ A Supabase query builder RESOLVES with `{ error }` on a PostgREST
+    // failure — it does not reject. Throwing the settled values away (the
+    // original `await Promise.all(batch.map(...))`) discarded every error, and
+    // the line below then reported the number of rows we INTENDED to write as
+    // though the database had accepted them. Same shape as the writeEnrichment
+    // loss of 2026-09-11: a write that reports success while doing nothing.
+    let updatedDates = 0
+    let failedDates = 0
+    let firstFailure: string | null = null
+
     for (let i = 0; i < offerDateUpdates.length; i += BATCH_SIZE) {
       const batch = offerDateUpdates.slice(i, i + BATCH_SIZE)
       // Use individual updates since Supabase doesn't support batch update by different IDs
-      await Promise.all(
+      const results = await Promise.all(
         batch.map(({ id, offer_valid_from, offer_valid_to }) =>
           supabase
             .from('products')
@@ -184,10 +194,26 @@ export async function resolveProducts(
             .eq('id', id),
         ),
       )
+      for (const { error } of results) {
+        if (error) {
+          failedDates++
+          firstFailure ??= error.message
+        } else {
+          updatedDates++
+        }
+      }
     }
-    console.log(
-      `[product-resolve] [INFO] Updated offer dates on ${offerDateUpdates.length} existing ${store} products`,
-    )
+
+    if (failedDates > 0) {
+      console.error(
+        `[product-resolve] [ERROR] Failed to update offer dates on ${failedDates} of ${offerDateUpdates.length} ${store} products (first error: ${firstFailure})`,
+      )
+    }
+    if (updatedDates > 0) {
+      console.log(
+        `[product-resolve] [INFO] Updated offer dates on ${updatedDates} existing ${store} products`,
+      )
+    }
   }
 
   const resolvedCount = result.size

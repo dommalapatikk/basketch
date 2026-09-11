@@ -48,18 +48,27 @@ function makeDeal(index: number): Deal {
 describe('storeDeals', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUpsert.mockResolvedValue({ error: null })
+    // storeDeals now chains .select(), because a count that is not read back
+    // from the database is a claim rather than a measurement. The mock returns
+    // one row per row submitted — a database that accepted everything.
+    mockUpsert.mockImplementation((batch: unknown[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: (r as { store: string }).store })),
+          error: null,
+        }),
+    }))
   })
 
   it('returns 0 for empty array', async () => {
-    const count = await storeDeals([])
+    const { total: count } = await storeDeals([])
     expect(count).toBe(0)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
   it('upserts a single batch for <= 100 deals', async () => {
     const deals = Array.from({ length: 50 }, (_, i) => makeDeal(i))
-    const count = await storeDeals(deals)
+    const { total: count } = await storeDeals(deals)
 
     expect(count).toBe(50)
     expect(mockUpsert).toHaveBeenCalledTimes(1)
@@ -71,20 +80,32 @@ describe('storeDeals', () => {
 
   it('splits into batches of 100 for large deal sets', async () => {
     const deals = Array.from({ length: 250 }, (_, i) => makeDeal(i))
-    const count = await storeDeals(deals)
+    const { total: count } = await storeDeals(deals)
 
     expect(count).toBe(250)
     expect(mockUpsert).toHaveBeenCalledTimes(3)
   })
 
   it('continues on batch error and returns partial count', async () => {
+    // Batch 2 fails outright; 1 and 3 are accepted in full. The mock models
+    // the real chain — .upsert(...).select(...) — because the count now comes
+    // from the rows the database hands back, not from the batch length.
+    const accepted = (batch: unknown[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: (r as { store: string }).store })),
+          error: null,
+        }),
+    })
     mockUpsert
-      .mockResolvedValueOnce({ error: null })
-      .mockResolvedValueOnce({ error: { message: 'batch 2 failed' } })
-      .mockResolvedValueOnce({ error: null })
+      .mockImplementationOnce(accepted)
+      .mockImplementationOnce(() => ({
+        select: () => Promise.resolve({ data: null, error: { message: 'batch 2 failed' } }),
+      }))
+      .mockImplementationOnce(accepted)
 
     const deals = Array.from({ length: 250 }, (_, i) => makeDeal(i))
-    const count = await storeDeals(deals)
+    const { total: count } = await storeDeals(deals)
 
     // Batch 1 (100) + batch 3 (50) = 150, batch 2 failed
     expect(count).toBe(150)
@@ -201,5 +222,70 @@ describe('logPipelineRun', () => {
       duration_ms: 5000,
       error_log: null,
     })
+  })
+})
+
+describe('storeDeals reports what the database accepted, not what it was handed', () => {
+  /**
+   * DEFECT #5 — the live blackout risk, 2026-09-11.
+   *
+   * `storedCount += batch.length` counted rows SUBMITTED. The upsert had no
+   * `.select()`, so a batch every row of which the database rejected was
+   * indistinguishable from one that landed.
+   *
+   * That number feeds `storesSafeToSweep`, which decides which stores have
+   * their un-refreshed deals switched off. Replay the real failure: every row
+   * violates deals_category_check, the writer still reports 922 across seven
+   * stores, every store looks sweepable, and the sweep empties a public site.
+   *
+   * A guard fed a lie is not a guard. The count must come from the database.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const deal = (store: Deal['store'], name: string): Deal =>
+    ({
+      store,
+      productName: name,
+      category: 'fresh',
+      subCategory: 'dairy',
+      salePrice: 1.5,
+      originalPrice: 2,
+      discountPercent: 25,
+      validFrom: '2026-09-09',
+      validTo: '2026-09-15',
+      imageUrl: null,
+      sourceCategory: null,
+      sourceUrl: null,
+      taxonomyConfidence: 0.9,
+    }) as Deal
+
+  it('reports zero when the database accepted nothing', async () => {
+    // PostgREST returns no error for rows it rejected via a CHECK — this is
+    // exactly how `Upserted 0 of 922` looked like success for a day.
+    mockUpsert.mockReturnValue({ select: () => Promise.resolve({ data: [], error: null }) })
+    const result = await storeDeals([deal('coop', 'Emmi Milch')])
+    expect(result.total).toBe(0)
+  })
+
+  it('reports per-store counts the sweep can be trusted with', async () => {
+    mockUpsert.mockReturnValue({
+      select: () =>
+        Promise.resolve({
+          data: [{ id: '1', store: 'coop' }, { id: '2', store: 'coop' }, { id: '3', store: 'denner' }],
+          error: null,
+        }),
+    })
+    const result = await storeDeals([
+      deal('coop', 'A'),
+      deal('coop', 'B'),
+      deal('denner', 'C'),
+      deal('migros', 'D'),
+    ])
+    expect(result.byStore.get('coop')).toBe(2)
+    expect(result.byStore.get('denner')).toBe(1)
+    // migros was handed over and rejected — it must NOT appear.
+    expect(result.byStore.get('migros')).toBeUndefined()
   })
 })

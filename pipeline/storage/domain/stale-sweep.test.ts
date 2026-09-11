@@ -80,3 +80,42 @@ describe('storesSafeToSweep', () => {
     expect(safe).toEqual(['coop', 'migros', 'volg'])
   })
 })
+
+describe('the count must come from the writer, not from the input', () => {
+  /**
+   * DEFECT #5, found 2026-09-11 by two independent reviews of the #2 fix.
+   *
+   * `storesSafeToSweep` was correct. It was fed the wrong number: run.ts passed
+   * `countByStore(resolved)` — the deals HANDED TO the writer — so a run where
+   * every row was rejected by the database still reported seven stores with
+   * hundreds of deals each.
+   *
+   * Replay the real 2026-09-11 failure against that: storeDeals returns 0
+   * because every row violated deals_category_check, `resolved` still holds 922
+   * entries across seven stores, so every store looks sweepable and
+   * deactivateStaleForStores switches off every deal on a public site.
+   *
+   * The fix for #2 moved the invariant into this module and then handed it an
+   * intent count. A guard fed a lie is not a guard.
+   */
+  it('refuses a store the writer rejected, even though collection succeeded', async () => {
+    // 922 rows handed over, 0 accepted — the exact shape of the failure.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['coop', 'denner', 'migros', 'lidl', 'aldi', 'spar', 'volg'],
+      storedByStore: new Map(), // what the DATABASE accepted
+    })
+    expect(safe).toEqual([])
+  })
+
+  it('sweeps only the stores whose rows actually landed', async () => {
+    // The realistic partial case: Coop and Denner wrote, the rest did not.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['coop', 'denner', 'migros', 'lidl'],
+      storedByStore: new Map([
+        ['coop', 316],
+        ['denner', 107],
+      ]),
+    })
+    expect(safe).toEqual(['coop', 'denner'])
+  })
+})

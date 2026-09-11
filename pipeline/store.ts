@@ -35,11 +35,30 @@ export { normalizeProductName }
  * Conflict key: (store, product_name, valid_from).
  * Returns the number of deals successfully stored.
  */
+/**
+ * What the DATABASE accepted, per store — never what we handed it.
+ *
+ * `total` was a plain number and `storedCount += batch.length` was a claim, not
+ * a measurement: PostgREST returns no error for rows a CHECK constraint
+ * rejected, so a batch that landed nothing looked identical to one that worked.
+ * On 2026-09-11 that read `Upserted 922 of 922` while the table gained nothing.
+ *
+ * `byStore` exists because this number feeds `storesSafeToSweep`, which decides
+ * which stores have their un-refreshed deals switched off. Fed the input count,
+ * a run that stored NOTHING would have deactivated every deal on a public site.
+ * A guard fed a lie is not a guard.
+ */
+export type StoreDealsResult = {
+  readonly attempted: number
+  readonly total: number
+  readonly byStore: Map<string, number>
+}
+
 export async function storeDeals(
   deals: Deal[],
   productIds?: Map<string, string>,
-): Promise<number> {
-  if (deals.length === 0) return 0
+): Promise<StoreDealsResult> {
+  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map() }
 
   const allRows = deals.map((d) => {
     const row = dealToRow(d, productIds?.get(productLookupKey(d.store, d.productName)))
@@ -61,28 +80,41 @@ export async function storeDeals(
   }
   const rows = [...deduped.values()]
   let storedCount = 0
+  const byStore = new Map<string, number>()
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
 
-    const { error } = await supabase
+    // .select() is the whole point: without it the response carries no rows and
+    // a batch the database rejected is indistinguishable from one it accepted.
+    const { data, error } = await supabase
       .from('deals')
       .upsert(batch, {
         onConflict: 'store,product_name,valid_from',
       })
+      .select('id, store')
 
     if (error) {
       console.error(
         `[storage] [ERROR] Upsert batch ${Math.floor(i / BATCH_SIZE) + 1} failed:`,
         error.message,
       )
-    } else {
-      storedCount += batch.length
+      continue
+    }
+
+    const accepted = (data ?? []) as { store: string }[]
+    storedCount += accepted.length
+    for (const row of accepted) byStore.set(row.store, (byStore.get(row.store) ?? 0) + 1)
+
+    if (accepted.length < batch.length) {
+      console.error(
+        `[storage] [ERROR] Batch ${Math.floor(i / BATCH_SIZE) + 1}: database accepted ${accepted.length} of ${batch.length} rows`,
+      )
     }
   }
 
   console.log(`[storage] [INFO] Upserted ${storedCount} of ${deals.length} deals`)
-  return storedCount
+  return { attempted: deals.length, total: storedCount, byStore }
 }
 
 export interface PipelineRunInput {
