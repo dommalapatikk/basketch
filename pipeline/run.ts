@@ -68,6 +68,7 @@ import { resolveProducts } from './product-resolve'
 import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
 import { populateV3Layer } from './v3-cutover'
+import { countByStore, storesSafeToSweep } from './storage/domain/stale-sweep'
 
 /**
  * RETIRED 2026-09-10 by decision D3.
@@ -447,9 +448,29 @@ async function main(): Promise<void> {
   // Sync-purge: any previously-active row for a successfully-refreshed store
   // that wasn't touched in this run is stale and should be deactivated.
   // Stores with failed fetches keep their last-known data (failure-safe).
-  const successfulStores = [...storeStatusMap.entries()]
+  //
+  // ⚠️ COLLECTING IS NOT REFRESHING. This used to key off the fetch alone,
+  // which is a different question from whether anything was WRITTEN. The two
+  // came apart on 2026-09-11: all seven retailers collected 1,670 offers, then
+  // every classification call timed out and nothing was stored. Every store
+  // looked "successful", so the sweep would have switched off every deal on the
+  // site. Only a 15-minute step timeout firing first prevented it.
+  //
+  // storesSafeToSweep requires BOTH — see storage/domain/stale-sweep.ts.
+  const collectionSucceeded = [...storeStatusMap.entries()]
     .filter(([, r]) => r.status === 'success' && r.count > 0)
     .map(([store]) => store)
+  const storedByStore = countByStore(resolved)
+  const successfulStores = storesSafeToSweep({ collectionSucceeded, storedByStore })
+
+  const skipped = collectionSucceeded.filter((s) => !successfulStores.includes(s))
+  if (skipped.length > 0) {
+    // Loud: a store that collected but stored nothing is a real failure, and
+    // keeping its previous week visible is a deliberate fallback, not a no-op.
+    console.error(
+      `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
+    )
+  }
   await deactivateStaleForStores(successfulStores, startDate)
 
   // Check for significant storage loss (more than 10% of deals failed to store)
