@@ -78,6 +78,64 @@ export type ClassifyDealsResult = {
 const CACHED_CONFIDENCE = 0.9
 
 /**
+ * Products classified and persisted before the next chunk starts.
+ *
+ * 100 is four tier-1 batches of 25. Small enough that a killed run loses at
+ * most a couple of minutes of quota; large enough that the cache round-trip
+ * is not the dominant cost. The whole point is that a run which dies part-way
+ * leaves the cold start measurably further along than it found it.
+ */
+const CHUNK_SIZE = 100
+
+/**
+ * Enriches one chunk and writes it to the cache.
+ *
+ * Enrichment runs here rather than once at the end because the sub-category
+ * decides which attribute schema applies, and because the cache entry should
+ * carry the attributes with it — otherwise a resumed run re-pays for them.
+ *
+ * A failure in enrichment costs metadata, never a category: the classification
+ * is still cached, just without attributes.
+ */
+async function persistChunk(
+  chunk: readonly Outcome[],
+  deps: ClassifyDealsDeps,
+  attributesByName: Map<string, Record<string, unknown>>,
+  log: (message: string) => void,
+): Promise<void> {
+  const classified = chunk.filter((o) => o.status === 'classified' && o.classification !== null)
+
+  if (deps.enricher && classified.length > 0) {
+    const toEnrich = classified.map((o) => ({
+      request: o.request,
+      // biome-ignore lint/style/noNonNullAssertion: filtered above
+      subCategory: o.classification!.subCategory,
+    }))
+    try {
+      const { attributes, tokens } = await deps.enricher.enrich(toEnrich)
+      for (const [name, attrs] of attributes) attributesByName.set(name, attrs)
+      log(`[transform] enriched ${attributes.size}/${toEnrich.length} products (${tokens} tokens)`)
+    } catch (e) {
+      log(`[transform] enrichment failed for this chunk: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const toCache = classified.map((o) => ({
+    cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
+    normalisedName: normaliseForCache(o.request.productName),
+    // biome-ignore lint/style/noNonNullAssertion: filtered above
+    classification: o.classification!,
+    attributes: attributesByName.get(o.request.productName) ?? {},
+    runId: deps.runId,
+  }))
+
+  if (toCache.length > 0) {
+    const saved = await deps.cache.save(toCache)
+    log(`[transform] cached ${isOk(saved) ? saved.value : 0} classifications`)
+  }
+}
+
+/**
  * UNBLOCKED 2026-09-11 by component 3.
  *
  * This function used to hold uncertain products back from the write. The reason
@@ -171,7 +229,23 @@ export async function classifyDeals(
   if (deferred > 0) log(`[transform] deferring ${deferred} products to the next run`)
 
   // ── 3. Agent ──────────────────────────────────────────────────────────────
+  //
+  // Run in CHUNKS, and persist after each one.
+  //
+  // This used to be a single invoke over every product, with one cache write
+  // at the very end. pipeline.yml retries this step three times on the stated
+  // grounds that "every classification is written to the cache as it
+  // completes, so attempt 2 re-reads what attempt 1 already paid for" — which
+  // was simply not true of the code. A run killed by the 15-minute step
+  // timeout persisted NOTHING.
+  //
+  // Both live cutover attempts on 2026-09-11 proved it: `cache: 0/1650 hits`
+  // on all three tries, three times the free-tier quota spent, no progress
+  // made. Chunking is what makes that comment describe reality — and it means
+  // even a failed run advances the cold start.
   const outcomes: Outcome[] = []
+  const attributesByName = new Map<string, Record<string, unknown>>()
+
   if (toClassify.length > 0) {
     const graph = buildClassifyGraph({
       tier1: deps.tier1,
@@ -180,63 +254,45 @@ export async function classifyDeals(
       budget: FREE_TIER_BUDGET,
     })
 
-    const pending: ClassificationRequest[] = toClassify.map(({ deal }) => ({
-      productName: deal.productName,
-      // The retailer's own descriptor, where component 1 captured one.
-      descriptor: (deal as { sourceDescriptor?: string | null }).sourceDescriptor ?? null,
-      retailer: deal.store,
-    }))
+    // Carried ACROSS chunks: the free-tier budget is a property of the run, not
+    // of a chunk. Resetting it per chunk would quietly disable the guardrail.
+    let budget = ZERO_SPEND
 
-    const final = (await graph.invoke({
-      pending,
-      outcomes: [],
-      disputed: [],
-      budget: ZERO_SPEND,
-      halted: null,
-    })) as { outcomes: Outcome[]; halted: string | null }
+    for (let start = 0; start < toClassify.length; start += CHUNK_SIZE) {
+      const slice = toClassify.slice(start, start + CHUNK_SIZE)
 
-    outcomes.push(...final.outcomes)
-    if (final.halted) log(`[transform] HALTED: ${final.halted}`)
+      const pending: ClassificationRequest[] = slice.map(({ deal }) => ({
+        productName: deal.productName,
+        // The retailer's own descriptor, where component 1 captured one.
+        descriptor: (deal as { sourceDescriptor?: string | null }).sourceDescriptor ?? null,
+        retailer: deal.store,
+      }))
+
+      const final = (await graph.invoke({
+        pending,
+        outcomes: [],
+        disputed: [],
+        budget,
+        halted: null,
+      })) as { outcomes: Outcome[]; halted: string | null; budget?: typeof ZERO_SPEND }
+
+      outcomes.push(...final.outcomes)
+      if (final.budget) budget = final.budget
+
+      // Enrich and persist THIS chunk before starting the next one. A crash
+      // after this point costs the chunks not yet reached, never the ones
+      // already paid for.
+      await persistChunk(final.outcomes, deps, attributesByName, log)
+
+      if (final.halted) {
+        log(`[transform] HALTED: ${final.halted}`)
+        break
+      }
+    }
   }
 
   const byName = new Map<string, Outcome>()
   for (const o of outcomes) byName.set(normaliseForCache(o.request.productName), o)
-
-  // ── 3b. Enrich ────────────────────────────────────────────────────────────
-  // Runs AFTER classification, because the sub-category decides which attribute
-  // schema applies. A failure here costs metadata, never a category.
-  const attributesByName = new Map<string, Record<string, unknown>>()
-  if (deps.enricher) {
-    const toEnrich = outcomes
-      .filter((o) => o.status === 'classified' && o.classification !== null)
-      .map((o) => ({
-        request: o.request,
-        // biome-ignore lint/style/noNonNullAssertion: filtered above
-        subCategory: o.classification!.subCategory,
-      }))
-
-    if (toEnrich.length > 0) {
-      const { attributes, tokens } = await deps.enricher.enrich(toEnrich)
-      for (const [name, attrs] of attributes) attributesByName.set(name, attrs)
-      log(`[transform] enriched ${attributes.size}/${toEnrich.length} products (${tokens} tokens)`)
-    }
-  }
-
-  // ── 4. Persist the memo ───────────────────────────────────────────────────
-  const toCache = outcomes
-    .filter((o) => o.classification !== null && o.status === 'classified')
-    .map((o) => ({
-      cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
-      normalisedName: normaliseForCache(o.request.productName),
-      // biome-ignore lint/style/noNonNullAssertion: filtered above
-      classification: o.classification!,
-      attributes: attributesByName.get(o.request.productName) ?? {},
-      runId: deps.runId,
-    }))
-  if (toCache.length > 0) {
-    const saved = await deps.cache.save(toCache)
-    log(`[transform] cached ${isOk(saved) ? saved.value : 0} classifications`)
-  }
 
   // ── 5. Map back ───────────────────────────────────────────────────────────
   let hits = 0

@@ -284,3 +284,70 @@ describe('cold start', () => {
     expect(r.deals.length + r.stats.heldBack + r.stats.rejected + r.stats.blocked).toBe(900)
   })
 })
+
+describe('work survives a run that is killed part-way', () => {
+  /**
+   * THE COLD-START RETRY BUG, 2026-09-11.
+   *
+   * pipeline.yml retries the store step 3 times, on the stated grounds that
+   * "every classification is written to the cache as it completes, so attempt 2
+   * re-reads what attempt 1 already paid for".
+   *
+   * That was not true. The cache was written ONCE, after the whole graph
+   * finished, so a run killed by the 15-minute step timeout persisted nothing.
+   * Two live cutover attempts both showed `cache: 0/1650 hits` on all three
+   * tries — three times the quota spent, zero progress made.
+   */
+  const countingCache = () => {
+    const inner = createInMemoryCache()
+    const saves: number[] = []
+    return {
+      spy: {
+        lookup: inner.lookup.bind(inner),
+        async save(entries: Parameters<typeof inner.save>[0]) {
+          saves.push(entries.length)
+          return inner.save(entries)
+        },
+      },
+      saves,
+    }
+  }
+
+  it('persists in several batches rather than once at the very end', async () => {
+    const { spy, saves } = countingCache()
+    // 250 products is more than one chunk, so a single save call means the
+    // whole run is still all-or-nothing.
+    const many = Array.from({ length: 250 }, (_, i) => deal(`Produkt ${i} Test`))
+    await run(many, { cache: spy as never })
+    expect(saves.length).toBeGreaterThan(1)
+  })
+
+  it('keeps the classifications it finished when the model dies mid-run', async () => {
+    const { spy, saves } = countingCache()
+    let calls = 0
+    const diesAfterFirstChunk: Classifier = {
+      name: 'flaky',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        calls += 1
+        // Survive the first chunk, then fail the way a timeout-bound run does.
+        if (calls > 4) return { ok: false, error: 'provider-unavailable: 503' }
+        return ok(
+          batch.map((request): ClassificationOutcome => ({
+            ok: true,
+            request,
+            classification: cls('dairy', 'dairy'),
+          })),
+        )
+      },
+    }
+    const many = Array.from({ length: 250 }, (_, i) => deal(`Produkt ${i} Test`))
+    await run(many, { cache: spy as never, tier1: diesAfterFirstChunk })
+
+    // The point: the early chunk reached the cache, so the next attempt starts
+    // ahead instead of from zero.
+    const persisted = saves.reduce((a, b) => a + b, 0)
+    expect(persisted).toBeGreaterThan(0)
+  })
+})

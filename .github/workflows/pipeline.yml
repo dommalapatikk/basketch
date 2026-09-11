@@ -201,8 +201,22 @@ jobs:
           # Retries are SAFE and CHEAP here: every classification is written to
           # the cache as it completes, so attempt 2 re-reads what attempt 1
           # already paid for. Quota is not spent twice on the same product.
-          timeout_minutes: 15
-          max_attempts: 3
+          #
+          # ⚠️ That was ASPIRATIONAL until 2026-09-11 — the cache was written
+          # once, after the whole graph finished, so a run killed by the timeout
+          # persisted nothing and every attempt restarted from zero. Both live
+          # cutover attempts showed `cache: 0/1650 hits` on all three tries.
+          # classify-deals.ts now persists per chunk, which makes the paragraph
+          # above true. Do not go back to a single end-of-run save.
+          #
+          # 45 not 15: a COLD START classifies 800 products at 15 requests/min
+          # (the free-tier cap), plus judge escalations and enrichment, and the
+          # step re-runs collection first. 15 minutes could not fit it, so all
+          # three attempts died mid-classification. Warm runs finish in ~2.
+          timeout_minutes: 45
+          # 2 not 3: each attempt now RESUMES, so a third is rarely useful and
+          # a runaway costs 90 minutes rather than 135.
+          max_attempts: 2
           retry_wait_seconds: 300
           command: cd pipeline && npx tsx run.ts
 
