@@ -666,3 +666,72 @@ describe('the category written to the database survives its CHECK constraint', (
     for (const d of r.deals) expect(ALLOWED.has(d.category as string)).toBe(true)
   })
 })
+
+describe('a deferred product is not deferred forever', () => {
+  /**
+   * WHY SPAR HAS ZERO DEALS AND COOP HAS 316.
+   *
+   * `orderForColdStart` (run-plan.ts) is exported, documented as the guarantee
+   * that "a product deferred this run is not deferred again next run", and
+   * tested — and until now nothing called it. Production took
+   * `misses.slice(0, plan.limit)` in ARRIVAL order, which depends on which
+   * retailers responded in what sequence and varies run to run.
+   *
+   * On 2026-09-11 the Gemini daily quota ran out partway through the queue.
+   * Coop and Denner happened to be early and got 423 deals onto the site; Spar
+   * was late and got none. Nothing chose that, and nothing would have noticed:
+   * stats count HOW MANY were deferred, never WHICH. A product can lose that
+   * lottery every run, forever.
+   *
+   * Stable ordering makes the deferred set shrink instead of re-rolling.
+   */
+  it('classifies in a stable order rather than arrival order', async () => {
+    const seen: string[] = []
+    const recording: Classifier = {
+      name: 'recording',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        for (const r of batch) seen.push(r.productName)
+        return ok(
+          batch.map((request): ClassificationOutcome => ({
+            ok: true,
+            request,
+            classification: cls('dairy', 'dairy'),
+          })),
+        )
+      },
+    }
+
+    // Deliberately unsorted — the shape collection actually produces.
+    const names = ['Zweifel Chips', 'Aarberg Zucker', 'Milch Emmi', 'Brot Ruchbrot', 'Café Royal']
+    await run(names.map((n) => deal(n)), { tier1: recording })
+
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'de-CH'))
+    expect(seen).toEqual(sorted)
+  })
+
+  it('gives a product the same position on a repeat run', async () => {
+    // The actual guarantee: the same corpus produces the same queue, so what
+    // was cut off last time is at the front of what remains this time.
+    const names = ['Delta', 'Alpha', 'Charlie', 'Bravo']
+    const capture = () => {
+      const seen: string[] = []
+      const c: Classifier = {
+        name: 'c',
+        tier: 1,
+        batchSize: 25,
+        async classify(batch) {
+          for (const r of batch) seen.push(r.productName)
+          return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+        },
+      }
+      return { seen, c }
+    }
+    const a = capture()
+    await run(names.map((n) => deal(n)), { tier1: a.c })
+    const b = capture()
+    await run([...names].reverse().map((n) => deal(n)), { tier1: b.c })
+    expect(a.seen).toEqual(b.seen)
+  })
+})

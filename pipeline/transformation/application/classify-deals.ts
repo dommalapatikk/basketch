@@ -22,7 +22,7 @@ import type { CachedClassification, ClassificationCache } from '../domain/classi
 import { CURRENT_VERSIONS, cacheKeyFor, needsEnrichment, normaliseForCache } from '../domain/classification-cache'
 import type { ClassificationRequest, Classifier } from '../domain/classifier'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
-import { planRun } from '../domain/run-plan'
+import { orderForColdStart, planRun } from '../domain/run-plan'
 import { type GraphDeps, type Outcome, buildClassifyGraph } from './classify-graph'
 
 export type ClassifyDealsDeps = {
@@ -289,7 +289,22 @@ export async function classifyDeals(
     }
   }
 
-  const toClassify = misses.slice(0, plan.limit)
+  // ⚠️ STABLE ORDER, NOT ARRIVAL ORDER. This used to slice `misses` as they
+  // came off collection, which depends on which retailers responded in what
+  // sequence and changes every run. When the budget or the daily quota cuts the
+  // queue short, that makes deferral a lottery a product can lose forever —
+  // stats count HOW MANY were deferred, never WHICH.
+  //
+  // On 2026-09-11 the Gemini daily quota ran out partway through: Coop and
+  // Denner were early and got 423 deals onto the site, Spar was late and got
+  // none. Nothing chose that.
+  //
+  // orderForColdStart has existed, exported and tested, since the module was
+  // written, and nothing called it — the fourth "built, tested, never wired"
+  // found today.
+  const toClassify = orderForColdStart(
+    misses.map((m) => ({ ...m, productName: m.deal.productName })),
+  ).slice(0, plan.limit)
   const deferred = misses.length - toClassify.length
   if (deferred > 0) log(`[transform] deferring ${deferred} products to the next run`)
 
