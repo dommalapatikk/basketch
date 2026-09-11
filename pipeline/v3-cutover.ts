@@ -15,6 +15,7 @@
 
 import { supabase } from './supabase-client'
 import type { Deal } from '../shared/types'
+import { normalizeProductName } from '../shared/types'
 
 type ResolverRule = {
   id: string
@@ -168,10 +169,15 @@ async function backfillRecentDealsSkuId(deals: Deal[], skuByDeal: Map<string, st
   // back via a single query.
   if (deals.length === 0) return 0
   let linked = 0
+  let matchedRows = 0
   for (let i = 0; i < deals.length; i += 100) {
     const chunk = deals.slice(i, i + 100)
-    // Query DB rows for this chunk
-    const productNames = Array.from(new Set(chunk.map((d) => d.productName)))
+    // ⚠️ MATCH THE NAME THE WAY STORAGE WROTE IT. storeDeals normalises
+    // product_name before the upsert (store.ts), so looking the row back up by
+    // the RAW offer name matches ZERO rows — and PostgREST reports no error for
+    // a SELECT that returns nothing, so the step logged `linked:0` and looked
+    // like a run with nothing to do. Same defect as writeEnrichment, 2026-09-11.
+    const productNames = Array.from(new Set(chunk.map((d) => normalizeProductName(d.productName))))
     const stores = Array.from(new Set(chunk.map((d) => d.store)))
     const { data, error } = await supabase
       .from('deals')
@@ -183,16 +189,34 @@ async function backfillRecentDealsSkuId(deals: Deal[], skuByDeal: Map<string, st
       console.error('[v3] failed to read back deals:', error.message)
       continue
     }
+    matchedRows += (data ?? []).length
     for (const row of data ?? []) {
+      // row.product_name is the normalised form; skuByDeal is keyed the same
+      // way (see populateV3Layer). Both sides must use the SAME function.
       const key = `${row.store}|${row.product_name}`
       const skuId = skuByDeal.get(key)
       if (!skuId || row.sku_id === skuId) continue
-      const { error: updateErr } = await supabase
+      const { data: updated, error: updateErr } = await supabase
         .from('deals')
         .update({ sku_id: skuId })
         .eq('id', row.id)
-      if (!updateErr) linked++
+        // .select() is what makes a no-op visible: without it an UPDATE that
+        // matched nothing is indistinguishable from one that worked.
+        .select('id')
+      if (updateErr) {
+        console.error(`[v3] failed to link sku for deal ${row.id}:`, updateErr.message)
+        continue
+      }
+      if (!updated || updated.length === 0) continue
+      linked++
     }
+  }
+  // A read-back that matched no rows at all is the signature of a key mismatch,
+  // not of a run with nothing to do. Say so rather than reporting a quiet zero.
+  if (matchedRows === 0 && deals.length > 0) {
+    console.error(
+      `[v3] read back ZERO of ${deals.length} deals — the lookup key does not match what storage wrote. No sku_id was linked.`,
+    )
   }
   return linked
 }
@@ -260,7 +284,11 @@ export async function populateV3Layer(deals: Deal[]): Promise<{
     })
     if (!skuId) continue
     skusUpserted++
-    skuByDeal.set(`${deal.store}|${deal.productName}`, skuId)
+    // Keyed on the NORMALISED name so it agrees with `deals.product_name`,
+    // which is what backfillRecentDealsSkuId reads back. Keying this map on the
+    // raw name was the second half of the same defect: even once the lookup
+    // matched, every map hit missed.
+    skuByDeal.set(`${deal.store}|${normalizeProductName(deal.productName)}`, skuId)
   }
 
   // Step 4: backfill deals.sku_id for rows just stored.
