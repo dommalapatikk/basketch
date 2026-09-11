@@ -9,10 +9,34 @@ on:
     # Thursday 05:00 UTC (07:00 Swiss) — Migros, Coop, Lidl, Denner, Aldi Thu, Volg fresh
     - cron: '0 5 * * 4'
   workflow_dispatch:  # Allow manual trigger (runs all stores)
+    inputs:
+      collection_mode:
+        description: 'Collection mode for THIS run only (blank = use the COLLECTION_MODE repo variable)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - 'off'
+          - 'shadow'
+          - 'live'
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  # THE CUTOVER SWITCH. off | shadow | live — see
+  # pipeline/collection/application/collection-mode.ts.
+  #
+  # ⚠️ This line is why setting the repo variable does anything at all. Until
+  # 2026-09-11 the variable existed in the code and was never passed to the
+  # process, so readCollectionMode() saw undefined, defaulted to 'off', and a
+  # run with COLLECTION_MODE=live set would have reported a clean success while
+  # collecting from none of the seven retailers.
+  #
+  # A workflow_dispatch input overrides the variable for one run, so a shadow
+  # run can be taken without changing repo settings and without leaving the
+  # switch flipped afterwards.
+  COLLECTION_MODE: ${{ inputs.collection_mode || vars.COLLECTION_MODE || 'off' }}
 
 jobs:
   fetch-deals:
