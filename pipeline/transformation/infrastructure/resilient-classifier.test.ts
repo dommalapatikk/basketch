@@ -203,3 +203,58 @@ describe('logging', () => {
     expect(lines.join(' ')).toContain('retrying')
   })
 })
+
+describe('a port failure is a value, not an exception', () => {
+  /**
+   * THE WIDEST HOLE FOUND ON 2026-09-11.
+   *
+   * This wrapper exists to absorb provider failure — rate limits, backoff, the
+   * circuit breaker. But `inner.classify` was called unguarded, so a classifier
+   * that THROWS escapes past classifyFailure, recordFailure and the breaker
+   * entirely. The layer built to absorb provider failure was bypassed by the
+   * commonest form of provider failure.
+   *
+   * It was masked only because createGeminiClassifier catches internally and
+   * returns `err`. The wrapper was depending on an adapter's politeness.
+   *
+   * A throw is not a new state here — `err` already exists in the return type.
+   * It is an existing state arriving by the wrong mechanism.
+   */
+  const throwing: Classifier = {
+    name: 'throwing',
+    tier: 1,
+    batchSize: 25,
+    async classify() {
+      throw new Error('ECONNRESET')
+    },
+  }
+
+  const req = [{ productName: 'Emmi Milch', descriptor: null, retailer: 'denner' }]
+
+  it('returns a failure instead of taking the run down', async () => {
+    const c = resilientClassifier({ inner: throwing, sleep: async () => {} })
+    const res = await c.classify(req as never)
+    expect(isOk(res)).toBe(false)
+  })
+
+  it('names the thrown error so a CI log can explain the failure', async () => {
+    const c = resilientClassifier({ inner: throwing, sleep: async () => {} })
+    const res = await c.classify(req as never)
+    if (!isOk(res)) expect(res.error).toMatch(/ECONNRESET/)
+  })
+
+  it('feeds the throw through the breaker rather than around it', async () => {
+    // The half that matters. A crash that skips recordFailure leaves the
+    // circuit permanently closed over a dead provider, so the run keeps
+    // hammering it. Five consecutive failures must still open it.
+    //
+    // Uses `make`, not a bare construction: retrying a throw three times per
+    // call burns rate slots, and with a FROZEN clock the per-minute window never
+    // reopens, so the limiter answers before the breaker ever gets to. That is
+    // the trap this file's `make` helper was written to avoid.
+    const c = make(throwing)
+    for (let i = 0; i < 6; i++) await c.classify(req as never)
+    const last = await c.classify(req as never)
+    if (!isOk(last)) expect(last.error).toMatch(/circuit|open/i)
+  })
+})

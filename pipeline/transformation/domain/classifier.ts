@@ -7,7 +7,7 @@
 // Same contract as the collection ports: never throw, return a result, and never
 // let empty pass as success.
 
-import type { Result } from '../../collection/domain/result'
+import { type Result, err } from '../../collection/domain/result'
 import type { Classification, ClassificationTier } from './classification'
 
 /**
@@ -54,4 +54,40 @@ export type Classifier = {
    * individually unclassifiable, which is reported per item.
    */
   classify(batch: readonly ClassificationRequest[]): Promise<Result<readonly ClassificationOutcome[]>>
+}
+
+/**
+ * Turns any Classifier into one that honours the "never throw" half of its own
+ * contract.
+ *
+ * It lives beside the port, not beside a caller, because EVERY caller needs it:
+ * `resilientClassifier` wraps an adapter and `buildClassifyGraph` wraps that,
+ * and neither had a try/catch. A contract stated only in this file's header is
+ * a comment; this makes it a property.
+ *
+ * The fallback is the port's own declared failure value — Err — so callers need
+ * no new branch. An Err already means "the whole call failed", which is exactly
+ * what a thrown exception was trying to say.
+ */
+export function guardClassifier(inner: Classifier, log: (message: string) => void): Classifier {
+  return {
+    name: inner.name,
+    tier: inner.tier,
+    batchSize: inner.batchSize,
+
+    async classify(batch: readonly ClassificationRequest[]): Promise<Result<readonly ClassificationOutcome[]>> {
+      try {
+        return await inner.classify(batch)
+      } catch (e) {
+        // A breach is a DEFECT in the adapter, not a normal failure. Reported,
+        // never swallowed — degrading quietly trades a dead run for an
+        // undiagnosable one.
+        const message = `port contract breached: ${inner.name}.classify() threw instead of returning a failure — ${
+          e instanceof Error ? e.message : String(e)
+        }`
+        log(message)
+        return err(message)
+      }
+    },
+  }
 }

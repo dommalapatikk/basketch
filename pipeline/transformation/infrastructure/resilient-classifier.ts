@@ -18,7 +18,7 @@
 //                    Guessing shorter is how a 429 becomes a ban.
 
 import { type Result, isOk } from '../../collection/domain/result'
-import type { ClassificationOutcome, ClassificationRequest, Classifier } from '../domain/classifier'
+import { type ClassificationOutcome, type ClassificationRequest, type Classifier, guardClassifier } from '../domain/classifier'
 import {
   CIRCUIT_CLOSED,
   type CircuitState,
@@ -55,12 +55,17 @@ function statusFrom(error: string): number | null {
 }
 
 export function resilientClassifier(deps: ResilientDeps): Classifier {
-  const inner = deps.inner
+  const log = deps.log ?? (() => {})
+  // Guarded here too, not only in the graph. This decorator had no try/catch of
+  // its own, so an adapter that threw skipped the retry AND the circuit breaker
+  // entirely — the breaker would never count a provider that fails by throwing.
+  // Converting the breach to Err puts it back on the path that already decides
+  // whether to retry, back off, or stop calling a dead provider.
+  const inner = guardClassifier(deps.inner, log)
   const limit = deps.limit ?? KNOWN_LIMITS[inner.name] ?? { requestsPerMinute: 15, requestsPerDay: 1000 }
   const policy = deps.policy ?? DEFAULT_RETRY
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const now = deps.now ?? (() => Date.now())
-  const log = deps.log ?? (() => {})
 
   // State lives across calls within one run — a per-call limiter would never
   // see the rate it is supposed to limit.

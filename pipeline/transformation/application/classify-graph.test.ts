@@ -200,3 +200,103 @@ describe('the judge triggers escalation — not self-reported confidence', () =>
     expect(s.outcomes[0]?.request.productName).toBe('Mulino Bianco')
   })
 })
+
+// ── A port that throws must not take down the run ────────────────────────────
+//
+// CLAUDE.md: "Pipeline sources never throw. They return a result." That is a
+// contract every port implementation is expected to honour — but the graph was
+// TRUSTING it rather than DEFENDING against it. It is masked today only because
+// all three adapters happen to catch internally; the graph depended on their
+// politeness, not on its own structure.
+//
+// A run is ~800 products deep by the time an escalation runs. One unhandled
+// rejection there loses the whole run, not one product.
+
+/** The rudest port possible: it throws instead of returning its failure value. */
+const throwingJudge = (message = 'boom'): Judge => ({
+  name: 'rude-judge',
+  async judge() {
+    throw new Error(message)
+  },
+})
+
+describe('a port that breaks its contract and throws', () => {
+  it('does not crash the run when the judge throws', async () => {
+    const s = await run(
+      { tier1: fixedClassifier('dairy', 'dairy'), judge: throwingJudge(), reflector: null, budget: FREE_TIER_BUDGET },
+      ['Emmi Milch', 'Denner Milchdrink'],
+    )
+
+    expect(s.outcomes).toHaveLength(2)
+    // The products still ship. A judge is an independent check, not a gate.
+    expect(s.outcomes.every((o) => o.status === 'classified')).toBe(true)
+    // And they are HONESTLY marked as unchecked, which classify-deals already
+    // counts and warns about — a silent 'correct' would be a lie.
+    expect(s.outcomes.every((o) => o.judgeVerdict === 'unavailable')).toBe(true)
+  })
+
+  it('does not crash the run when the reflector throws', async () => {
+    const s = await run(
+      {
+        tier1: fixedClassifier('dairy', 'dairy'),
+        judge: fixedJudge('wrong'),
+        reflector: {
+          async reflect() {
+            throw new Error('reflector down')
+          },
+        },
+        budget: FREE_TIER_BUDGET,
+      },
+      ['Emmi Milch'],
+    )
+
+    expect(s.outcomes).toHaveLength(1)
+    // Disputed and unrevisable is exactly the uncertainty signal. Never a guess.
+    expect(s.outcomes[0]?.status).toBe('uncertain')
+    expect(s.outcomes[0]?.judgeVerdict).toBe('wrong')
+  })
+
+  it('does not crash the run when the classifier itself throws', async () => {
+    // resilient-classifier.ts calls inner.classify() with no try/catch either,
+    // so an impolite Classifier propagates through the decorator AND the graph.
+    const s = await run(
+      {
+        tier1: {
+          name: 'rude-model',
+          tier: 1,
+          batchSize: 25,
+          async classify(): Promise<never> {
+            throw new Error('ECONNRESET')
+          },
+        },
+        judge: null,
+        reflector: null,
+        budget: FREE_TIER_BUDGET,
+      },
+      ['Emmi Milch', 'Denner Milchdrink'],
+    )
+
+    // Never a guessed category, never a silently dropped product.
+    expect(s.outcomes).toHaveLength(2)
+    expect(s.outcomes.every((o) => o.status === 'uncertain')).toBe(true)
+    expect(s.outcomes[0]?.detail).toContain('ECONNRESET')
+  })
+
+  it('reports the breach instead of swallowing it', async () => {
+    // A port that throws is a DEFECT in that port. Absorbing it silently would
+    // trade a dead run for an undiagnosable one.
+    const logged: string[] = []
+    await run(
+      {
+        tier1: fixedClassifier('dairy', 'dairy'),
+        judge: throwingJudge('402 out of credit'),
+        reflector: null,
+        budget: FREE_TIER_BUDGET,
+        log: (m: string) => logged.push(m),
+      },
+      ['Emmi Milch'],
+    )
+
+    expect(logged.some((m) => m.includes('rude-judge') && m.includes('402 out of credit'))).toBe(true)
+  })
+})

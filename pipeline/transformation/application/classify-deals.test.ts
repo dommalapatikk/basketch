@@ -518,3 +518,63 @@ describe('deferred enrichment is actually picked up later', () => {
     expect(dealNamed(r, 'Emmi Vollmilch 1L')?.subCategory).toBe('dairy')
   })
 })
+
+describe('a dead judge is reported, not silently accepted', () => {
+  /**
+   * THE SAME DEFECT AS D3, second instance.
+   *
+   * gemini-judge.ts catches EVERYTHING — 402 out of credit, 429, a parse
+   * failure, a socket error — and returns the single value
+   * `{ verdict: 'unavailable' }`. classify-graph then treats anything that is
+   * not 'wrong' as `status: 'classified'`.
+   *
+   * So a judge that has stopped working is bit-identical, in every log line and
+   * every statistic, to a judge that approved everything. The OpenRouter key
+   * has a $5 ceiling; when it runs out the escalation trigger disappears and
+   * nothing says so.
+   *
+   * D3's lesson, already in this file: "That filter SILENTLY DELETED every
+   * product the keyword matcher was unsure about. Nothing was ever visibly
+   * uncertain, so nothing was ever reviewed." A quality loss that produces no
+   * signal is the failure mode this project knows by name.
+   *
+   * The information already exists — classify-graph writes judgeVerdict onto
+   * every Outcome. Nothing counted it.
+   */
+  const deadJudge = {
+    name: 'dead',
+    async judge() {
+      throw new Error('402 insufficient credits')
+    },
+  }
+
+  const healthyJudge = {
+    name: 'healthy',
+    async judge() {
+      return { verdict: 'correct' as const, tokens: 1 }
+    },
+  }
+
+  it('counts the verdicts that never happened', async () => {
+    const r = await run([deal('Emmi Milch'), deal('Denner Brot')], { judge: deadJudge as never })
+    expect(r.stats.judgeUnavailable).toBeGreaterThan(0)
+  })
+
+  it('reports zero when the judge is answering', async () => {
+    const r = await run([deal('Emmi Milch')], { judge: healthyJudge as never })
+    expect(r.stats.judgeUnavailable).toBe(0)
+  })
+
+  it('reports zero when no judge is configured at all', async () => {
+    // Absent by choice is not the same as broken, and must not raise an alarm.
+    const r = await run([deal('Emmi Milch')], { judge: null })
+    expect(r.stats.judgeUnavailable).toBe(0)
+  })
+
+  it('still publishes the deals — detection, not enforcement', async () => {
+    // Today this only makes the loss visible. Halting a run on a transient
+    // blip would be worse than shipping unjudged, and we have no baseline yet.
+    const r = await run([deal('Emmi Milch')], { judge: deadJudge as never })
+    expect(r.deals.length).toBe(1)
+  })
+})

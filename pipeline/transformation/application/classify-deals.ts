@@ -64,6 +64,22 @@ export type ClassifyDealsResult = {
      * silent drop looks like a review queue.
      */
     readonly heldBack: number
+    /**
+     * Judge verdicts that never happened.
+     *
+     * gemini-judge catches every failure — 402 out of credit, 429, a parse
+     * error — and returns `unavailable`, which classify-graph then treats as
+     * `classified`. So a dead judge is otherwise indistinguishable from one
+     * that approved everything, in every log line and every stat.
+     *
+     * The information was already on each Outcome and was thrown away. Healthy
+     * is ~0. A number near the judged count means the escalation trigger is
+     * gone and the run shipped unverified.
+     *
+     * Detection, not enforcement: halting on a transient blip would be worse
+     * than shipping unjudged, and there is no baseline yet.
+     */
+    readonly judgeUnavailable: number
     readonly deferred: number
     readonly isColdStart: boolean
   }
@@ -289,6 +305,10 @@ export async function classifyDeals(
       // so a cold start made one sequential judge call per product — ~800 of
       // them. planRun decides; a warm run still judges everything.
       judgeSampleRate: plan.judgeSampleRate,
+      // A port that throws is contained by the graph, but containment without a
+      // log is an undiagnosable run. This is the only way a contract breach
+      // becomes visible.
+      log: (m) => log(`[transform] ⚠ ${m}`),
     })
     if (plan.judgeSampleRate < 1) {
       log(
@@ -387,6 +407,7 @@ export async function classifyDeals(
   let blocked = 0
   let heldBack = 0
   const out: Deal[] = []
+  const judgeUnavailable = outcomes.filter((o) => o.judgeVerdict === 'unavailable').length
 
   deals.forEach((deal, i) => {
     const key = keys[i] as string
@@ -468,6 +489,12 @@ export async function classifyDeals(
   log(
     `[transform] ${classified} classified · ${hits} cached · ${uncertain} uncertain (published, flagged) · ${rejected} rejected · ${blocked} blocked · ${heldBack} held back`,
   )
+  if (judgeUnavailable > 0) {
+    // Loud, because the alternative is a quality loss that looks like success.
+    log(
+      `[transform] ⚠ judge unavailable for ${judgeUnavailable} products — those shipped with NO independent check. If this is near the judged count, the judge is down (check the OpenRouter credit).`,
+    )
+  }
 
   return {
     deals: out,
@@ -479,6 +506,7 @@ export async function classifyDeals(
       rejected,
       blocked,
       heldBack,
+      judgeUnavailable,
       deferred,
       isColdStart: plan.isColdStart,
     },

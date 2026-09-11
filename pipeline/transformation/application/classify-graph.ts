@@ -21,7 +21,7 @@
 import { END, START, StateGraph } from '@langchain/langgraph'
 import { isOk } from '../../collection/domain/result'
 import type { Classification } from '../domain/classification'
-import type { ClassificationRequest, Classifier } from '../domain/classifier'
+import { type ClassificationRequest, type Classifier, guardClassifier } from '../domain/classifier'
 import {
   type Budget,
   type BudgetState,
@@ -32,6 +32,7 @@ import {
   sanitiseDescriptor,
   sanitiseForPrompt,
 } from '../domain/guardrails'
+import { guardJudge, guardReflector } from './port-guards'
 
 /** Verdict from the judge. It never sets the category — only its trust. */
 export type JudgeVerdict = 'correct' | 'defensible' | 'wrong' | 'unavailable'
@@ -77,6 +78,8 @@ export type GraphDeps = {
   budget: Budget
   /** Judge only a sample — judging every product doubles the call count. */
   judgeSampleRate?: number
+  /** Told when a port breaks its contract and throws. Silence would hide a defect. */
+  log?: (message: string) => void
 }
 
 const channels = {
@@ -100,6 +103,16 @@ const channels = {
 
 export function buildClassifyGraph(deps: GraphDeps) {
   const judgeRate = deps.judgeSampleRate ?? 1
+  const log = deps.log ?? (() => {})
+
+  // The graph defends itself rather than trusting what it was handed. CLAUDE.md
+  // says pipeline ports never throw; every adapter we own honours that, and the
+  // graph used to depend on their politeness. One unhandled rejection ~800
+  // products deep discards the whole run, so the contract is enforced here,
+  // once, where no caller and no future adapter can opt out of it.
+  const tier1 = guardClassifier(deps.tier1, log)
+  const judge = deps.judge ? guardJudge(deps.judge, log) : null
+  const reflector = deps.reflector ? guardReflector(deps.reflector, log) : null
 
   const graph = new StateGraph<GraphState>({ channels })
 
@@ -143,11 +156,11 @@ export function buildClassifyGraph(deps: GraphDeps) {
       const outcomes: Outcome[] = []
       const disputed: GraphState['disputed'] = []
       let budget = s.budget
-      const size = deps.tier1.batchSize
+      const size = tier1.batchSize
 
       for (let i = 0; i < s.pending.length; i += size) {
         const batch = s.pending.slice(i, i + size)
-        const res = await deps.tier1.classify(batch)
+        const res = await tier1.classify(batch)
         budget = recordSpend(budget, 0)
 
         // A provider failure is an EDGE, not an exception. The batch is
@@ -178,7 +191,7 @@ export function buildClassifyGraph(deps: GraphDeps) {
     // below 0.9 while 16 were wrong. The judge had a 0% false-alarm rate, so a
     // "wrong" verdict is trustworthy in a way the model's own score is not.
     .addNode('judge', async (s: GraphState) => {
-      if (!deps.judge) {
+      if (!judge) {
         return {
           disputed: [],
           outcomes: s.disputed.map((d) => ({
@@ -204,7 +217,7 @@ export function buildClassifyGraph(deps: GraphDeps) {
           continue
         }
 
-        const { verdict, tokens } = await deps.judge.judge(d.request, {
+        const { verdict, tokens } = await judge.judge(d.request, {
           category: d.classification.category,
           subCategory: d.classification.subCategory,
         })
@@ -227,12 +240,12 @@ export function buildClassifyGraph(deps: GraphDeps) {
       let budget = s.budget
 
       for (const d of s.disputed) {
-        if (!deps.reflector || !mayEscalate(deps.budget, budget)) {
+        if (!reflector || !mayEscalate(deps.budget, budget)) {
           outcomes.push({ request: d.request, classification: d.classification, status: 'uncertain', judgeVerdict: 'wrong', reflected: false, detail: 'judge disputed; no reflection available' })
           continue
         }
 
-        const { classification, tokens } = await deps.reflector.reflect(d.request, d.classification)
+        const { classification, tokens } = await reflector.reflect(d.request, d.classification)
         budget = recordSpend(budget, tokens)
 
         if (!classification) {
