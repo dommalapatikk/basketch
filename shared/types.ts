@@ -944,7 +944,16 @@ export function dealToRow(
     category_slug: deal.categorySlug ?? null,
     original_price: deal.originalPrice,
     sale_price: deal.salePrice,
-    discount_percent: deal.discountPercent ?? 0,
+    // ⚠️ INTEGER COLUMN. The collection domain models Discount.percent as a
+    // real number on purpose — it distinguishes a retailer's PRINTED badge
+    // from one calculated off the prices, and a calculated one is rarely
+    // whole. This mapper is where that meets an INTEGER column, so rounding
+    // belongs here rather than in the domain.
+    //
+    // Unrounded, Postgres rejected the row AND took its whole batch with it:
+    //   invalid input syntax for type integer: "33.33333333333333"
+    // 80 of 480 deals were lost in one run on 2026-09-12.
+    discount_percent: Math.round(deal.discountPercent ?? 0),
     valid_from: deal.validFrom,
     valid_to: deal.validTo,
     image_url: deal.imageUrl,

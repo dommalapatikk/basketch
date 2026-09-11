@@ -264,3 +264,62 @@ describe('topCategoryFor', () => {
     expect(topCategoryFor(null)).toBeNull()
   })
 })
+
+describe('dealToRow rounds discount_percent for its INTEGER column', () => {
+  /**
+   * THE DEFECT, measured in production 2026-09-12:
+   *
+   *   Upsert batch 5 failed: invalid input syntax for type integer:
+   *   "33.33333333333333"
+   *
+   * 80 of 480 deals were lost in one run. `deals.discount_percent` is INTEGER
+   * (baseline.sql), but the collection domain models Discount.percent as a real
+   * number ON PURPOSE — it distinguishes a retailer's PRINTED badge from one
+   * calculated off the prices, and a calculated one is rarely whole.
+   *
+   * The domain is right to keep the precision. The row mapper is the boundary
+   * where it has to meet the column, and it was passing the value straight
+   * through. Rounding belongs here, not in the domain.
+   */
+  const base: Deal = {
+    store: 'denner',
+    productName: 'Test',
+    originalPrice: 3,
+    salePrice: 2,
+    discountPercent: 33.33333333333333,
+    validFrom: '2026-09-12',
+    validTo: '2026-09-18',
+    imageUrl: null,
+    sourceCategory: null,
+    sourceUrl: null,
+    category: 'fresh',
+    subCategory: 'dairy',
+  } as Deal
+
+  it('rounds a calculated percentage to a whole number', () => {
+    expect(dealToRow(base).discount_percent).toBe(33)
+  })
+
+  it('rounds half up, so 25.5 does not silently become 25', () => {
+    expect(dealToRow({ ...base, discountPercent: 25.5 }).discount_percent).toBe(26)
+  })
+
+  it('leaves a printed whole percentage untouched', () => {
+    // Retailers print whole numbers; those must survive unchanged.
+    expect(dealToRow({ ...base, discountPercent: 40 }).discount_percent).toBe(40)
+  })
+
+  it('still defaults to 0 when there is no discount (the ALDI rule)', () => {
+    expect(dealToRow({ ...base, discountPercent: null }).discount_percent).toBe(0)
+  })
+
+  it('never emits a fractional value for any plausible price pair', () => {
+    // The property that matters: whatever the arithmetic produces, the column
+    // gets an integer. One bad row failed a whole batch of 100.
+    for (const [orig, sale] of [[3, 2], [7, 3], [9.95, 6.65], [1.45, 1.2], [62, 25.95]]) {
+      const pct = ((orig - sale) / orig) * 100
+      const value = dealToRow({ ...base, discountPercent: pct }).discount_percent
+      expect(Number.isInteger(value)).toBe(true)
+    }
+  })
+})
