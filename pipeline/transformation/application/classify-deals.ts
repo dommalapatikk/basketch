@@ -252,7 +252,16 @@ export async function classifyDeals(
       judge: deps.judge,
       reflector: deps.reflector,
       budget: FREE_TIER_BUDGET,
+      // The lever existed and was never pulled: judgeSampleRate defaulted to 1,
+      // so a cold start made one sequential judge call per product — ~800 of
+      // them. planRun decides; a warm run still judges everything.
+      judgeSampleRate: plan.judgeSampleRate,
     })
+    if (plan.judgeSampleRate < 1) {
+      log(
+        `[transform] judge sampled at 1 in ${Math.round(1 / plan.judgeSampleRate)} for this cold start — warm runs judge every product`,
+      )
+    }
 
     // Carried ACROSS chunks: the free-tier budget is a property of the run, not
     // of a chunk. Resetting it per chunk would quietly disable the guardrail.

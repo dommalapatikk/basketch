@@ -25,6 +25,21 @@ export type RunPlan = {
   readonly isColdStart: boolean
   readonly deferred: number
   readonly reason: string
+  /**
+   * Fraction of classifications sent to the judge, 0..1.
+   *
+   * THE COLD-START BOTTLENECK. Every successful classification is escalated to
+   * the judge — deliberately, because the judge is the trigger and confidence
+   * is not (measured: 5 of 291 scored below 0.9 while 16 were wrong). But each
+   * verdict is ONE sequential HTTP call, so a cold start of 800 products meant
+   * ~800 calls before enrichment even started. Classification itself is only
+   * 32 calls; it was never the slow part. Two live cutover attempts on
+   * 2026-09-11 died on this.
+   *
+   * So a cold start samples, and every normal week — a handful of genuinely
+   * new products — judges all of them.
+   */
+  readonly judgeSampleRate: number
 }
 
 /**
@@ -36,6 +51,21 @@ export type RunPlan = {
  * few days at 3–5 runs a week.
  */
 export const COLD_START_LIMIT = 800
+
+/**
+ * Judge sampling on a cold start — one in four.
+ *
+ * 800 products judged one sequential HTTP call at a time is what killed two
+ * live cutovers; 200 is minutes instead of tens of minutes. Expressed as 1/4
+ * exactly because classify-graph samples with `i % Math.round(1 / rate)`, so a
+ * rate whose reciprocal is not a clean integer silently judges the wrong count.
+ *
+ * The cost is honest: roughly three quarters of a cold-start cohort ships with
+ * no independent check. They are still classified by a model measured at 94.8%
+ * accuracy, they are re-judged the moment anything bumps a version, and the
+ * alternative — as measured twice today — is that nothing ships at all.
+ */
+export const COLD_START_JUDGE_RATE = 1 / 4
 
 /** Below this hit rate the cache is effectively empty. */
 export const COLD_START_HIT_RATE = 0.3
@@ -61,6 +91,9 @@ export function planRun(
       isColdStart: false,
       deferred: misses - limit,
       reason: limit < misses ? 'budget-limited' : 'normal run',
+      // A warm run classifies a handful of genuinely new products. Judging all
+      // of them costs seconds and keeps the 0% false-alarm check on every one.
+      judgeSampleRate: 1,
     }
   }
 
@@ -73,6 +106,7 @@ export function planRun(
       `cold start: cache hit rate ${(hitRate * 100).toFixed(0)}%. ` +
       `Classifying ${limit} of ${misses}; the rest resume next run. ` +
       'A cold start also happens whenever a taxonomy, prompt or schema version is bumped.',
+    judgeSampleRate: COLD_START_JUDGE_RATE,
   }
 }
 

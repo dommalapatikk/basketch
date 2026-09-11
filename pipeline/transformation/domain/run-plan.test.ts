@@ -172,3 +172,49 @@ describe('prompt safety — a change rewrites every category on the site', () =>
     expect(MIN_PROMPT_EVAL_SIZE).toBeGreaterThanOrEqual(200)
   })
 })
+
+describe('judge sampling', () => {
+  /**
+   * THE COLD-START BOTTLENECK, found 2026-09-11.
+   *
+   * Every successful classification is pushed to the judge — deliberately, as
+   * the judge is the escalation trigger and self-reported confidence is not
+   * (5 of 291 scored below 0.9 while 16 were wrong). But each verdict is ONE
+   * sequential HTTP call, so a cold start of 800 products meant ~800 calls
+   * before enrichment even began. Two live cutovers died on it.
+   *
+   * Classification itself is only 32 calls — it was never the slow part.
+   *
+   * A cold start is a one-off bulk load, so it samples. Every normal week
+   * classifies a handful of genuinely new products and judges all of them.
+   */
+  it('judges every product on a normal warm run', () => {
+    const p = planRun(1800, 1750, FREE_TIER_BUDGET, ZERO_SPEND)
+    expect(p.isColdStart).toBe(false)
+    expect(p.judgeSampleRate).toBe(1)
+  })
+
+  it('samples the judge on a cold start rather than making ~800 sequential calls', () => {
+    const p = planRun(1800, 0, FREE_TIER_BUDGET, ZERO_SPEND)
+    expect(p.isColdStart).toBe(true)
+    expect(p.judgeSampleRate).toBeLessThan(1)
+    expect(p.judgeSampleRate).toBeGreaterThan(0)
+  })
+
+  it('keeps the sampled rate divisible into a whole stride', () => {
+    // classify-graph samples with `i % Math.round(1 / rate)`, so a rate whose
+    // reciprocal is not a clean integer silently judges the wrong count.
+    const p = planRun(1800, 0, FREE_TIER_BUDGET, ZERO_SPEND)
+    const stride = Math.round(1 / p.judgeSampleRate)
+    expect(stride).toBeGreaterThan(1)
+    expect(Math.abs(1 / stride - p.judgeSampleRate)).toBeLessThan(1e-9)
+  })
+
+  it('never samples the judge away entirely', () => {
+    // Sampling to zero would publish a whole cold-start cohort with no
+    // independent check at all.
+    for (const hits of [0, 100, 400]) {
+      expect(planRun(1800, hits, FREE_TIER_BUDGET, ZERO_SPEND).judgeSampleRate).toBeGreaterThan(0)
+    }
+  })
+})
