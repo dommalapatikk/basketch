@@ -1,14 +1,24 @@
-import type { DealCategory } from './types'
+import { parseStorageState, type StorageState } from './domain/storage-state'
 import { STORE_KEYS, type StoreKey } from './store-tokens'
+import type { DealCategory } from './types'
 
-// URL contract — Patch E §E2 (4-level): `?type=&cat=&sub=&stores=&q=`.
+// URL contract — Patch E §E2 (4-level): `?type=&cat=&sub=&stores=&q=`,
+// plus `?storage=` for the storage facet.
 // `cat` = mid-level Category slug (drinks, snacks-sweets, ...).
 // `sub` = sub-category slug (wine, chocolate, ...).
+// `storage` = fresh | chilled | frozen | ambient.
 // Region + locale are owned elsewhere (region is M5+, locale is in the path).
 export type DealsFilters = {
   type: DealCategory | 'all'
   category: string | null
   subCategory: string | null
+  /**
+   * Storage state — a FACET, deliberately a peer of `stores` rather than of
+   * `type` (ADR-001). Ice cream is a sweet that is frozen; frozen peas are
+   * vegetables that are frozen. The Frozen food browse tile is this filter
+   * saved, which is why `?storage=frozen` has to be a shareable URL.
+   */
+  storage: StorageState | null
   stores: StoreKey[]
   q: string
 }
@@ -27,6 +37,7 @@ export const DEFAULT_FILTERS: DealsFilters = {
   type: 'all',
   category: null,
   subCategory: null,
+  storage: null,
   stores: [...STORE_KEYS],
   q: '',
 }
@@ -56,6 +67,11 @@ export function parseFilters(
     type,
     category: first(raw.cat) || null,
     subCategory: first(raw.sub) || null,
+    // An unrecognised value falls back to null rather than filtering everything
+    // out — a hand-edited ?storage=tiefkuehl shows all deals, not none. Same
+    // parser the read boundary uses, so the URL and the column cannot disagree
+    // about what a storage state is.
+    storage: parseStorageState(first(raw.storage)),
     stores: stores.length ? stores : [],
     q: first(raw.q) ?? '',
   }
@@ -68,6 +84,7 @@ export function serializeFilters(f: DealsFilters): string {
   if (f.type !== 'all') p.set('type', f.type)
   if (f.category) p.set('cat', f.category)
   if (f.subCategory) p.set('sub', f.subCategory)
+  if (f.storage) p.set('storage', f.storage)
   if (f.stores.length !== STORE_KEYS.length) p.set('stores', f.stores.join(','))
   if (f.q) p.set('q', f.q)
   const s = p.toString()
@@ -79,6 +96,7 @@ export function isFiltersDefault(f: DealsFilters): boolean {
     f.type === 'all' &&
     f.category === null &&
     f.subCategory === null &&
+    f.storage === null &&
     f.stores.length === STORE_KEYS.length &&
     f.q === ''
   )
@@ -90,6 +108,7 @@ export function activeFilterCount(f: DealsFilters): number {
   if (f.type !== 'all') n += 1
   if (f.category) n += 1
   if (f.subCategory) n += 1
+  if (f.storage) n += 1
   if (f.stores.length !== STORE_KEYS.length) n += 1
   if (f.q) n += 1
   return n

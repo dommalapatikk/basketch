@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, redesign]
+    # feat/** added 2026-09-11: components 1-4 were built across three pushes
+    # to feat/collection-module and CI ran on none of them, because only main
+    # and redesign were listed. Every number in those handoffs was local.
+    branches: [main, redesign, 'feat/**']
   pull_request:
     branches: [main]
 
@@ -24,6 +27,34 @@ jobs:
 
       - name: Type-check pipeline
         run: cd pipeline && npx tsc --noEmit
+
+  # `shared/` has its own package.json and its own vitest suite, and until now
+  # no CI job ran it. That is how 12 tests sat failing unnoticed — the suite
+  # every other job depends on for its types was the one nobody checked.
+  #
+  # It has no dependencies of its own, so vitest is borrowed from pipeline's
+  # node_modules rather than installing a third toolchain for one suite.
+  #
+  # Three tests in category-rules.test.ts are `it.fails` on purpose: they pass
+  # while the old keyword matcher is broken and go RED when it is fixed or
+  # deleted (decision D4). A red result here means that cleanup landed.
+  test-shared:
+    name: Test (shared types + taxonomy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: pipeline/package-lock.json
+
+      - name: Install pipeline dependencies (provides vitest)
+        run: cd pipeline && npm ci
+
+      - name: Test shared
+        run: ../pipeline/node_modules/.bin/vitest run --root .
+        working-directory: shared
 
   test-typescript:
     name: Test (TypeScript)

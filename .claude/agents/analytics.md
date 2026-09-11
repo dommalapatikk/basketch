@@ -1,6 +1,7 @@
 ---
 name: Analytics Engineer (Privacy-First)
 description: Defines the tracking plan for basketch — what user events to capture, how to measure them, and how they connect to the North Star metric (weekly verdicts consumed). Creates the event schema, implements tracking with a privacy-first approach (no cookies, no personal data), and produces dashboards/reports to measure activation, retention, and PMF signals.
+model: sonnet
 tools: Read, Write, WebSearch, WebFetch, Glob, Grep
 ---
 

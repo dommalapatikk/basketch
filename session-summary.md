@@ -1,157 +1,344 @@
 # basketch — session summary
 
-**Date:** 2026-04-26
-**Outcome:** Major architecture decision session — diagnosed 5 categorization defects, ran full team review (pm-coach, vp-product, designer, architect ×3, architect-challenger, tech-lead), refined product goal, locked a simplified 9-table data model that fits zero-cost constraints. **No code shipped today** — pure architecture/strategy. Live site still on commit `d92300e` from 2026-04-25 (HR10 v2 client-side filter fix).
+**Dates:** 2026-09-10 → 2026-09-11
+**Branch:** `feat/collection-module` (not merged)
+**Resume with:** "read session-summary.md and continue"
 
 ---
 
-## What triggered this session
+## State at the end of this session
 
-User flagged 5 visible categorization defects on https://basketch.vercel.app:
-1. Canned tomatoes (Longobardi 12er-pack, gehackte tomaten 6×800g) appearing in "Fresh › Vegetables Fruits"
-2. Wine (Cabernet Sauvignon) appearing in "Fish"
-3. Cat food (Almo Nassfutter Thunfisch & Huhn) appearing in "Fish"
-4. Batteries (Energizer, Duracell, Varta) + thermometer in "Home Cleaning"
-5. "Paper Goods" sub-cat duplicating its parent name
+```
+pipeline    903 tests passing    tsc clean
+web-next    124 tests passing    tsc clean    next build OK
+shared       77 passing · 3 FAILING (expected — see below)
+OCR           7 tests passing
 
-Plus naming inconsistency ("Vegetables Fruits" filter vs "Vegetables" header).
+Components 1, 2, 3 built and verified against live data.
+Component 4 (frontend) DONE — all six UI items built.
+```
 
----
+**Component 4 closed on 2026-09-11. See "Component 4 — frontend" below.**
 
-## Refined product goal (saved to memory: `project_basketch_goal.md`)
-
-**Canonical one-liner:** A persistent shopping list that re-evaluates the cheapest store for each item every week, outputs a grouped shareable list by store, AND proactively surfaces one-off deals worth adding ("Worth picking up this week").
-
-**Two-part weekly output:**
-1. **Regular list** — items user persistently tracks; routed to cheapest store this week; re-evaluated weekly; forwardable to partner.
-2. **Worth picking up** — strong one-off deals (e.g. batteries 50% off) on items the user has bought before / favourited / browsed. User adds or ignores.
-
-**Three real-world complexities the model must handle:**
-- Variants (milk: fat%, origin, shelf-life, size)
-- Store-specific brands (M-Classic vs Coop QP vs Aldi Milsani)
-- Cross-store availability (batteries on deal at Migros, not Coop/Lidl — UI must distinguish)
+**The 3 failing `shared` tests are deliberate.** They are `category-rules.ts`
+mis-categorising `Nespresso Kapseln` and `Rivella` — live evidence of the bug this
+work replaces. They disappear when D4 deletes that file, which is blocked only by
+`resolve-taxonomy.ts` still importing from it.
 
 ---
 
-## Agents run (chronological)
+## What was discovered (more important than what was built)
 
-| Agent | Verdict |
-|---|---|
-| **architect** (Plan agent, round 1) | Proposed Migros adoption hybrid (Option D — 15 L1 + 91 L2 visible, 4 levels in DB) |
-| **PM (generic)** | Backed Option D, flagged Swiss shopper mental-model challenge |
-| **vp-product** (via general-purpose) | **Rejected Option D as proposed** → revised to D' (keep current v3.2 UI, store 4 Migros levels invisibly in DB) |
-| **pm-coach** (round 1) | Fired 6 of 8 triggers — taxonomy debate is wrong question. Recommended Option C/E (don't restructure UI, fix data) |
-| **designer** | Picked Option E. Rail isn't broken, data is. 5 specific filter UI fixes needed (kill `humaniseSlug`, 44px targets, etc.) |
-| **pm-coach** (round 2, Phase 1) | Fired triggers, prioritised milk > store-brands > cross-availability — but user rejected this phasing |
-| **architect** (round 2, Phase 1) | Proposed 3-layer model: Concept → SKU → Deal + concept_resolver + user_interest |
-| **architect-challenger** | Found 5 MUST-FIX gaps (regular_price source, parent_slug tree wrong, missing user_interest schema, sku_alias/last_seen_at/LLM cache holes, is_active misuse) + 21 fix-laters |
-| **architect** (round 3 — incorporated 5 must-fixes) | 7-table model with all fixes |
-| **architect** (round 4 — folded ALL deferred items) | Bloated to 17 tables — bundle deals, regional, equivalence, off-deal crawler, multi-currency, UUID PKs, materialised view, etc. |
-| **tech-lead** | GO with 3 stack changes: monthly partitioning (pg_partman), move daily scrapes off GH Actions, Vercel AI Gateway. **But — required Supabase Pro ($25/mo) + worker ($5/mo) + LLM (~$25/mo).** |
-| **architect** (round 5 — FINAL SIMPLIFIED) | After user said "no penny" + "3 months retention" + user challenged price_history/inventory: **9 tables**, ~28 MB storage, fits Supabase free tier. |
+**Component 1 was never actually running.** The handoff said *"done: 7 of 7
+retailers, 252 tests"*. True of the PARSERS. But four adapters had no way to
+fetch anything, there was no composition root, and `run.ts` never imported the
+module. A fixture-based suite cannot catch a missing fetch path — it is designed
+not to touch it.
 
----
+**Twelve modules were built, tested, and never called.** Including the judge
+(measured at 25% error catch, 0% false alarms), all eight alert conditions, rate
+limiting, and the attribute schemas. Nine are now wired; the rest are documented
+decisions, not oversights.
 
-## Key user decisions (in order made)
-
-1. **Solo project — no real users yet.** Don't apply launch-date pressure. (memory: `feedback_no_fake_launch_pressure.md`)
-2. **Goal unchanged from PRD** — PRD describes journeys (browse, recurring); goal is the canonical sentence above. (memory: `project_basketch_goal.md`)
-3. **Solve all 3 complexities holistically — no phasing** ("milk first, batteries later" is a crappy idea). (memory: `feedback_solve_holistically_not_phased.md`)
-4. **Build everything in one model — no v1/v2.**
-5. **Zero paid services.** "I don't want to pay any penny." (memory: `feedback_basketch_zero_paid_services.md`)
-6. **3-month retention** (not 18).
-7. **Weekly scrape cadence** (not daily — matches user's weekly use).
-8. **Approved simplified 9-table model** (architect's round 5).
+**Three bugs that passing tests could not see:**
+- `maxAttempts: 3` produced FOUR calls — the name said attempts, the logic counted retries
+- `extractAnswers` required a `category` key, so `{"verdict":"defensible"}` parsed as
+  nothing and the judge silently disabled itself whenever it answered concisely
+- an empty Issuu revision produced `image.isu.pub//jpg/page_5.jpg` — every Migros crop
+  would 404 in the visitor's browser while the pipeline reported a clean run
 
 ---
 
-## Final locked data model (9 tables + 1 materialised view)
+## Component 1 — collection. DONE, verified live.
 
-**Lookups (3):** `store`, `region`, `concept_family`
-**Core 3-layer (4):** `concept`, `sku`, `sku_alias`, `deals`
-**User-side (1):** `user_interest`
-**Resolver (1):** `concept_resolver`
-**Operations (1):** `pipeline_run`
-**Materialised view (1):** `concept_cheapest_now`
-
-**Storage at 3-month retention:** ~28 MB (fits Supabase free 500 MB with 17× headroom).
-
-**Key design points:**
-- **No tree** — flat concepts, `family_slug` FK groups siblings
-- Variant attrs as flat columns (`fat_pct`, `volume_ml`, `shelf_life`, `origin`, `is_organic`, dietary flags, allergens[])
-- `sku.last_deal_seen_at` replaces dropped `sku_inventory` table — shows "Coop last on deal 3 wks ago"
-- `sku.regular_price` updated when source provides — replaces dropped `sku_price_history`
-- Bundle pricing on `deals` (`bundle_quantity`, `bundle_unit_price`, `bundle_total_price`)
-- Multi-region for Migros (Aare/Genève/Zurich/Ticino)
-- Multi-currency ready (CHF default but column-based)
-- Worth-picking-up uses fixed 30%+ discount threshold (not per-category percentile — simplified)
-- LLM fallback DROPPED — rules-only resolver, unmatched SKUs go to triage queue (~10-15% expected)
-- Weekly cron only (no daily) — fits GitHub Actions free 2,000 min/mo
-
-**How the 5 defects are structurally prevented:**
-- No more "fallback bucket" alias — each concept has explicit `family_slug`
-- Resolver rules use `priority` — pet-food brands fire before generic "thunfisch" keyword
-- Format-aware rules — packaging signals (can/jar/multipack) part of resolution
-- Unmatched SKUs go to triage queue, never silently misplaced
-- Sub-cat list derived from real concept data — can't duplicate parent name
-
----
-
-## UX impact
-
-- **Existing UX (v3.2 IA: 3 Types → 11 Categories → sub-cat bands) preserved** — no breaking changes
-- **3 NEW UX surfaces designer will add** in next phase:
-  1. Variant picker ("I want milk → pick fat%/size/organic")
-  2. Cross-store availability indicator ("last seen at Coop 3 wks ago")
-  3. "Worth picking up this week" section
-
----
-
-## What's pending / next steps
-
-1. **Designer** — design 3 new UX surfaces (variant picker, availability indicator, Worth-picking-up section). Existing UX stays.
-2. **Design-challenger** — red-team the new UX
-3. **Tech-lead** — finalize the 3 zero-cost stack changes (no paid services, no LLM, weekly GH Actions cron)
-4. **Builder** — implement the 9-table schema + new UX
-5. **Deploy** — migrate from current schema to v3.0
-
----
-
-## Key file paths (deliverables this session)
-
-- **Visual of Migros taxonomy** (L1-L4 expandable HTML): `/Users/kiran/ClaudeCode/Claude Cowork output/migros-taxonomy-visual.html`
-- **Visual of new data model** (4 layers + concrete milk example): `/Users/kiran/ClaudeCode/Claude Cowork output/basketch-data-model-visual.html`
-- **Migros taxonomy source** (input from Claude Cowork): `/Users/kiran/ClaudeCode/Claude Cowork output/migros-categories.json` (1,123 nodes, 4 levels)
-- **PRD (canonical):** `/Users/kiran/ClaudeCode/basketch/docs/prd.md` + `prd-v3.2-amendment.md`
-- **Current shared types:** `/Users/kiran/ClaudeCode/basketch/shared/types.ts`
-- **Current schema:** `/Users/kiran/ClaudeCode/basketch/supabase/migrations/`
-- **Current categorization rules** (to be replaced): `/Users/kiran/ClaudeCode/basketch/shared/category-rules.ts`, `/Users/kiran/ClaudeCode/basketch/pipeline/categorize.ts`, `/Users/kiran/ClaudeCode/basketch/pipeline/product-group-assign.ts`
-
----
-
-## Memory updates (saved this session)
-
-| File | Type |
-|---|---|
-| `feedback_no_fake_launch_pressure.md` | feedback |
-| `project_basketch_goal.md` (refined to include Worth-picking-up) | project |
-| `feedback_solve_holistically_not_phased.md` | feedback |
-| `feedback_basketch_zero_paid_services.md` | feedback |
-
----
-
-## Live state (unchanged from yesterday)
+All seven fetch. Measured 2026-09-10/11:
 
 | | |
 |---|---|
-| 🌐 Live site | https://basketch.vercel.app |
-| 🌿 Branch | `redesign` (ahead of `main`) |
-| 📄 Latest commit | `d92300e` — HR10 client-side filter fix (2026-04-25) |
-| 🏗️ Vercel project | `dommalapatikks-projects/basketch` |
-| 🔐 Vercel Authentication | DISABLED (publicly accessible) |
+| Coop | 980 offers · 19.8s |
+| Denner | 291 offers · rich published metadata |
+| Volg | 25 offers |
+| Spar | 69 offers · 17 pages · **69 flyer crops** |
+| Aldi | 144 offers · 40 pages |
+| Lidl | 102 offers · 18 loyalty pages (matches original research exactly) |
+| Migros | 34 offers · 24 pages · **34 flyer crops** |
 
-**Yesterday's UI patches (HR9-13, HR10 v2) are still the latest deployed code.** Today's data-model decisions have NOT been implemented yet — they're spec only, awaiting designer + builder.
+**Built this session:** `flyer-fetcher.ts` (PDF download + poppler), `issuu-fetcher.ts`
+(Migros page images), `ocr.py` (+ 7 pytest tests), `live-sources.ts` (the composition
+root), poppler installed in CI.
+
+**Migros OCR, measured not inherited.** The research said *"2× fixed it, 1.5×+
+segfaults"*. Both halves were wrong:
+- The segfault is IMAGE SIZE, not upscaling. A 4398×5994 page crashes; a 4398×2158
+  strip at the same 2× does not. Tiling gives the upscale without the crash.
+- 2× recovers NO additional sale prices (11 vs 11 on page 5). What it recovers is
+  `statt 9.-` where 1× reads `statt 9.` — a REFERENCE price. Default is 1×;
+  `--tiled` is an explicit trade.
 
 ---
 
-**To resume work:** read this file + the data-model visual HTML, then continue with: designer agent for variant-pick UX + Worth-picking-up surface design.
+## Component 2 — transformation. DONE.
+
+**Model bake-off, all measured on the 291-product Denner benchmark:**
+
+| Model | macro-F1 | accuracy | note |
+|---|---|---|---|
+| **gemini-3.5-flash-lite** | **0.855** | **94.8%** | SHIPPED as tier 1 |
+| gemini-3.5-flash | — | — | **20 requests/DAY** free tier — unusable |
+| qwen3.7-flash | 0.887* | 89.2% | *on a harder stratified sample |
+| gpt-5-nano | 0.831 | 83.1% | used as the JUDGE, not the classifier |
+| mistral-small-24b | 0.518 | 55.4% | my "European = better German" prediction, falsified |
+
+**The ladder:** tier 1 Gemini batched 25 → judge (gpt-5-nano, different lab) →
+reflect (Gemini, single item) → human review queue.
+
+**The judge is the escalation trigger, NOT confidence.** Measured: only 5 of 291
+scored below 0.9 while 16 were wrong. The model is confidently wrong. The judge
+caught 25% of errors with a **0% false-alarm rate** — so a "wrong" verdict is
+trustworthy in a way self-reported confidence is not.
+
+**Also built and wired:** guardrails (prompt injection EN+DE, budget), resilience
+(rate limits, backoff, circuit breaker), alerts (8 conditions), model registry +
+startup probe, cold-start planning, Supabase cache, enrichment (17 attribute
+schemas).
+
+**Measured and REJECTED — do not re-add without re-measuring:**
+- retrieval few-shot: −2.1pp accuracy, +7 parse failures (D12)
+- diverse tier-2 model: every candidate 10+ points worse than tier 1
+- repair loop: gemini produced 0 invalid answers across 291 products
+
+---
+
+## Component 3 — storage. DONE.
+
+- **Baseline migration** — 10 tables existed ONLY in the live database. The repo
+  could not rebuild it. Captured via the PostgREST descriptor (Docker unavailable);
+  the file states plainly what that misses.
+- **Offer fields** — `price_basis`, `crop_*`, integer rappen, `attributes` jsonb,
+  `storage`, and `category` made NULLABLE with `is_uncertain`.
+- Every constraint verified in BOTH directions against the live database.
+
+**Schema surprise worth remembering:** `deals.category` holds the top-level group
+(`fresh|long-life|non-food`); the browse category lives in `sub_category`. The names
+are the reverse of what they suggest.
+
+**Cutover shadow run says SAFE:**
+```
+legacy 1,271 → collected 1,616   (+345, +27%)
++5 retailers never previously collected · +103 flyer crops
+```
+
+---
+
+## Component 4 — frontend. DONE 2026-09-11.
+
+**Read boundary (earlier):** `Deal` type extended (`isUncertain`, `storage`,
+`priceBasis`, `loyaltyProgramme`, `crop`, `attributes`), `SELECT_COLUMNS`
+widened, `mapRow` maps them with safe defaults for pre-migration rows.
+
+**All six UI items built:**
+- **Crop rendering** — `components/ui/product-image.tsx`. Plain `<img>`, never
+  `next/image`: optimising it would fetch the page onto Vercel and serve a
+  derived copy from our own domain, which is exactly what Art. 2 Abs. 3bis URG
+  forbids. Also, `image.isu.pub` is not in `images.remotePatterns`.
+- **Uncertain deals** — "Category unverified" tag on the card, and they no
+  longer vote in `scoreStoresForCategory`.
+- **Only-at-store** — badge + scope-stating note, `onlyStoreSubCategories`.
+- **Member price** — badge naming the programme, on BOTH card variants.
+- **Storage facet** — `?storage=` in the URL contract, section in FilterRail
+  AND FilterSheet (the rail is `hidden lg:block`; mobile would have had no
+  access to it).
+- **Attributes** — `lib/deal-attributes.ts`, max 3 facts, primary card only.
+
+**THE CROP GEOMETRY BUG THAT ONLY A BROWSER FOUND.** The arithmetic was right
+and the render was wrong. A crop WIDER than the square slot underfills it
+vertically, and `overflow: hidden` does not help — it clips what leaves the
+slot, not what surrounds the crop. A row-spanning crop rendered THREE ROWS of
+other retailers' products inside one card. Fixed with `clip-path: inset(...)`
+on the image, whose percentages resolve in the same space as the fractions.
+Verified by screenshotting a synthetic 3×4 labelled grid in headless Chrome and
+checking each slot showed its own cell. **Do not simplify this back to
+`overflow: hidden` — it was already tried and it looked fine in the code.**
+
+## The read domain — `web-next/src/lib/domain/` (added 2026-09-11)
+
+The first cut of component 4 passed its tests and broke the project's own rules.
+Written down because the violations are easy to reintroduce and each one looked
+reasonable at the time.
+
+| Rule | What was wrong |
+|---|---|
+| Value objects over primitives | `CropRegion` was a bare record of numbers |
+| Invariants in the constructor, never a caller remembering | `cropImageStyle` validated at RENDER time |
+| `MemberOnly must name its programme` | A string + a nullable field, so the invalid state was representable |
+| Do not duplicate shared types | `StorageState` was validated in three places |
+| Domain first, tests first | Implementation was written first |
+
+**`price-basis.ts` is the one to understand.** `priceBasis: string` beside
+`loyaltyProgramme: string | null` loses the pairing the database CHECK holds,
+so every renderer has to remember it. In practice that meant a fallback branch
+announcing *"Loyalty members only"* and naming nobody — precisely the
+unlabelled member price Art. 3(1)(e) UWG is about. As a discriminated union the
+programme is reachable only through the branch that has one, so
+`memberPriceLabel` has no fallback because it has no failing case.
+
+**`mapRow` is now the anti-corruption layer** and is exported and tested
+directly (`server/data/map-row.test.ts`, 14 tests). It DROPS a member price that
+names no programme — the only row refused outright, because unlabelled is the
+UWG problem and relabelling it as open is worse. An unusable crop costs the
+image only, never the deal: the price is still right, it is the picture we
+cannot place.
+
+**`createCropRegion` caught a real gap.** The render code never checked
+`x + width <= 1`, so a rectangle running off the page edge would render the page
+edge and whatever sits beside it. The pipeline's `cropRegionImage` had that
+check all along; the read side did not.
+
+**`lib/domain/architecture.test.ts` enforces the layering.** Mirrors the
+pipeline's version — Biome has no import-boundary rule, and "the domain imports
+no infrastructure" in a markdown file is a comment, not an invariant. It was
+verified by temporarily adding a Supabase import and watching it fail with the
+file, line and reason. **If you add a directory under `lib/domain`, it is
+covered automatically; if you rename the directory, the "finds the domain files"
+guard fails rather than passing vacuously.**
+
+**Attribute labels are COPIED, not imported.** `lib/deal-attributes.ts` carries
+a display-only projection of `shared/attribute-schemas.ts` because web-next
+cannot import across the project boundary — Turbopack rejects it under
+`cacheComponents`, which is why `lib/v3-types.ts` inlines its types too. Drift
+is safe: an unknown attribute id humanises its own key rather than breaking.
+
+---
+
+## Live infrastructure changes made this session
+
+- Migrations **applied** to production Supabase (baseline + classification cache + offer fields)
+- GitHub secrets **set**: `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`
+- `pipeline.yml`: poppler installed, API keys + `GITHUB_RUN_ID` passed
+- `pipeline/archive/migros/` **deleted**, `migros-api-wrapper` uninstalled
+  (backup: `/tmp/basketch-archive-backup-20260910`)
+- `openrouter-classifier.ts` deleted (backup: `/tmp/basketch-deleted-20260911`)
+
+---
+
+## The D3 breach that was fixed on 2026-09-11 (component 2)
+
+Finishing component 4 turned up a stale workaround, and it is worth knowing why
+the obvious reading of it was wrong.
+
+**Uncertain never meant uncategorised.** `createClassification`
+(`transformation/domain/classification.ts:82-92`) rejects a missing category, an
+unknown category, and a sub-category that does not belong to its parent. Every
+product that reaches the write HAS a name and a category. `isUncertain` is a
+LABEL-visibility flag on a product that has a perfectly good one.
+
+**The deals were being dropped in the bridge, not the frontend.**
+`classify-deals.ts` gated on `status === 'classified'`, so judge-disputed
+outcomes — which DO carry a validated classification
+(`classify-graph.ts:231/239/251`) — fell through and were counted and discarded.
+The comment above it said this was temporary "until component 3 makes `category`
+nullable and adds `is_uncertain`". Component 3 did that on 2026-09-10. The
+blocker had expired; the workaround had not.
+
+**Three things changed:**
+1. Judge-disputed deals are published with their category and `is_uncertain`.
+2. A judge dispute now sets `isUncertain` regardless of confidence
+   (`markUncertain`). Confidence alone could not do this job — 5 of 291 scored
+   below 0.9 while 16 were wrong. The judge's 0% false-alarm rate is what earns
+   the override.
+3. `stats.uncertain` (published, flagged) is now split from `stats.heldBack`
+   (no classification exists — deferred, rejected, provider down). Conflating
+   them is how a silent drop looked accounted for.
+
+**Enriched attributes were also being dropped.** They were computed, written to
+the classification cache, and then never attached to the deal — the `attributes`
+column was `'{}'` on every row. `toDeal` now carries them, and lifts `storage`
+onto its own column for the Frozen facet.
+
+## NEXT STEPS, in order
+
+1. **Set `COLLECTION_MODE=shadow`** as a repo variable, let one scheduled run
+   produce the comparison table in the Actions log, then flip to `live`.
+   Default is `off`, so the five new retailers do not appear until you do.
+2. Delete `categorize.ts` + `shared/category-rules.ts` (D4). Blocked by
+   `resolve-taxonomy.ts`; clears the 3 red tests.
+3. LangSmith — needs a `LANGSMITH_API_KEY`; the only thing never started.
+4. **Tighten the only-at-store claim** once the `concept` layer is populated.
+   Today it is scoped to the SUB-CATEGORY, because `products` are resolved per
+   store (`product-resolve.ts` filters `.eq('store', store)`) so there is no
+   cross-store identity to compare. Swap the grouping key in
+   `onlyStoreSubCategories` from `subCategory` to the concept id and tighten
+   the copy; nothing else has to change. **Do not match on product names** —
+   "M-Classic Vollmilch" and "Coop Naturaplan Milch" never match, so nearly
+   every deal would wrongly claim "only at", which is the exhaustiveness claim
+   Art. 3(1)(e) UWG forbids.
+
+## Still nobody's verified
+
+**Nothing has run end-to-end in CI.** Everything is verified locally against live
+data. The next scheduled run is the real test, and it will be a COLD START —
+empty cache, capped at 800 products, the rest deferred.
+
+**No component-4 surface has been seen against real rows.** Tests, `tsc` and
+`next build` all pass, and the crop geometry plus the assembled card were
+screenshotted in headless Chrome — but against a synthetic grid, not a real
+flyer. Until a run writes `page_image_url`, `is_uncertain`, `storage` and
+`attributes`, every one of those code paths renders its empty state on the live
+site. First thing to check after the first live run:
+- a Spar/Aldi/Migros card actually shows its product, not a slice of its neighbour
+- `WHERE is_uncertain` is non-empty and those deals appear with the tag
+- the Storage facet counts are not all zero (they will be if enrich ran without
+  a `GOOGLE_AI_API_KEY`)
+
+---
+
+## Things that will bite if forgotten
+
+**A Google API key was exposed and revoked.** An early key (`AQ.Ab8RN6…`) was
+pasted into the chat and is therefore in that transcript permanently. It was
+deleted in AI Studio and a fresh one created. **Keep the old one revoked.** The
+current key and the OpenRouter key were never typed into the chat — they were
+read from `.env` by variable name and piped to `gh secret set` via stdin.
+
+**Migros OCR needs Python deps that were declared nowhere.** Fixed on 2026-09-11:
+`pipeline/collection/infrastructure/migros/requirements.txt` now exists and the
+workflow installs it with an import check. Locally, point `MIGROS_OCR_PYTHON` at
+a venv that has them, or the Migros source fails with
+*"rapidocr-onnxruntime not installed"* while every other retailer succeeds.
+
+**The taxonomy grew a lot.** 11 → **22 browse categories**, 23 → **76
+sub-categories**, driven by Migros' and Coop's own shop navigation (supplied as
+screenshots; both sites 403 automated clients). Added: `pet-supplies`,
+`household-appliances`, `alcohol` (split from `drinks` — age-restricted stock
+with separate Swiss advertising rules), `home-kitchen`, `kiosk`, and six
+general-merchandise categories. Six ambiguous sub-category names were renamed
+(`sports` → `sports-equipment`, etc.) after the model read `sports` as *sports
+drink* and a correct answer was rejected as invalid.
+
+**Tobacco is classified but never published (D10).** The Swiss
+Tabakproduktegesetz restricts tobacco advertising where minors can see it, and
+basketch is public and un-gated. `kiosk/tobacco` exists so nothing resolves to
+"Other", and `NON_PUBLISHABLE_SUB_CATEGORIES` in `shared/types.ts` stops it
+reaching the site. **One list, one place — do not scatter this rule.**
+
+**`CLAUDE.md` was stale in three places**, now corrected: `shared/` DOES have a
+package.json and its own test suite (which no CI job runs — that is why 12 tests
+were failing unnoticed); the `@shared/*` path alias type-checks but FAILS at
+runtime under tsx/vitest, so use relative imports; the testing-commands section
+omitted `shared` entirely.
+
+**The benchmark lives at**
+`pipeline/transformation/__benchmark__/denner-2026-W37.json` — 291 products, 251
+labelled by Denner, 40 hand-labelled and tagged `derived` so the two are never
+mixed. **Standing rule: the answer key does NOT change because a model disagreed
+with it.** It changes only when a label is wrong on its own terms. If `derived`
+ever exceeds 20% of rows, the benchmark stops being credible.
+
+---
+
+## Key documents
+
+- `docs/component-2-decisions.md` — 12 numbered decisions with reasoning, including where the PM overruled me and was right
+- `docs/component-2-agent-design.md` — trust hierarchy, agent graph, cache, observability
+- `docs/adr-001-category-regroup.md` — storage as a facet; why Migros/Coop taxonomies were adopted
+- `docs/component-1-integration-gaps.md` — why "done" was not done

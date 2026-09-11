@@ -33,3 +33,14 @@ supabase/.temp/
 
 # Stray Vite cache from retired web/ folder (now archived)
 web/
+
+# Local credential backups and chat transcripts — these contain API keys.
+# An early Google key was pasted into a chat and is in that transcript
+# permanently; it was revoked, but the file must never reach the remote.
+.env.bak-*
+*.env.bak
+transcript-backup.jsonl
+
+# Session scratch — kept on disk, not in the public repo.
+logo-concepts.html
+session-handoff-architecture-split.md

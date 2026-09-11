@@ -6,15 +6,18 @@ import { useTranslations } from 'next-intl'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
 import { usePathname } from '@/i18n/navigation'
+import { visibleAttributes } from '@/lib/deal-attributes'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
 import { formatShortDate } from '@/lib/format'
 import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
-import type { WeeklySnapshot } from '@/lib/types'
+import type { Deal, WeeklySnapshot } from '@/lib/types'
 import {
   buildSections,
   categoryCounts,
   filterDeals,
+  onlyStoreSubCategories,
+  storageCounts,
   storeCounts,
   subCategoryCounts,
 } from '@/server/data/filter-deals'
@@ -108,7 +111,14 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     () => subCategoryCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
   )
+  const storages = useMemo(
+    () => storageCounts(snapshot.deals, filters),
+    [snapshot.deals, filters],
+  )
   const sections = useMemo(() => buildSections(filtered), [filtered])
+  // Computed over the WHOLE snapshot, never `filtered`: a deal is not "only at
+  // Coop" because the visitor deselected the other six stores.
+  const onlyStore = useMemo(() => onlyStoreSubCategories(snapshot.deals), [snapshot.deals])
   const facets = useMemo(
     () =>
       snapshot.deals.map((d) => ({
@@ -116,6 +126,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
         category: d.category,
         categorySlug: d.categorySlug,
         subCategory: d.subCategory,
+        storage: d.storage,
         productName: d.productName,
       })),
     [snapshot.deals],
@@ -163,6 +174,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
             storeCounts={counts}
             categories={cats}
             subCategories={subCats}
+            storages={storages}
             locale={locale}
           />
         </div>
@@ -214,6 +226,21 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
                       others={s.others}
                       cheapestLabel={t('cheapest')}
                       othersLabel={t('section_others')}
+                      unverifiedLabel={t('category_unverified')}
+                      onlyStoreBadge={
+                        onlyStore.has(s.subCategory)
+                          ? t('only_store_badge', {
+                              store: STORE_BRAND[onlyStore.get(s.subCategory) as StoreKey].label,
+                            })
+                          : null
+                      }
+                      onlyStoreNote={
+                        onlyStore.has(s.subCategory)
+                          ? t('only_store_note', {
+                              category: subCategoryLabel(s.subCategory, locale),
+                            })
+                          : null
+                      }
                       locale={locale}
                     />
                   </div>
@@ -261,6 +288,9 @@ function SubCategorySection({
   others,
   cheapestLabel,
   othersLabel,
+  unverifiedLabel,
+  onlyStoreBadge,
+  onlyStoreNote,
   locale,
 }: {
   subCategoryKey: string
@@ -269,6 +299,9 @@ function SubCategorySection({
   others: ReturnType<typeof buildSections>[number]['others']
   cheapestLabel: string
   othersLabel: string
+  unverifiedLabel: string
+  onlyStoreBadge: string | null
+  onlyStoreNote: string | null
   locale: string
 }) {
   const subline = `${others.length + 1} ${others.length === 0 ? (locale === 'de' ? 'Aktion' : 'deal') : locale === 'de' ? 'Aktionen' : 'deals'}`
@@ -300,6 +333,7 @@ function SubCategorySection({
           productName={primary.productName}
           format={primary.format}
           imageUrl={primary.imageUrl}
+          crop={primary.crop}
           current={primary.salePrice}
           previous={primary.originalPrice}
           perUnit={
@@ -311,6 +345,12 @@ function SubCategorySection({
           isCheapest
           href={primary.sourceUrl ?? '#'}
           cheapestLabel={cheapestLabel}
+          isUncertain={primary.isUncertain}
+          unverifiedLabel={unverifiedLabel}
+          memberPriceLabel={memberPriceLabel(primary, locale)}
+          onlyStoreBadge={onlyStoreBadge}
+          onlyStoreNote={onlyStoreNote}
+          attributes={visibleAttributes(primary.attributes, locale)}
         />
       </div>
 
@@ -318,6 +358,7 @@ function SubCategorySection({
         <OtherStoresBlock
           others={others}
           othersLabel={othersLabel}
+          unverifiedLabel={unverifiedLabel}
           locale={locale}
         />
       ) : null}
@@ -332,10 +373,12 @@ function SubCategorySection({
 function OtherStoresBlock({
   others,
   othersLabel,
+  unverifiedLabel,
   locale,
 }: {
   others: ReturnType<typeof buildSections>[number]['others']
   othersLabel: string
+  unverifiedLabel: string
   locale: string
 }) {
   const COLLAPSE_THRESHOLD = 5
@@ -382,6 +425,7 @@ function OtherStoresBlock({
               store={d.store}
               productName={d.productName}
               imageUrl={d.imageUrl}
+              crop={d.crop}
               current={d.salePrice}
               previous={d.originalPrice}
               perUnit={
@@ -391,6 +435,9 @@ function OtherStoresBlock({
               }
               savingsPct={d.discountPercent}
               href={d.sourceUrl ?? '#'}
+              isUncertain={d.isUncertain}
+              unverifiedLabel={unverifiedLabel}
+              memberPriceLabel={memberPriceLabel(d, locale)}
             />
           ))}
         </div>
@@ -401,4 +448,23 @@ function OtherStoresBlock({
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+/**
+ * The label a members-only price must carry, or null for an open price.
+ *
+ * Art. 3(1)(e) UWG and CLAUDE.md both make this binding: a Lidl Plus, Supercard
+ * or Cumulus price may never render as one anybody can pay.
+ *
+ * Note what is NOT here — a fallback for a member price with no programme name.
+ * There is no such case to handle: `createPriceBasis` refuses to build one, so
+ * narrowing on the discriminant yields a programme that is always a string.
+ * The earlier version of this function had a branch that announced "Loyalty
+ * members only" and named nobody, which is the unlabelled member price the rule
+ * is about.
+ */
+function memberPriceLabel(deal: Deal, locale: string): string | null {
+  if (deal.priceBasis.kind !== 'member-only') return null
+  const { programme } = deal.priceBasis
+  return locale === 'de' ? `Nur mit ${programme}` : `${programme} members only`
 }

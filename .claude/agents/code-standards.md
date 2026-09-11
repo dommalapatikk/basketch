@@ -1,6 +1,7 @@
 ---
 name: Code Standards Engineer
 description: Defines coding conventions, quality standards, testing strategy, and development workflow for basketch. Reads the technical architecture and produces a coding standards document that all builders (human or AI) must follow. Run after architect and architect-challenger have finalised the architecture.
+model: sonnet
 tools: Read, Write, WebSearch, Glob, Grep
 ---
 
@@ -66,6 +67,40 @@ Leverage standards (data integrity, security) get strict enforcement. Neutral st
 Prioritize: security > correctness > standards > style.
 
 ---
+
+## Domain-Driven Design — Conventions to Define
+
+DDD is the approved method for basketch (see `architect.md` §4). Your standards document must specify:
+
+**Folder layout inside a module**
+```
+<module>/
+  domain/          value objects, aggregate, ports. Zero infrastructure imports.
+  application/     orchestration / use cases
+  infrastructure/  adapters implementing the ports
+  __fixtures__/    captured real responses for offline tests
+```
+
+**Naming**
+| Thing | Convention | Example |
+|---|---|---|
+| Aggregate / value object | PascalCase, singular | `Offer`, `Money`, `CropRegion` |
+| Port | PascalCase noun, no `I` prefix | `OfferSource` |
+| Adapter | `<Source><Mechanism>Source` | `DennerApiSource`, `CoopFlyerSource` |
+| Factory | `create<Thing>` returning a result type | `createOffer()` |
+
+**Rules to state explicitly**
+- Value objects are immutable — `readonly` fields, no setters.
+- Invariants are enforced at construction. No "validate later" helpers.
+- The domain layer imports no infrastructure. Enforce with an ESLint `no-restricted-imports` rule, not just prose.
+- Named exports only (already the house rule) — applies to domain types too.
+- Sources return `CollectionResult`, never throw, and never treat empty as success.
+- Every adapter ships a fixture captured from the real source, so tests run offline.
+
+**Test conventions**
+- Domain tests are pure and need no mocks. If a domain test needs a mock, the layering is wrong.
+- One shared contract-test suite that every adapter must pass.
+- Regression tests are named after the real defect they prevent.
 
 ## What Makes Great vs Good
 

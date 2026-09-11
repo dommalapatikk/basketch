@@ -8,8 +8,54 @@ import path from 'node:path'
 import type { Store, UnifiedDeal } from '../shared/types'
 import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
 
-import { categorizeDeal } from './categorize'
+import { BROWSE_CATEGORIES } from '../shared/types'
+import { collectOffers } from './collection/application/collect-offers'
+import {
+  compareCollection,
+  formatComparison,
+  legacyCounts,
+  readCollectionMode,
+  safeToCutOver,
+} from './collection/application/collection-mode'
+import type { IsoWeek } from './collection/domain/offer-source'
+import { createLiveSources } from './collection/infrastructure/live-sources'
 import { filterGrocery } from './grocery-filter'
+import type { DealEnrichment } from './storage/domain/offer-to-unified'
+import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
+import { writeEnrichment } from './storage/infrastructure/write-enrichment'
+
+/**
+ * ISO week for a date — the number the retailers publish their flyers under.
+ *
+ * Thursday-based, per ISO 8601: the week containing the year's first Thursday
+ * is week 1. Getting this wrong by one fetches last week's flyer, which parses
+ * perfectly and is silently stale.
+ */
+function isoWeekOf(date: Date): { kw: number; year: number } {
+  const t = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
+  const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1)
+  const kw = Math.ceil(((t.getTime() - yearStart) / 86_400_000 + 1) / 7)
+  return { kw, year: t.getUTCFullYear() }
+}
+import { classifyDeals } from './transformation/application/classify-deals'
+import { CURRENT_VERSIONS } from './transformation/domain/classification-cache'
+import { JUDGE_CHAIN, TIER1_CHAIN, downgradeWarning, selectModel } from './transformation/domain/model-registry'
+import { createGeminiReflector, createOpenRouterJudge } from './transformation/infrastructure/gemini/gemini-judge'
+import { type RunSnapshot, evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
+import { probeModels } from './transformation/infrastructure/model-probe'
+import { createGeminiClassifier } from './transformation/infrastructure/gemini/gemini-classifier'
+import { resilientClassifier } from './transformation/infrastructure/resilient-classifier'
+import { createGeminiEnricher } from './transformation/infrastructure/gemini/gemini-enricher'
+import { createSupabaseClassificationCache } from './transformation/infrastructure/supabase/supabase-classification-cache'
+
+/**
+ * Fallback if the probe cannot run at all. The probe below is what normally
+ * decides, and it is what survives a retirement.
+ */
+const TIER1_FALLBACK = TIER1_CHAIN[0]?.id ?? 'gemini-3.5-flash-lite'
+
+const TAXONOMY = BROWSE_CATEGORIES.map((c) => ({ category: c.id, subCategories: c.subCategories }))
 import { extractProductMetadata } from './product-metadata'
 import {
   collectUnknownTags,
@@ -24,13 +70,19 @@ import { isValidDealEntry } from './validate'
 import { populateV3Layer } from './v3-cutover'
 
 /**
- * Confidence threshold: deals below this score are rejected as "likely
- * miscategorised" and never written to the DB. See v4 spec §13.
- * Lowered from 0.4 → 0.3 after live data showed 42% of real aktionis deals
- * were fallback-tier (no brand/source/keyword match) but still valid groceries.
- * Non-grocery items are already rejected upstream by grocery-filter.
+ * RETIRED 2026-09-10 by decision D3.
+ *
+ * This threshold silently DELETED every deal the keyword matcher was unsure
+ * about — and because nothing was ever visibly uncertain, nothing was ever
+ * reviewed. That is how tomato purée sat in fresh vegetables for months while
+ * the pipeline reported success every week.
+ *
+ * The agent replaces it: an uncertain product keeps its price and loses only
+ * its category label, and lands in a review queue (`where is_uncertain`).
+ * Uncertainty is now a visible outcome instead of a silent deletion.
+ *
+ * const MIN_TAXONOMY_CONFIDENCE = 0.3
  */
-const MIN_TAXONOMY_CONFIDENCE = 0.3
 
 function readDealsFile(filename: string): UnifiedDeal[] {
   const filePath = path.resolve(process.cwd(), filename)
@@ -67,7 +119,23 @@ function readDealsFile(filename: string): UnifiedDeal[] {
 async function main(): Promise<void> {
   const startTime = Date.now()
   const startDate = new Date(startTime)
-  console.log('[pipeline] [INFO] Starting pipeline run')
+
+  /**
+   * Correlation ID for the whole run.
+   *
+   * Every classification written this run carries it, so "why is this product
+   * in this category?" is answerable from stored data alone — which model, which
+   * tier, which prompt version, which run. Until now the pipeline recorded THAT
+   * it ran, never WHAT it decided.
+   *
+   * Prefers the GitHub Actions run id so a row in Supabase links straight back
+   * to the job log that produced it.
+   */
+  const runId = process.env.GITHUB_RUN_ID
+    ? `gha-${process.env.GITHUB_RUN_ID}`
+    : `local-${startDate.toISOString().replace(/[:.]/g, '-')}`
+
+  console.log(`[pipeline] [INFO] Starting pipeline run ${runId}`)
 
   // Discover all *-deals.json files in the current working directory
   const cwd = process.cwd()
@@ -79,6 +147,11 @@ async function main(): Promise<void> {
 
   // Collect all raw deals, keyed by store
   const storeDealsMap = new Map<Store, UnifiedDeal[]>()
+
+  // Fields `Offer` carries that `UnifiedDeal` cannot: CropRegion, priceBasis,
+  // integer rappen. Written by a second pass after the main storage step, keyed
+  // on unique_deal (store, product_name, valid_from).
+  const pendingEnrichment = new Map<string, DealEnrichment>()
 
   for (const file of dealFiles) {
     const slug = file.replace('-deals.json', '')
@@ -97,6 +170,66 @@ async function main(): Promise<void> {
       status: (existing.length + deals.length) > 0 ? 'success' : (prev?.status ?? 'failed'),
       count: (prev?.count ?? 0) + deals.length,
     })
+  }
+
+  // ── Collection cutover ────────────────────────────────────────────────────
+  // off    the Python *-deals.json files, as today
+  // shadow BOTH run; the new module writes nothing and reports what it WOULD
+  //        have stored. One cycle of this turns predictions into facts.
+  // live   the new module supplies the offers; the JSON files are ignored.
+  const collectionMode = readCollectionMode(process.env)
+  if (collectionMode !== 'off') {
+    console.log(`[pipeline] [INFO] collection module: ${collectionMode.toUpperCase()}`)
+    const { kw, year } = isoWeekOf(startDate)
+    const week: IsoWeek = `${year}-W${String(kw).padStart(2, '0')}`
+
+    const outcome = await collectOffers(createLiveSources({ kw, year }), week, { timeoutMs: 600_000 })
+
+    console.log(`[pipeline] [INFO] collected ${outcome.offers.length} offers · ${outcome.trace.status}`)
+    for (const span of outcome.trace.sources) {
+      const mark = span.status === 'ok' ? 'ok  ' : 'FAIL'
+      console.log(
+        `[pipeline] [INFO]   ${mark} ${span.retailer.padEnd(8)} ${String(span.offerCount).padStart(4)} offers  ${span.warningCount} warnings` +
+          (span.status === 'ok' ? '' : `  ${span.failureReason}: ${(span.detail ?? '').slice(0, 80)}`),
+      )
+    }
+
+    const comparison = compareCollection(legacyCounts(storeDealsMap), outcome.offers)
+    console.log(`\n${formatComparison(comparison)}\n`)
+
+    if (collectionMode === 'shadow') {
+      // Deliberately changes nothing. The point is the table above.
+      console.log('[pipeline] [INFO] SHADOW — nothing written from the collection module')
+    } else if (!safeToCutOver(comparison)) {
+      // Better a stale week from the legacy path than a week of missing prices.
+      console.error('[pipeline] [ERROR] LIVE requested but a retailer collected nothing — falling back to the legacy files')
+    } else {
+      console.log('[pipeline] [INFO] LIVE — collection module supplies this run')
+
+      // Replace the legacy input entirely. Everything downstream — grocery
+      // filter, classifier, taxonomy, product resolution, storage — runs
+      // unchanged on the mapped offers.
+      storeDealsMap.clear()
+      storeStatusMap.clear()
+      for (const offer of outcome.offers) {
+        const store = offer.retailer as Store
+        const list = storeDealsMap.get(store) ?? []
+        list.push(offerToUnifiedDeal(offer))
+        storeDealsMap.set(store, list)
+      }
+      for (const [store, list] of storeDealsMap) {
+        storeStatusMap.set(store, { status: list.length > 0 ? 'success' : 'failed', count: list.length })
+      }
+
+      // The mapper is lossy by design: CropRegion, priceBasis and integer
+      // rappen have no home on UnifiedDeal. Collect them now, write them after
+      // the main storage step.
+      for (const offer of outcome.offers) {
+        const enrichment = dealStoreEnrichment(offer)
+        if (enrichment) pendingEnrichment.set(enrichment.key, enrichment)
+      }
+      console.log(`[pipeline] [INFO] ${pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
+    }
   }
 
   // Log summary of what was found
@@ -164,14 +297,89 @@ async function main(): Promise<void> {
   // often shows a sale price without the crossed-out original price, which
   // makes discount_percent compute to 0 even though the card was listed as
   // a promo. Dropping these lost ~40% of Migros / LIDL stock unnecessarily.
-  const categorized = groceryOnly
-    .map((deal) => categorizeDeal(deal))
-    .filter((d) => d.taxonomyConfidence >= MIN_TAXONOMY_CONFIDENCE)
+  // Probe the chain before spending anything. A listing is not availability:
+  // gemini-2.5-flash-lite appeared in Google's own models list on 2026-09-10 and
+  // 404'd on call. Ten seconds here beats discovering it 72 batches deep.
+  let TIER1_MODEL = TIER1_FALLBACK
+  if (process.env.GOOGLE_AI_API_KEY) {
+    const probes = await probeModels(TIER1_CHAIN, {
+      google: process.env.GOOGLE_AI_API_KEY,
+      openrouter: process.env.OPENROUTER_API_KEY,
+    })
+    const chosen = selectModel(TIER1_CHAIN, probes)
+    if (chosen.ok) {
+      TIER1_MODEL = chosen.value.id
+      const warning = downgradeWarning(TIER1_CHAIN, chosen.value)
+      // A fallback is better than a failure, but it must never be silent: the
+      // run still succeeds while producing measurably worse categories.
+      if (warning) console.warn(`[pipeline] [WARN] ${warning}`)
+      else console.log(`[pipeline] [INFO] classifier model: ${TIER1_MODEL}`)
+    } else {
+      console.error(`[pipeline] [ERROR] ${chosen.error}`)
+    }
+  }
 
-  const filtered = groceryOnly.length - categorized.length
+  const { deals: categorized, stats } = await classifyDeals(groceryOnly, {
+    cache: createSupabaseClassificationCache({ client: supabase, versions: CURRENT_VERSIONS }),
+    // Wrapped: rate limiting, exponential backoff and a circuit breaker.
+    // Without this a single 429 kills a whole batch of 25 products, which is
+    // exactly what happened repeatedly while measuring models on 2026-09-10.
+    tier1: resilientClassifier({
+      inner: createGeminiClassifier({
+        apiKey: process.env.GOOGLE_AI_API_KEY ?? '',
+        model: TIER1_MODEL,
+        tier: 1,
+        taxonomy: TAXONOMY,
+        batchSize: 25,
+      }),
+      log: (m) => console.log(`[pipeline] [INFO] ${m}`),
+    }),
+    // THE ESCALATION TRIGGER. Not self-reported confidence: measured at 5 of
+    // 291 below 0.9 while 16 were wrong, so the model is confidently wrong.
+    // The judge caught 25% of errors with a 0% false-alarm rate, which is what
+    // makes a "wrong" verdict trustworthy enough to act on.
+    //
+    // Both degrade to null when their key is absent, so a missing OpenRouter
+    // key costs escalation, never the run.
+    judge: process.env.OPENROUTER_API_KEY
+      ? createOpenRouterJudge({
+          apiKey: process.env.OPENROUTER_API_KEY,
+          model: JUDGE_CHAIN[0]?.id ?? 'openai/gpt-5-nano',
+          taxonomy: TAXONOMY,
+        })
+      : null,
+    reflector: process.env.GOOGLE_AI_API_KEY
+      ? createGeminiReflector({
+          apiKey: process.env.GOOGLE_AI_API_KEY,
+          model: TIER1_MODEL,
+          taxonomy: TAXONOMY,
+        })
+      : null,
+    // Per-category metadata: milk fat %, butter salted, wine vintage, detergent
+    // wash loads. Optional by design — without it products still classify, they
+    // just carry no attributes. Enrichment must never cost a product its category.
+    enricher: process.env.GOOGLE_AI_API_KEY
+      ? createGeminiEnricher({
+          apiKey: process.env.GOOGLE_AI_API_KEY,
+          model: TIER1_MODEL,
+          log: (m) => console.log(`[pipeline] [INFO] ${m}`),
+        })
+      : null,
+    runId,
+    log: (m) => console.log(`[pipeline] [INFO] ${m}`),
+  })
+
   console.log(
-    `[pipeline] [INFO] Categorized ${categorized.length} deals (filtered ${filtered} with confidence < ${MIN_TAXONOMY_CONFIDENCE})`,
+    `[pipeline] [INFO] Categorized ${stats.classified} · cached ${stats.cacheHits} · uncertain ${stats.uncertain} (published, label withheld) · rejected ${stats.rejected} · blocked ${stats.blocked} · held back ${stats.heldBack}`,
   )
+  // The weekly review queue, and the only number here that should trend to zero.
+  // WHERE is_uncertain in Supabase is the list a human should actually look at.
+  if (stats.uncertain > 0) {
+    console.log(`[pipeline] [INFO] ${stats.uncertain} products need review: WHERE is_uncertain`)
+  }
+  if (stats.deferred > 0) {
+    console.warn(`[pipeline] [WARN] ${stats.deferred} products deferred to the next run (cold start)`)
+  }
 
   // Step 3b: Patch F — attach categorySlug from the alias map and log
   // any source tags we don't know about. resolveTaxonomy is pure; the
@@ -211,6 +419,16 @@ async function main(): Promise<void> {
 
   // Store deals (now with categorySlug attached) + product_id references
   const storedCount = await storeDeals(resolved, productIds)
+
+  // Second pass: the columns UnifiedDeal cannot carry. Runs only in LIVE mode,
+  // and a failure here costs images and price-basis flags, never the deals
+  // themselves — which is why it is separate from the write above.
+  if (pendingEnrichment.size > 0) {
+    const enriched = await writeEnrichment(supabase, [...pendingEnrichment.values()], (m) =>
+      console.log(`[pipeline] [INFO] ${m}`),
+    )
+    console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with crop/price-basis/rappen`)
+  }
 
   // v3 cutover step — populate concept/sku layer + deals.sku_id + refresh MVs.
   // Additive: legacy v3.2 columns continue to be written by storeDeals above.
@@ -275,6 +493,38 @@ async function main(): Promise<void> {
     duration_ms: durationMs,
     error_log: errors.length > 0 ? errors.join('; ') : null,
   })
+
+  // ── Alerts ────────────────────────────────────────────────────────────────
+  // The founding failure of this project: pipeline_runs was written every run
+  // for months and nobody read it, so a categorisation regression stayed
+  // invisible while the pipeline reported success. Emitting data is not
+  // observability — something has to LOOK at it.
+  const snapshot: RunSnapshot = {
+    runId,
+    finishedAtMs: Date.now(),
+    totalProducts: stats.total,
+    classified: stats.classified,
+    uncertain: stats.uncertain,
+    rejected: stats.rejected,
+    invalidCategoryRejected: 0,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.total - stats.cacheHits,
+    tokensUsed: 0,
+    rappenSpent: 0,
+    durationMs,
+    benchmarkMacroF1: null,
+    publishedDataCoverage: {},
+    halted: null,
+  }
+
+  // No previous run to compare against yet — regression detection needs two
+  // points. Passing null is honest; inventing a baseline would not be.
+  const alerts = evaluateAlerts(snapshot, null, Date.now())
+  console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
+  if (shouldFailRun(alerts)) {
+    console.error('[pipeline] [ERROR] a critical alert fired — failing the run so it is visible')
+    process.exit(1)
+  }
 
   // Fail if stored deals fall below 80% of resolved (significant data loss)
   const storageRatio = resolved.length > 0 ? storedCount / resolved.length : 1

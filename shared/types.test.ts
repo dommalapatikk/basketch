@@ -6,39 +6,44 @@ import {
   TIE_THRESHOLD,
   MIN_DEALS_FOR_VERDICT,
   dealToRow,
+  isStorageState,
 } from './types'
 import type { Deal } from './types'
 
 describe('BROWSE_CATEGORIES', () => {
-  // All 23 DB sub-categories from architecture v2.1 Section 4.10
-  const ALL_SUB_CATEGORIES = [
+  // The original grocery sub-categories. The taxonomy has grown well past these
+  // (see ADR-001), but none of them may ever disappear — the PM's standing
+  // instruction is that the taxonomy is additive only.
+  const ORIGINAL_SUB_CATEGORIES = [
     'fruit', 'vegetables',
-    'meat', 'poultry', 'fish',
+    'meat', 'poultry', 'fish', 'deli',
     'dairy', 'eggs',
     'bread',
     'snacks', 'chocolate',
     'pasta-rice',
     'drinks', 'coffee-tea',
-    'ready-meals', 'frozen', 'deli',
+    'ready-meals', 'frozen',
     'canned', 'condiments',
     'cleaning', 'laundry', 'paper-goods', 'household',
     'personal-care',
   ]
 
-  it('has exactly 11 browse categories (excluding "all")', () => {
-    expect(BROWSE_CATEGORIES).toHaveLength(11)
+  // Counts are a tripwire against accidental edits, not a design constraint.
+  // Growing the taxonomy is expected — update these deliberately when you do.
+  it('has 22 browse categories (excluding "all")', () => {
+    expect(BROWSE_CATEGORIES).toHaveLength(22)
   })
 
-  it('covers all 23 DB sub-categories', () => {
+  it('never loses an original sub-category — the taxonomy is additive only', () => {
     const covered = BROWSE_CATEGORIES.flatMap(c => c.subCategories)
-    for (const sub of ALL_SUB_CATEGORIES) {
+    for (const sub of ORIGINAL_SUB_CATEGORIES) {
       expect(covered).toContain(sub)
     }
   })
 
-  it('maps exactly 23 sub-categories total', () => {
+  it('maps 76 sub-categories total', () => {
     const covered = BROWSE_CATEGORIES.flatMap(c => c.subCategories)
-    expect(covered).toHaveLength(23)
+    expect(covered).toHaveLength(76)
   })
 
   it('has no duplicate sub-categories across browse categories', () => {
@@ -55,14 +60,22 @@ describe('BROWSE_CATEGORIES', () => {
     }
   })
 
-  it('maps Meat & Fish to meat, poultry, fish (not deli)', () => {
-    const meatFish = BROWSE_CATEGORIES.find(c => c.id === 'meat-fish')
-    expect(meatFish?.subCategories).toEqual(['meat', 'poultry', 'fish'])
+  it('gives every browse category a valid top category', () => {
+    for (const cat of BROWSE_CATEGORIES) {
+      expect(['fresh', 'long-life', 'non-food']).toContain(cat.topCategory)
+    }
   })
 
-  it('maps Ready Meals & Frozen to ready-meals, frozen, deli', () => {
-    const readyMeals = BROWSE_CATEGORIES.find(c => c.id === 'ready-meals-frozen')
-    expect(readyMeals?.subCategories).toEqual(['ready-meals', 'frozen', 'deli'])
+  it('keeps deli under Meat & Fish', () => {
+    const meatFish = BROWSE_CATEGORIES.find(c => c.id === 'meat-fish')
+    expect(meatFish?.subCategories).toContain('deli')
+  })
+
+  it('separates alcohol from soft drinks — Migros and Coop both do (ADR-001)', () => {
+    const drinks = BROWSE_CATEGORIES.find(c => c.id === 'drinks')
+    const alcohol = BROWSE_CATEGORIES.find(c => c.id === 'alcohol')
+    expect(drinks?.subCategories).not.toContain('wine')
+    expect(alcohol?.subCategories).toEqual(expect.arrayContaining(['wine', 'beer', 'spirits']))
   })
 })
 
@@ -147,5 +160,61 @@ describe('dealToRow', () => {
     const dealNoDiscount: Deal = { ...deal, discountPercent: null }
     const row = dealToRow(dealNoDiscount)
     expect(row.discount_percent).toBe(0)
+  })
+
+  // D3 — the uncertainty flag has to survive the write, or the review queue is
+  // empty and the label is shown as if it were certain.
+  it('writes is_uncertain when the classifier was not confident', () => {
+    const row = dealToRow({ ...deal, isUncertain: true })
+    expect(row.is_uncertain).toBe(true)
+  })
+
+  it('treats an absent isUncertain as confident, not as unknown', () => {
+    const row = dealToRow(deal)
+    expect(row.is_uncertain).toBe(false)
+  })
+
+  // ADR-001 — storage is a column, not a jsonb field, because the Frozen browse
+  // tile is a facet count over it.
+  it('writes storage through to its own column', () => {
+    const row = dealToRow({ ...deal, storage: 'frozen' })
+    expect(row.storage).toBe('frozen')
+  })
+
+  it('writes null storage when the retailer did not state it', () => {
+    const row = dealToRow(deal)
+    expect(row.storage).toBeNull()
+  })
+
+  // The enrich step's whole output reached the cache and then stopped there
+  // before this; the column stayed '{}' on every row in the table.
+  it('writes attributes through to the row', () => {
+    const row = dealToRow({ ...deal, attributes: { fatPercent: 3.5, organic: true } })
+    expect(row.attributes).toEqual({ fatPercent: 3.5, organic: true })
+  })
+
+  it('defaults attributes to an empty object, never null', () => {
+    const row = dealToRow(deal)
+    expect(row.attributes).toEqual({})
+  })
+})
+
+describe('isStorageState', () => {
+  it('accepts every value the database CHECK constraint allows', () => {
+    for (const s of ['fresh', 'chilled', 'frozen', 'ambient']) {
+      expect(isStorageState(s)).toBe(true)
+    }
+  })
+
+  it('rejects a plausible value that is not in the taxonomy', () => {
+    // 'tiefkühl' is what a retailer writes; it is not what the column stores.
+    expect(isStorageState('tiefkühl')).toBe(false)
+    expect(isStorageState('room-temperature')).toBe(false)
+  })
+
+  it('rejects non-strings without throwing', () => {
+    expect(isStorageState(null)).toBe(false)
+    expect(isStorageState(undefined)).toBe(false)
+    expect(isStorageState(3)).toBe(false)
   })
 })

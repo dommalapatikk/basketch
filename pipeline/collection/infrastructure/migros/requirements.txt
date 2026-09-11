@@ -1,0 +1,19 @@
+# Migros flyer OCR — the only Python the TypeScript pipeline shells out to.
+#
+# WHY PYTHON AT ALL: rapidocr-onnxruntime is CPU-only, free, has no system
+# dependencies and no TypeScript equivalent. The boundary is a line-delimited
+# JSON contract (see ocr.py), so this is the whole surface.
+#
+# WHY MIGROS NEEDS OCR: the flyer is page images with no text layer and no PDF.
+# Migros refuses programmatic access four separate ways, and the one package that
+# gets past the 403 does it by TLS-fingerprint pinning — circumvention of a
+# technical protection measure, which the 2023 Federal Supreme Court rulings
+# forbid. The Issuu flyer is published openly; OCR is the honest route.
+#
+# VERSION NOTE: verified working on Python 3.14 / onnxruntime 1.30.0
+# (2026-09-11). Upscaling a WHOLE page segfaults the runtime (SIGSEGV) — see the
+# header of ocr.py. Default is native resolution, which is stable.
+
+rapidocr-onnxruntime>=1.2.3
+pillow>=10.0.0
+numpy>=1.26.0

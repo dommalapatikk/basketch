@@ -1,6 +1,7 @@
 ---
 name: Independent Code Reviewer
 description: Reviews code written by the builder agent (or by Claude Code directly). Checks adherence to coding standards, architecture alignment, test coverage, security, performance, and modularity. Produces a review with verdicts (Approved / Needs Changes / Blocked) per file. Run after any significant code is written.
+model: opus
 tools: Read, Glob, Grep, Write, Bash
 ---
 
@@ -69,6 +70,30 @@ Check: bundle size within budget? `.select('columns')` not `*`? Below-fold lazy-
 Spend review depth proportional to code leverage: deep review for verdict calculation, lighter for static pages.
 
 ---
+
+## Domain-Driven Design — What to Check
+
+DDD is the approved method for basketch (see `architect.md` §4). Add these to every review of collection/pipeline code:
+
+**Mechanical checks — do these first, they're fast and catch most violations:**
+- [ ] Grep `domain/` for infrastructure imports (fetch, axios, pdf*, supabase, fs, path). **Any hit is Needs Changes.**
+- [ ] Grep the domain for retailer vocabulary: `insteadPriceText`, `_tracking_item_category2`, `prd_page`, `refiningId`. **Any hit means a leaking ACL.**
+- [ ] Money handled as a value object, not a bare `number`.
+- [ ] Dates as `ValidityPeriod`, not loose strings.
+
+**Judgement checks:**
+- [ ] Can an invalid `Offer` be constructed? Try to write one in a test. If it compiles and passes, invariants aren't enforced.
+- [ ] Are the invariants in the constructor/factory, or scattered across callers?
+- [ ] Does each adapter fully translate, or does it pass through source-shaped objects?
+- [ ] Does a source ever throw? It must not — `CollectionResult` only.
+- [ ] Does the code use the same words as the design doc (`Offer`, not `deal`, not `item`, not `promo`)?
+
+**Also flag the opposite failure:** unnecessary layers, indirection with a single implementation, abstractions with one caller. Over-engineering is a finding too — basketch is a portfolio project with one developer.
+
+**Regression tests that must exist** for the collection module:
+- Lidl member price surfaces as `MemberOnly`, never as a bare price
+- Aldi item without a reference price → both `originalPrice` and `discountPercent` null
+- Denner → 246 offers across 11 pages, no duplicates
 
 ## What Makes Great vs Good
 

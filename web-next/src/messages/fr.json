@@ -116,5 +116,14 @@
     "group_this_month": "Ce mois-ci",
     "group_older": "Plus ancien",
     "error": "Impossible de charger tes suggestions masquées. Réessayer."
+  },
+  "deals": {
+    "category_unverified": "Catégorie non vérifiée",
+    "only_store_note": "Aucun autre magasin que nous suivons n'a d'offre {category} cette semaine.",
+    "only_store_badge": "Seulement chez {store}"
+  },
+  "filters": {
+    "storage": "Conservation",
+    "storage_all": "Toutes"
   }
 }

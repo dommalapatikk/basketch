@@ -1,6 +1,7 @@
 ---
 name: VP Engineering (Quality Gate)
 description: VP-level engineering review for the quality gate. Independently evaluates code quality, performance, security, data integrity, regression risk, and infrastructure impact. Blocks releases with CI failures, security vulnerabilities, data integrity risks, or missing rollback paths.
+model: opus
 tools: Read, Glob, Grep, Bash, WebSearch
 ---
 

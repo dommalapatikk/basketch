@@ -1,0 +1,2401 @@
+{
+ "_comment": "Trimmed from a real POST /search-api/simplePageContent response (pageId 12, 2026-09-08). Curated to cover: normal discount, half-price badge, missing original price, and a duplicate row. Full response is ~216KB/page x 11 pages - do not commit the whole thing.",
+ "pageId": 12,
+ "blocks": {
+  "searches": [
+   {
+    "blockId": 2,
+    "blockName": "Weekly special",
+    "blockType": "NAVIGATION",
+    "stats": {
+     "totalResults": 246,
+     "computationInMs": 0.1,
+     "pageName": "Special Offers & assortment",
+     "blockName": "Weekly special",
+     "blockType": "NAVIGATION",
+     "campaignName": "master_scenario",
+     "campaignLabel": "Default campaign",
+     "resultsInPage": 24,
+     "resultsPerPage": 24,
+     "currentPage": 1,
+     "searchId": -3802837854024177662,
+     "galaxyId": "master_scenario",
+     "sortingCode": "MY_SELECTION",
+     "totalPages": 11,
+     "ruleTemplate": "null",
+     "scenarioTemplate": "dynamic:Listingpagewith1banner6x4_07-03-2024_19:23:52",
+     "nbSlotsX": 3,
+     "nbSlotsY": 8
+    },
+    "pages": [
+     {
+      "refiningId": "&prd_page=1&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 1,
+      "label": "FIRST"
+     },
+     {
+      "refiningId": "&prd_page=1&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 1,
+      "label": "1"
+     },
+     {
+      "refiningId": "&prd_page=2&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 2,
+      "label": "2"
+     },
+     {
+      "refiningId": "&prd_page=3&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 3,
+      "label": "3"
+     },
+     {
+      "refiningId": "&prd_page=4&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 4,
+      "label": "4"
+     },
+     {
+      "refiningId": "&prd_page=5&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 5,
+      "label": "5"
+     },
+     {
+      "refiningId": "&prd_page=6&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 6,
+      "label": "6"
+     },
+     {
+      "refiningId": "&prd_page=2&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 2,
+      "label": "NEXT"
+     },
+     {
+      "refiningId": "&prd_page=11&prd_nbResultsPerPage=-1&prd_sorting=MY_SELECTION&prd_constraints=itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse",
+      "noFollow": false,
+      "pageNumber": 11,
+      "label": "LAST"
+     }
+    ],
+    "slots": [
+     {
+      "position": 1,
+      "item": {
+       "sku": "1bc63193-e168-4128-bcb4-6e5474704e9c",
+       "price": 1.67,
+       "itemType": "PRODUCT",
+       "trackingCode": "MTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1fDExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NXxTcGVjaWFsIE9mZmVycyAmIGFzc29ydG1lbnR8V2Vla2x5IHNwZWNpYWx8MWJjNjMxOTMtZTE2OC00MTI4LWJjYjQtNmU1NDc0NzA0ZTljfGl0ZW1UeXBlOlBST0RVQ1RfL19wcm9tb19jdXJyZW50X3dlZWs6dHJ1ZV8vX3dlZWtlbmRfaGlnaGxpZ2h0OmZhbHNlfFBST0RVQ1R8MHxGQUNFVF9OQVZJR0FUSU9OfG51bGx8bnVsbHxudWxsfG51bGx8bnVsbHxudWxsfG51bGx8bWFzdGVyX3NjZW5hcmlvfG51bGx8MTc4ODg1NjE1MTkxM3xkZV9DSHxDT01QVVRFUg",
+       "attributeInfo": [
+        {
+         "attributeName": "promotion_permitted",
+         "attributeLabel": "promotion_permitted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "imageUrl",
+         "attributeLabel": "imageUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/assets/b9e5eb01-7c24-43d2-a7f9-642bd4594067/web/661106_25_08_20_kombi.png",
+           "label": "https://denner.imgix.net/assets/b9e5eb01-7c24-43d2-a7f9-642bd4594067/web/661106_25_08_20_kombi.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size_text",
+         "attributeLabel": "Inhalt",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "0.9 unit.g",
+           "label": "0.9 unit.g"
+          }
+         ]
+        },
+        {
+         "attributeName": "discount_text",
+         "attributeLabel": "discount_text",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "25%",
+           "label": "25%"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_label_logo",
+         "attributeLabel": "eco_label_logo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/eco-labels/suisse-garantie.png",
+           "label": "https://denner.imgix.net/eco-labels/suisse-garantie.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "insteadPriceText",
+         "attributeLabel": "insteadPriceText",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "statt 2.25",
+           "label": "statt 2.25"
+          }
+         ]
+        },
+        {
+         "attributeName": "itemUrl",
+         "attributeLabel": "itemUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "/de/aktionen/denner-schweinsnierstueck~p1002862?variant=1bc63193-e168-4128-bcb4-6e5474704e9c",
+           "label": "/de/aktionen/denner-schweinsnierstueck~p1002862?variant=1bc63193-e168-4128-bcb4-6e5474704e9c"
+          }
+         ]
+        },
+        {
+         "attributeName": "name",
+         "attributeLabel": "name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Denner Schweinsnierstück",
+           "label": "Denner Schweinsnierstück"
+          }
+         ]
+        },
+        {
+         "attributeName": "nameSubline",
+         "attributeLabel": "nameSubline",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "am Stück, mager, ca. 900 g, per 100 g",
+           "label": "am Stück, mager, ca. 900 g, per 100 g"
+          }
+         ]
+        },
+        {
+         "attributeName": "pimcoreId",
+         "attributeLabel": "pimcoreId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6058433",
+           "label": "6058433"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceFormatted",
+         "attributeLabel": "priceFormatted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionFrom",
+         "attributeLabel": "promotionFrom",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788402238",
+           "label": "1788402238"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabel",
+         "attributeLabel": "promotionLabel",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabelPublication",
+         "attributeLabel": "promotionLabelPublication",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionTo",
+         "attributeLabel": "promotionTo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788904800",
+           "label": "1788904800"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_of_the_week",
+         "attributeLabel": "wine_of_the_week",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_discount",
+         "attributeLabel": "_tracking_discount",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "0.58",
+           "label": "0.58"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category2",
+         "attributeLabel": "_tracking_item_category2",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Fleisch/Wurst/Fisch",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_id",
+         "attributeLabel": "_tracking_item_id",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1002862",
+           "label": "1002862"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_name",
+         "attributeLabel": "_tracking_item_name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Denner Schweinsnierstück",
+           "label": "Denner Schweinsnierstück"
+          }
+         ]
+        },
+        {
+         "attributeName": "buying_channel",
+         "attributeLabel": "Verkaufskanal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "all",
+           "label": "all"
+          },
+          {
+           "value": "stores",
+           "label": "stores"
+          }
+         ]
+        },
+        {
+         "attributeName": "category",
+         "attributeLabel": "category",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1144362",
+           "label": "Lebensmittel"
+          },
+          {
+           "value": "1144364",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "design",
+         "attributeLabel": "prediggo.attribute.design",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "whitesmoke",
+           "label": "whitesmoke"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_labels",
+         "attributeLabel": "Zertifizierung",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1146850",
+           "label": "Suisse Garantie"
+          }
+         ]
+        },
+        {
+         "attributeName": "isAssortmentPromotion",
+         "attributeLabel": "isAssortmentPromotion",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "isBuyable",
+         "attributeLabel": "isBuyable",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "navisionId",
+         "attributeLabel": "navisionId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1bc63193-e168-4128-bcb4-6e5474704e9c",
+           "label": "1bc63193-e168-4128-bcb4-6e5474704e9c"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication",
+         "attributeLabel": "Kategorie",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "6058361",
+           "label": "Wochenaktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication_filter",
+         "attributeLabel": "Angebote",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "4649555",
+           "label": "Aktuelle Aktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "salesQuantity",
+         "attributeLabel": "salesQuantity",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "stopperType",
+         "attributeLabel": "stopperType",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "x_percent",
+           "label": "x_percent"
+          }
+         ]
+        },
+        {
+         "attributeName": "price",
+         "attributeLabel": "Preis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "availability",
+         "attributeLabel": "availability",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "10.00",
+           "label": "10.00"
+          }
+         ]
+        },
+        {
+         "attributeName": "unit_price",
+         "attributeLabel": "Stückpreis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "Geschmacksprofil",
+         "attributeLabel": "pred-custom1",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        }
+       ],
+       "displayInfo": {}
+      },
+      "template": {
+       "posX": 1,
+       "posY": 1,
+       "sizeX": 1,
+       "sizeY": 1
+      }
+     },
+     {
+      "position": 3,
+      "item": {
+       "sku": "71ffe504-f47d-40df-81e1-34a3357549da",
+       "price": 37.65,
+       "itemType": "PRODUCT",
+       "trackingCode": "MTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1fDExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NXxTcGVjaWFsIE9mZmVycyAmIGFzc29ydG1lbnR8V2Vla2x5IHNwZWNpYWx8NzFmZmU1MDQtZjQ3ZC00MGRmLTgxZTEtMzRhMzM1NzU0OWRhfGl0ZW1UeXBlOlBST0RVQ1RfL19wcm9tb19jdXJyZW50X3dlZWs6dHJ1ZV8vX3dlZWtlbmRfaGlnaGxpZ2h0OmZhbHNlfFBST0RVQ1R8MnxGQUNFVF9OQVZJR0FUSU9OfG51bGx8bnVsbHxudWxsfG51bGx8bnVsbHxudWxsfG51bGx8bWFzdGVyX3NjZW5hcmlvfG51bGx8MTc4ODg1NjE1MTkxM3xkZV9DSHxDT01QVVRFUg",
+       "attributeInfo": [
+        {
+         "attributeName": "promotion_permitted",
+         "attributeLabel": "promotion_permitted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "imageUrl",
+         "attributeLabel": "imageUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/assets/72571624-05b0-463c-8bb6-79d1072c8b0e/web/051989_Y2022_24_01_22_PACK_ITEM.png",
+           "label": "https://denner.imgix.net/assets/72571624-05b0-463c-8bb6-79d1072c8b0e/web/051989_Y2022_24_01_22_PACK_ITEM.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "character",
+         "attributeLabel": "character",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Tiefes Purpurrot. Der intensive Duft erinnert an rote Beeren, Vanille und Pfeffer. Wirkt dicht und voll im Körper, mit weichen Tanninen. Anhaltende Fruchtigkeit.",
+           "label": "Tiefes Purpurrot. Der intensive Duft erinnert an rote Beeren, Vanille und Pfeffer. Wirkt dicht und voll im Körper, mit weichen Tanninen. Anhaltende Fruchtigkeit."
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size_text",
+         "attributeLabel": "Inhalt",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "75 cl",
+           "label": "75 cl"
+          }
+         ]
+        },
+        {
+         "attributeName": "country_name",
+         "attributeLabel": "Land",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "Chile",
+           "label": "Chile"
+          }
+         ]
+        },
+        {
+         "attributeName": "discount_text",
+         "attributeLabel": "discount_text",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "½ PREIS",
+           "label": "½ PREIS"
+          }
+         ]
+        },
+        {
+         "attributeName": "insteadPriceText",
+         "attributeLabel": "insteadPriceText",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "statt 75.30",
+           "label": "statt 75.30"
+          }
+         ]
+        },
+        {
+         "attributeName": "itemUrl",
+         "attributeLabel": "itemUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "/de/aktionen/luis-felipe-edwards-terraced-carmenere-gran-reserva~p1027341?variant=71ffe504-f47d-40df-81e1-34a3357549da",
+           "label": "/de/aktionen/luis-felipe-edwards-terraced-carmenere-gran-reserva~p1027341?variant=71ffe504-f47d-40df-81e1-34a3357549da"
+          }
+         ]
+        },
+        {
+         "attributeName": "name",
+         "attributeLabel": "name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Luis Felipe Edwards Terraced Carmenère Gran Reserva",
+           "label": "Luis Felipe Edwards Terraced Carmenère Gran Reserva"
+          }
+         ]
+        },
+        {
+         "attributeName": "nameSubline",
+         "attributeLabel": "nameSubline",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Chile, Colchagua Valley, 2023, 6 x 75 cl",
+           "label": "Chile, Colchagua Valley, 2023, 6 x 75 cl"
+          }
+         ]
+        },
+        {
+         "attributeName": "pimcoreId",
+         "attributeLabel": "pimcoreId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6058550",
+           "label": "6058550"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceFormatted",
+         "attributeLabel": "priceFormatted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "37.65",
+           "label": "37.65"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceSubText",
+         "attributeLabel": "priceSubText",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Flasche: 6.30 statt 12.55",
+           "label": "Flasche: 6.30 statt 12.55"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionFrom",
+         "attributeLabel": "promotionFrom",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788402238",
+           "label": "1788402238"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabel",
+         "attributeLabel": "promotionLabel",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabelPublication",
+         "attributeLabel": "promotionLabelPublication",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionTo",
+         "attributeLabel": "promotionTo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788904800",
+           "label": "1788904800"
+          }
+         ]
+        },
+        {
+         "attributeName": "region_name",
+         "attributeLabel": "Region",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "Colchagua Valley",
+           "label": "Colchagua Valley"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_of_the_week",
+         "attributeLabel": "wine_of_the_week",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_discount",
+         "attributeLabel": "_tracking_discount",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "37.65",
+           "label": "37.65"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_brand",
+         "attributeLabel": "_tracking_item_brand",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Colchagua Valley",
+           "label": "Colchagua Valley"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category",
+         "attributeLabel": "_tracking_item_category",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Chile",
+           "label": "Chile"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category2",
+         "attributeLabel": "_tracking_item_category2",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Rotwein / 2023",
+           "label": "Rotwein / 2023"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category3",
+         "attributeLabel": "_tracking_item_category3",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "4.35 - 647 / 4 Stars",
+           "label": "4.35 - 647 / 4 Stars"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category4",
+         "attributeLabel": "_tracking_item_category4",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "à 6 x 75 cl",
+           "label": "à 6 x 75 cl"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category5",
+         "attributeLabel": "_tracking_item_category5",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Lieferbar / 16–18 °C",
+           "label": "Lieferbar / 16–18 °C"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_id",
+         "attributeLabel": "_tracking_item_id",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1027341",
+           "label": "1027341"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_name",
+         "attributeLabel": "_tracking_item_name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Luis Felipe Edwards Terraced Carmenère Gran Reserva",
+           "label": "Luis Felipe Edwards Terraced Carmenère Gran Reserva"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_variant",
+         "attributeLabel": "_tracking_item_variant",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "75 cl",
+           "label": "75 cl"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_unit_base_measure_ml",
+         "attributeLabel": "_tracking_unit_base_measure_ml",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "750",
+           "label": "750"
+          }
+         ]
+        },
+        {
+         "attributeName": "acid",
+         "attributeLabel": "acid",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.0",
+           "label": "1.0"
+          }
+         ]
+        },
+        {
+         "attributeName": "barrique_aging",
+         "attributeLabel": "barrique_aging",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.0",
+           "label": "1.0"
+          }
+         ]
+        },
+        {
+         "attributeName": "box_item_count",
+         "attributeLabel": "box_item_count",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6",
+           "label": "6"
+          }
+         ]
+        },
+        {
+         "attributeName": "buying_channel",
+         "attributeLabel": "Verkaufskanal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "all",
+           "label": "all"
+          },
+          {
+           "value": "stores",
+           "label": "stores"
+          }
+         ]
+        },
+        {
+         "attributeName": "canister",
+         "attributeLabel": "canister",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1146162",
+           "label": "bottle"
+          }
+         ]
+        },
+        {
+         "attributeName": "category",
+         "attributeLabel": "category",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1144372",
+           "label": "Getränke"
+          },
+          {
+           "value": "1144373",
+           "label": "Wein/Champagner"
+          },
+          {
+           "value": "5479454",
+           "label": "Rotwein"
+          },
+          {
+           "value": "5479583",
+           "label": "Chile"
+          },
+          {
+           "value": "5479721",
+           "label": "Colchagua Valley"
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size",
+         "attributeLabel": "Inhalt",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "0.75",
+           "label": "0.75"
+          }
+         ]
+        },
+        {
+         "attributeName": "design",
+         "attributeLabel": "prediggo.attribute.design",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "whitesmoke",
+           "label": "whitesmoke"
+          }
+         ]
+        },
+        {
+         "attributeName": "grapes",
+         "attributeLabel": "Traubensorte",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1148159",
+           "label": "Carménère"
+          }
+         ]
+        },
+        {
+         "attributeName": "has_online_specials",
+         "attributeLabel": "has_online_specials",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "hasExpertFlag",
+         "attributeLabel": "hasExpertFlag",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "true",
+           "label": "true"
+          }
+         ]
+        },
+        {
+         "attributeName": "intensity",
+         "attributeLabel": "intensity",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.0",
+           "label": "1.0"
+          }
+         ]
+        },
+        {
+         "attributeName": "isAssortmentPromotion",
+         "attributeLabel": "isAssortmentPromotion",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "isBuyable",
+         "attributeLabel": "isBuyable",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "navisionId",
+         "attributeLabel": "navisionId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "71ffe504-f47d-40df-81e1-34a3357549da",
+           "label": "71ffe504-f47d-40df-81e1-34a3357549da"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication",
+         "attributeLabel": "Kategorie",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "6058361",
+           "label": "Wochenaktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication_filter",
+         "attributeLabel": "Angebote",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "4649555",
+           "label": "Aktuelle Aktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "ratingTotal",
+         "attributeLabel": "ratingTotal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "647",
+           "label": "647"
+          }
+         ]
+        },
+        {
+         "attributeName": "salesQuantity",
+         "attributeLabel": "salesQuantity",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6",
+           "label": "6"
+          }
+         ]
+        },
+        {
+         "attributeName": "stopperType",
+         "attributeLabel": "stopperType",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "x_percent",
+           "label": "x_percent"
+          }
+         ]
+        },
+        {
+         "attributeName": "storage",
+         "attributeLabel": "storage",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1146341",
+           "label": "1-5 Jahre"
+          }
+         ]
+        },
+        {
+         "attributeName": "sugar",
+         "attributeLabel": "sugar",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        },
+        {
+         "attributeName": "tannins",
+         "attributeLabel": "tannins",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.0",
+           "label": "1.0"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_type",
+         "attributeLabel": "Weintyp",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "5479453",
+           "label": "Rotwein"
+          }
+         ]
+        },
+        {
+         "attributeName": "year",
+         "attributeLabel": "Jahrgang",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "2023",
+           "label": "2023"
+          }
+         ]
+        },
+        {
+         "attributeName": "rating",
+         "attributeLabel": "rating",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "4.50",
+           "label": "4.50"
+          }
+         ]
+        },
+        {
+         "attributeName": "price",
+         "attributeLabel": "Preis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "37.65",
+           "label": "37.65"
+          }
+         ]
+        },
+        {
+         "attributeName": "availability",
+         "attributeLabel": "availability",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "10.00",
+           "label": "10.00"
+          }
+         ]
+        },
+        {
+         "attributeName": "unit_price",
+         "attributeLabel": "Stückpreis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "6.30",
+           "label": "6.30"
+          }
+         ]
+        },
+        {
+         "attributeName": "Geschmacksprofil",
+         "attributeLabel": "pred-custom1",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        }
+       ],
+       "displayInfo": {}
+      },
+      "template": {
+       "posX": 3,
+       "posY": 1,
+       "sizeX": 1,
+       "sizeY": 1
+      }
+     },
+     {
+      "position": 12,
+      "item": {
+       "sku": "45cbae75-7841-4129-a32c-036b8a8c3b75",
+       "price": 6.95,
+       "itemType": "PRODUCT",
+       "trackingCode": "MTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1fDExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NXxTcGVjaWFsIE9mZmVycyAmIGFzc29ydG1lbnR8V2Vla2x5IHNwZWNpYWx8NDVjYmFlNzUtNzg0MS00MTI5LWEzMmMtMDM2YjhhOGMzYjc1fGl0ZW1UeXBlOlBST0RVQ1RfL19wcm9tb19jdXJyZW50X3dlZWs6dHJ1ZV8vX3dlZWtlbmRfaGlnaGxpZ2h0OmZhbHNlfFBST0RVQ1R8MTF8RkFDRVRfTkFWSUdBVElPTnxudWxsfG51bGx8bnVsbHxudWxsfG51bGx8bnVsbHxudWxsfG1hc3Rlcl9zY2VuYXJpb3xudWxsfDE3ODg4NTYxNTE5MTN8ZGVfQ0h8Q09NUFVURVI",
+       "attributeInfo": [
+        {
+         "attributeName": "promotion_permitted",
+         "attributeLabel": "promotion_permitted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "imageUrl",
+         "attributeLabel": "imageUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/assets/c91f54f1-f5a9-44f8-ac1d-838185ce78bf/web/661809_25_05_28.png",
+           "label": "https://denner.imgix.net/assets/c91f54f1-f5a9-44f8-ac1d-838185ce78bf/web/661809_25_05_28.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size_text",
+         "attributeLabel": "Inhalt",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "0.4 unit.g",
+           "label": "0.4 unit.g"
+          }
+         ]
+        },
+        {
+         "attributeName": "discount_text",
+         "attributeLabel": "discount_text",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "SPECIAL",
+           "label": "SPECIAL"
+          }
+         ]
+        },
+        {
+         "attributeName": "itemUrl",
+         "attributeLabel": "itemUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "/de/aktionen/carna-gallo-chickenballs-krispy~p1101202?variant=45cbae75-7841-4129-a32c-036b8a8c3b75",
+           "label": "/de/aktionen/carna-gallo-chickenballs-krispy~p1101202?variant=45cbae75-7841-4129-a32c-036b8a8c3b75"
+          }
+         ]
+        },
+        {
+         "attributeName": "name",
+         "attributeLabel": "name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Carna Gallo Chickenballs Krispy",
+           "label": "Carna Gallo Chickenballs Krispy"
+          }
+         ]
+        },
+        {
+         "attributeName": "nameSubline",
+         "attributeLabel": "nameSubline",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "paniert, 400 g",
+           "label": "paniert, 400 g"
+          }
+         ]
+        },
+        {
+         "attributeName": "pimcoreId",
+         "attributeLabel": "pimcoreId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6058622",
+           "label": "6058622"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceFormatted",
+         "attributeLabel": "priceFormatted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6.95",
+           "label": "6.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionFrom",
+         "attributeLabel": "promotionFrom",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788402238",
+           "label": "1788402238"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabel",
+         "attributeLabel": "promotionLabel",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabelPublication",
+         "attributeLabel": "promotionLabelPublication",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionTo",
+         "attributeLabel": "promotionTo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788904800",
+           "label": "1788904800"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_of_the_week",
+         "attributeLabel": "wine_of_the_week",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_discount",
+         "attributeLabel": "_tracking_discount",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "0",
+           "label": "0"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category2",
+         "attributeLabel": "_tracking_item_category2",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Fleisch/Wurst/Fisch",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_id",
+         "attributeLabel": "_tracking_item_id",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1101202",
+           "label": "1101202"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_name",
+         "attributeLabel": "_tracking_item_name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Carna Gallo Chickenballs Krispy",
+           "label": "Carna Gallo Chickenballs Krispy"
+          }
+         ]
+        },
+        {
+         "attributeName": "buying_channel",
+         "attributeLabel": "Verkaufskanal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "all",
+           "label": "all"
+          },
+          {
+           "value": "stores",
+           "label": "stores"
+          }
+         ]
+        },
+        {
+         "attributeName": "category",
+         "attributeLabel": "category",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1144362",
+           "label": "Lebensmittel"
+          },
+          {
+           "value": "1144364",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "design",
+         "attributeLabel": "prediggo.attribute.design",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "whitesmoke",
+           "label": "whitesmoke"
+          }
+         ]
+        },
+        {
+         "attributeName": "isAssortmentPromotion",
+         "attributeLabel": "isAssortmentPromotion",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "isBuyable",
+         "attributeLabel": "isBuyable",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "navisionId",
+         "attributeLabel": "navisionId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "45cbae75-7841-4129-a32c-036b8a8c3b75",
+           "label": "45cbae75-7841-4129-a32c-036b8a8c3b75"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication",
+         "attributeLabel": "Kategorie",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "6058361",
+           "label": "Wochenaktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication_filter",
+         "attributeLabel": "Angebote",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "4649555",
+           "label": "Aktuelle Aktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "salesQuantity",
+         "attributeLabel": "salesQuantity",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "stopperType",
+         "attributeLabel": "stopperType",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "special_offer",
+           "label": "special_offer"
+          }
+         ]
+        },
+        {
+         "attributeName": "price",
+         "attributeLabel": "Preis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "6.95",
+           "label": "6.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "availability",
+         "attributeLabel": "availability",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "10.00",
+           "label": "10.00"
+          }
+         ]
+        },
+        {
+         "attributeName": "unit_price",
+         "attributeLabel": "Stückpreis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "6.95",
+           "label": "6.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "Geschmacksprofil",
+         "attributeLabel": "pred-custom1",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        }
+       ],
+       "displayInfo": {}
+      },
+      "template": {
+       "posX": 3,
+       "posY": 4,
+       "sizeX": 1,
+       "sizeY": 1
+      }
+     },
+     {
+      "position": 2,
+      "item": {
+       "sku": "a1877b0c-7cfa-431e-878d-08930e0e2b55",
+       "price": 1.95,
+       "itemType": "PRODUCT",
+       "trackingCode": "MTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1fDExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NXxTcGVjaWFsIE9mZmVycyAmIGFzc29ydG1lbnR8V2Vla2x5IHNwZWNpYWx8YTE4NzdiMGMtN2NmYS00MzFlLTg3OGQtMDg5MzBlMGUyYjU1fGl0ZW1UeXBlOlBST0RVQ1RfL19wcm9tb19jdXJyZW50X3dlZWs6dHJ1ZV8vX3dlZWtlbmRfaGlnaGxpZ2h0OmZhbHNlfFBST0RVQ1R8MXxGQUNFVF9OQVZJR0FUSU9OfG51bGx8bnVsbHxudWxsfG51bGx8bnVsbHxudWxsfG51bGx8bWFzdGVyX3NjZW5hcmlvfG51bGx8MTc4ODg1NjE1MTkxM3xkZV9DSHxDT01QVVRFUg",
+       "attributeInfo": [
+        {
+         "attributeName": "promotion_permitted",
+         "attributeLabel": "promotion_permitted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "imageUrl",
+         "attributeLabel": "imageUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/assets/3ab5977d-8310-4a01-89a9-6c6067faae2a/web/661101_25_04_08_OFFEN.png",
+           "label": "https://denner.imgix.net/assets/3ab5977d-8310-4a01-89a9-6c6067faae2a/web/661101_25_04_08_OFFEN.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size_text",
+         "attributeLabel": "Inhalt",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "0.38 unit.g",
+           "label": "0.38 unit.g"
+          }
+         ]
+        },
+        {
+         "attributeName": "discount_text",
+         "attributeLabel": "discount_text",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "33%",
+           "label": "33%"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_label_logo",
+         "attributeLabel": "eco_label_logo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/eco-labels/ip-suisse-flour.png",
+           "label": "https://denner.imgix.net/eco-labels/ip-suisse-flour.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "insteadPriceText",
+         "attributeLabel": "insteadPriceText",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "statt 2.95",
+           "label": "statt 2.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "itemUrl",
+         "attributeLabel": "itemUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "/de/aktionen/laugenkranz-mit-ip-suisse-mehl~p1100494?variant=a1877b0c-7cfa-431e-878d-08930e0e2b55",
+           "label": "/de/aktionen/laugenkranz-mit-ip-suisse-mehl~p1100494?variant=a1877b0c-7cfa-431e-878d-08930e0e2b55"
+          }
+         ]
+        },
+        {
+         "attributeName": "name",
+         "attributeLabel": "name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Laugenkranz mit IP-SUISSE Mehl",
+           "label": "Laugenkranz mit IP-SUISSE Mehl"
+          }
+         ]
+        },
+        {
+         "attributeName": "nameSubline",
+         "attributeLabel": "nameSubline",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "380 g",
+           "label": "380 g"
+          }
+         ]
+        },
+        {
+         "attributeName": "pimcoreId",
+         "attributeLabel": "pimcoreId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6058411",
+           "label": "6058411"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceFormatted",
+         "attributeLabel": "priceFormatted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1.95",
+           "label": "1.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionFrom",
+         "attributeLabel": "promotionFrom",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788402238",
+           "label": "1788402238"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabel",
+         "attributeLabel": "promotionLabel",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabelPublication",
+         "attributeLabel": "promotionLabelPublication",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionTo",
+         "attributeLabel": "promotionTo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788904800",
+           "label": "1788904800"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_of_the_week",
+         "attributeLabel": "wine_of_the_week",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_discount",
+         "attributeLabel": "_tracking_discount",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category2",
+         "attributeLabel": "_tracking_item_category2",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Brot/Backwaren",
+           "label": "Brot/Backwaren"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_id",
+         "attributeLabel": "_tracking_item_id",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1100494",
+           "label": "1100494"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_name",
+         "attributeLabel": "_tracking_item_name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Laugenkranz mit IP-SUISSE Mehl",
+           "label": "Laugenkranz mit IP-SUISSE Mehl"
+          }
+         ]
+        },
+        {
+         "attributeName": "buying_channel",
+         "attributeLabel": "Verkaufskanal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "all",
+           "label": "all"
+          },
+          {
+           "value": "stores",
+           "label": "stores"
+          }
+         ]
+        },
+        {
+         "attributeName": "category",
+         "attributeLabel": "category",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1144362",
+           "label": "Lebensmittel"
+          },
+          {
+           "value": "1144369",
+           "label": "Brot/Backwaren"
+          }
+         ]
+        },
+        {
+         "attributeName": "design",
+         "attributeLabel": "prediggo.attribute.design",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "whitesmoke",
+           "label": "whitesmoke"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_labels",
+         "attributeLabel": "Zertifizierung",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "3219346",
+           "label": "IP-Suisse Mehl"
+          }
+         ]
+        },
+        {
+         "attributeName": "isAssortmentPromotion",
+         "attributeLabel": "isAssortmentPromotion",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "isBuyable",
+         "attributeLabel": "isBuyable",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "navisionId",
+         "attributeLabel": "navisionId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "a1877b0c-7cfa-431e-878d-08930e0e2b55",
+           "label": "a1877b0c-7cfa-431e-878d-08930e0e2b55"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication",
+         "attributeLabel": "Kategorie",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "6058361",
+           "label": "Wochenaktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication_filter",
+         "attributeLabel": "Angebote",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "4649555",
+           "label": "Aktuelle Aktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "salesQuantity",
+         "attributeLabel": "salesQuantity",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "stopperType",
+         "attributeLabel": "stopperType",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "x_percent",
+           "label": "x_percent"
+          }
+         ]
+        },
+        {
+         "attributeName": "price",
+         "attributeLabel": "Preis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.95",
+           "label": "1.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "availability",
+         "attributeLabel": "availability",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "10.00",
+           "label": "10.00"
+          }
+         ]
+        },
+        {
+         "attributeName": "unit_price",
+         "attributeLabel": "Stückpreis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.95",
+           "label": "1.95"
+          }
+         ]
+        },
+        {
+         "attributeName": "Geschmacksprofil",
+         "attributeLabel": "pred-custom1",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        }
+       ],
+       "displayInfo": {}
+      },
+      "template": {
+       "posX": 2,
+       "posY": 1,
+       "sizeX": 1,
+       "sizeY": 1
+      }
+     },
+     {
+      "position": 1,
+      "item": {
+       "sku": "1bc63193-e168-4128-bcb4-6e5474704e9c",
+       "price": 1.67,
+       "itemType": "PRODUCT",
+       "trackingCode": "MTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1fDExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NXxTcGVjaWFsIE9mZmVycyAmIGFzc29ydG1lbnR8V2Vla2x5IHNwZWNpYWx8MWJjNjMxOTMtZTE2OC00MTI4LWJjYjQtNmU1NDc0NzA0ZTljfGl0ZW1UeXBlOlBST0RVQ1RfL19wcm9tb19jdXJyZW50X3dlZWs6dHJ1ZV8vX3dlZWtlbmRfaGlnaGxpZ2h0OmZhbHNlfFBST0RVQ1R8MHxGQUNFVF9OQVZJR0FUSU9OfG51bGx8bnVsbHxudWxsfG51bGx8bnVsbHxudWxsfG51bGx8bWFzdGVyX3NjZW5hcmlvfG51bGx8MTc4ODg1NjE1MTkxM3xkZV9DSHxDT01QVVRFUg",
+       "attributeInfo": [
+        {
+         "attributeName": "promotion_permitted",
+         "attributeLabel": "promotion_permitted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "imageUrl",
+         "attributeLabel": "imageUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/assets/b9e5eb01-7c24-43d2-a7f9-642bd4594067/web/661106_25_08_20_kombi.png",
+           "label": "https://denner.imgix.net/assets/b9e5eb01-7c24-43d2-a7f9-642bd4594067/web/661106_25_08_20_kombi.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "content_size_text",
+         "attributeLabel": "Inhalt",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "0.9 unit.g",
+           "label": "0.9 unit.g"
+          }
+         ]
+        },
+        {
+         "attributeName": "discount_text",
+         "attributeLabel": "discount_text",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "25%",
+           "label": "25%"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_label_logo",
+         "attributeLabel": "eco_label_logo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "https://denner.imgix.net/eco-labels/suisse-garantie.png",
+           "label": "https://denner.imgix.net/eco-labels/suisse-garantie.png"
+          }
+         ]
+        },
+        {
+         "attributeName": "insteadPriceText",
+         "attributeLabel": "insteadPriceText",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "statt 2.25",
+           "label": "statt 2.25"
+          }
+         ]
+        },
+        {
+         "attributeName": "itemUrl",
+         "attributeLabel": "itemUrl",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "/de/aktionen/denner-schweinsnierstueck~p1002862?variant=1bc63193-e168-4128-bcb4-6e5474704e9c",
+           "label": "/de/aktionen/denner-schweinsnierstueck~p1002862?variant=1bc63193-e168-4128-bcb4-6e5474704e9c"
+          }
+         ]
+        },
+        {
+         "attributeName": "name",
+         "attributeLabel": "name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Denner Schweinsnierstück",
+           "label": "Denner Schweinsnierstück"
+          }
+         ]
+        },
+        {
+         "attributeName": "nameSubline",
+         "attributeLabel": "nameSubline",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "am Stück, mager, ca. 900 g, per 100 g",
+           "label": "am Stück, mager, ca. 900 g, per 100 g"
+          }
+         ]
+        },
+        {
+         "attributeName": "pimcoreId",
+         "attributeLabel": "pimcoreId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "6058433",
+           "label": "6058433"
+          }
+         ]
+        },
+        {
+         "attributeName": "priceFormatted",
+         "attributeLabel": "priceFormatted",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionFrom",
+         "attributeLabel": "promotionFrom",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788402238",
+           "label": "1788402238"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabel",
+         "attributeLabel": "promotionLabel",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionLabelPublication",
+         "attributeLabel": "promotionLabelPublication",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "03.09.–09.09.2026",
+           "label": "03.09.–09.09.2026"
+          }
+         ]
+        },
+        {
+         "attributeName": "promotionTo",
+         "attributeLabel": "promotionTo",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1788904800",
+           "label": "1788904800"
+          }
+         ]
+        },
+        {
+         "attributeName": "wine_of_the_week",
+         "attributeLabel": "wine_of_the_week",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_discount",
+         "attributeLabel": "_tracking_discount",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "0.58",
+           "label": "0.58"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_category2",
+         "attributeLabel": "_tracking_item_category2",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Fleisch/Wurst/Fisch",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_id",
+         "attributeLabel": "_tracking_item_id",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1002862",
+           "label": "1002862"
+          }
+         ]
+        },
+        {
+         "attributeName": "_tracking_item_name",
+         "attributeLabel": "_tracking_item_name",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "Denner Schweinsnierstück",
+           "label": "Denner Schweinsnierstück"
+          }
+         ]
+        },
+        {
+         "attributeName": "buying_channel",
+         "attributeLabel": "Verkaufskanal",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "all",
+           "label": "all"
+          },
+          {
+           "value": "stores",
+           "label": "stores"
+          }
+         ]
+        },
+        {
+         "attributeName": "category",
+         "attributeLabel": "category",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1144362",
+           "label": "Lebensmittel"
+          },
+          {
+           "value": "1144364",
+           "label": "Fleisch/Wurst/Fisch"
+          }
+         ]
+        },
+        {
+         "attributeName": "design",
+         "attributeLabel": "prediggo.attribute.design",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "whitesmoke",
+           "label": "whitesmoke"
+          }
+         ]
+        },
+        {
+         "attributeName": "eco_labels",
+         "attributeLabel": "Zertifizierung",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "1146850",
+           "label": "Suisse Garantie"
+          }
+         ]
+        },
+        {
+         "attributeName": "isAssortmentPromotion",
+         "attributeLabel": "isAssortmentPromotion",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "isBuyable",
+         "attributeLabel": "isBuyable",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "false",
+           "label": "false"
+          }
+         ]
+        },
+        {
+         "attributeName": "navisionId",
+         "attributeLabel": "navisionId",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1bc63193-e168-4128-bcb4-6e5474704e9c",
+           "label": "1bc63193-e168-4128-bcb4-6e5474704e9c"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication",
+         "attributeLabel": "Kategorie",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "6058361",
+           "label": "Wochenaktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "product_publication_filter",
+         "attributeLabel": "Angebote",
+         "attributeType": "ID",
+         "vals": [
+          {
+           "value": "4649555",
+           "label": "Aktuelle Aktionen"
+          }
+         ]
+        },
+        {
+         "attributeName": "salesQuantity",
+         "attributeLabel": "salesQuantity",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "1",
+           "label": "1"
+          }
+         ]
+        },
+        {
+         "attributeName": "stopperType",
+         "attributeLabel": "stopperType",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "x_percent",
+           "label": "x_percent"
+          }
+         ]
+        },
+        {
+         "attributeName": "price",
+         "attributeLabel": "Preis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "availability",
+         "attributeLabel": "availability",
+         "attributeType": "VALUE",
+         "vals": [
+          {
+           "value": "10.00",
+           "label": "10.00"
+          }
+         ]
+        },
+        {
+         "attributeName": "unit_price",
+         "attributeLabel": "Stückpreis",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "1.67",
+           "label": "1.67"
+          }
+         ]
+        },
+        {
+         "attributeName": "Geschmacksprofil",
+         "attributeLabel": "pred-custom1",
+         "attributeType": "RANGE",
+         "vals": [
+          {
+           "value": "0.0",
+           "label": "0.0"
+          }
+         ]
+        }
+       ],
+       "displayInfo": {}
+      },
+      "template": {
+       "posX": 1,
+       "posY": 1,
+       "sizeX": 1,
+       "sizeY": 1
+      }
+     }
+    ],
+    "nbSlots": 5
+   }
+  ]
+ }
+}

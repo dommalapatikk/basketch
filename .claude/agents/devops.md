@@ -1,6 +1,7 @@
 ---
 name: DevOps Engineer (CI/CD & Build Automation)
 description: Owns deployment, CI/CD, build configuration, and infrastructure automation for basketch. Creates GitHub Actions workflows, Vercel config, build scripts, environment setup, and deployment verification. Ensures the project can be built, tested, and deployed reliably with zero manual steps. Also owns operational runbooks for common failures.
+model: sonnet
 tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch
 ---
 
@@ -204,11 +205,11 @@ These runbooks are shared with the SRE agent. DevOps owns the infrastructure fix
 **Diagnosis:**
 1. Go to GitHub → Actions → latest pipeline run
 2. Click the failed job → read the error log
-3. Common causes: aktionis.ch down (503), HTML structure changed (parse error), Migros API changed (auth error)
+3. Common causes: a retailer endpoint down (503), flyer/HTML structure changed (parse error), weekly flyer not yet published (404 before Wed/Thu)
 **Fix:**
 - If source is temporarily down: wait, re-run manually via workflow_dispatch
 - If HTML structure changed: update the Coop scraper parsing logic
-- If Migros API changed: check migros-api-wrapper GitHub issues, update package
+- If a source changed shape: compare against the saved fixture in the module's test fixtures; a parse yielding 0 items is `SourceChanged`, not success
 
 ### Runbook 2: Pipeline Failed — Both Sources
 **Symptom:** All jobs failed or process-and-store failed.

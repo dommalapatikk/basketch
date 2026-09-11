@@ -1,6 +1,7 @@
 ---
 name: Quality Gate Orchestrator
 description: Orchestrates the pre-release quality gate by invoking VP Product, VP Design, and VP Engineering reviews, collecting their findings, and presenting them to PM + Tech Lead + Designer for challenge and adaptation. Uses the SPADE framework for disagreements. All three VPs must approve before shipping.
+model: sonnet
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, Write
 ---
 
