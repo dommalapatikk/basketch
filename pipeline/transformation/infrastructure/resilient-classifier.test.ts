@@ -240,6 +240,7 @@ describe('a port failure is a value, not an exception', () => {
   it('names the thrown error so a CI log can explain the failure', async () => {
     const c = resilientClassifier({ inner: throwing, sleep: async () => {} })
     const res = await c.classify(req as never)
+    expect(isOk(res)).toBe(false)
     if (!isOk(res)) expect(res.error).toMatch(/ECONNRESET/)
   })
 
@@ -255,6 +256,10 @@ describe('a port failure is a value, not an exception', () => {
     const c = make(throwing)
     for (let i = 0; i < 6; i++) await c.classify(req as never)
     const last = await c.classify(req as never)
+    // Unconditional FIRST. With the assertion inside `if (!isOk(last))` the
+    // whole test passed with ZERO assertions executed whenever the breaker
+    // failed to open — which is the one outcome it exists to rule out.
+    expect(isOk(last)).toBe(false)
     if (!isOk(last)) expect(last.error).toMatch(/circuit|open/i)
   })
 })
