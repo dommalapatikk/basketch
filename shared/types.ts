@@ -993,3 +993,41 @@ export function topCategoryFor(browseCategory: string | null | undefined): strin
   if (!browseCategory) return null
   return BROWSE_CATEGORIES.find((c) => c.id === browseCategory)?.topCategory ?? null
 }
+
+/**
+ * Unit standardisation: variant -> canonical. Part of the upsert key.
+ */
+const UNIT_MAP: [RegExp, string][] = [
+  [/\bliter\b/gi, 'l'],
+  [/\blitre\b/gi, 'l'],
+  [/(\d)gr\b/gi, '$1g'],
+  [/\bstk\b/gi, 'Stück'],
+  [/\bpcs\b/gi, 'Stück'],
+]
+
+/**
+ * Normalise a product name: lowercase, collapse whitespace, standardise units.
+ *
+ * ⚠️ THIS IS PART OF THE DATABASE KEY. `deals` is upserted on
+ * (store, product_name, valid_from), and storeDeals normalises the name before
+ * writing — so anything that later matches a row BY NAME must normalise
+ * identically or it silently matches nothing.
+ *
+ * It lives in the shared kernel for exactly that reason. On 2026-09-11 the
+ * enrichment second pass keyed on the RAW offer name, so every
+ * `UPDATE ... WHERE product_name = <raw>` matched zero rows. PostgREST returns
+ * no error for that, so the run logged "enriched 1618/1620 deals with
+ * crop/price-basis/rappen" while the database ended with zero crops and zero
+ * labelled member prices — the entire output of components 1 and 3, lost to a
+ * name that had been lowercased.
+ *
+ * One definition. Do not re-implement it next to a query.
+ */
+export function normalizeProductName(name: string): string {
+  let result = name.toLowerCase().trim()
+  result = result.replace(/\s+/g, ' ')
+  for (const [pattern, replacement] of UNIT_MAP) {
+    result = result.replace(pattern, replacement.toLowerCase())
+  }
+  return result.trim()
+}

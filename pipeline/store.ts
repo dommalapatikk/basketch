@@ -23,32 +23,12 @@ export function productLookupKey(store: string, productName: string): string {
 // Product name normalisation
 // ============================================================
 
-/** Unit standardisation map: variant -> canonical. */
-const UNIT_MAP: [RegExp, string][] = [
-  [/\bliter\b/gi, 'l'],
-  [/\blitre\b/gi, 'l'],
-  [/(\d)gr\b/gi, '$1g'],
-  [/\bstk\b/gi, 'Stück'],
-  [/\bpcs\b/gi, 'Stück'],
-]
 
-/**
- * Normalise a product name for consistent upsert matching:
- * - lowercase
- * - collapse multiple whitespace to single space
- * - standardise unit abbreviations
- * - trim leading/trailing whitespace
- */
-export function normalizeProductName(name: string): string {
-  let result = name.toLowerCase().trim()
-  // Collapse multiple whitespace (including tabs, newlines) to single space
-  result = result.replace(/\s+/g, ' ')
-  // Standardise units
-  for (const [pattern, replacement] of UNIT_MAP) {
-    result = result.replace(pattern, replacement.toLowerCase())
-  }
-  return result.trim()
-}
+// Re-exported from the shared kernel: the normalisation is part of the upsert
+// key, so every writer and every by-name matcher must use the SAME function.
+import { normalizeProductName } from '../shared/types'
+
+export { normalizeProductName }
 
 /**
  * Upserts deals to Supabase in batches of 100.
