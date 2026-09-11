@@ -17,6 +17,7 @@ import {
   validateAttributes,
 } from '../enrich-prompt'
 import { extractAnswers } from '../classification-prompt'
+import { postJson } from '../model-http'
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -41,17 +42,17 @@ export type EnricherDeps = {
   log?: (message: string) => void
 }
 
+// Bounded by model-http. Enrichment failing costs metadata, never a category —
+// but an enrichment call that HANGS costs the run, because every classification
+// chunk behind it waits.
 async function askGemini(apiKey: string, model: string, prompt: string) {
-  const res = await fetch(`${ENDPOINT}/${model}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const j = (await postJson({
+    url: `${ENDPOINT}/${model}:generateContent?key=${apiKey}`,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json' },
     }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const j = (await res.json()) as {
+  })) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
     usageMetadata?: { totalTokenCount?: number }
   }

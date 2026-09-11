@@ -87,3 +87,29 @@ export function createInMemoryCache(seed: readonly CachedClassification[] = []):
     },
   }
 }
+
+/**
+ * Whether a cached entry still owes us its attributes.
+ *
+ * THE OTHER HALF OF DEFERRED ENRICHMENT. A cold start skips enrichment to
+ * afford its classification budget (`RunPlan.enrich`), which is only a
+ * DEFERRAL if something later picks the work up. A cache hit is otherwise
+ * terminal — classify-deals returns `entry.attributes` verbatim and never
+ * routes a hit to the enricher — so without this predicate "defer" silently
+ * means "those products have no attributes, permanently". `storageFrom` would
+ * then yield nothing and the Frozen browse tile would undercount by up to 800
+ * (ADR-001).
+ *
+ * An empty bag is deliberately treated as "ask again" rather than "the
+ * retailer stated nothing". The two are indistinguishable once stored, and the
+ * costs are not symmetric: re-asking costs one batched call on a warm run,
+ * never asking costs the facet forever. The enricher is idempotent, so the
+ * safe direction is to re-ask.
+ *
+ * Note `{ organic: false }` is NOT empty — false is a stated answer.
+ */
+export function needsEnrichment(entry: { attributes: Record<string, unknown> | null }): boolean {
+  const attributes = entry.attributes
+  if (!attributes) return true
+  return Object.keys(attributes).length === 0
+}

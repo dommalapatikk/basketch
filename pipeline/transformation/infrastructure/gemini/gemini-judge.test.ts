@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { unwrap } from '../../../collection/domain/result'
 import { createClassification, createConfidence } from '../../domain/classification'
 import { createGeminiReflector, createOpenRouterJudge } from './gemini-judge'
@@ -120,5 +120,45 @@ describe('the reflector', () => {
       ask: reply('{"category":"dairy","subCategory":"dairy","confidence":0.8}', 210),
     }).reflect(req, cls('dairy', 'dairy'))
     expect(r.tokens).toBe(210)
+  })
+})
+
+// The judge and the reflector each make ONE sequential model call per escalated
+// product. Node's fetch has no default timeout, so a stalled socket in either
+// stalls the whole classification chain behind it. These cover the DEFAULT
+// network paths (no `ask` injected) — the paths run.ts actually uses.
+describe('the default network paths are bounded', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('the OpenRouter judge sends an abort signal', async () => {
+    let seen: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seen = init.signal
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
+    })
+
+    const v = await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY }).judge(req, {
+      category: 'dairy',
+      subCategory: 'dairy',
+    })
+
+    expect(seen).toBeInstanceOf(AbortSignal)
+    expect(v.verdict).toBe('correct')
+  })
+
+  it('the Gemini reflector sends an abort signal', async () => {
+    let seen: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seen = init.signal
+      const text = '{"category":"dairy","subCategory":"dairy","confidence":0.8}'
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 })
+    })
+
+    const r = await createGeminiReflector({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY }).reflect(req, cls('dairy', 'dairy'))
+
+    expect(seen).toBeInstanceOf(AbortSignal)
+    expect(r.classification?.category).toBe('dairy')
   })
 })

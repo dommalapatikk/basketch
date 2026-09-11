@@ -234,6 +234,23 @@ export const REQUEST_TIMEOUT_MS = 60_000
 /** Whole-run ceiling, well under the Actions job limit. */
 export const RUN_TIMEOUT_MS = 45 * 60_000
 
+/**
+ * How much of a failed response body to keep in the error message.
+ *
+ * This is not cosmetic. Everything above that decides WHAT TO DO NEXT is parsed
+ * back out of that string, and Google puts it a long way in:
+ *
+ *   ~char 460   quotaId "...PerDayPerProjectPerModel-FreeTier"  → rate-limited-daily
+ *   ~char 900   error.details[].RetryInfo.retryDelay "37s"      → the provider's own instruction
+ *
+ * The adapters truncated at 200, so `classifyFailure` never saw "PerDay" and
+ * `resilientClassifier`'s retryDelay regex never matched. Every 429 was read as
+ * a generic short rate limit and backed off on a guess — directly contradicting
+ * "the provider's own instruction always beats our guess" above. 2000 clears
+ * both fields with room for Google to add another details[] entry.
+ */
+export const ERROR_BODY_CHARS = 2_000
+
 export type LatencyBudget = { readonly elapsedMs: number; readonly limitMs: number }
 
 export function withinLatencyBudget(b: LatencyBudget): Result<true> {

@@ -42,6 +42,28 @@ const run = (deals: UnifiedDeal[], over: Partial<Parameters<typeof classifyDeals
     ...over,
   })
 
+
+/**
+ * A genuinely WARM run.
+ *
+ * Any run against an empty cache is a cold start regardless of size — planRun
+ * computes the hit rate as hits/total, which is 0 for a fresh cache. So a warm
+ * run has to be built: seed the cache first, then run the seeds plus whatever
+ * the test actually cares about, giving a hit rate well above COLD_START_HIT_RATE.
+ */
+const runWarm = async (
+  subjects: UnifiedDeal[],
+  over: Partial<Parameters<typeof classifyDeals>[1]> = {},
+) => {
+  const cache = createInMemoryCache()
+  const seed = Array.from({ length: 12 }, (_, i) => deal(`Vorrat ${i} Produkt`))
+  await run(seed, { cache })
+  return run([...seed, ...subjects], { cache, ...over })
+}
+
+const dealNamed = (r: Awaited<ReturnType<typeof classifyDeals>>, name: string) =>
+  r.deals.find((d) => d.productName === name)
+
 describe('nothing is ever dropped for being uncertain (D3)', () => {
   // A classifier that answers, and a judge that always disputes the answer.
   // This is the shape D3 is actually about: the product HAS a validated
@@ -148,13 +170,13 @@ describe('enriched attributes reach the deal', () => {
   }
 
   it('carries attributes through to the written deal', async () => {
-    const r = await run([deal('Emmi Milch')], { enricher: enricher as never })
-    expect(r.deals[0]?.attributes).toMatchObject({ fatPercent: 3.5, organic: true })
+    const r = await runWarm([deal('Emmi Milch')], { enricher: enricher as never })
+    expect(dealNamed(r, 'Emmi Milch')?.attributes).toMatchObject({ fatPercent: 3.5, organic: true })
   })
 
   it('lifts storage onto its own column for the Frozen facet (ADR-001)', async () => {
-    const r = await run([deal('Emmi Milch')], { enricher: enricher as never })
-    expect(r.deals[0]?.storage).toBe('chilled')
+    const r = await runWarm([deal('Emmi Milch')], { enricher: enricher as never })
+    expect(dealNamed(r, 'Emmi Milch')?.storage).toBe('chilled')
   })
 
   it('drops a storage value the column would reject rather than failing the batch', async () => {
@@ -166,9 +188,9 @@ describe('enriched attributes reach the deal', () => {
         return { attributes, tokens: 0 }
       },
     }
-    const r = await run([deal('Findus Erbsen')], { enricher: german as never })
-    expect(r.deals[0]?.storage).toBeNull()
-    expect(r.deals[0]?.attributes).toMatchObject({ storage: 'tiefkühl' })
+    const r = await runWarm([deal('Findus Erbsen')], { enricher: german as never })
+    expect(dealNamed(r, 'Findus Erbsen')?.storage).toBeNull()
+    expect(dealNamed(r, 'Findus Erbsen')?.attributes).toMatchObject({ storage: 'tiefkühl' })
   })
 
   it('leaves attributes empty when no enricher is configured', async () => {
@@ -349,5 +371,150 @@ describe('work survives a run that is killed part-way', () => {
     // ahead instead of from zero.
     const persisted = saves.reduce((a, b) => a + b, 0)
     expect(persisted).toBeGreaterThan(0)
+  })
+})
+
+describe('a cold start does not spend its budget on metadata', () => {
+  /**
+   * Enrichment is ~30 of the ~59 sequential model calls a chunk of 100 makes,
+   * and carries the largest prompt in the pipeline — 2,614 chars for 15
+   * products, measured 2026-09-11. On the one run that cannot afford it, it
+   * does not run.
+   *
+   * The decision belongs to planRun, not to this bridge. These tests pin that
+   * the bridge OBEYS the plan rather than deciding for itself.
+   */
+  const spyEnricher = () => {
+    const calls: number[] = []
+    return {
+      calls,
+      async enrich(items: readonly unknown[]) {
+        calls.push(items.length)
+        return { attributes: new Map<string, Record<string, unknown>>(), tokens: 0 }
+      },
+    }
+  }
+
+  it('does not call the enricher on a cold start', async () => {
+    const enricher = spyEnricher()
+    // An empty cache over this many products is a cold start by definition.
+    const many = Array.from({ length: 300 }, (_, i) => deal(`Produkt ${i} Test`))
+    await run(many, { enricher: enricher as never })
+    expect(enricher.calls).toEqual([])
+  })
+
+  it('still classifies and caches everything on that cold start', async () => {
+    // Deferring metadata must not cost a single category — the invariant the
+    // enricher has carried since it was written.
+    const enricher = spyEnricher()
+    const many = Array.from({ length: 300 }, (_, i) => deal(`Produkt ${i} Test`))
+    const r = await run(many, { enricher: enricher as never })
+    expect(r.deals.length).toBeGreaterThan(0)
+    for (const d of r.deals) expect(d.subCategory).toBe('dairy')
+  })
+
+  it('leaves attributes empty rather than guessing them', async () => {
+    const enricher = spyEnricher()
+    const many = Array.from({ length: 300 }, (_, i) => deal(`Produkt ${i} Test`))
+    const r = await run(many, { enricher: enricher as never })
+    expect(r.deals[0]?.attributes).toEqual({})
+    // And therefore no storage facet — absent, never inferred.
+    expect(r.deals[0]?.storage).toBeNull()
+  })
+
+  it('calls the enricher on a warm run', async () => {
+    // A warm cache means the run is cheap, so metadata is affordable again.
+    const enricher = spyEnricher()
+    await runWarm([deal('Emmi Milch')], { enricher: enricher as never })
+    expect(enricher.calls.length).toBeGreaterThan(0)
+  })
+})
+
+describe('deferred enrichment is actually picked up later', () => {
+  /**
+   * Deferring is only a deferral if something finishes the job.
+   *
+   * A cold start writes cache entries with `attributes: {}`. A cache hit is
+   * otherwise TERMINAL — the hit path returns `entry.attributes` verbatim and
+   * never reaches the enricher — so without this, `RunPlan.enrich = false`
+   * means those products have no attributes permanently, `storageFrom` yields
+   * nothing, and the Frozen browse tile undercounts by up to 800 (ADR-001).
+   *
+   * This is the half that was missing when the flag first shipped.
+   */
+  const spyEnricher = (attrs: Record<string, unknown> = { fatPercent: 3.5, storage: 'chilled' }) => {
+    const seen: string[] = []
+    return {
+      seen,
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const attributes = new Map<string, Record<string, unknown>>()
+        for (const i of items) {
+          seen.push(i.request.productName)
+          attributes.set(i.request.productName, attrs)
+        }
+        return { attributes, tokens: 0 }
+      },
+    }
+  }
+
+  /** A cache already holding cold-start rows: classified, but no attributes. */
+  const cacheWithUnenriched = async (subjects: UnifiedDeal[]) => {
+    const cache = createInMemoryCache()
+    const filler = Array.from({ length: 12 }, (_, i) => deal(`Vorrat ${i} Produkt`))
+    // Cold start: classifies everything, enriches nothing.
+    await run([...filler, ...subjects], { cache })
+    return cache
+  }
+
+  it('re-enriches a cold-start row on the next warm run', async () => {
+    const subject = deal('Emmi Vollmilch 1L')
+    const cache = await cacheWithUnenriched([subject])
+    const enricher = spyEnricher()
+
+    const r = await run([subject], { cache, enricher: enricher as never })
+
+    expect(enricher.seen).toContain('Emmi Vollmilch 1L')
+    expect(dealNamed(r, 'Emmi Vollmilch 1L')?.attributes).toMatchObject({ fatPercent: 3.5 })
+  })
+
+  it('recovers the storage facet that the cold start could not fill', async () => {
+    const subject = deal('Findus Erbsen')
+    const cache = await cacheWithUnenriched([subject])
+    const enricher = spyEnricher({ storage: 'frozen' })
+
+    const r = await run([subject], { cache, enricher: enricher as never })
+    expect(dealNamed(r, 'Findus Erbsen')?.storage).toBe('frozen')
+  })
+
+  it('does not re-enrich a row that already has attributes', async () => {
+    // Idempotent, but not wasteful: quota is the scarce resource.
+    const subject = deal('Emmi Vollmilch 1L')
+    const cache = await cacheWithUnenriched([subject])
+    const first = spyEnricher()
+    await run([subject], { cache, enricher: first as never })
+
+    const second = spyEnricher()
+    await run([subject], { cache, enricher: second as never })
+    expect(second.seen).toEqual([])
+  })
+
+  it('still serves the cached category without re-classifying', async () => {
+    // Enrichment is the only thing being redone. The category is already
+    // settled and must not cost another classification call.
+    const subject = deal('Emmi Vollmilch 1L')
+    const cache = await cacheWithUnenriched([subject])
+    let classifyCalls = 0
+    const counting: Classifier = {
+      name: 'counting',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        classifyCalls += 1
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+      },
+    }
+    const r = await run([subject], { cache, enricher: spyEnricher() as never, tier1: counting })
+    expect(classifyCalls).toBe(0)
+    expect(dealNamed(r, 'Emmi Vollmilch 1L')?.subCategory).toBe('dairy')
   })
 })

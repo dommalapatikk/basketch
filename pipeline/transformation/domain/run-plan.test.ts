@@ -218,3 +218,49 @@ describe('judge sampling', () => {
     }
   })
 })
+
+describe('enrichment is deferred on a cold start', () => {
+  /**
+   * MEASURED 2026-09-11. Enrichment is ~30 of the ~59 sequential model calls a
+   * chunk of 100 makes — more than half — and its prompt is by far the largest:
+   * 2,614 characters for 15 products, because every attribute ships its full
+   * `why:` sentence as input on every call (enrich-prompt.ts:49). It returns 15
+   * objects of up to ten fields each.
+   *
+   * It is also, by the pipeline's own rule, OPTIONAL: "Enrichment must never be
+   * able to cost a product its category" (classify-deals.ts). So on the one run
+   * that cannot afford it, it does not run.
+   *
+   * The call count is worse than it looks, and this is the reason deferring
+   * beats shrinking chunks: gemini-enricher groups by SUB-CATEGORY and then
+   * batches 15 within a group, so the number of calls scales with sub-category
+   * diversity rather than product count. 100 products spread over ~30
+   * sub-categories is ~30 near-empty calls. One pass over the whole corpus
+   * later needs ~76 calls instead of ~240 — cheaper in quota AND in time.
+   *
+   * Accuracy cost: ZERO. It touches no category. The cost is metadata
+   * completeness, chiefly the storage facet behind the Frozen browse tile.
+   */
+  it('does not enrich on a cold start', () => {
+    const p = planRun(1800, 0, FREE_TIER_BUDGET, ZERO_SPEND)
+    expect(p.isColdStart).toBe(true)
+    expect(p.enrich).toBe(false)
+  })
+
+  it('enriches on a normal warm run', () => {
+    const p = planRun(1800, 1750, FREE_TIER_BUDGET, ZERO_SPEND)
+    expect(p.isColdStart).toBe(false)
+    expect(p.enrich).toBe(true)
+  })
+
+  it('ties the decision to the plan, not to the caller', () => {
+    // The condition must not live in classify-deals as an `if (isColdStart)`.
+    // planRun already owns "what can this run afford"; judgeSampleRate lives
+    // here for the same reason. An invariant enforced by a caller remembering
+    // to check is a comment, not an invariant.
+    for (const hits of [0, 200, 1750]) {
+      const p = planRun(1800, hits, FREE_TIER_BUDGET, ZERO_SPEND)
+      expect(p.enrich).toBe(!p.isColdStart)
+    }
+  })
+})

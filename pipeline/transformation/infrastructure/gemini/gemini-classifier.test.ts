@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isOk } from '../../../collection/domain/result'
+import { GOOGLE_429_BODY } from '../../__fixtures__/google-429'
 import { buildPrompt, createGeminiClassifier, extractAnswers } from './gemini-classifier'
 import type { TaxonomyEntry } from './gemini-classifier'
 
@@ -202,6 +203,45 @@ describe('classify — the provider misbehaving', () => {
     const r = await c.classify([req('Milch')])
     expect(isOk(r)).toBe(false)
     if (!isOk(r)) expect(r.error).toContain('source-changed')
+  })
+})
+
+// A chunk of 100 products makes ~59 SEQUENTIAL model calls. One stalled socket
+// blocks every call behind it, and Node's fetch has no default timeout — it
+// waits on the OS TCP timeout, 120s+. These tests cover the DEFAULT network
+// path (no fetchJson injected), which is the path run.ts actually uses.
+describe('the default network path is bounded', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends an abort signal, so a stalled provider cannot hang the run', async () => {
+    let seen: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seen = init.signal
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }), { status: 200 })
+    })
+
+    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY })
+    await c.classify([req('Milch')])
+
+    expect(seen).toBeInstanceOf(AbortSignal)
+  })
+
+  it('keeps enough of a 429 body for the provider’s own retryDelay to survive', async () => {
+    // Google buries retryDelay in error.details[].RetryInfo, ~700 chars in.
+    // Truncating at 200 threw it away, so resilient-classifier always fell back
+    // to a guessed exponential backoff instead of obeying the provider.
+    vi.stubGlobal('fetch', async () => new Response(GOOGLE_429_BODY, { status: 429 }))
+
+    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY })
+    const r = await c.classify([req('Milch')])
+
+    expect(isOk(r)).toBe(false)
+    if (!isOk(r)) {
+      expect(r.error).toContain('retryDelay')
+      expect(r.error).toMatch(/retryDelay["\s:]+([\d.]+s)/)
+    }
   })
 })
 

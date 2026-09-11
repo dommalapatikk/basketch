@@ -30,6 +30,7 @@ import {
   buildReflectPrompt,
   extractAnswers,
 } from '../classification-prompt'
+import { postJson } from '../model-http'
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models'
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
@@ -42,19 +43,18 @@ export type JudgeDeps = {
   ask?: (prompt: string) => Promise<{ text: string; tokens: number }>
 }
 
+// Bounded by model-http. The judge runs once per escalated product, in
+// sequence, so a stall here holds up the whole classification chain.
 async function askOpenRouter(apiKey: string, model: string, prompt: string) {
-  const res = await fetch(OPENROUTER, {
-    method: 'POST',
+  const j = (await postJson({
+    url: OPENROUTER,
     headers: {
-      'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
       'HTTP-Referer': 'https://basketch.vercel.app',
       'X-Title': 'basketch',
     },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0 }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const j = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } }
+  })) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } }
   return { text: j?.choices?.[0]?.message?.content ?? '', tokens: j?.usage?.total_tokens ?? 0 }
 }
 
@@ -99,17 +99,15 @@ export type ReflectorDeps = {
   ask?: (prompt: string) => Promise<{ text: string; tokens: number }>
 }
 
+// Bounded by model-http, same reason as the judge above.
 async function askGemini(apiKey: string, model: string, prompt: string) {
-  const res = await fetch(`${GEMINI}/${model}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const j = (await postJson({
+    url: `${GEMINI}/${model}:generateContent?key=${apiKey}`,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json' },
     }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const j = (await res.json()) as {
+  })) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
     usageMetadata?: { totalTokenCount?: number }
   }

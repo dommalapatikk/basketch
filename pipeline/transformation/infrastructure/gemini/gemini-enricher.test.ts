@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EnrichRequest } from '../enrich-prompt'
 import { createGeminiEnricher } from './gemini-enricher'
 
@@ -131,5 +131,38 @@ describe('the fields that make comparison correct', () => {
     const e = make('[{"i":0,"attributes":{"washLoads":100,"detergentForm":"gel"}}]')
     const { attributes } = await e.enrich([item('Persil Gel Color 100 Waschgänge', 'laundry')])
     expect(attributes.get('Persil Gel Color 100 Waschgänge')).toEqual({ washLoads: 100, detergentForm: 'gel' })
+  })
+})
+
+// Enrichment is optional metadata, but it still makes ~1 sequential model call
+// per sub-category. Node's fetch has no default timeout, so one stalled socket
+// here delays every classification chunk behind it. This covers the DEFAULT
+// network path (no `ask` injected) — the path run.ts actually uses.
+describe('the default network path is bounded', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends an abort signal, so a stalled provider cannot hang the run', async () => {
+    let seen: AbortSignal | null | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seen = init.signal
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }), { status: 200 })
+    })
+
+    await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test' }).enrich([item('Emmi Milch', 'dairy')])
+
+    expect(seen).toBeInstanceOf(AbortSignal)
+  })
+
+  it('still costs the product only its attributes when the call fails', async () => {
+    // The standing rule: enrichment must never cost a product its category.
+    vi.stubGlobal('fetch', async () => new Response('nope', { status: 500 }))
+
+    const { attributes } = await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test' }).enrich([
+      item('Emmi Milch', 'dairy'),
+    ])
+
+    expect(attributes.size).toBe(0)
   })
 })

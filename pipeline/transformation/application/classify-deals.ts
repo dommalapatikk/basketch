@@ -18,8 +18,8 @@ import type { Deal, UnifiedDeal } from '../../../shared/types'
 import { isPublishable } from '../../../shared/types'
 import { markUncertain, storageFrom } from '../domain/classification'
 import { isOk } from '../../collection/domain/result'
-import type { ClassificationCache } from '../domain/classification-cache'
-import { CURRENT_VERSIONS, cacheKeyFor, normaliseForCache } from '../domain/classification-cache'
+import type { CachedClassification, ClassificationCache } from '../domain/classification-cache'
+import { CURRENT_VERSIONS, cacheKeyFor, needsEnrichment, normaliseForCache } from '../domain/classification-cache'
 import type { ClassificationRequest, Classifier } from '../domain/classifier'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
 import { planRun } from '../domain/run-plan'
@@ -102,10 +102,14 @@ async function persistChunk(
   deps: ClassifyDealsDeps,
   attributesByName: Map<string, Record<string, unknown>>,
   log: (message: string) => void,
+  // From the PLAN, never decided here. planRun owns "what can this run
+  // afford" — the same reason judgeSampleRate lives there. A condition in the
+  // caller is the anti-pattern the DDD rules name.
+  enrich: boolean,
 ): Promise<void> {
   const classified = chunk.filter((o) => o.status === 'classified' && o.classification !== null)
 
-  if (deps.enricher && classified.length > 0) {
+  if (deps.enricher && enrich && classified.length > 0) {
     const toEnrich = classified.map((o) => ({
       request: o.request,
       // biome-ignore lint/style/noNonNullAssertion: filtered above
@@ -195,6 +199,16 @@ export async function classifyDeals(
       confidence: number
       isUncertain: boolean
       attributes: Record<string, unknown>
+      /**
+       * The validated Classification exactly as stored.
+       *
+       * Kept so a backfill can re-save the row with its attributes filled in
+       * WITHOUT re-deriving a category. The upsert writes the whole row
+       * (supabase-classification-cache.ts), so passing anything other than the
+       * stored classification here would overwrite a settled category with a
+       * guess.
+       */
+      classification: CachedClassification['classification']
     }
   >()
   if (isOk(lookup)) {
@@ -207,6 +221,7 @@ export async function classifyDeals(
         // Enriched once, reused every run. Without this the attributes are
         // recomputed or — as they were until 2026-09-11 — simply dropped.
         attributes: entry.attributes,
+        classification: entry.classification,
       })
     }
   }
@@ -223,6 +238,24 @@ export async function classifyDeals(
     const key = keys[i] as string
     if (!cached.has(key)) misses.push({ deal, key })
   })
+
+  // Cache hits a cold start left without attributes. Classification is settled
+  // for these — only the metadata is owed — so they must NOT be re-classified.
+  // Without this, `RunPlan.enrich = false` is a permanent loss rather than a
+  // deferral: the hit path below returns entry.attributes verbatim and never
+  // reaches the enricher.
+  const owedEnrichment: { deal: UnifiedDeal; key: string; subCategory: string }[] = []
+  if (plan.enrich) {
+    deals.forEach((deal, i) => {
+      const hit = cached.get(keys[i] as string)
+      if (hit && needsEnrichment(hit)) {
+        owedEnrichment.push({ deal, key: keys[i] as string, subCategory: hit.subCategory })
+      }
+    })
+    if (owedEnrichment.length > 0) {
+      log(`[transform] ${owedEnrichment.length} cached products still owe attributes — backfilling`)
+    }
+  }
 
   const toClassify = misses.slice(0, plan.limit)
   const deferred = misses.length - toClassify.length
@@ -291,7 +324,7 @@ export async function classifyDeals(
       // Enrich and persist THIS chunk before starting the next one. A crash
       // after this point costs the chunks not yet reached, never the ones
       // already paid for.
-      await persistChunk(final.outcomes, deps, attributesByName, log)
+      await persistChunk(final.outcomes, deps, attributesByName, log, plan.enrich)
 
       if (final.halted) {
         log(`[transform] HALTED: ${final.halted}`)
@@ -302,6 +335,49 @@ export async function classifyDeals(
 
   const byName = new Map<string, Outcome>()
   for (const o of outcomes) byName.set(normaliseForCache(o.request.productName), o)
+
+  // ── 3c. Backfill ──────────────────────────────────────────────────────────
+  //
+  // Finish the job a cold start deferred. These products already have a settled
+  // category — only their attributes are owed — so they must never be
+  // re-classified. Without this step `RunPlan.enrich = false` is not a deferral
+  // at all: the cache-hit path above returns entry.attributes verbatim and
+  // never reaches the enricher, so those products would carry `{}` forever,
+  // `storageFrom` would yield nothing, and the Frozen browse tile would
+  // undercount by up to COLD_START_LIMIT (ADR-001).
+  //
+  // The row is re-saved with its STORED classification and the new attributes.
+  // The upsert writes the whole row, so passing anything else here would
+  // overwrite a settled category with a guess.
+  if (deps.enricher && owedEnrichment.length > 0) {
+    for (let start = 0; start < owedEnrichment.length; start += CHUNK_SIZE) {
+      const slice = owedEnrichment.slice(start, start + CHUNK_SIZE)
+      try {
+        const { attributes, tokens } = await deps.enricher.enrich(
+          slice.map((o) => ({
+            request: { productName: o.deal.productName, descriptor: null, retailer: o.deal.store },
+            subCategory: o.subCategory,
+          })),
+        )
+        for (const [name, attrs] of attributes) attributesByName.set(name, attrs)
+        log(`[transform] backfilled ${attributes.size}/${slice.length} products (${tokens} tokens)`)
+
+        const rows = slice
+          .filter((o) => attributesByName.has(o.deal.productName))
+          .map((o) => ({
+            cacheKey: o.key,
+            normalisedName: normaliseForCache(o.deal.productName),
+            classification: (cached.get(o.key) as { classification: CachedClassification['classification'] }).classification,
+            attributes: attributesByName.get(o.deal.productName) ?? {},
+            runId: deps.runId,
+          }))
+        if (rows.length > 0) await deps.cache.save(rows)
+      } catch (e) {
+        // A backfill failure costs metadata for one batch and nothing else.
+        log(`[transform] backfill failed for a batch: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  }
 
   // ── 5. Map back ───────────────────────────────────────────────────────────
   let hits = 0
@@ -328,7 +404,8 @@ export async function classifyDeals(
           subCategory: hit.subCategory,
           confidence: hit.confidence || CACHED_CONFIDENCE,
           isUncertain: hit.isUncertain,
-          attributes: hit.attributes,
+          // Prefer anything the backfill just produced for this product.
+          attributes: attributesByName.get(deal.productName) ?? hit.attributes,
         }),
       )
       return

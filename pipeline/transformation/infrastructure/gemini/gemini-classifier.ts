@@ -21,6 +21,7 @@ import {
   buildPrompt,
   extractAnswers,
 } from '../classification-prompt'
+import { postJson } from '../model-http'
 
 // Re-exported so existing tests and callers keep one import site.
 export { buildPrompt, extractAnswers, PROMPT_VERSION } from '../classification-prompt'
@@ -55,14 +56,10 @@ export type GeminiDeps = {
   onUsage?: (tokens: number) => void
 }
 
+// Bounded by model-http: Node's fetch has no default timeout, and a chunk of
+// 100 products makes ~59 SEQUENTIAL calls through here.
 async function httpPost(url: string, body: string): Promise<unknown> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  return res.json()
+  return postJson({ url, body })
 }
 
 export function createGeminiClassifier(deps: GeminiDeps): Classifier {

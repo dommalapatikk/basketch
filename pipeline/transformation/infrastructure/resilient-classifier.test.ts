@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { err, isOk, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
-import { CIRCUIT_THRESHOLD, KNOWN_LIMITS } from '../domain/resilience'
+import { CIRCUIT_THRESHOLD, ERROR_BODY_CHARS, KNOWN_LIMITS } from '../domain/resilience'
+import { GOOGLE_429_BODY, GOOGLE_429_PER_MINUTE_BODY } from '../__fixtures__/google-429'
 import { resilientClassifier } from './resilient-classifier'
 
 const req = (productName: string) => ({ productName, descriptor: null, retailer: 'denner' })
+
+/** Exactly what gemini-classifier hands back for a failed response, truncation and all. */
+const adapterError = (responseBody: string) =>
+  `provider-unavailable: HTTP 429: ${responseBody.slice(0, ERROR_BODY_CHARS)}`
 
 const cls = () =>
   unwrap(createClassification({ category: 'dairy', subCategory: 'dairy', confidence: unwrap(createConfidence(0.9)), tier: 1, model: 'm' }))
@@ -111,6 +116,32 @@ describe("obeying the provider's own Retry-After", () => {
     const s = scripted(['429 rate limit, "retryDelay": "37s"', 'ok'])
     await make(s.inner).classify([req('Milch')])
     expect(slept[0]).toBe(30_000) // capped at maxDelayMs
+  })
+
+  // REGRESSION. The test above passes a hand-written 35-character error string,
+  // so it never noticed that the adapter truncated the real body at 200 chars
+  // and threw retryDelay away before this code could ever see it. These two use
+  // the error string the adapter ACTUALLY produces.
+  it('obeys retryDelay in a real Google 429 body, not just a tidy one', async () => {
+    const s = scripted([adapterError(GOOGLE_429_PER_MINUTE_BODY), 'ok'])
+    await make(s.inner).classify([req('Milch')])
+
+    // 37s capped to maxDelayMs. Truncated at 200 this was the ~1s exponential
+    // guess instead — five times too short, against a provider that had just
+    // told us how long to wait.
+    expect(slept[0]).toBe(30_000)
+  })
+
+  it('reads a real per-day cap as unrecoverable instead of retrying it', async () => {
+    const s = scripted([adapterError(GOOGLE_429_BODY), 'ok'])
+    const r = await make(s.inner).classify([req('Milch')])
+
+    // "PerDay" sits ~460 chars in, so the 200-char cut hid it and we burned the
+    // retry budget on a cap no backoff recovers inside a run.
+    expect(isOk(r)).toBe(false)
+    if (!isOk(r)) expect(r.error).toContain('rate-limited-daily')
+    expect(s.calls()).toBe(1)
+    expect(slept).toEqual([])
   })
 })
 

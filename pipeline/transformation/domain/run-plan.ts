@@ -40,6 +40,28 @@ export type RunPlan = {
    * new products — judges all of them.
    */
   readonly judgeSampleRate: number
+  /**
+   * Whether this run extracts per-category attributes.
+   *
+   * MEASURED 2026-09-11: enrichment is ~30 of the ~59 sequential model calls a
+   * chunk of 100 makes, and carries by far the largest prompt — 2,614 chars for
+   * 15 products, because every attribute ships its full `why:` sentence as
+   * input on every call. It is the single largest consumer of a cold start.
+   *
+   * It is also optional by the pipeline's own rule: enrichment must never cost
+   * a product its category. So the one run that cannot afford it skips it.
+   *
+   * Deferring beats shrinking chunks, because gemini-enricher groups by
+   * SUB-CATEGORY before batching 15 — call count scales with sub-category
+   * diversity, not product count, so smaller chunks make it WORSE. One pass
+   * over the whole corpus later costs ~76 calls against ~240 spread across
+   * chunks.
+   *
+   * Accuracy cost: zero. It touches no category. The cost is metadata
+   * completeness — chiefly the storage facet behind the Frozen browse tile,
+   * which undercounts until a warm run backfills it.
+   */
+  readonly enrich: boolean
 }
 
 /**
@@ -94,6 +116,7 @@ export function planRun(
       // A warm run classifies a handful of genuinely new products. Judging all
       // of them costs seconds and keeps the 0% false-alarm check on every one.
       judgeSampleRate: 1,
+      enrich: true,
     }
   }
 
@@ -107,6 +130,7 @@ export function planRun(
       `Classifying ${limit} of ${misses}; the rest resume next run. ` +
       'A cold start also happens whenever a taxonomy, prompt or schema version is bumped.',
     judgeSampleRate: COLD_START_JUDGE_RATE,
+    enrich: false,
   }
 }
 

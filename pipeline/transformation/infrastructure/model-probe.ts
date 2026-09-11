@@ -11,57 +11,49 @@
 //
 // The probe calls each model in the chain ONCE with a trivial prompt. Cost is
 // a handful of tokens; the alternative is a silent week.
+//
+// The AbortController/setTimeout/clearTimeout dance this file used to hand-roll
+// twice now lives in `model-http.ts`, which every model call in the pipeline
+// goes through. The 15s budget below is the only thing that was ever specific
+// to probing.
 
 import type { ModelSpec, ProbeResult } from '../domain/model-registry'
+import { postJson } from './model-http'
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models'
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
 
-/** Short enough that a probe cannot itself stall a run. */
+/** Short enough that a probe cannot itself stall a run — tighter than the call budget on purpose. */
 const PROBE_TIMEOUT_MS = 15_000
 
 async function probeGemini(model: string, apiKey: string): Promise<ProbeResult> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
   try {
-    const res = await fetch(`${GEMINI}/${model}:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await postJson({
+      url: `${GEMINI}/${model}:generateContent?key=${apiKey}`,
       body: JSON.stringify({ contents: [{ parts: [{ text: 'ok' }] }] }),
-      signal: controller.signal,
+      timeoutMs: PROBE_TIMEOUT_MS,
     })
-    if (res.ok) return { id: model, available: true }
-    const body = await res.text()
-    return { id: model, available: false, detail: `HTTP ${res.status}: ${body.slice(0, 120)}` }
+    return { id: model, available: true }
   } catch (e) {
     return { id: model, available: false, detail: e instanceof Error ? e.message : String(e) }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
 async function probeOpenRouter(model: string, apiKey: string): Promise<ProbeResult> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
   try {
-    const res = await fetch(OPENROUTER, {
-      method: 'POST',
+    await postJson({
+      url: OPENROUTER,
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': 'https://basketch.vercel.app',
         'X-Title': 'basketch',
       },
       body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 5 }),
-      signal: controller.signal,
+      timeoutMs: PROBE_TIMEOUT_MS,
     })
-    if (res.ok) return { id: model, available: true }
-    const body = await res.text()
-    return { id: model, available: false, detail: `HTTP ${res.status}: ${body.slice(0, 120)}` }
+    return { id: model, available: true }
   } catch (e) {
     return { id: model, available: false, detail: e instanceof Error ? e.message : String(e) }
-  } finally {
-    clearTimeout(timer)
   }
 }
 
