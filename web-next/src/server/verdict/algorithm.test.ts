@@ -28,6 +28,11 @@ const make = (
   sourceUrl: null,
   productId: 'p',
   taxonomyConfidence: 1,
+    isUncertain: false,
+    storage: null,
+    priceBasis: { kind: 'everyone' as const },
+    crop: null,
+    attributes: {},
   isActive: true,
   updatedAt: '2026-04-24T00:00:00Z',
 })
@@ -112,5 +117,48 @@ describe('computeAllVerdicts', () => {
     expect(verdicts.map((v) => v.category)).toEqual(['fresh', 'longlife', 'household'])
     expect(verdicts.find((v) => v.category === 'longlife')?.state).toBe('no-data')
     expect(verdicts.find((v) => v.category === 'household')?.state).toBe('no-data')
+  })
+})
+
+describe('uncertain deals do not vote (D3)', () => {
+  const uncertain = (store: Deal['store'], category: DealCategory, discount: number): Deal => ({
+    ...make(store, category, discount),
+    isUncertain: true,
+  })
+
+  it('excludes an uncertain deal from a store score', () => {
+    const deals = [...repeat('coop', 'fresh', 10, 5), uncertain('coop', 'fresh', 90)]
+    const scores = scoreStoresForCategory(deals, 'fresh')
+    // The 90% deal is real, but we are not sure it is fresh. Averaging it in
+    // would move Coop from 10% to 23% on a category guess.
+    expect(scores[0]?.avgDiscountPct).toBe(10)
+    expect(scores[0]?.dealCount).toBe(5)
+  })
+
+  it('does not let an uncertain deal hand a store the win', () => {
+    const deals = [
+      ...repeat('coop', 'fresh', 20, 5),
+      ...repeat('migros', 'fresh', 30, 5),
+      // One unverified 99% deal would otherwise flip the headline.
+      uncertain('coop', 'fresh', 99),
+    ]
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh'))
+    expect(verdict.winner).toBe('migros')
+  })
+
+  it('reports no-data rather than a verdict built only from guesses', () => {
+    const deals = [uncertain('coop', 'fresh', 40), uncertain('migros', 'fresh', 50)]
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh'))
+    expect(verdict.state).toBe('no-data')
+    expect(verdict.winner).toBeNull()
+  })
+
+  it('still leaves the deal itself in the list — only its vote is withheld', () => {
+    // The offer is published; the price is not the uncertain part. This suite
+    // covers the verdict only, so the assertion here is the negative one:
+    // nothing in scoring mutates or removes the input.
+    const deals = [...repeat('coop', 'fresh', 20, 5), uncertain('coop', 'fresh', 99)]
+    scoreStoresForCategory(deals, 'fresh')
+    expect(deals).toHaveLength(6)
   })
 })

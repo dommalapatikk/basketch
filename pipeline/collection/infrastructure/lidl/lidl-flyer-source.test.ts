@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createLidlFlyerSource,
+  decodeEntities,
+  lidlSourceAttributes,
   flyerUrl,
   pagesMentioningLoyalty,
   parseFlyer,
@@ -179,5 +181,57 @@ describe('createLidlFlyerSource', () => {
       const r = await source({ fetchFlyer: async () => junk }).fetchOffers('2026-W37')
       expect(r.ok).toBe(false)
     }
+  })
+})
+
+describe('decodeEntities — Lidl escapes German', () => {
+  it('decodes umlauts', () => {
+    expect(decodeEntities('Pro 20 St&uuml;ck')).toBe('Pro 20 Stück')
+    expect(decodeEntities('K&auml;se &Ouml;l Ma&szlig;')).toBe('Käse Öl Maß')
+  })
+
+  it('decodes symbols and dashes', () => {
+    expect(decodeEntities('4/12 &ndash; 9/12 Nespresso&reg; kompatibel')).toBe(
+      '4/12 – 9/12 Nespresso® kompatibel',
+    )
+  })
+
+  it('decodes numeric entities', () => {
+    expect(decodeEntities('caf&#233; &#x00e9;')).toBe('café é')
+  })
+
+  it('leaves an unknown entity untouched rather than mangling it', () => {
+    expect(decodeEntities('a &notreal; b')).toBe('a &notreal; b')
+  })
+})
+
+describe('lidlSourceAttributes — the description field', () => {
+  it('captures the descriptor verbatim, decoded', () => {
+    const a = lidlSourceAttributes({
+      description: 'Diverse Sorten 4/12 &ndash; 9/12 Nespresso&reg; kompatibel Pro 20 St&uuml;ck',
+    })
+    expect(a.descriptor).toBe('Diverse Sorten 4/12 – 9/12 Nespresso® kompatibel Pro 20 Stück')
+  })
+
+  it('keeps origin and price basis for tier-2 parsing downstream', () => {
+    const a = lidlSourceAttributes({ description: 'Herkunft: Schweiz Pro 2 x 250 g 100 g = 1.58' })
+    expect(a.descriptor).toBe('Herkunft: Schweiz Pro 2 x 250 g 100 g = 1.58')
+  })
+
+  it('collapses runs of whitespace', () => {
+    expect(lidlSourceAttributes({ description: 'Pro   390 g\n\n100 g = 0.51' }).descriptor).toBe(
+      'Pro 390 g 100 g = 0.51',
+    )
+  })
+
+  it('returns empty attributes when there is no description', () => {
+    expect(lidlSourceAttributes({}).descriptor).toBeNull()
+    expect(lidlSourceAttributes({ description: '   ' }).descriptor).toBeNull()
+  })
+
+  it('does not invent quantity — parsing the descriptor is component 2’s job', () => {
+    const a = lidlSourceAttributes({ description: 'Herkunft: Italien Pro 2 kg 1 kg = 1.90' })
+    expect(a.quantity).toBeNull()
+    expect(a.unitPrice).toBeNull()
   })
 })

@@ -1,13 +1,12 @@
 'use client'
 
-import Image from 'next/image'
 import { memo } from 'react'
-
-import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
-import type { DealCategory } from '@/lib/types'
-
 import { PriceBlock } from '@/components/ui/price-block'
+import { ProductImage } from '@/components/ui/product-image'
 import { Tag } from '@/components/ui/tag'
+import { type DealAttribute, isStandaloneAttribute } from '@/lib/deal-attributes'
+import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
+import type { CropRegion, DealCategory } from '@/lib/types'
 
 import { AddToListButton } from './AddToListButton'
 
@@ -20,6 +19,11 @@ type CommonProps = {
   productName: string
   format?: string | null
   imageUrl?: string | null
+  /**
+   * Flyer crop, for the retailers that publish no product images at all.
+   * Spar, Aldi and Migros render as empty grey squares without it.
+   */
+  crop?: CropRegion | null
   current: number
   previous?: number | null
   perUnit?: string | null
@@ -27,6 +31,33 @@ type CommonProps = {
   isCheapest?: boolean
   href: string
   cheapestLabel?: string
+  /**
+   * The classifier's category for this deal is a guess it was not confident in.
+   * The deal is shown anyway — the price is not the uncertain part (D3) — but
+   * nothing on the card may present its category as settled.
+   */
+  isUncertain?: boolean
+  /** Localised, e.g. "Category unverified". Rendered only when isUncertain. */
+  unverifiedLabel?: string
+  /**
+   * Names the loyalty programme when this price is members-only.
+   *
+   * Art. 3(1)(e) UWG: a price comparison must be objectively correct, and LIDL
+   * publishes its Lidl Plus price with no flag at all. Rendering one as a normal
+   * price is the exposure the pipeline's loyalty check exists to prevent — so
+   * this is TEXT, never a colour or an icon alone.
+   */
+  memberPriceLabel?: string | null
+  /**
+   * Localised "Only at Coop" — shown ONLY together with onlyStoreNote, which
+   * states the scope of the claim. The badge on its own would read as "this
+   * product is only at Coop", which is not what the data supports.
+   */
+  onlyStoreBadge?: string | null
+  /** Localised "No other store we track has a Dairy deal this week." */
+  onlyStoreNote?: string | null
+  /** Up to three facts the retailer actually stated. Never inferred. */
+  attributes?: DealAttribute[]
 }
 
 export type DealCardProps = CommonProps & { variant: DealCardVariant }
@@ -53,6 +84,7 @@ function Primary({
   productName,
   format,
   imageUrl,
+  crop,
   current,
   previous,
   perUnit,
@@ -60,6 +92,12 @@ function Primary({
   isCheapest,
   href,
   cheapestLabel = 'Cheapest',
+  isUncertain,
+  unverifiedLabel,
+  memberPriceLabel,
+  onlyStoreBadge,
+  onlyStoreNote,
+  attributes,
 }: CommonProps) {
   const titleId = titleIdFor(href)
   return (
@@ -73,26 +111,35 @@ function Primary({
       className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-paper)] p-3 transition-colors hover:border-[var(--color-line-strong)] sm:grid-cols-[176px_minmax(0,1fr)] sm:gap-5 sm:p-4 md:grid-cols-[192px_minmax(0,1fr)] md:gap-6 md:p-5 [content-visibility:auto] [contain-intrinsic-size:0_240px]"
     >
       <div className="aspect-square w-full overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-page)]">
-        {imageUrl ? (
-          <Image
-            src={imageUrl}
-            alt=""
-            width={192}
-            height={192}
-            sizes="(min-width: 768px) 192px, (min-width: 640px) 176px, 120px"
-            className="h-full w-full object-contain p-1"
-          />
-        ) : null}
+        <ProductImage
+          imageUrl={imageUrl}
+          crop={crop}
+          dimension={192}
+          sizes="(min-width: 768px) 192px, (min-width: 640px) 176px, 120px"
+          className="h-full w-full object-contain p-1"
+        />
       </div>
 
       <div className="flex min-w-0 flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <StorePill store={store} size="md" />
-          {isCheapest ? (
-            <Tag tone="positive" size="sm">
-              {cheapestLabel}
-            </Tag>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {isCheapest ? (
+              <Tag tone="positive" size="sm">
+                {cheapestLabel}
+              </Tag>
+            ) : null}
+            {onlyStoreBadge && onlyStoreNote ? (
+              <Tag tone="signal" size="sm">
+                {onlyStoreBadge}
+              </Tag>
+            ) : null}
+            {isUncertain && unverifiedLabel ? (
+              <Tag tone="neutral" size="sm">
+                {unverifiedLabel}
+              </Tag>
+            ) : null}
+          </div>
         </div>
 
         <a
@@ -106,6 +153,14 @@ function Primary({
         </a>
 
         {format ? <p className="text-xs text-[var(--color-ink-3)]">{format}</p> : null}
+
+        <AttributeLine attributes={attributes} />
+
+        {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
+
+        {onlyStoreNote ? (
+          <p className="text-xs leading-snug text-[var(--color-ink-3)]">{onlyStoreNote}</p>
+        ) : null}
 
         <div className="mt-auto flex items-end justify-between gap-3">
           <PriceBlock
@@ -136,11 +191,15 @@ function Compact({
   store,
   productName,
   imageUrl,
+  crop,
   current,
   previous,
   perUnit,
   savingsPct,
   href,
+  isUncertain,
+  unverifiedLabel,
+  memberPriceLabel,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
   const titleId = titleIdFor(href)
@@ -157,16 +216,13 @@ function Compact({
       className="grid w-[280px] shrink-0 snap-start grid-cols-[40px_1fr] grid-rows-[auto_auto] items-center gap-x-3 gap-y-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-paper)] px-3 py-2 transition-colors hover:border-[var(--color-line-strong)] md:grid-cols-[40px_minmax(0,1fr)_auto_auto] md:grid-rows-1 md:gap-y-0 lg:w-auto lg:shrink lg:snap-none [content-visibility:auto] [contain-intrinsic-size:280px_80px] lg:[contain-intrinsic-size:0_60px]"
     >
       <div className="row-span-2 h-10 w-10 shrink-0 overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-page)] md:row-span-1">
-        {imageUrl ? (
-          <Image
-            src={imageUrl}
-            alt=""
-            width={40}
-            height={40}
-            sizes="40px"
-            className="h-full w-full object-contain p-0.5"
-          />
-        ) : null}
+        <ProductImage
+          imageUrl={imageUrl}
+          crop={crop}
+          dimension={40}
+          sizes="40px"
+          className="h-full w-full object-contain p-0.5"
+        />
       </div>
 
       <div className="min-w-0">
@@ -179,6 +235,17 @@ function Compact({
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-ink-3)]">
             {brand.label}
           </span>
+          {isUncertain && unverifiedLabel ? (
+            // Abbreviated on the compact card — the full wording is on the
+            // primary card and in the title attribute, but the mark itself is
+            // never dropped just because the row is narrow.
+            <span
+              title={unverifiedLabel}
+              className="text-[11px] font-medium text-[var(--color-ink-3)]"
+            >
+              · ?
+            </span>
+          ) : null}
         </div>
         <a
           href={href}
@@ -189,6 +256,13 @@ function Compact({
         >
           {productName}
         </a>
+        {memberPriceLabel ? (
+          // Legally required wherever the price is shown, so it appears on the
+          // compact card too — truncated layout is not an exemption.
+          <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-signal)]">
+            {memberPriceLabel}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-3 md:contents">
@@ -213,6 +287,53 @@ function Compact({
         />
       </div>
     </article>
+  )
+}
+
+/**
+ * The facts the retailer actually printed, in one quiet line.
+ *
+ * Never a guess: an attribute the retailer did not state is absent from the
+ * data and therefore absent here. Capped at three upstream so the price keeps
+ * the visual weight on the card.
+ */
+function AttributeLine({ attributes }: { attributes?: DealAttribute[] }) {
+  if (!attributes || attributes.length === 0) return null
+  return (
+    <ul className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--color-ink-3)]">
+      {attributes.map((a) => (
+        <li key={a.id} className="rounded-[var(--radius-sm)] bg-[var(--color-page)] px-1.5 py-0.5">
+          {isStandaloneAttribute(a.id) ? (
+            a.value
+          ) : (
+            <>
+              <span className="text-[var(--color-ink-3)]">{a.label}</span>{' '}
+              <span className="font-medium text-[var(--color-ink-2)]">{a.value}</span>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * Names the loyalty programme a members-only price belongs to.
+ *
+ * Art. 3(1)(e) UWG requires a price comparison to be objectively correct, and
+ * CLAUDE.md makes labelling member prices binding. This is deliberately plain
+ * text with its own contrast — WCAG 2.1 AA forbids carrying information by
+ * colour alone, and "the yellow one is the Lidl price" is exactly that.
+ */
+function MemberPriceNote({ label }: { label: string }) {
+  return (
+    <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-signal)]"
+      />
+      {label}
+    </p>
   )
 }
 

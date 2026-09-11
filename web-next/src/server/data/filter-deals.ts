@@ -1,6 +1,6 @@
 import type { DealsFilters } from '@/lib/filters'
 import type { StoreKey } from '@/lib/store-tokens'
-import type { Deal } from '@/lib/types'
+import type { Deal, StorageState } from '@/lib/types'
 
 // Slim shape used both for in-memory filtering and for client-side facet count.
 // Anything richer than this lives only on the server side of the wire.
@@ -8,7 +8,7 @@ import type { Deal } from '@/lib/types'
 // mid-level Category dimension without re-fetching deals.
 export type DealFacet = Pick<
   Deal,
-  'store' | 'category' | 'categorySlug' | 'subCategory' | 'productName'
+  'store' | 'category' | 'categorySlug' | 'subCategory' | 'productName' | 'storage'
 >
 
 // Single source of truth for the filter predicate. Reused by `filterDeals`
@@ -27,6 +27,10 @@ export function matchDeal(d: DealFacet, f: DealsFilters): boolean {
     return false
   if (f.subCategory && (d.subCategory ?? '').toLowerCase() !== f.subCategory.toLowerCase())
     return false
+  // A deal whose storage the retailer never stated is not "ambient by default" —
+  // it simply cannot answer the question, so it drops out of a storage filter
+  // rather than being guessed into one.
+  if (f.storage && d.storage !== f.storage) return false
   if (!f.stores.includes(d.store)) return false
   if (f.q && !d.productName.toLowerCase().includes(f.q.trim().toLowerCase())) return false
   return true
@@ -59,11 +63,52 @@ export function storeCounts(deals: Deal[], f: DealsFilters): Record<StoreKey, nu
     if (f.type !== 'all' && d.category !== f.type) continue
     if (cat && (d.categorySlug ?? '').toLowerCase() !== cat) continue
     if (subCat && (d.subCategory ?? '').toLowerCase() !== subCat) continue
+    if (f.storage && d.storage !== f.storage) continue
     if (q && !d.productName.toLowerCase().includes(q)) continue
     counts[d.store] = (counts[d.store] ?? 0) + 1
   }
   return counts
 }
+
+/**
+ * Counts per storage state for the current filter set *minus* the storage filter.
+ *
+ * Same "list-includes-everything, only counts react" rule as the other facets,
+ * so switching from Frozen to Chilled never leaves the user staring at a row
+ * that has silently disappeared. Deals with no storage value are counted in no
+ * bucket — the retailer did not say, and a guess here would put fresh fish in
+ * the ambient aisle.
+ */
+export function storageCounts(
+  deals: Deal[],
+  f: DealsFilters,
+): Array<{ key: StorageState; count: number }> {
+  const q = f.q.trim().toLowerCase()
+  const storeSet = new Set<StoreKey>(f.stores)
+  const cat = f.category?.toLowerCase() ?? null
+  const subCat = f.subCategory?.toLowerCase() ?? null
+
+  const counts = new Map<StorageState, number>()
+  for (const s of STORAGE_ORDER) counts.set(s, 0)
+
+  for (const d of deals) {
+    if (!d.storage) continue
+    if (f.type !== 'all' && d.category !== f.type) continue
+    if (cat && (d.categorySlug ?? '').toLowerCase() !== cat) continue
+    if (subCat && (d.subCategory ?? '').toLowerCase() !== subCat) continue
+    if (!storeSet.has(d.store)) continue
+    if (q && !d.productName.toLowerCase().includes(q)) continue
+    counts.set(d.storage, (counts.get(d.storage) ?? 0) + 1)
+  }
+
+  return STORAGE_ORDER.map((key) => ({ key, count: counts.get(key) ?? 0 }))
+}
+
+/**
+ * Frozen first: it is the one users come looking for, and the browse tile that
+ * ADR-001 describes is a saved filter over exactly this value.
+ */
+export const STORAGE_ORDER: readonly StorageState[] = ['frozen', 'chilled', 'fresh', 'ambient']
 
 // Patch F: Categories that exist *in the current type filter*, with their counts.
 //
@@ -86,6 +131,7 @@ export function categoryCounts(
 
     if (!storeSet.has(d.store)) continue
     if (subCat && (d.subCategory ?? '').toLowerCase() !== subCat) continue
+    if (f.storage && d.storage !== f.storage) continue
     if (q && !d.productName.toLowerCase().includes(q)) continue
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
@@ -127,6 +173,7 @@ export function subCategoryCounts(
     if (!counts.has(key)) counts.set(key, 0)
 
     if (!storeSet.has(d.store)) continue
+    if (f.storage && d.storage !== f.storage) continue
     if (q && !d.productName.toLowerCase().includes(q)) continue
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
@@ -140,6 +187,49 @@ export function subCategoryCounts(
       if (a.count !== b.count) return b.count - a.count
       return a.key.localeCompare(b.key)
     })
+}
+
+/**
+ * Sub-categories where exactly one tracked store has anything on offer.
+ *
+ * ⚠️ READ THE SCOPE BEFORE CHANGING THE COPY THAT USES THIS. The claim this
+ * supports is "no other store we track has a DAIRY deal this week" — about the
+ * sub-category, not about the product.
+ *
+ * The per-product claim is the one we actually want, and it cannot be made
+ * honestly yet: `products` are resolved per store (pipeline/product-resolve.ts
+ * filters `.eq('store', store)` and matches on source_name), so the same milk
+ * from two retailers is two unrelated product rows. The cross-store identity
+ * lives in the `concept` layer, which is not populated — see the comment in
+ * server/data/concepts.ts. Matching on product names instead would mark almost
+ * every deal "only at", because "M-Classic Vollmilch" and "Coop Naturaplan
+ * Milch" never match, and that is exactly the exhaustiveness claim Art. 3(1)(e)
+ * UWG forbids.
+ *
+ * When concepts are populated, swap the grouping key below from `subCategory`
+ * to the concept id and tighten the copy. Nothing else has to change.
+ *
+ * Computed over the WHOLE snapshot, never the filtered view — a deal is not
+ * "only at Coop" merely because the visitor deselected the other six stores.
+ */
+export function onlyStoreSubCategories(deals: Deal[]): Map<string, StoreKey> {
+  const storesBySubCategory = new Map<string, Set<StoreKey>>()
+  for (const d of deals) {
+    const key = d.subCategory?.trim()
+    // A deal with no sub-category cannot support the claim in either direction.
+    if (!key) continue
+    const set = storesBySubCategory.get(key) ?? new Set<StoreKey>()
+    set.add(d.store)
+    storesBySubCategory.set(key, set)
+  }
+
+  const out = new Map<string, StoreKey>()
+  for (const [subCategory, stores] of storesBySubCategory) {
+    if (stores.size !== 1) continue
+    const [only] = stores
+    if (only) out.set(subCategory, only)
+  }
+  return out
 }
 
 export type DealsSection = {

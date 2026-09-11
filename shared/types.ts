@@ -166,6 +166,24 @@ export interface SubCategorySchema {
  */
 export type TaxonomyConfidence = number
 
+/**
+ * Where a product lives between the shop and the plate.
+ *
+ * A facet, not a category (ADR-001): ice cream is a sweet that is frozen, and
+ * frozen peas are vegetables that are frozen. Modelling "frozen" as a category
+ * puts frozen mango nowhere near fresh mango, so "cheapest mango" silently
+ * misses half the answer.
+ *
+ * Mirrors the deals_storage_check constraint in 20260911_offer_fields.sql.
+ */
+export const STORAGE_STATES = ['fresh', 'chilled', 'frozen', 'ambient'] as const
+
+export type StorageState = (typeof STORAGE_STATES)[number]
+
+export function isStorageState(value: unknown): value is StorageState {
+  return typeof value === 'string' && (STORAGE_STATES as readonly string[]).includes(value)
+}
+
 // ============================================================
 // Constants
 // ============================================================
@@ -192,6 +210,20 @@ export type BrowseCategory =
   | 'pantry-canned'
   | 'home'
   | 'beauty-hygiene'
+  | 'pet-supplies'
+  | 'household-appliances'
+  // Added 2026-09-10 after reviewing Migros' own shop taxonomy (see ADR-001).
+  // Migros separates alcohol from soft drinks — age-restricted stock with its
+  // own Swiss advertising rules — and has a Home & kitchen aisle we lacked.
+  | 'alcohol'
+  | 'home-kitchen'
+  | 'clothing-textiles'
+  | 'garden-plants'
+  | 'diy-tools'
+  | 'toys-games'
+  | 'baby-kids'
+  | 'stationery-media'
+  | 'kiosk'
   | 'all'
 
 export interface BrowseCategoryInfo {
@@ -212,17 +244,79 @@ export const BROWSE_CATEGORIES: BrowseCategoryInfo[] = [
   { id: 'fruits-vegetables', label: 'Fruits & Vegetables', emoji: '🥬', subCategories: ['fruit', 'vegetables'], topCategory: 'fresh' },
   { id: 'meat-fish', label: 'Meat & Fish', emoji: '🥩', subCategories: ['meat', 'poultry', 'fish', 'deli'], topCategory: 'fresh' },
   { id: 'dairy', label: 'Dairy & Eggs', emoji: '🧀', subCategories: ['dairy', 'eggs'], topCategory: 'fresh' },
-  { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread'], topCategory: 'fresh' },
+  // 'bread' alone was a real gap, found in the 2026-09-10 bake-off: 4 of Denner's
+  // 6 bakery items were cakes, donuts and pizza dough. Every model answered
+  // 'snacks-sweets' — defensibly — and we scored it wrong. The taxonomy was at
+  // fault, not the model.
+  { id: 'bakery', label: 'Bakery', emoji: '🍞', subCategories: ['bread', 'pastry', 'cake', 'dough'], topCategory: 'fresh' },
   // Long-life
   { id: 'snacks-sweets', label: 'Snacks & Sweets', emoji: '🍫', subCategories: ['snacks', 'chocolate'], topCategory: 'long-life' },
   { id: 'pasta-rice-cereals', label: 'Pasta, Rice & More', emoji: '🍝', subCategories: ['pasta-rice'], topCategory: 'long-life' },
-  { id: 'drinks', label: 'Drinks', emoji: '🥤', subCategories: ['water', 'juice', 'beer', 'wine', 'soft-drinks', 'coffee', 'tea', 'drinks', 'coffee-tea'], topCategory: 'long-life' },
-  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen'], topCategory: 'long-life' },
+  // 'beer' and 'wine' moved to the 'alcohol' category (ADR-001, following Migros).
+  // A sub-category must belong to exactly one browse category or the mapping is ambiguous.
+  { id: 'drinks', label: 'Drinks', emoji: '🥤', subCategories: ['water', 'juice', 'soft-drinks', 'coffee', 'tea', 'drinks', 'coffee-tea'], topCategory: 'long-life' },
+  // 'catering' added from Coop's Food shelf — party platters and trays.
+  { id: 'ready-meals-frozen', label: 'Ready Meals & Frozen', emoji: '🍕', subCategories: ['ready-meals', 'frozen', 'catering'], topCategory: 'long-life' },
   { id: 'pantry-canned', label: 'Pantry & Canned', emoji: '🥫', subCategories: ['canned', 'condiments'], topCategory: 'long-life' },
   // Non-food
   { id: 'home', label: 'Home & Cleaning', emoji: '🧹', subCategories: ['cleaning', 'laundry', 'paper-goods', 'household'], topCategory: 'non-food' },
-  { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['personal-care'], topCategory: 'non-food' },
+  // Sub-categories follow Coop's 'Cosmetics & Health' shelf split (ADR-001).
+  // One 'personal-care' bucket was far too coarse — shampoo and toothpaste are
+  // different shelves with different price comparisons.
+  { id: 'beauty-hygiene', label: 'Beauty & Hygiene', emoji: '🧴', subCategories: ['hair-care', 'dental-care', 'facial-care', 'body-care', 'make-up', 'mens-care', 'feminine-care', 'health-wellbeing', 'personal-care'], topCategory: 'non-food' },
+  // Added 2026-09-10. Every product must resolve to a real category — nothing may
+  // fall out as "Other" — and supermarkets sell both of these weekly. Without
+  // these two, Purina cat food and the Bosch Tassimo machine in Denner's own
+  // feed had nowhere to go. See docs/component-2-agent-design.md.
+  { id: 'pet-supplies', label: 'Pet Supplies', emoji: '🐾', subCategories: ['pet-food', 'pet-care'], topCategory: 'non-food' },
+  { id: 'household-appliances', label: 'Appliances', emoji: '🔌', subCategories: ['kitchen-appliance', 'home-appliance'], topCategory: 'non-food' },
+  // Migros splits alcohol out from 'Drinks, coffee & tea'. Age-restricted stock
+  // with separate advertising rules — following their lead rather than ours.
+  { id: 'alcohol', label: 'Wine, Beer & Spirits', emoji: '🍷', subCategories: ['wine', 'beer', 'spirits'], topCategory: 'long-life' },
+  // Cookware, utensils and storage — distinct from powered appliances.
+  { id: 'home-kitchen', label: 'Home & Kitchen', emoji: '🍳', subCategories: ['cookware', 'kitchen-tools', 'food-storage'], topCategory: 'non-food' },
+  // General merchandise. Lidl and Aldi sell all of these weekly, and D1 forbids
+  // any product resolving to "Other" — without these a discounted pyjama has no
+  // home. Parked under 'non-food' for now; ADR-001 moves them to their own
+  // 'general-merchandise' top group, which is a separate migration.
+  { id: 'clothing-textiles', label: 'Clothing & Textiles', emoji: '👕', subCategories: ['clothing', 'shoes', 'home-textiles'], topCategory: 'non-food' },
+  { id: 'garden-plants', label: 'Garden & Plants', emoji: '🌱', subCategories: ['plants', 'garden-care', 'outdoor-living'], topCategory: 'non-food' },
+  { id: 'diy-tools', label: 'DIY & Tools', emoji: '🔧', subCategories: ['tools', 'diy-hardware', 'car-accessories'], topCategory: 'non-food' },
+  { id: 'toys-games', label: 'Toys & Games', emoji: '🧸', subCategories: ['toys', 'games', 'sports-equipment'], topCategory: 'non-food' },
+  // Formula split from baby food per Coop's 'Powder Formula' shelf — different
+  // product, different price basis.
+  { id: 'baby-kids', label: 'Baby & Kids', emoji: '🍼', subCategories: ['baby-care', 'nappies', 'baby-food', 'formula', 'baby-accessories'], topCategory: 'non-food' },
+  { id: 'stationery-media', label: 'Stationery & Media', emoji: '📚', subCategories: ['stationery', 'office-supplies', 'books-media', 'electronics-accessories'], topCategory: 'non-food' },
+  // Coop's 'Kiosk' shelf. Waste bags are a genuine recurring Swiss purchase with
+  // real price differences (Züri-Sack and cantonal equivalents).
+  // 'tobacco' exists so classification is honest and nothing resolves to "Other"
+  // (D1) — but it is never published. See NON_PUBLISHABLE_SUB_CATEGORIES below.
+  { id: 'kiosk', label: 'Kiosk', emoji: '🎫', subCategories: ['gift-cards', 'prepaid-credit', 'cut-flowers', 'waste-bags', 'tobacco'], topCategory: 'non-food' },
 ]
+
+/**
+ * Sub-categories that are classified but NEVER published.
+ *
+ * WHY tobacco: the Swiss Tabakproduktegesetz restricts tobacco advertising,
+ * particularly where minors can see it. basketch is a public site with no age
+ * gate and no login, so a page showing discounted cigarettes would arguably be
+ * tobacco advertising. PM decision, 2026-09-10: block it.
+ *
+ * This is deliberately NOT a collection-time filter and NOT a missing category:
+ *   - the offer is still collected  → the pipeline stays honest about what exists
+ *   - the product still classifies  → D1 holds, nothing resolves to "Other"
+ *   - it is never served            → the legal constraint is enforced at one point
+ *
+ * Separating classification from publication keeps the blocklist auditable: it is
+ * one list, in one place, rather than a rule smeared across the pipeline.
+ */
+export const NON_PUBLISHABLE_SUB_CATEGORIES: readonly string[] = ['tobacco']
+
+/** True when a deal must never reach the site, whatever its price or discount. */
+export function isPublishable(subCategory: string | null): boolean {
+  if (!subCategory) return true
+  return !NON_PUBLISHABLE_SUB_CATEGORIES.includes(subCategory)
+}
 
 // ============================================================
 // Starter packs — 5 pre-loaded product lists for onboarding
@@ -420,6 +514,36 @@ export interface Deal extends UnifiedDeal {
 
   // v4 taxonomy confidence (0..1) — see TaxonomyConfidence
   taxonomyConfidence: TaxonomyConfidence
+
+  /**
+   * The classifier was not confident enough for its label to be shown.
+   *
+   * The deal is still published — decision D3. What is withheld is the LABEL,
+   * never the OFFER, because the price is not the part we are unsure about.
+   * The old pipeline deleted these instead, which is how tomato purée sat in
+   * fresh vegetables for months: nothing was ever visibly unsure, so nothing
+   * was ever reviewed.
+   *
+   * Optional so pre-D3 call sites keep compiling; treat absent as false.
+   */
+  isUncertain?: boolean
+
+  /**
+   * Storage state — a FACET, not a category (ADR-001).
+   *
+   * Extracted by the enrich step as a cross-cutting attribute, then lifted onto
+   * the deal because the Frozen browse tile is a saved filter over this column
+   * and a jsonb lookup is the wrong shape for a facet count.
+   */
+  storage?: StorageState | null
+
+  /**
+   * Per-sub-category metadata, shaped by shared/attribute-schemas.ts.
+   *
+   * A missing field means the retailer DID NOT STATE the value — never that it
+   * is unknown-but-guessable. Extract only what is written.
+   */
+  attributes?: Record<string, unknown>
 }
 
 // ============================================================
@@ -460,6 +584,12 @@ export interface DealRow {
   canonical_unit_value: number | null
   price_per_unit: number | null
   taxonomy_confidence: number   // NOT NULL — default 0.3 if unknown
+  // Added 2026-09-11 by 20260911_offer_fields.sql. is_uncertain is NOT NULL
+  // DEFAULT FALSE; storage is nullable and CHECK-constrained; attributes is
+  // NOT NULL DEFAULT '{}'.
+  is_uncertain: boolean
+  storage: StorageState | null
+  attributes: Record<string, unknown>
   fetched_at: string
   created_at: string
   updated_at: string
@@ -832,5 +962,10 @@ export function dealToRow(
     canonical_unit_value: deal.canonicalUnitValue ?? null,
     price_per_unit: deal.pricePerUnit ?? null,
     taxonomy_confidence: deal.taxonomyConfidence,
+    // D3: an uncertain deal is written like any other. Absent means confident,
+    // never unknown — the classifier always reports one or the other.
+    is_uncertain: deal.isUncertain ?? false,
+    storage: deal.storage ?? null,
+    attributes: deal.attributes ?? {},
   }
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { X } from 'lucide-react'
+import { Snowflake, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useCallback } from 'react'
 
@@ -9,7 +9,7 @@ import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import { iconForSubCategory } from '@/components/ui/IconHeading'
-import type { DealCategory } from '@/lib/types'
+import type { DealCategory, StorageState } from '@/lib/types'
 
 type Props = {
   filters: DealsFilters
@@ -18,7 +18,18 @@ type Props = {
   storeCounts: Record<StoreKey, number>
   categories: Array<{ key: string; count: number }>     // Patch F: mid-level Category list
   subCategories: Array<{ key: string; count: number }>
+  storages: Array<{ key: StorageState; count: number }>
   locale: string
+}
+
+// ADR-001: storage is a FACET, which is why it sits beside Stores rather than
+// beside Type. Frozen food is not a kind of food — it is a state that cuts
+// across every category, and the Frozen browse tile is this filter saved.
+const STORAGE_LABELS: Record<StorageState, { de: string; en: string }> = {
+  frozen: { de: 'Tiefkühl', en: 'Frozen' },
+  chilled: { de: 'Gekühlt', en: 'Chilled' },
+  fresh: { de: 'Frisch', en: 'Fresh' },
+  ambient: { de: 'Ungekühlt', en: 'Ambient' },
 }
 
 const TYPES: Array<DealCategory | 'all'> = ['all', 'fresh', 'longlife', 'household']
@@ -40,6 +51,7 @@ export function FilterRail({
   storeCounts,
   categories,
   subCategories,
+  storages,
   locale,
 }: Props) {
   const t = useTranslations('filters')
@@ -61,13 +73,24 @@ export function FilterRail({
   const setCategory = (cat: string | null) =>
     apply({ ...filters, category: cat, subCategory: null })
   const setSubCategory = (sub: string | null) => apply({ ...filters, subCategory: sub })
+  // Storage deliberately does NOT clear the category filters. It is orthogonal
+  // to them (ADR-001) — "frozen vegetables" is a legitimate combination, and
+  // clearing on select would make it unreachable.
+  const setStorage = (storage: StorageState | null) => apply({ ...filters, storage })
   const toggleStore = (s: StoreKey) => {
     const has = filters.stores.includes(s)
     const stores = has ? filters.stores.filter((x) => x !== s) : [...filters.stores, s]
     apply({ ...filters, stores })
   }
   const reset = () =>
-    apply({ type: 'all', category: null, subCategory: null, stores: [...STORE_KEYS], q: '' })
+    apply({
+      type: 'all',
+      category: null,
+      subCategory: null,
+      storage: null,
+      stores: [...STORE_KEYS],
+      q: '',
+    })
 
   const activeCount = activeFilterCount(filters)
   const showCategory = filters.type !== 'all' && categories.length > 0
@@ -232,6 +255,71 @@ export function FilterRail({
           </ul>
         </div>
       ) : null}
+
+      {/* Storage — a facet, not a Type. Always shown, because "where do I find
+          the frozen stuff" is a question that does not depend on having picked
+          a category first. Rows stay put and only counts react, matching the
+          rule the other facets follow. */}
+      <div className="mt-6">
+        <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-ink-3)]">
+          {t('storage')}
+        </p>
+        <ul className="mt-3 flex flex-col gap-0.5">
+          <li>
+            <button
+              type="button"
+              onClick={() => setStorage(null)}
+              aria-pressed={filters.storage === null}
+              className={`flex w-full items-center justify-between rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-sm transition-colors ${
+                filters.storage === null
+                  ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-paper)]'
+                  : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
+              }`}
+            >
+              <span>{t('storage_all')}</span>
+            </button>
+          </li>
+          {storages.map((s) => {
+            const selected = filters.storage === s.key
+            const labels = STORAGE_LABELS[s.key]
+            return (
+              <li key={s.key}>
+                <button
+                  type="button"
+                  onClick={() => setStorage(selected ? null : s.key)}
+                  aria-pressed={selected}
+                  // Not disabled at zero, unlike the store chips: a store with
+                  // no deals is a dead end, but an empty storage state is
+                  // information — "nothing frozen is on offer this week".
+                  className={`flex w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-sm transition-colors ${
+                    selected
+                      ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-paper)]'
+                      : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
+                  } ${s.count === 0 && !selected ? 'opacity-50' : ''}`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {s.key === 'frozen' ? (
+                      <Snowflake
+                        className={`size-4 shrink-0 ${selected ? 'text-[var(--color-paper)]/80' : 'text-[var(--color-ink-3)]'}`}
+                        strokeWidth={1.5}
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="truncate">{locale === 'de' ? labels.de : labels.en}</span>
+                  </span>
+                  <span
+                    className={`font-mono text-xs tabular-nums ${
+                      selected ? 'text-[var(--color-paper)]/90' : 'text-[var(--color-ink-3)]'
+                    }`}
+                  >
+                    {s.count}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
 
       {/* Stores — neutral chips with brand dot + count, disabled at 0 */}
       <div className="mt-6">

@@ -1,8 +1,8 @@
-import { ShoppingBasket } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { Link } from '@/i18n/navigation'
 
+import { BasketchMark } from '@/components/BasketchMark'
 import { MyListButton } from '@/components/list/MyListButton'
 
 export function Header() {
@@ -21,9 +21,9 @@ export function Header() {
         <Link
           href="/"
           aria-label="basketch — home"
-          className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight"
+          className="inline-flex items-center gap-2 text-lg font-semibold tracking-tight text-ink"
         >
-          <ShoppingBasket size={20} strokeWidth={1.75} aria-hidden />
+          <BasketchMark size={26} />
           basketch
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-3 md:gap-8">

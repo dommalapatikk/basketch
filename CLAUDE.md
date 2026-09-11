@@ -28,7 +28,7 @@ basketch/
 │       ├── lib/           # filters.ts, types.ts, store-tokens.ts, sub-category-labels.ts
 │       └── server/        # data/snapshot.ts (use cache), data/filter-deals.ts, verdict/algorithm.ts
 ├── archive/web-vite/      # RETIRED legacy Vite frontend — do not modify
-├── shared/                # Shared types -- NO package.json, imported via tsconfig paths
+├── shared/                # Shared types. HAS its own package.json + vitest suite.
 │   ├── types.ts           # All types + BROWSE_CATEGORIES constant
 │   └── category-rules.ts  # Category + sub-category keyword rules
 ├── supabase/migrations/   # SQL migrations (latest: 20260427_v3_concept_layer.sql)
@@ -36,8 +36,12 @@ basketch/
 └── .github/workflows/     # pipeline.yml (staggered weekly cron)
 ```
 
-Import shared types via: `import { Deal } from '@shared/types'`
-Configure in tsconfig: `"paths": { "@shared/*": ["../shared/*"] }`
+Import shared types with a **relative path**: `import { Deal } from '../shared/types'`
+
+> ⚠️ The `@shared/*` tsconfig alias resolves for `tsc` but **not at runtime** under `tsx` or
+> `vitest`, so an aliased import type-checks and then fails when the pipeline actually runs.
+> Every existing pipeline module uses relative paths. Keep the alias for editor tooling; do not
+> rely on it in code that executes.
 
 ### Planned: collection module (modular + DDD)
 
@@ -117,6 +121,9 @@ PriceBasis.MemberOnly must name its programme            ← the LIDL rule
 ```bash
 # Pipeline TypeScript tests
 cd pipeline && npm test          # vitest run
+
+# Shared types + taxonomy tests -- SEPARATE SUITE, easy to forget
+cd shared && npx vitest run      # neither pipeline nor web-next runs these
 
 # Frontend tests
 cd web-next && npm test          # vitest run

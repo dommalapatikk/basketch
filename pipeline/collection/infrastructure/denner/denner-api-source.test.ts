@@ -8,6 +8,8 @@ import { createValidityPeriod } from '../../domain/validity-period'
 import {
   createDennerApiSource,
   mapItemToOffer,
+  mapSourceAttributes,
+  parseContentSize,
   parseDiscountBadge,
   parseInsteadPrice,
   parseResponse,
@@ -215,5 +217,97 @@ describe('mapItemToOffer — defensive translation', () => {
   it('warns when the item has no name', () => {
     const r = mapItemToOffer({ sku: 'x', price: 1.5, attributeInfo: [] }, WEEK)
     expect('warning' in r).toBe(true)
+  })
+})
+
+describe('parseContentSize — decoding Denner’s unit.g key', () => {
+  it('reads "unit.g" as kilograms, cross-checked against nameSubline', () => {
+    // "0.9 unit.g" sits beside nameSubline "am Stück, mager, ca. 900 g, per 100 g"
+    expect(parseContentSize('0.9 unit.g')).toEqual({ amount: 0.9, unit: 'kg' })
+    expect(parseContentSize('0.4 unit.g')).toEqual({ amount: 0.4, unit: 'kg' })
+    expect(parseContentSize('0.38 unit.g')).toEqual({ amount: 0.38, unit: 'kg' })
+  })
+
+  it('reads a literal centilitre size', () => {
+    expect(parseContentSize('75 cl')).toEqual({ amount: 75, unit: 'cl' })
+  })
+
+  it('converts decilitres to centilitres', () => {
+    expect(parseContentSize('5 dl')).toEqual({ amount: 50, unit: 'cl' })
+  })
+
+  it('accepts a comma decimal separator', () => {
+    expect(parseContentSize('1,5 l')).toEqual({ amount: 1.5, unit: 'l' })
+  })
+
+  it('returns null for junk rather than guessing', () => {
+    expect(parseContentSize(null)).toBeNull()
+    expect(parseContentSize('')).toBeNull()
+    expect(parseContentSize('ca. 900 g pro Stück')).toBeNull()
+    expect(parseContentSize('0 g')).toBeNull()
+  })
+})
+
+describe('mapSourceAttributes — published metadata, never inferred', () => {
+  const items = FIXTURE.blocks.searches
+    .find((b: { blockName: string }) => b.blockName === 'Weekly special')
+    .slots.map((s: { item: unknown }) => s.item)
+
+  const byName = (name: string) =>
+    items.find(
+      (i: { attributeInfo?: { attributeName: string; vals?: { value?: string }[] }[] }) =>
+        i.attributeInfo?.find((a) => a.attributeName === 'name')?.vals?.[0]?.value === name,
+    )
+
+  it('normalises a meat weight to grams', () => {
+    const a = mapSourceAttributes(byName('Denner Schweinsnierstück'))
+    expect(a.quantity).toEqual({ amount: 900, unit: 'g' })
+  })
+
+  it('keeps the nameSubline verbatim for tier-2 parsing', () => {
+    const a = mapSourceAttributes(byName('Denner Schweinsnierstück'))
+    expect(a.descriptor).toBe('am Stück, mager, ca. 900 g, per 100 g')
+  })
+
+  it('captures the eco label', () => {
+    const a = mapSourceAttributes(byName('Denner Schweinsnierstück'))
+    expect(a.labels).toContain('Suisse Garantie')
+  })
+
+  it('captures wine fields Denner publishes, so no model has to guess them', () => {
+    const a = mapSourceAttributes(byName('Luis Felipe Edwards Terraced Carmenère Gran Reserva'))
+    expect(a.wine).toEqual({
+      colour: 'Rotwein',
+      vintage: 2023,
+      grape: 'Carménère',
+      region: 'Colchagua Valley',
+      country: 'Chile',
+    })
+    expect(a.quantity).toEqual({ amount: 750, unit: 'ml' })
+    expect(a.packSize).toBe(6)
+    expect(a.container).toBe('bottle')
+  })
+
+  it('leaves wine null for a non-wine product', () => {
+    expect(mapSourceAttributes(byName('Carna Gallo Chickenballs Krispy')).wine).toBeNull()
+  })
+
+  it('never reads _tracking_item_brand — it holds the region for wine', () => {
+    const a = mapSourceAttributes(byName('Luis Felipe Edwards Terraced Carmenère Gran Reserva'))
+    expect(JSON.stringify(a)).not.toContain('brand')
+  })
+
+  it('survives an item with no attributes at all', () => {
+    expect(mapSourceAttributes({}).labels).toEqual([])
+    expect(mapSourceAttributes({}).quantity).toBeNull()
+  })
+})
+
+describe('Offer carries sourceAttributes end to end', () => {
+  it('attaches published metadata to the built offer', () => {
+    const parsed = parseResponse(FIXTURE, WEEK)
+    const wine = parsed.offers.find((o) => o.productName.startsWith('Luis Felipe'))
+    expect(wine?.sourceAttributes.wine?.vintage).toBe(2023)
+    expect(wine?.sourceAttributes.quantity).toEqual({ amount: 750, unit: 'ml' })
   })
 })

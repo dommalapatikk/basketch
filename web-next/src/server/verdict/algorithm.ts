@@ -18,6 +18,12 @@ export function scoreStoresForCategory(
 ): StoreScore[] {
   const byStore = new Map<StoreKey, { sum: number; count: number }>()
   for (const d of deals) {
+    // An uncertain deal is published with its price but its category is the
+    // classifier's unverified guess (D3). Letting it score a category would
+    // put a product we are not sure about into the sentence "Coop wins Fresh"
+    // — the one claim on the home page that has to be defensible. It still
+    // appears in the list; it just does not vote.
+    if (d.isUncertain) continue
     if (d.category !== category) continue
     const acc = byStore.get(d.store) ?? { sum: 0, count: 0 }
     acc.sum += d.discountPercent

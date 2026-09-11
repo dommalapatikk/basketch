@@ -116,5 +116,14 @@
     "group_this_month": "Questo mese",
     "group_older": "Più vecchio",
     "error": "Impossibile caricare i tuoi suggerimenti nascosti. Riprova."
+  },
+  "deals": {
+    "category_unverified": "Categoria non verificata",
+    "only_store_note": "Nessun altro negozio che monitoriamo ha offerte {category} questa settimana.",
+    "only_store_badge": "Solo da {store}"
+  },
+  "filters": {
+    "storage": "Conservazione",
+    "storage_all": "Tutte"
   }
 }

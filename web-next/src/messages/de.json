@@ -77,7 +77,10 @@
     "my_list": "Meine Liste",
     "share": "Teilen",
     "add_to_list": "Zur Liste hinzufügen",
-    "remove_from_list": "Aus Liste entfernen"
+    "remove_from_list": "Aus Liste entfernen",
+    "category_unverified": "Kategorie ungeprüft",
+    "only_store_note": "Kein anderer von uns erfasster Laden hat diese Woche eine Aktion bei {category}.",
+    "only_store_badge": "Nur bei {store}"
   },
   "filters": {
     "title": "Filter",
@@ -88,7 +91,9 @@
     "subcategory": "Unterkategorie",
     "subcategory_all": "Alle Unterkategorien",
     "stores": "Anbieter",
-    "reset": "Zurücksetzen ({count})"
+    "reset": "Zurücksetzen ({count})",
+    "storage": "Lagerung",
+    "storage_all": "Alle"
   },
   "list": {
     "title": "Meine Liste",

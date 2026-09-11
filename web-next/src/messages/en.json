@@ -77,7 +77,10 @@
     "my_list": "My list",
     "share": "Share",
     "add_to_list": "Add to list",
-    "remove_from_list": "Remove from list"
+    "remove_from_list": "Remove from list",
+    "category_unverified": "Category unverified",
+    "only_store_note": "No other store we track has a {category} deal this week.",
+    "only_store_badge": "Only at {store}"
   },
   "filters": {
     "title": "Filters",
@@ -88,7 +91,9 @@
     "subcategory": "Sub-category",
     "subcategory_all": "All sub-categories",
     "stores": "Stores",
-    "reset": "Reset ({count})"
+    "reset": "Reset ({count})",
+    "storage": "Storage",
+    "storage_all": "All"
   },
   "list": {
     "title": "My list",

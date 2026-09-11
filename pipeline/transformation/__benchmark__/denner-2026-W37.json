@@ -1,0 +1,2362 @@
+{
+  "_comment": "Classifier benchmark. Denner is the only Swiss retailer publishing its own categories. Rows tagged provenance=denner carry Denner’s own label; provenance=derived are hand-written by us for products Denner files under \"Sonstiges\". Score both separately — see docs/component-2-decisions.md D1.",
+  "fetchedAt": "2026-09-10",
+  "retailer": "denner",
+  "total": 291,
+  "counts": {
+    "denner": 248,
+    "derived": 43
+  },
+  "rows": [
+    {
+      "productName": "Bio Bananen",
+      "descriptor": "Herkunft siehe Etikette, per kg",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Le Dragon Siam Jasmin Parfümreis",
+      "descriptor": "5 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Séduction Cabernet/Syrah Pays d’Oc IGP",
+      "descriptor": "Frankreich, Languedoc-Roussillon, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2024",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Evian Mineralwasser",
+      "descriptor": "ohne Kohlensäure, 6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Avocado",
+      "descriptor": "essreif, Peru/Brasilien, per Stück",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Blumenkohl",
+      "descriptor": "per kg",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Bromelien",
+      "descriptor": "im Topf, verschiedene Farben, per Stück",
+      "dennerLabel": "Sonstiges",
+      "category": "garden-plants",
+      "subCategory": "plants",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Fenchel",
+      "descriptor": "per kg",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Granatapfel",
+      "descriptor": "Spanien, per Stück",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mmmh Nüsslisalat",
+      "descriptor": "servierfertig, Herkunft siehe Verpackung, 120 g",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Trauben dunkel",
+      "descriptor": "Italien, per kg",
+      "dennerLabel": "Früchte und Gemüse",
+      "category": "fruits-vegetables",
+      "subCategory": "vegetables",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Beretta Mortadella Bologna IGP",
+      "descriptor": "Italien, 2 x 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Serrano Sticks Snack Chorizo",
+      "descriptor": "scharf, Spanien, 50 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Serrano Sticks Snack Fuet",
+      "descriptor": "Spanien, 50 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Beretta Prosciutto cotto",
+      "descriptor": "Europa, 2 x 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Denner BBQ Beef Burger",
+      "descriptor": "Rind, 4 x 125 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Denner Eglifilets",
+      "descriptor": "mit Haut, Estland, 300 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Denner Geflügelcervelas",
+      "descriptor": "Poulet und Truten, 1 kg",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Denner Pouletflügeli",
+      "descriptor": "gewürzt, ca. 1 kg, per kg",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Black Angus Rib Eye Steak",
+      "descriptor": "Uruguay/Argentinien, ca. 200 g, per 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Denner Rindfleischmöckli",
+      "descriptor": "geschnitten, Deutschland, 150 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Ferrarini Prosciutto crudo stagionato",
+      "descriptor": "geschnitten, Italien, 2 x 90 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Heiploeg White Tiger Crevetten",
+      "descriptor": "geschält, gekocht, entdarmt, Herkunft siehe Verpackung, 200 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maître Coq Gebratene Pouletbrustfilets",
+      "descriptor": "2 Stück, ca. 260 g, per 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Rapelli Salami Gran Riserva",
+      "descriptor": "340 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Black Angus Rindshuft",
+      "descriptor": "am Stück, Uruguay/Argentinien, ca. 800 g, per 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Rapelli Salametti mit Tessiner Kastanien",
+      "descriptor": "Schweiz, 2 x 90 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Südtiroler Speck g.g.A.",
+      "descriptor": "Schwein, am Stück, Italien, 300 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Seafood 4 You Bio Räucherlachs",
+      "descriptor": "geschnitten, Norwegen, 2 x 100 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Rapelli Salsiccia Ticinese Mix",
+      "descriptor": "Traditionelle Rezeptur mit Fenchel, Schweiz, 4 x 130 g",
+      "dennerLabel": "Fleisch/Wurst/Fisch",
+      "category": "meat-fish",
+      "subCategory": "meat",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fattorie Garofalo Büffelmozzarella Campana DOP",
+      "descriptor": "Minis, 12 x 10 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cailler Dessertcreme",
+      "descriptor": "Schweizer Alpenmilchschokolade, 4 x 100 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cantadou Frischkäse",
+      "descriptor": "Knoblauch & Kräuter der Provence, 2 x 140 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Casa Azzurra Mozzarella",
+      "descriptor": "3 x 125 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cascine Emiliane Parmigiano Reggiano DOP",
+      "descriptor": "200 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Danone Joghurt M&M’s mit Vanillegeschmack",
+      "descriptor": "3 x 120 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Danone Joghurt Twix mit Caramelsauce",
+      "descriptor": "3 x 120 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Gran Albiero Hartkäse",
+      "descriptor": "800 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "IP-SUISSE Mozzarella Stange",
+      "descriptor": "aus Wiesenmilch, 300 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Le Grand Pré Weichkäse Le Cœur de Moudon",
+      "descriptor": "cremig und mild, 200 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mini Babybel",
+      "descriptor": "24 x 22 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schweizer Picknick-Eier",
+      "descriptor": "gekocht und gefärbt, aus Freilandhaltung, 6 x 53 g+",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Prima Schweizer Butter",
+      "descriptor": "2 x 250 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Simmentaler Hartkäse",
+      "descriptor": "rezent, mind. 8 Monate gereift, 250 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Hardegger Tête de Moine AOP",
+      "descriptor": "Rosetten, 100 g",
+      "dennerLabel": "Milch/Käse/Eier",
+      "category": "dairy",
+      "subCategory": "dairy",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dr. Oetker Bistro Baguette Spezial",
+      "descriptor": "4 x 125 g",
+      "dennerLabel": "Tiefkühlprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "frozen",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dr. Oetker Bistro Baguette Tomate & Käse",
+      "descriptor": "4 x 125 g",
+      "dennerLabel": "Tiefkühlprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "frozen",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Laschinger Lachs-Spitzen",
+      "descriptor": "XXL, ohne Haut, 700 g",
+      "dennerLabel": "Tiefkühlprodukte",
+      "category": "meat-fish",
+      "subCategory": "fish",
+      "provenance": "derived",
+      "relabelledFrom": {
+        "category": "ready-meals-frozen",
+        "subCategory": "frozen",
+        "dennerLabel": "Tiefkühlprodukte"
+      },
+      "relabelReason": "Denner filed it as Tiefkühlprodukte — a STORAGE state, not a family. Frozen salmon is fish. See ADR-001.",
+      "storage": "frozen"
+    },
+    {
+      "productName": "Take & Taste Chili Cheese Nuggets",
+      "descriptor": "250 g",
+      "dennerLabel": "Tiefkühlprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "frozen",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Pickenpack Seafoods Schlemmerfilet",
+      "descriptor": "nach italienischer Art, 400 g",
+      "dennerLabel": "Tiefkühlprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "frozen",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Charal Cheeseburger",
+      "descriptor": "Rindfleisch, Frankreich, 2 x 145 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fini Tortelloni Ricotta und Spinat",
+      "descriptor": "3 x 250 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fini Tortellini mit Rohschinken und Parmesan",
+      "descriptor": "3 x 250 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Meica Curry King",
+      "descriptor": "XXL, 400 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mmmh Oliven mit Käse",
+      "descriptor": "entsteint, 150 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived",
+      "relabelledFrom": {
+        "category": "ready-meals-frozen",
+        "subCategory": "ready-meals",
+        "dennerLabel": "Fertigprodukte"
+      },
+      "relabelReason": "Jarred olives: preserved and shelf-stable, not a ready meal.",
+      "storage": "ambient"
+    },
+    {
+      "productName": "Mmmh Oliven mit Knoblauch",
+      "descriptor": "entsteint, 150 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived",
+      "relabelledFrom": {
+        "category": "ready-meals-frozen",
+        "subCategory": "ready-meals",
+        "dennerLabel": "Fertigprodukte"
+      },
+      "relabelReason": "Jarred olives: preserved and shelf-stable, not a ready meal.",
+      "storage": "ambient"
+    },
+    {
+      "productName": "Signor Cempo Hummus",
+      "descriptor": "nature, XL, 450 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Apimel Honig",
+      "descriptor": "Italien, 500 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Al Bronzo Penne Rigate",
+      "descriptor": "3 x 500 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Selezione Oro Chef Gnocchetti Sardi",
+      "descriptor": "1 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Penne Rigate N° 73",
+      "descriptor": "2 x 1 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Pesto Basilico e Limone",
+      "descriptor": "2 x 190 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Pesto alla Genovese",
+      "descriptor": "2 x 190 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Pesto alla Calabrese",
+      "descriptor": "2 x 190 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Pesto Rosso",
+      "descriptor": "2 x 200 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Spaghetti n.5",
+      "descriptor": "2 x 1 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Spaghettoni N° 7",
+      "descriptor": "2 x 1 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Sauce Bolognese",
+      "descriptor": "3 x 400 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Sauce Napoletana",
+      "descriptor": "3 x 400 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Sauce Basilico",
+      "descriptor": "3 x 400 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Barilla Sauce Arrabbiata",
+      "descriptor": "3 x 400 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Bertolli natives Olivenöl Extra Originale",
+      "descriptor": "1 Liter",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Caputo Pizzamehl Pizzeria",
+      "descriptor": "1 kg",
+      "dennerLabel": "Sonstiges",
+      "category": "pasta-rice-cereals",
+      "subCategory": "pasta-rice",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Cirio Passata della Maremma Toscana",
+      "descriptor": "extrafein, 6 x 700 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Cirio Sugo al Basilico e Datterini",
+      "descriptor": "2 x 350 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Cirio Sugo di Pomodoro e Datterini",
+      "descriptor": "2 x 350 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Delizie di Riviera grüne italienische Oliven",
+      "descriptor": "mit Stein, 580 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Maggi Saucy Noodles Sweet Chili",
+      "descriptor": "2 x 75 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Magic Asia Gebratene Nudeln",
+      "descriptor": "3 x 26 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Magic Asia China-Pfanne Chop Suey",
+      "descriptor": "3 x 34 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Saucy Noodles Tikka Masala",
+      "descriptor": "2 x 128 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Saucy Noodles Teriyaki",
+      "descriptor": "2 x 75 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Saucy Noodles Poulet Sesam",
+      "descriptor": "2 x 75 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Maggi Ramen Noodles Poulet Champignons",
+      "descriptor": "2 x 90 g",
+      "dennerLabel": "Fertigprodukte",
+      "category": "ready-meals-frozen",
+      "subCategory": "ready-meals",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mc Cormick Ingwer",
+      "descriptor": "gemahlen, 26 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Harissa",
+      "descriptor": "Mix, 48 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Kardamomen",
+      "descriptor": "gemahlen, 33 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Kreuzkümmel",
+      "descriptor": "gemahlen, 32 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Kurkuma",
+      "descriptor": "gemahlen, 29 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Ras El Hanout",
+      "descriptor": "Mix, 38 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Koriander",
+      "descriptor": "gemahlen, 23 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "McCormick Lebanese Zaatar",
+      "descriptor": "Mix, 35 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Aceto Balsamico di Modena IGP Nonna Carlotta",
+      "descriptor": "250 ml",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Rio Mare Insalatissime Couscous Thunfischsalat",
+      "descriptor": "4 x 160 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Rio Mare Insalatissime Messicana Thunfischsalat",
+      "descriptor": "2 x 2 x 160 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Rio Mare Thunfisch in Salzwasser",
+      "descriptor": "2 x 2 x 160 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "canned",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Rio Mare Thunfisch in Olivenöl",
+      "descriptor": "2 x 2 x 160 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Rio Mare Thunfisch in Olivenöl",
+      "descriptor": "2 x 3 x 52 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pantry-canned",
+      "subCategory": "condiments",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Ciambella Joghurt",
+      "descriptor": "400 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Ciambella Marmorkuchen",
+      "descriptor": "400 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Donut gefüllt",
+      "descriptor": "Schokolade, 67 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Donut gefüllt",
+      "descriptor": "Vanille, 70 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "IP-SUISSE Fyrabigbrot",
+      "descriptor": "300 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "IP-SUISSE Pizzateig",
+      "descriptor": "eckig, 38 x 25 cm, 580 g",
+      "dennerLabel": "Brot/Backwaren",
+      "category": "bakery",
+      "subCategory": "bread",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Bambi Lane Biscuits",
+      "descriptor": "600 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cailler Tafelschokolade Milch-Nuss",
+      "descriptor": "mit ganzen Haselnüssen, 20 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cailler Tafelschokolade Schweizer Alpenmilch",
+      "descriptor": "20 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Ferrero Kinder Joy × One Piece × Funko POP!",
+      "descriptor": "80 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Ferrero Kinder Schokolade",
+      "descriptor": "Megapack, 1 kg",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi Praliné des Alpes milk",
+      "descriptor": "180 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi Toggenburger Butterbiscuits",
+      "descriptor": "3 x 200 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi fret Classic",
+      "descriptor": "6 x 50 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi fret Hazelnut",
+      "descriptor": "6 x 50 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi fret Classic Minis",
+      "descriptor": "3 x 128 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kägi fret Dark Minis",
+      "descriptor": "3 x 128 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Excellence Tafelschokolade Dunkel Intense",
+      "descriptor": "70% Cacao, 3 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Excellence Tafelschokolade Dunkel Prodigieux",
+      "descriptor": "90% Cacao, 3 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Excellence Tafelschokolade Dunkel",
+      "descriptor": "Caramel à la Pointe de Sel, 3 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Excellence Tafelschokolade Dunkel Orange Intense",
+      "descriptor": "3 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Excellence Tafelschokolade Dunkel",
+      "descriptor": "à la pointe de Fleur de Sel, 3 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Les Grandes Tafelschokolade Dunkel",
+      "descriptor": "34% Haselnüsse, 3 x 150 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Les Grandes Tafelschokolade Weiss",
+      "descriptor": "32% Mandeln, 3 x 150 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Les Grandes Tafelschokolade Milch",
+      "descriptor": "34% Haselnüsse, 3 x 150 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lindt Les Grandes Tafelschokolade Milch",
+      "descriptor": "24% Haselnüsse und  Salted Caramel 3 x 150 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Gran Cereale Classico",
+      "descriptor": "2 x 250 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mulino Bianco",
+      "descriptor": "336 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "PEZ-Bonbons",
+      "descriptor": "Beutel, 183.5g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Toblerone Milch",
+      "descriptor": "5 x 100 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Wernli Weiches Läckerli",
+      "descriptor": "500 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Wernli Honig-Nüssli",
+      "descriptor": "500 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Wernli Lebkuchen-Mischung",
+      "descriptor": "550 g",
+      "dennerLabel": "Schokolade/Süsses",
+      "category": "snacks-sweets",
+      "subCategory": "chocolate",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Zweifel Original Chips Paprika",
+      "descriptor": "XXL Big Pack, 380 g",
+      "dennerLabel": "Snack/Apero",
+      "category": "snacks-sweets",
+      "subCategory": "snacks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Zweifel Original Chips Nature",
+      "descriptor": "XXL Big Pack, 380 g",
+      "dennerLabel": "Snack/Apero",
+      "category": "snacks-sweets",
+      "subCategory": "snacks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Le Terre Barolo DOCG",
+      "descriptor": "Italien, Piemont, 2021, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2021",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Big Red Beast Côtes Catalanes IGP",
+      "descriptor": "Frankreich, Languedoc-Roussillon, 2022, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2023",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Bio Monte Zovo Sa’ Solin Ripasso della Valpolicella DOC Superiore",
+      "descriptor": "Italien, Venetien, 2024, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2023",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Zweigelt Oadaxl Bockfliess",
+      "descriptor": "Österreich, Niederösterreich, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2024",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cantine Due Palme Sedotto Primitivo di Puglia IGP",
+      "descriptor": "Italien, Apulien, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2024",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Caravela Vinho Regional Lisboa",
+      "descriptor": "Portugal, Lissabon, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Concha y Toro Casillero del Diablo Cabernet Sauvignon Reserva",
+      "descriptor": "Chile, Central Valley, 2024, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2023",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Casillero del Diablo Dark Red",
+      "descriptor": "Chile, Maule Valley, 2023, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2023",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Coto de Imaz Reserva Rioja DOCa",
+      "descriptor": "Spanien, Rioja, 2020, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2021",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Éléments Luna Laudun Côtes du Rhône Villages",
+      "descriptor": "Frankreich, Rhonetal, 2024, 6 x 75 cl",
+      "dennerLabel": "Rotwein /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Faustino V Reserva Rioja DOCa",
+      "descriptor": "Spanien, Rioja, 2019, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2019",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Gamaret/Garanoir Assemblage AOC Vaud",
+      "descriptor": "Schweiz, Waadt, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Le Confidentiel Costières de Nîmes AOP",
+      "descriptor": "Frankreich, Costières de Nîmes, 2022/2023, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2022",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Marnato Amarone della Valpolicella DOCG",
+      "descriptor": "Italien, Venetien, 2022, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2022",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Piano del Cerro Aglianico del Vulture DOC",
+      "descriptor": "Italien, Basilikata, 2023, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2023",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Villa Dierico Barolo DOCG",
+      "descriptor": "Italien, Piemont, 2022, 6 x 75 cl",
+      "dennerLabel": "Rotwein /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Vinum Vitae Est Cannonau di Sardegna DOC",
+      "descriptor": "Italien, Sardinien, 2024/2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2024",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Zolla Salice Salentino DOP",
+      "descriptor": "Italien, Apulien, 2025, 6 x 75 cl",
+      "dennerLabel": "Rotwein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cecchi La Mora Vermentino Maremma Toscana DOC",
+      "descriptor": "Italien, Toskana, 2025, 6 x 75 cl",
+      "dennerLabel": "Weisswein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Treize Étoiles Fendant du Valais AOC",
+      "descriptor": "Schweiz, Wallis, 2025, 6 x 75 cl",
+      "dennerLabel": "Weisswein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Goccia Bianca Bianco di Merlot del Ticino DOC",
+      "descriptor": "Schweiz, Tessin, 2025, 6 x 75 cl",
+      "dennerLabel": "Weisswein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Les Hérons AOC La Côte",
+      "descriptor": "Schweiz, Waadt, 2025, 6 x 70 cl",
+      "dennerLabel": "Weisswein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Mandorla Chardonnay/Fiano Puglia IGT",
+      "descriptor": "Italien, Apulien, 2025, 6 x 75 cl",
+      "dennerLabel": "Weisswein / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Jaillance Crémant de Bordeaux AOP Millésime",
+      "descriptor": "Frankreich, Bordeaux, 2023, 6 x 75 cl",
+      "dennerLabel": "Schaumwein /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Pol Caston Brut Champagne AOC",
+      "descriptor": "Frankreich, Champagne, 6 x 75 cl",
+      "dennerLabel": "Schaumwein /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Staa Vin Mousseux Demi-sec Schaffhausen AOC",
+      "descriptor": "Schweiz, Schaffhausen, 2024, 75 cl",
+      "dennerLabel": "Schaumwein / 2024",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Cave de Turckheim Brut Crémant d’Alsace AOC",
+      "descriptor": "Frankreich, Elsass, 6 x 75 cl",
+      "dennerLabel": "Schaumwein /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fontalta Rosato Terre Siciliane IGT",
+      "descriptor": "Italien, Sizilien, 2025, 6 x 75 cl",
+      "dennerLabel": "Rosé / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Lusinga Rosato di Merlot Svizzera IGT",
+      "descriptor": "Schweiz, 2025, 6 x 75 cl",
+      "dennerLabel": "Rosé /",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Œil-de-Perdrix AOC Neuchâtel",
+      "descriptor": "Schweiz, Neuenburg, 2025, 6 x 70 cl",
+      "dennerLabel": "Rosé / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Villa Aix Coteaux d'Aix-en-Provence AOP",
+      "descriptor": "Frankreich, Coteaux d'Aix-en-Provence, 2025, 6 x 75 cl",
+      "dennerLabel": "Rosé / 2025",
+      "category": "alcohol",
+      "subCategory": "wine",
+      "provenance": "denner"
+    },
+    {
+      "productName": "1664 Blanc Weizenbier",
+      "descriptor": "mit Zitrusnoten, 24 x 33 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Appenzeller Bier Quöllfrisch hell",
+      "descriptor": "24 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Chopfab Draft Bier",
+      "descriptor": "24 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Feldschlösschen Bier Original",
+      "descriptor": "24 x 33 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Feldschlösschen Bier Pils",
+      "descriptor": "6 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Gralsburg Bier alkoholfrei",
+      "descriptor": "6 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Stella Artois Bier",
+      "descriptor": "24 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Super Bock Bier",
+      "descriptor": "24 x 50 cl",
+      "dennerLabel": "Bier",
+      "category": "alcohol",
+      "subCategory": "beer",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Coca-Cola Classic mini",
+      "descriptor": "12 x 15 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Coca-Cola Zero mini",
+      "descriptor": "12 x 15 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Evian Mineralwasser",
+      "descriptor": "ohne Kohlensäure, 24 x 50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fanta Mango",
+      "descriptor": "6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fanta Orange",
+      "descriptor": "6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Fanta Orange",
+      "descriptor": "8 x 50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Monster Energy Drink Original Green",
+      "descriptor": "50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Monster Energy Drink Ultra White",
+      "descriptor": "50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Peace Tea Lively Lemon",
+      "descriptor": "50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Powerade Mountain Blast",
+      "descriptor": "50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Red Bull Energy Drink",
+      "descriptor": "24 x 250 ml",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Red Bull Sugarfree",
+      "descriptor": "24 x 25 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Red Bull Energy Drink",
+      "descriptor": "6 x 25 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Red Bull Sugarfree",
+      "descriptor": "6 x 25 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Red Bull Zero",
+      "descriptor": "6 x 25 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Sprite",
+      "descriptor": "6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Sprite",
+      "descriptor": "8 x 50 cl",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Valser Mineralwasser Prickelnd",
+      "descriptor": "6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Valser Mineralwasser Still",
+      "descriptor": "6 x 1,5 Liter",
+      "dennerLabel": "Getränke/Säfte",
+      "category": "drinks",
+      "subCategory": "drinks",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Kimbo Kaffee Espresso Napoli",
+      "descriptor": "Bohnen, 1 kg",
+      "dennerLabel": "Kaffee/Tee/Kakao",
+      "category": "drinks",
+      "subCategory": "coffee-tea",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Fine Fragrance Deo Bodyspray Cherry Fizz",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Bodyspray Marshmellow Smoke",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Deo Bodyspray Africa",
+      "descriptor": "2 x 200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Deo Bodyspray Black",
+      "descriptor": "2 x 200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Deo Bodyspray Dark Temptation",
+      "descriptor": "2 x 200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Body Face Hair Wash 3 in 1 Africa",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Body Face Hair Wash 3 in 1 Black",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Fine Fragrance Bodywash Cherry Fizz",
+      "descriptor": "3 x 225 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Axe Duschgel Marshmellow Smoke",
+      "descriptor": "3 x 225 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Body Love Silky Körperpflege",
+      "descriptor": "seidig, 2 x 300 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Body Love Lotion Intensive Pflege",
+      "descriptor": "2 x 400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Body Love Lotion Regenerierende Pflege",
+      "descriptor": "2 x 400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Deo Spray 72h Advanced Care Original",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Deo Spray 72 h Women Fresh Sea Minerals",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Men + Care Pflegedusche 3 in 1 Clean Comfort",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Pflegedusche Samt-Weich",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Duschgel Creamy Indulge Mango",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Dusch Wassermelone",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Dove Pflegedusche Blüten-Sanft",
+      "descriptor": "3 x 250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Duschdas Duschgel For Men",
+      "descriptor": "450 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Duschdas Duschgel Magnolie",
+      "descriptor": "450 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Duschdas Duschgel Noire",
+      "descriptor": "450 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Total Repair 4-in-1 Bonding Haarmaske",
+      "descriptor": "400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Reparatur-Shampoo Total Repair",
+      "descriptor": "250 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Express-Repair-Spülung Oil Nutritive",
+      "descriptor": "200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Express-Repair-Spülung Total Repair",
+      "descriptor": "200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Reparatur-Spülung Total Repair",
+      "descriptor": "200 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schwarzkopf Gliss Tägliches Öl-Elixier Oil Nutritive",
+      "descriptor": "75 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Head & Shoulders Antischuppen-Shampoo Apple Fresh",
+      "descriptor": "800 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Head & Shoulders Antischuppen-Shampoo Citrus Fresh",
+      "descriptor": "800 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Head & Shoulders Antischuppen-Shampoo Classic Clean",
+      "descriptor": "800 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Johnson’s Baby Shampoo",
+      "descriptor": "3 x 300 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Revitalift Laser X3 Anti-Age-Serum",
+      "descriptor": "30 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Revitalift Filler Anti-Age-Pflege Tag",
+      "descriptor": "50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Revitalift Laser X3 Anti-Age-Pflege Augen",
+      "descriptor": "15 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Anti-Falten Experte Feuchtigkeitspflege Tag",
+      "descriptor": "Multivitamin, 65+, 50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Age Perfect Feuchtigkeitspflege Nacht",
+      "descriptor": "Anti-Straffheitsverlust und Anti-Altersflecken, für reife Haut, 50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Age Perfect Straffende Pflege Tag",
+      "descriptor": "Anti-Hauterschlaffung und Anti-Altersflecken, für reife Haut, 50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Men Expert Hydra Energy Feuchtigkeitspflege Anti-Müdigkeit 24 h",
+      "descriptor": "50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Men Expert Power Age Feuchtigkeitspflege",
+      "descriptor": "50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Revitalift Filler Anti-Falten Serum",
+      "descriptor": "30 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "L’Oréal Revitalift Laser X3 Anti-Age Intensiv-Pflege Tag",
+      "descriptor": "50 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Neutrogena Deep Moisture sofort einziehende Bodylotion",
+      "descriptor": "400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Neutrogena sofort einziehende Handcreme",
+      "descriptor": "150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "OGX Conditioner Argan Oil of Morocco",
+      "descriptor": "385 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "OGX Conditioner Biotin & Collagen",
+      "descriptor": "385 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "OGX Shampoo Argan Oil of Morocco",
+      "descriptor": "385 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "OGX Shampoo Biotin & Collagen",
+      "descriptor": "385 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Pantene Pro-V Shampoo Repair & Care",
+      "descriptor": "1 Liter",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Pantene Pro-V Shampoo Glatt & Seidig",
+      "descriptor": "1 Liter",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Pantene Pro-V Shampoo Volumen pur",
+      "descriptor": "1 Liter",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Rexona Deo Spray Cotton Dry",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Rexona Men Deo Spray Cobalt Dry",
+      "descriptor": "2 x 150 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schauma Shampoo",
+      "descriptor": "7 Kräuter, 2 x 400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Schauma Shampoo",
+      "descriptor": "Anti Schuppen Classic, 2 x 400 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Junior Zahnbürsten",
+      "descriptor": "extra soft, 7+, 3 Stück",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnbürste Interdental Expert",
+      "descriptor": "medium, 4 Stück",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Kids Zahnbürsten",
+      "descriptor": "extra soft, 0–6, 3 Stück",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta Integral 8 Complete",
+      "descriptor": "3 x 75 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Junior Zahnpasta",
+      "descriptor": "Milde Minze, 6–13, 3 x 75 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Kids Zahnpasta",
+      "descriptor": "Fruchtgeschmack, 0–6, 3 x 75 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta White Now",
+      "descriptor": "3 x 75 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta Kariesschutz",
+      "descriptor": "XXL, 4 x 125 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta Cool Spearmint",
+      "descriptor": "XXL, 4 x 125 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta Micro Granuli",
+      "descriptor": "Extra Size, 4 x 100 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Signal Zahnpasta White System",
+      "descriptor": "Extra Size, 4 x 100 ml",
+      "dennerLabel": "Pflege/Kosmetik",
+      "category": "beauty-hygiene",
+      "subCategory": "personal-care",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Filetti Flüssigwaschmittel Sensitive",
+      "descriptor": "2 x 1,5 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Discs 4 in 1 Color",
+      "descriptor": "76 Waschgänge",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Discs 4 in 1 Universal",
+      "descriptor": "76 Waschgänge",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Discs 4 in 1 Universal Morgenfrische",
+      "descriptor": "76 Waschgänge",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Gel Universal Morgenfrische",
+      "descriptor": "100 Waschgänge, 4,5 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Kraft-Gel Color",
+      "descriptor": "100 Waschgänge, 4,5 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschgel Expert Freshness Lavendel",
+      "descriptor": "100 Waschgänge, 4,5 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Persil Waschmittel Kraft-Gel Universal",
+      "descriptor": "100 Waschgänge, 4,5 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Wolle & Feines",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2,6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Black",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2,6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Color Blütenrausch",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2,6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Color",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2,6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Color für Helles",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2,6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Perwoll Flüssigwaschmittel Sport",
+      "descriptor": "2 x 52 Waschgänge, 2 x 2.6 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Softlan Ultra Weichspüler Traumfrisch",
+      "descriptor": "2 x 59 Waschgänge, 2 x 1,3 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Softlan Ultra Weichspüler Windfrisch",
+      "descriptor": "2 x 59 Waschgänge, 2 x 1,3 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Somat Geschirrspülmittel All in 1 Power Gel",
+      "descriptor": "67 Spülgänge, 1,072 Liter",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Somat Geschirrspültabs All in 1 Extra Zitrone",
+      "descriptor": "100 Tabs",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Somat Geschirrspülcaps Excellence 4 in 1",
+      "descriptor": "80 Caps",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Somat Maschinenreiniger",
+      "descriptor": "12 Tabs",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Tela Casa Haushaltspapier Weiss",
+      "descriptor": "3-lagig, 16 x 50 Blatt",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Kraft Aktiv Duftspüler",
+      "descriptor": "Lemon, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Selbst Aktiv Blau Duftspüler",
+      "descriptor": "Blütenfrische, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Selbst Aktiv Duftspüler Blau",
+      "descriptor": "Chlor, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Selbst Aktiv Duftspüler Blau",
+      "descriptor": "Ozeanfrische, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Kraft Aktiv Duftspüler",
+      "descriptor": "Frische Brise Lemon, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "WC Frisch Kraft Aktiv Duftspüler",
+      "descriptor": "Blütenfrische, 4 x 50 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "X-Tra Waschmittel Trio Caps Color Aromatherapie Orchidee",
+      "descriptor": "80 Caps, 960 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "X-Tra Waschmittel Trio Caps Universal Aromatherapie Lotus",
+      "descriptor": "80 Caps, 960 g",
+      "dennerLabel": "Waschen/Haushalt",
+      "category": "home",
+      "subCategory": "household",
+      "provenance": "denner"
+    },
+    {
+      "productName": "Purina Gourmet Gold Katzenfutter Feine Pastete",
+      "descriptor": "assortiert, 24 x 85 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pet-supplies",
+      "subCategory": "pet-food",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Purina Gourmet Gold Katzenfutter Raffiniertes Ragout",
+      "descriptor": "assortiert, 24 x 85 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pet-supplies",
+      "subCategory": "pet-food",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Purina Gourmet Perle Katzenfutter",
+      "descriptor": "Erlesene Streifen in Sauce, assortiert, 24 x 85 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pet-supplies",
+      "subCategory": "pet-food",
+      "provenance": "derived"
+    },
+    {
+      "productName": "Purina Gourmet Perle Katzenfutter",
+      "descriptor": "Genuss des Meeres, assortiert, 2 x 12 x 85 g",
+      "dennerLabel": "Sonstiges",
+      "category": "pet-supplies",
+      "subCategory": "pet-food",
+      "provenance": "derived"
+    }
+  ],
+  "_relabelNote": "3 rows re-labelled 2026-09-10 with PM approval. Criterion: the label is wrong on its own terms, independent of any model. Rows carry relabelledFrom + relabelReason and move to provenance='derived'. A model disagreeing is NOT sufficient reason to change the key."
+}

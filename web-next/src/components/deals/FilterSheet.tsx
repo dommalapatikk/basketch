@@ -1,6 +1,6 @@
 'use client'
 
-import { Filter, X } from 'lucide-react'
+import { Filter, Snowflake, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useMemo, useState } from 'react'
 
@@ -8,8 +8,9 @@ import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import type { DealsFilters } from '@/lib/filters'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
+import type { StorageState } from '@/lib/types'
 import { iconForSubCategory } from '@/components/ui/IconHeading'
-import { countMatches, type DealFacet } from '@/server/data/filter-deals'
+import { countMatches, type DealFacet, STORAGE_ORDER } from '@/server/data/filter-deals'
 
 import { Drawer, DrawerClose, DrawerContent, DrawerTrigger } from '@/components/ui/drawer'
 
@@ -19,6 +20,15 @@ type Props = {
   facets: DealFacet[]
   matchedCount: number
   locale: string
+}
+
+// Kept in step with the same map in FilterRail — the two surfaces must name the
+// same filter the same way.
+const STORAGE_LABELS: Record<StorageState, { de: string; en: string }> = {
+  frozen: { de: 'Tiefkühl', en: 'Frozen' },
+  chilled: { de: 'Gekühlt', en: 'Chilled' },
+  fresh: { de: 'Frisch', en: 'Fresh' },
+  ambient: { de: 'Ungekühlt', en: 'Ambient' },
 }
 
 // Cheap label fallback for category slugs until next-intl messages cover them.
@@ -126,11 +136,14 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
       ...d,
       stores: d.stores.includes(s) ? d.stores.filter((x) => x !== s) : [...d.stores, s],
     }))
+  const toggleStorage = (key: StorageState) =>
+    setDraft((d) => ({ ...d, storage: d.storage === key ? null : key }))
   const reset = () =>
     setDraft({
       type: 'all',
       category: null,
       subCategory: null,
+      storage: null,
       stores: [...STORE_KEYS],
       q: filters.q,
     })
@@ -240,6 +253,36 @@ export function FilterSheet({ filters, onChange, facets, matchedCount, locale }:
               </div>
             </Section>
           ) : null}
+
+          {/* Storage — mirrored from the desktop rail. The rail is
+              `hidden lg:block`, so without this the Frozen filter would exist
+              only for desktop visitors, on a mobile-first site. */}
+          <Section label={t('storage')}>
+            <div className="flex flex-wrap gap-2">
+              {STORAGE_ORDER.map((key) => {
+                const selected = draft.storage === key
+                const labels = STORAGE_LABELS[key]
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => toggleStorage(key)}
+                    className={`inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-pill)] border px-3 py-1.5 text-xs transition-colors ${
+                      selected
+                        ? 'border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-paper)]'
+                        : 'border-[var(--color-line)] bg-[var(--color-paper)] text-[var(--color-ink-2)]'
+                    }`}
+                  >
+                    {key === 'frozen' ? (
+                      <Snowflake className="size-3.5 shrink-0" strokeWidth={1.5} aria-hidden />
+                    ) : null}
+                    <span className="truncate">{locale === 'de' ? labels.de : labels.en}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </Section>
 
           <Section label={t('stores')}>
             <div className="flex flex-wrap gap-2">

@@ -8,6 +8,8 @@ import {
   countMatches,
   filterDeals,
   matchDeal,
+  onlyStoreSubCategories,
+  storageCounts,
   storeCounts,
   subCategoryCounts,
 } from './filter-deals'
@@ -30,6 +32,11 @@ const D = (overrides: Partial<Deal>): Deal => ({
   sourceUrl: null,
   productId: 'p1',
   taxonomyConfidence: 0.9,
+  isUncertain: false,
+  storage: null,
+  priceBasis: { kind: 'everyone' as const },
+  crop: null,
+  attributes: {},
   isActive: true,
   updatedAt: '2026-04-24T00:00:00Z',
   ...overrides,
@@ -181,7 +188,9 @@ describe('filter parity (desktop ↔ mobile)', () => {
     const facets = deals.map((d) => ({
       store: d.store,
       category: d.category,
+      categorySlug: d.categorySlug,
       subCategory: d.subCategory,
+      storage: d.storage,
       productName: d.productName,
     }))
     expect(countMatches(facets, filters)).toBe(desktopDeals.length)
@@ -201,7 +210,9 @@ describe('filter parity (desktop ↔ mobile)', () => {
     const facets = deals.map((d) => ({
       store: d.store,
       category: d.category,
+      categorySlug: d.categorySlug,
       subCategory: d.subCategory,
+      storage: d.storage,
       productName: d.productName,
     }))
     expect(countMatches(facets, filters)).toBe(desktop.length)
@@ -228,5 +239,113 @@ describe('buildSections', () => {
     )
     const sections = buildSections(deals, 4)
     expect(sections[0].others.length).toBe(4)
+  })
+})
+
+describe('the storage facet (ADR-001)', () => {
+  const deals: Deal[] = [
+    D({ id: '1', store: 'migros', subCategory: 'Dairy', storage: 'chilled' }),
+    D({ id: '2', store: 'coop', subCategory: 'Vegetables', storage: 'frozen' }),
+    D({ id: '3', store: 'coop', subCategory: 'Sweets', storage: 'frozen' }),
+    // The retailer never said. Not "ambient by default".
+    D({ id: '4', store: 'aldi', subCategory: 'Pasta', storage: null }),
+  ]
+
+  it('filters to one storage state', () => {
+    const f = { ...DEFAULT_FILTERS, storage: 'frozen' as const }
+    expect(filterDeals(deals, f).map((d) => d.id)).toEqual(['2', '3'])
+  })
+
+  it('cuts across categories rather than behaving like one', () => {
+    // Frozen peas are vegetables; ice cream is a sweet. Both are frozen, and
+    // that is the entire argument of ADR-001.
+    const f = { ...DEFAULT_FILTERS, storage: 'frozen' as const }
+    const subs = filterDeals(deals, f).map((d) => d.subCategory)
+    expect(subs).toEqual(['Vegetables', 'Sweets'])
+  })
+
+  it('excludes a deal whose storage was never stated, instead of guessing it', () => {
+    const f = { ...DEFAULT_FILTERS, storage: 'ambient' as const }
+    expect(filterDeals(deals, f)).toEqual([])
+  })
+
+  it('counts every storage state, including the empty ones', () => {
+    const counts = storageCounts(deals, DEFAULT_FILTERS)
+    expect(counts).toEqual([
+      { key: 'frozen', count: 2 },
+      { key: 'chilled', count: 1 },
+      { key: 'fresh', count: 0 },
+      { key: 'ambient', count: 0 },
+    ])
+  })
+
+  it('keeps every row present when another filter narrows — only counts react', () => {
+    const f = { ...DEFAULT_FILTERS, stores: ['migros' as const] }
+    const counts = storageCounts(deals, f)
+    expect(counts.map((c) => c.key)).toEqual(['frozen', 'chilled', 'fresh', 'ambient'])
+    expect(counts.find((c) => c.key === 'frozen')?.count).toBe(0)
+    expect(counts.find((c) => c.key === 'chilled')?.count).toBe(1)
+  })
+
+  it('leaves counts unaffected by the storage filter itself', () => {
+    // Otherwise picking Frozen would zero every other row and strand the user.
+    const f = { ...DEFAULT_FILTERS, storage: 'frozen' as const }
+    expect(storageCounts(deals, f).find((c) => c.key === 'chilled')?.count).toBe(1)
+  })
+
+  it('narrows the store counts when a storage state is picked', () => {
+    const f = { ...DEFAULT_FILTERS, storage: 'frozen' as const }
+    expect(storeCounts(deals, f).coop).toBe(2)
+    expect(storeCounts(deals, f).migros).toBeUndefined()
+  })
+})
+
+describe('onlyStoreSubCategories', () => {
+  it('names the store when it is the only one with a deal in that sub-category', () => {
+    const deals = [
+      D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
+      D({ id: '2', store: 'coop', subCategory: 'Dairy' }),
+    ]
+    expect(onlyStoreSubCategories(deals).get('Dairy')).toBe('coop')
+  })
+
+  it('says nothing when a second store also has one', () => {
+    const deals = [
+      D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
+      D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
+    ]
+    expect(onlyStoreSubCategories(deals).has('Dairy')).toBe(false)
+  })
+
+  it('judges each sub-category independently', () => {
+    const deals = [
+      D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
+      D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
+      D({ id: '3', store: 'volg', subCategory: 'Wine' }),
+    ]
+    const only = onlyStoreSubCategories(deals)
+    expect(only.has('Dairy')).toBe(false)
+    expect(only.get('Wine')).toBe('volg')
+  })
+
+  it('makes no claim about a deal with no sub-category', () => {
+    // Nothing is known about what it is, so nothing can be said about who else
+    // has one — in either direction.
+    const deals = [D({ id: '1', store: 'coop', subCategory: null })]
+    expect(onlyStoreSubCategories(deals).size).toBe(0)
+  })
+
+  it('is computed over the whole snapshot, not a filtered view', () => {
+    // The guard against "only at Coop" appearing because the visitor
+    // deselected the other six stores. Callers must pass snapshot.deals; this
+    // asserts the shape that makes that the natural thing to do.
+    const all = [
+      D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
+      D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
+    ]
+    const filtered = filterDeals(all, { ...DEFAULT_FILTERS, stores: ['coop'] })
+    expect(onlyStoreSubCategories(all).has('Dairy')).toBe(false)
+    // Proof the distinction is real: the filtered view would have claimed it.
+    expect(onlyStoreSubCategories(filtered).get('Dairy')).toBe('coop')
   })
 })

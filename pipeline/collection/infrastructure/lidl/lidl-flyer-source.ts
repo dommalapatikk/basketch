@@ -46,6 +46,11 @@ import {
   collectionFailed,
 } from '../../domain/offer-source'
 import { sourceUrlImage } from '../../domain/product-image'
+import {
+  EMPTY_SOURCE_ATTRIBUTES,
+  type SourceAttributes,
+  createSourceAttributes,
+} from '../../domain/source-attributes'
 import { isOk } from '../../domain/result'
 import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity-period'
 
@@ -62,6 +67,28 @@ type LidlProduct = {
   url?: string
   categoryPrimary?: string
   description?: string
+}
+
+/**
+ * Lidl's flyer JSON is HTML-escaped, and it escapes German. Real values:
+ *
+ *   "Diverse Sorten 4/12 &ndash; 9/12 Nespresso&reg; kompatibel Pro 20 St&uuml;ck"
+ *   "Herkunft: Uruguay Pro 100 g Ca. 600-800 g"
+ *
+ * Entities die here. The domain never sees `&uuml;`.
+ */
+const ENTITIES: Record<string, string> = {
+  nbsp: ' ', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>',
+  ndash: '–', mdash: '—', reg: '®', trade: '™', copy: '©', deg: '°',
+  uuml: 'ü', auml: 'ä', ouml: 'ö', Uuml: 'Ü', Auml: 'Ä', Ouml: 'Ö', szlig: 'ß',
+  eacute: 'é', egrave: 'è', agrave: 'à', ccedil: 'ç',
+}
+
+export function decodeEntities(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(Number.parseInt(h, 16)))
+    .replace(/&([a-zA-Z]+);/g, (whole, name) => ENTITIES[name] ?? whole)
 }
 
 type LidlPageLink = { id?: string; displayType?: string }
@@ -99,6 +126,23 @@ export function pagesMentioningLoyalty(pdfText: string): Set<number> {
     if (squash(page).includes(LOYALTY_MARKER)) found.add(i + 1)
   })
   return found
+}
+
+/**
+ * Anti-corruption: Lidl's escaped `description` → domain SourceAttributes.
+ *
+ * Only the verbatim descriptor is captured here. Pulling origin, quantity and
+ * price basis out of it is tier-2 parsing and belongs to component 2 — doing it
+ * in the adapter would put transformation logic in the collection layer.
+ */
+export function lidlSourceAttributes(product: LidlProduct): SourceAttributes {
+  const description = product.description?.trim()
+  if (!description) return EMPTY_SOURCE_ATTRIBUTES
+
+  const built = createSourceAttributes({
+    descriptor: decodeEntities(description).replace(/\s+/g, ' ').trim(),
+  })
+  return built.ok ? built.value : EMPTY_SOURCE_ATTRIBUTES
 }
 
 /** Maps each product key to the page it appears on. */
@@ -189,6 +233,10 @@ export function parseFlyer(
       image: image && isOk(image) ? image.value : null,
       // categoryPrimary is only "Food" / "Non Food" — not a grocery taxonomy.
       sourceCategory: null,
+      // `description` carries origin, quantity, pack and price basis —
+      // "Herkunft: Schweiz Pro 2 x 250 g 100 g = 1.58". Kept verbatim for
+      // tier-2 parsing in component 2 rather than guessed by a model.
+      sourceAttributes: lidlSourceAttributes(product),
       sourceUrl: product.url ?? null,
     })
 

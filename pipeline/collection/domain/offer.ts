@@ -11,6 +11,7 @@ import { type Money, toFrancs } from './money'
 import { type PriceBasis, isMemberOnly } from './price-basis'
 import type { ProductImage } from './product-image'
 import { type Result, err, ok } from './result'
+import { EMPTY_SOURCE_ATTRIBUTES, type SourceAttributes } from './source-attributes'
 import type { ValidityPeriod } from './validity-period'
 
 export const RETAILERS = ['migros', 'coop', 'lidl', 'aldi', 'denner', 'spar', 'volg'] as const
@@ -27,6 +28,11 @@ export type Offer = {
   readonly image: ProductImage | null
   /** The retailer's own category, where it publishes one (Denner, Migros). */
   readonly sourceCategory: string | null
+  /**
+   * Metadata the retailer published alongside the offer. Never guessed.
+   * Component 2 fills from here before it considers a model call.
+   */
+  readonly sourceAttributes: SourceAttributes
   /** Link back to the offer or, for flyers, the flyer page. */
   readonly sourceUrl: string | null
 }
@@ -42,6 +48,8 @@ export type OfferInput = {
   priceBasis?: PriceBasis
   image?: ProductImage | null
   sourceCategory?: string | null
+  /** Omit when the retailer publishes nothing beyond name and price. */
+  sourceAttributes?: SourceAttributes
   sourceUrl?: string | null
 }
 
@@ -114,6 +122,7 @@ export function createOffer(input: OfferInput): Result<Offer> {
     priceBasis,
     image: input.image ?? null,
     sourceCategory: input.sourceCategory?.trim() || null,
+    sourceAttributes: input.sourceAttributes ?? EMPTY_SOURCE_ATTRIBUTES,
     sourceUrl: input.sourceUrl ?? null,
   })
 }

@@ -27,6 +27,13 @@ import {
 } from '../../domain/offer-source'
 import { sourceUrlImage } from '../../domain/product-image'
 import { isOk } from '../../domain/result'
+import {
+  EMPTY_SOURCE_ATTRIBUTES,
+  type PublishedUnit,
+  type SourceAttributes,
+  createSourceAttributes,
+  publishedQuantity,
+} from '../../domain/source-attributes'
 import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity-period'
 
 const ENDPOINT = 'https://www.denner.ch/search-api/simplePageContent'
@@ -82,12 +89,100 @@ export function parseDiscountBadge(text: string | null): number | null {
   return null
 }
 
+/**
+ * Denner's content_size_text, decoded from three cross-checked samples:
+ *
+ *   "0.9 unit.g"  ↔ nameSubline "ca. 900 g"
+ *   "0.4 unit.g"  ↔ nameSubline "400 g"
+ *   "0.38 unit.g" ↔ nameSubline "380 g"
+ *
+ * `unit.g` is an untranslated i18n key meaning kilograms. `75 cl` is literal.
+ */
+export function parseContentSize(text: string | null): { amount: number; unit: PublishedUnit } | null {
+  if (!text) return null
+
+  const m = text.trim().match(/^([\d.,]+)\s*(unit\.g|unit\.ml|kg|g|ml|cl|l|dl)$/i)
+  if (!m) return null
+
+  const amount = Number((m[1] ?? '').replace(',', '.'))
+  if (!Number.isFinite(amount) || amount <= 0) return null
+
+  const raw = (m[2] ?? '').toLowerCase()
+  if (raw === 'unit.g') return { amount, unit: 'kg' }
+  if (raw === 'unit.ml') return { amount, unit: 'l' }
+  if (raw === 'dl') return { amount: amount * 10, unit: 'cl' }
+  return { amount, unit: raw as PublishedUnit }
+}
+
 /** Denner sends unix seconds. */
 function toIsoDate(unixSeconds: string | null): string | null {
   if (!unixSeconds) return null
   const n = Number(unixSeconds)
   if (!Number.isFinite(n) || n <= 0) return null
   return new Date(n * 1000).toISOString().slice(0, 10)
+}
+
+/**
+ * Anti-corruption: Denner's published attributes → domain SourceAttributes.
+ *
+ * Every value here is something Denner states. Nothing is inferred — a missing
+ * field stays null so component 2 knows it must look elsewhere rather than
+ * trusting a fabricated value (docs/component-2-agent-design.md §2).
+ *
+ * Deliberately NOT read:
+ *   _tracking_item_brand      holds the REGION for wine ('Colchagua Valley')
+ *   _tracking_item_category1/3/4/5   a reused analytics slot; for wine it holds
+ *                             country, star rating and storage temperature
+ */
+export function mapSourceAttributes(item: DennerItem): SourceAttributes {
+  const size = parseContentSize(attr(item, 'content_size_text'))
+  let quantity = null
+  if (size) {
+    const q = publishedQuantity(size.amount, size.unit)
+    if (isOk(q)) quantity = q.value
+  }
+
+  // box_item_count is the case size (6 x 75 cl); salesQuantity is 1 for singles.
+  const packRaw = attr(item, 'box_item_count') ?? attr(item, 'salesQuantity')
+  const packNumber = packRaw === null ? Number.NaN : Number(packRaw)
+  const packSize = Number.isInteger(packNumber) && packNumber >= 1 ? packNumber : null
+
+  const unitPriceFrancs = Number(attr(item, 'unit_price'))
+  let unitPrice = null
+  if (Number.isFinite(unitPriceFrancs) && unitPriceFrancs > 0) {
+    const m = createMoney(unitPriceFrancs)
+    if (isOk(m)) unitPrice = m.value
+  }
+
+  // eco_labels arrives as one string; Denner separates multiples with commas.
+  const labels = (attr(item, 'eco_labels') ?? '')
+    .split(',')
+    .map((l) => l.trim())
+    .filter(Boolean)
+
+  const yearRaw = attr(item, 'year')
+  const yearNumber = yearRaw === null ? Number.NaN : Number(yearRaw)
+  const vintage = Number.isInteger(yearNumber) ? yearNumber : null
+
+  const wineType = attr(item, 'wine_type')
+  const grape = attr(item, 'grapes')
+  const region = attr(item, 'region_name')
+  const country = attr(item, 'country_name')
+  const isWine = Boolean(wineType || grape || vintage !== null)
+
+  const built = createSourceAttributes({
+    quantity,
+    packSize,
+    unitPrice,
+    labels,
+    container: attr(item, 'canister'),
+    descriptor: attr(item, 'nameSubline'),
+    wine: isWine ? { colour: wineType, vintage, grape, region, country } : null,
+  })
+
+  // A rejected attribute block must never sink an otherwise valid offer — the
+  // price and name are still good. Fall back to empty and carry on.
+  return isOk(built) ? built.value : EMPTY_SOURCE_ATTRIBUTES
 }
 
 // ── Translation: Denner item → domain Offer ──────────────────────────────────
@@ -144,6 +239,7 @@ export function mapItemToOffer(
     validity,
     image: image && isOk(image) ? image.value : null,
     sourceCategory: attr(item, '_tracking_item_category2'),
+    sourceAttributes: mapSourceAttributes(item),
     sourceUrl: itemUrl ? (itemUrl.startsWith('http') ? itemUrl : `${SITE}${itemUrl}`) : null,
   })
 
