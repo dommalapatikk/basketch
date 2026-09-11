@@ -282,6 +282,17 @@ export function FilterRail({
           {storages.map((s) => {
             const selected = filters.storage === s.key
             const labels = STORAGE_LABELS[s.key]
+            // An empty row is dimmed by SWAPPING THE INK, never by opacity.
+            //
+            // `opacity-50` on --color-ink-2 renders as #8b8b8c on #f6f6f3 —
+            // 3.14:1, below the 4.5:1 WCAG 2.1 AA floor. CI's axe sweep caught
+            // it on /de/deals and was right to. --color-ink-3 is 4.87:1 and
+            // reads as dimmer without becoming unreadable.
+            //
+            // The store chips below get away with opacity-40 only because they
+            // are `disabled`, which axe exempts from contrast. These are not
+            // disabled on purpose — see the note below — so they are checked.
+            const empty = s.count === 0 && !selected
             return (
               <li key={s.key}>
                 <button
@@ -294,8 +305,10 @@ export function FilterRail({
                   className={`flex w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-sm transition-colors ${
                     selected
                       ? 'bg-[var(--color-ink)] font-semibold text-[var(--color-paper)]'
-                      : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
-                  } ${s.count === 0 && !selected ? 'opacity-50' : ''}`}
+                      : empty
+                        ? 'text-[var(--color-ink-3)] hover:bg-[var(--color-line)]'
+                        : 'text-[var(--color-ink-2)] hover:bg-[var(--color-line)]'
+                  }`}
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     {s.key === 'frozen' ? (

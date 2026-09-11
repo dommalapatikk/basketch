@@ -108,6 +108,32 @@ describe('the storage facet in the rail', () => {
     expect(frozen.hasAttribute('disabled')).toBe(false)
   })
 
+  it('dims an empty row with ink, never with opacity', () => {
+    // Regression: `opacity-50` on --color-ink-2 renders as #8b8b8c on #f6f6f3,
+    // which is 3.14:1 — below the 4.5:1 WCAG 2.1 AA floor. CI's axe sweep
+    // failed on /de/deals because of it. --color-ink-3 is 4.87:1.
+    //
+    // These buttons are deliberately NOT disabled, so unlike the store chips
+    // they are not exempt from the contrast check.
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <FilterRail
+          filters={DEFAULT_FILTERS}
+          onChange={vi.fn()}
+          typeCounts={{ all: 0, fresh: 0, longlife: 0, household: 0 }}
+          storeCounts={{} as never}
+          categories={[]}
+          subCategories={[]}
+          storages={STORAGE_ORDER.map((key) => ({ key, count: 0 }))}
+          locale="en"
+        />
+      </NextIntlClientProvider>,
+    )
+    const frozen = screen.getByRole('button', { name: /Frozen/ })
+    expect(frozen.className).not.toMatch(/\bopacity-/)
+    expect(frozen.className).toContain('--color-ink-3')
+  })
+
   it('clears storage along with everything else on reset', () => {
     const onChange = renderRail({ storage: 'frozen' })
     fireEvent.click(screen.getByRole('button', { name: /Reset/ }))
