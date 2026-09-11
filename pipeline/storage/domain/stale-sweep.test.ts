@@ -119,3 +119,72 @@ describe('the count must come from the writer, not from the input', () => {
     expect(safe).toEqual(['coop', 'denner'])
   })
 })
+
+describe('a store that wrote implausibly little must not sweep the rest', () => {
+  /**
+   * THE REGRESSION THIS CLOSES, caused by the previous fix on 2026-09-11.
+   *
+   * The guard asked "did this store write AT LEAST ONE row". That is the right
+   * question for a total write failure and the wrong one for a partial run.
+   *
+   * Measured that night: a cold start ran out of Gemini daily quota partway
+   * through the queue and wrote 2 Migros deals and 33 Lidl deals. Both stores
+   * counted as "wrote something", so the sweep deactivated the 168 and 176
+   * perfectly good rows already live. The site dropped from 787 deals to 491 —
+   * the run destroyed far more than it added.
+   *
+   * Sweeping means "anything I did not refresh is withdrawn by the retailer".
+   * That claim is only credible if this run refreshed a plausible SHARE of what
+   * is already there. Two deals do not license withdrawing a hundred and
+   * sixty-eight.
+   */
+  it('refuses to sweep when the run wrote a tiny fraction of what is live', () => {
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['migros'],
+      storedByStore: new Map([['migros', 2]]),
+      activeByStore: new Map([['migros', 168]]),
+    })
+    expect(safe).toEqual([])
+  })
+
+  it('sweeps when the run refreshed a comparable number', () => {
+    // The normal weekly case: this week's flyer is roughly last week's size.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['coop'],
+      storedByStore: new Map([['coop', 320]]),
+      activeByStore: new Map([['coop', 316]]),
+    })
+    expect(safe).toEqual(['coop'])
+  })
+
+  it('allows a genuinely smaller week', () => {
+    // Retailers do run shorter weeks. 60% of the previous week is a real
+    // promotion cycle, not a failure.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['lidl'],
+      storedByStore: new Map([['lidl', 106]]),
+      activeByStore: new Map([['lidl', 176]]),
+    })
+    expect(safe).toEqual(['lidl'])
+  })
+
+  it('sweeps a store that has nothing live yet', () => {
+    // First run for a store: nothing to protect, so any write may sweep.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['spar'],
+      storedByStore: new Map([['spar', 2]]),
+      activeByStore: new Map(),
+    })
+    expect(safe).toEqual(['spar'])
+  })
+
+  it('still refuses a store that wrote nothing at all', () => {
+    // The original guard must survive the new one.
+    const safe = storesSafeToSweep({
+      collectionSucceeded: ['volg'],
+      storedByStore: new Map(),
+      activeByStore: new Map([['volg', 18]]),
+    })
+    expect(safe).toEqual([])
+  })
+})

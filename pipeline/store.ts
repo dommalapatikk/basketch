@@ -214,3 +214,35 @@ export async function deactivateStaleForStores(
   }
   return count
 }
+
+/**
+ * How many active, unexpired deals each store currently has.
+ *
+ * Read BEFORE the write, so the sweep can ask "did this run refresh a plausible
+ * share of what is already live?" rather than merely "did it write anything".
+ *
+ * The difference is not academic: on 2026-09-11 a quota-truncated run wrote 2
+ * Migros deals and swept the 168 that were already there.
+ */
+export async function activeDealCountByStore(): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('deals')
+    .select('store')
+    .eq('is_active', true)
+    .gte('valid_to', today)
+    .limit(10_000)
+
+  if (error) {
+    // Fail SAFE: an empty map means every store looks like a first run, which
+    // permits sweeping. That is the wrong direction, so say so loudly and let
+    // the caller decide — it is better than silently guessing either way.
+    console.error('[storage] [ERROR] Could not read active deal counts:', error.message)
+    return counts
+  }
+  for (const row of (data ?? []) as { store: string }[]) {
+    counts.set(row.store, (counts.get(row.store) ?? 0) + 1)
+  }
+  return counts
+}

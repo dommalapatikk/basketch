@@ -63,7 +63,7 @@ import {
   reportUnknownTags,
   resolveTaxonomy,
 } from './resolve-taxonomy'
-import { storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
+import { activeDealCountByStore, storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
 import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
@@ -467,7 +467,20 @@ async function main(): Promise<void> {
   // Replay 2026-09-11's `Upserted 0 of 922` against that and the sweep
   // deactivates every deal on the site. A guard fed a lie is not a guard.
   const storedByStore = writeResult.byStore
-  const successfulStores = storesSafeToSweep({ collectionSucceeded, storedByStore })
+  // What was live BEFORE this run. Without it the guard can only ask "did this
+  // store write anything", and a quota-truncated run that wrote 2 Migros deals
+  // swept the 168 already there — the site fell from 787 to 491.
+  const activeByStore = await activeDealCountByStore()
+  const successfulStores = storesSafeToSweep({ collectionSucceeded, storedByStore, activeByStore })
+
+  const thin = collectionSucceeded.filter(
+    (s) => (storedByStore.get(s) ?? 0) > 0 && !successfulStores.includes(s),
+  )
+  if (thin.length > 0) {
+    console.error(
+      `[pipeline] [ERROR] NOT sweeping ${thin.map((s) => `${s} (wrote ${storedByStore.get(s)} of ${activeByStore.get(s)} live)`).join(', ')} — too few rows refreshed to claim the rest were withdrawn. Their existing deals stay visible.`,
+    )
+  }
 
   // The blunt backstop, above and beyond the per-store guard: if the write
   // accepted NOTHING, no sweep can be correct, whatever the per-store map says.

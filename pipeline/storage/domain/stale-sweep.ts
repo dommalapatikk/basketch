@@ -24,9 +24,36 @@
 export type SweepInput = {
   /** Stores whose collection succeeded this run. */
   readonly collectionSucceeded: readonly string[]
-  /** Rows this run actually wrote, per store. */
+  /** Rows this run actually wrote, per store — from the DATABASE, not the input. */
   readonly storedByStore: ReadonlyMap<string, number>
+  /**
+   * Rows already live for each store, before this run.
+   *
+   * Sweeping asserts "anything I did not refresh has been withdrawn by the
+   * retailer". That is only credible if this run refreshed a plausible SHARE of
+   * what is already there — see MIN_REFRESH_SHARE.
+   *
+   * Optional so existing callers keep compiling; absent means "nothing live",
+   * which is the correct reading for a store's first run.
+   */
+  readonly activeByStore?: ReadonlyMap<string, number>
 }
+
+/**
+ * How much of a store's live set this run must refresh before it may sweep.
+ *
+ * THE REGRESSION THIS NUMBER EXISTS FOR, 2026-09-11. The guard previously asked
+ * only "did this store write at least one row". A cold start ran out of daily
+ * quota partway through the queue, wrote 2 Migros deals and 33 Lidl deals, and
+ * both stores qualified — so the sweep deactivated the 168 and 176 good rows
+ * already live. The site fell from 787 deals to 491. The run destroyed far more
+ * than it added.
+ *
+ * 0.5 rather than something tighter: retailers genuinely run shorter weeks, and
+ * a flyer cycle of 60% of the previous week is ordinary. Losing MORE than half
+ * in one week is not a promotion cycle — it is us.
+ */
+export const MIN_REFRESH_SHARE = 0.5
 
 /**
  * The stores it is safe to sweep: collection succeeded AND at least one row was
@@ -37,7 +64,16 @@ export type SweepInput = {
  * visibly old, while an empty site looks broken and loses the visitor.
  */
 export function storesSafeToSweep(input: SweepInput): string[] {
-  return input.collectionSucceeded.filter((store) => (input.storedByStore.get(store) ?? 0) > 0)
+  return input.collectionSucceeded.filter((store) => {
+    const written = input.storedByStore.get(store) ?? 0
+    if (written === 0) return false
+
+    // Nothing live yet — a first run has nothing to protect.
+    const live = input.activeByStore?.get(store) ?? 0
+    if (live === 0) return true
+
+    return written >= live * MIN_REFRESH_SHARE
+  })
 }
 
 /**
