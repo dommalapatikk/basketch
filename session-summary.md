@@ -255,6 +255,57 @@ the classification cache, and then never attached to the deal — the `attribute
 column was `'{}'` on every row. `toDeal` now carries them, and lifts `storage`
 onto its own column for the Frozen facet.
 
+## 2026-09-12 — the cold start, and seven silent failures
+
+The cutover took two days not because anything was hard, but because seven
+separate defects all had the same shape: **an operation reported success while
+doing nothing**. Each was found by accident, hours apart.
+
+| # | Defect | How it presented |
+|---|---|---|
+| 1 | Cache saved once at the very end | `cache: 0/1650 hits` on every retry |
+| 2 | Sweep keyed on fetch success, not write success | would have emptied the site |
+| 3 | Browse category written to `deals.category` | `Upserted 0 of 922` |
+| 4 | Enrichment keyed on the raw name, storage writes the normalised one | `enriched 1618/1620` with zero rows changed |
+| 5 | Sweep fed an intent count | 2 Migros rows licensed deleting 168 |
+| 6 | A per-MINUTE rate limit read as a per-DAY cap | runs abandoned 7 of 8 chunks |
+| 7 | Duplicate `cache_key` in one upsert → Postgres 21000 | whole 100-row statement rejected |
+
+**#6 and #7 were the cold start.** Fixing the rate-limit misclassification took
+a run from 42 products to 799. Fixing the duplicate key took persistence yield
+from 34% (and 0% after stable ordering) to 100% — `cached 97 of 97` on every
+chunk. Cache went 446 → 1,214 in one run.
+
+**Three fixes of mine caused two of the defects.** Raising `ERROR_BODY_CHARS`
+200 → 2000 (needed to recover Google's `retryDelay`) is what let a stray
+"PerDay" string into the text being matched, creating #6. Wiring
+`orderForColdStart` put identical names in the same chunk, converting #7 from
+latent to certain. Both were correct fixes that armed the next defect.
+
+**Three separate instances of coverage theatre**, all passing while the bug was
+live: a test asserting `category === 'dairy'` (the defect itself, #3); a
+`retryDelay` test using a hand-written string that passes at 200 chars; and a
+test named *"produces a key both halves agree on"* that compared `naturalKey`
+against itself while #4 was in production. `createInMemoryCache` is a Map keyed
+on `cacheKey`, which silently absorbed duplicates — that is why the whole suite
+missed #7.
+
+**`basketch.vercel.app` was pinned to a deployment from 139 days ago.** Vercel
+called each new build "production" while the domain pointed elsewhere, so every
+deploy landed on a URL nobody was looking at. It was never a project domain,
+just a hand-made deployment alias. Now added properly, so it auto-follows.
+
+### Standing rules that came out of this
+- **`deals.category` takes the TOP-LEVEL group**, never the browse category.
+  `topCategoryFor` in shared/types.ts. The column names are the reverse of what
+  they suggest.
+- **Anything matching a row BY NAME must use `normalizeProductName`** — it is
+  part of the upsert key. One definition, in the shared kernel.
+- **Never allowlist a pattern granting arbitrary code execution** in
+  `.claude/settings.json`.
+- **Do not bump `taxonomyVersion`/`promptVersion`/`schemaVersion`** until the
+  cold start finishes — any bump discards every cached row.
+
 ## NEXT STEPS, in order
 
 1. **Set `COLLECTION_MODE=shadow`** as a repo variable, let one scheduled run
