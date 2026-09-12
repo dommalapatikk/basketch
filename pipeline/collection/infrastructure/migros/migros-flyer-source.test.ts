@@ -151,3 +151,35 @@ describe('createMigrosFlyerSource', () => {
     expect(r.ok).toBe(false)
   })
 })
+
+/**
+ * WHY A FLYER-LEVEL sourceUrl AND NOT null, 2026-09-12.
+ *
+ * This retailer publishes no per-product page, so sourceUrl was null. On the
+ * site that made the card unclickable — and before that, when the card still
+ * rendered `<a href="#">`, clicking a Migros product reloaded basketch.
+ * That was the reported bug: "migros and aldi product urls goes to basketch
+ * url not to companies link".
+ *
+ * Pointing at the flyer THIS OFFER WAS READ FROM is the honest destination.
+ * It is the actual provenance of the price, it lets a visitor verify the
+ * claim — which Art. 3(1)(e) UWG effectively requires of a price comparison —
+ * and it is the same thing VolgHtmlSource already does with its page URL.
+ *
+ * Not a store homepage: a homepage does not evidence this week's price.
+ */
+
+describe('every offer points at the flyer it was read from', () => {
+  const FLYER = issuuDocUrl(37, 2026)
+
+  it('sets sourceUrl to the issuu flyer when one is supplied', () => {
+    const { offers } = parseFlyer(PAGES, REFERENCE, null, undefined, FLYER)
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.every((o) => o.sourceUrl === FLYER)).toBe(true)
+  })
+
+  it('leaves sourceUrl null when no flyer url is supplied', () => {
+    const { offers } = parseFlyer(PAGES, REFERENCE, null)
+    expect(offers.every((o) => o.sourceUrl === null)).toBe(true)
+  })
+})

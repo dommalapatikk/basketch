@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RETAILERS } from '../domain/offer'
 import { unwrap } from '../domain/result'
@@ -201,5 +203,85 @@ describe('politeness', () => {
     // pageDelayMs is 0 in these tests; this asserts the delay is not
     // unconditionally applied before the first request.
     expect(Date.now() - started).toBeLessThan(2_000)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Every retailer without per-product pages links to the flyer it was read from
+// ---------------------------------------------------------------------------
+/**
+ * THE BUG, reported 2026-09-12: "migros and aldi product urls goes to basketch
+ * url not to companies link".
+ *
+ * Migros, ALDI and SPAR publish no per-product page, so their adapters set
+ * sourceUrl to null. The card rendered `<a href="#">`, and `#` resolves to the
+ * page you are already on — so clicking a Migros product reloaded basketch.
+ *
+ * Fixing the frontend to render plain text instead of a dead link removed the
+ * WRONG destination but left the card with no destination at all. The flyer the
+ * offer was read from is the right one: it is the provenance of the price, and
+ * a visitor can check the claim against it, which is what Art. 3(1)(e) UWG
+ * effectively asks of a price comparison.
+ *
+ * THIS TEST GOES THROUGH THE COMPOSITION ROOT ON PURPOSE. The parser tests
+ * already prove parseFlyer honours a flyerUrl it is handed. They would all
+ * still pass if live-sources never handed it one — which is exactly the shape
+ * of defect that has bitten this pipeline repeatedly: the unit is correct and
+ * nothing wires it up.
+ */
+describe('offers carry the flyer they were read from as sourceUrl', () => {
+  const MIGROS_OCR: OcrPage[] = JSON.parse(
+    readFileSync(join(__dirname, 'migros/__fixtures__/ocr-kw36-zh-pages2-5.json'), 'utf8'),
+  )
+
+  it('Migros offers point at the issuu flyer for the requested week', async () => {
+    const { sources } = build({
+      fetchFlyerImages: async () => ({
+        ok: true,
+        location: { revision: '260908112026-142372b9', pageCount: 4 },
+        images: [
+          {
+            pageNumber: 1,
+            url: 'https://image.isu.pub/260908112026-142372b9/jpg/page_1.jpg',
+            bytes: new Uint8Array(1),
+          },
+        ],
+      }),
+      // Twice, so the run clears MIGROS_EXPECTED_MINIMUM (10) — the captured
+      // fixture is 4 pages yielding 7 offers, and a below-yield run returns a
+      // failure carrying no offers at all, which would make the assertions
+      // below pass vacuously.
+      ocr: async () => [...MIGROS_OCR, ...MIGROS_OCR],
+    })
+
+    const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const offers = result && 'offers' in result ? result.offers : []
+    expect(offers.length).toBeGreaterThan(0)
+
+    // kw/year come from build()'s defaults (37, 2026).
+    expect(
+      offers.every(
+        (o) => o.sourceUrl === 'https://issuu.com/m-magazin/docs/migros-wochenflyer-37-2026-d-zh',
+      ),
+    ).toBe(true)
+  })
+
+  it('no Migros offer is left without a destination', async () => {
+    // The regression in its simplest form: null sourceUrl is what produced the
+    // unclickable card.
+    const { sources } = build({
+      fetchFlyerImages: async () => ({
+        ok: true,
+        location: { revision: 'rev', pageCount: 4 },
+        images: [{ pageNumber: 1, url: 'https://image.isu.pub/rev/jpg/page_1.jpg', bytes: new Uint8Array(1) }],
+      }),
+      ocr: async () => [...MIGROS_OCR, ...MIGROS_OCR],
+    })
+    const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const offers = result && 'offers' in result ? result.offers : []
+    // Assert there IS something to check first — `.some()` on an empty array is
+    // false, so without this the test passes when collection fails entirely.
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.some((o) => o.sourceUrl === null)).toBe(false)
   })
 })

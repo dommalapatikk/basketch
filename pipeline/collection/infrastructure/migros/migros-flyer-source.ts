@@ -133,6 +133,7 @@ export function parsePage(
   page: OcrPage,
   validity: ValidityPeriod,
   pageImageUrl: string | null,
+  flyerUrl: string | null = null,
 ): { offers: Offer[]; warnings: CollectionWarning[] } {
   const offers: Offer[] = []
   const warnings: CollectionWarning[] = []
@@ -238,7 +239,9 @@ export function parsePage(
       // retailer that does. Associating them to products needs heading
       // detection that is not built yet, so this stays null for now.
       sourceCategory: null,
-      sourceUrl: null,
+      // Migros has no per-product page. Point at the issuu flyer this offer
+      // was read from — the provenance of the price, and checkable.
+      sourceUrl: flyerUrl,
     })
 
     if (isOk(offer)) offers.push(offer.value)
@@ -253,6 +256,7 @@ export function parseFlyer(
   reference: Date,
   fallbackValidity: ValidityPeriod | null,
   pageImageUrl?: (pageNumber: number) => string,
+  flyerUrl?: string,
 ): { offers: Offer[]; warnings: CollectionWarning[] } {
   const validity = findValidity(pages, reference) ?? fallbackValidity
   if (!validity) return { offers: [], warnings: [{ message: 'no validity line found in the flyer' }] }
@@ -260,7 +264,7 @@ export function parseFlyer(
   const offers: Offer[] = []
   const warnings: CollectionWarning[] = []
   for (const page of pages) {
-    const r = parsePage(page, validity, pageImageUrl?.(page.pageNumber) ?? null)
+    const r = parsePage(page, validity, pageImageUrl?.(page.pageNumber) ?? null, flyerUrl ?? null)
     offers.push(...r.offers)
     warnings.push(...r.warnings)
   }
@@ -276,6 +280,13 @@ export type MigrosSourceDeps = {
   fallbackValidity?: ValidityPeriod | null
   pageImageUrl?: (pageNumber: number) => string
   expectedMinimumOffers?: number
+  /**
+   * The issuu flyer this week's offers were read from, used as each offer's
+   * sourceUrl. Migros publishes no per-product page we may fetch, and a card
+   * that links nowhere is worse than one linking to the flyer the price is
+   * printed in.
+   */
+  flyerUrl?: string
 }
 
 export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
@@ -298,6 +309,7 @@ export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
         deps.reference ?? new Date(),
         deps.fallbackValidity ?? null,
         deps.pageImageUrl,
+        deps.flyerUrl,
       )
       return collectedWithYieldCheck({ retailer: 'migros', expectedMinimumOffers }, offers, warnings)
     },

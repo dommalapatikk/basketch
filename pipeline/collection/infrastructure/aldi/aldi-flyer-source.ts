@@ -109,6 +109,7 @@ export function parsePage(
   page: PdfPage,
   validity: ValidityPeriod,
   pageImageUrl: string | null,
+  flyerUrl: string | null = null,
 ): { offers: Offer[]; warnings: CollectionWarning[] } {
   const offers: Offer[] = []
   const warnings: CollectionWarning[] = []
@@ -176,7 +177,9 @@ export function parsePage(
       validity,
       image: pageImageUrl ? tileToCropRegion(tile, page, pageImageUrl, 12) : null,
       sourceCategory: null,
-      sourceUrl: null,
+      // ALDI has no per-product page. Point at the flyer this offer was read
+      // from — the provenance of the price, and something a visitor can check.
+      sourceUrl: flyerUrl,
     })
 
     if (isOk(offer)) offers.push(offer.value)
@@ -191,6 +194,7 @@ export function parseFlyer(
   reference: Date,
   fallbackValidity: ValidityPeriod | null,
   pageImageUrl?: (pageNumber: number) => string,
+  flyerUrl?: string,
 ): { offers: Offer[]; warnings: CollectionWarning[] } {
   const offers: Offer[] = []
   const warnings: CollectionWarning[] = []
@@ -209,7 +213,12 @@ export function parseFlyer(
       continue
     }
 
-    const result = parsePage(page, currentCycle, pageImageUrl?.(page.pageNumber) ?? null)
+    const result = parsePage(
+      page,
+      currentCycle,
+      pageImageUrl?.(page.pageNumber) ?? null,
+      flyerUrl ?? null,
+    )
     offers.push(...result.offers)
     warnings.push(...result.warnings)
   }
@@ -226,10 +235,27 @@ export type AldiSourceDeps = {
   fallbackValidity?: ValidityPeriod | null
   pageImageUrl?: (pageNumber: number) => string
   expectedMinimumOffers?: number
+  /**
+   * The human-readable catalogue this week's offers were read from, used as
+   * each offer's sourceUrl. ALDI publishes no per-product page, and a card
+   * that links nowhere is worse than one linking to the flyer the price is
+   * printed in.
+   */
+  flyerUrl?: string
+}
+
+/**
+ * The human-readable catalogue — what a visitor should be sent to.
+ *
+ * `catalogDataUrl` is this plus `data.json`; keeping one derived from the
+ * other means the two can never drift onto different weeks.
+ */
+export function catalogPageUrl(year: number, kw: number): string {
+  return `https://catalog.aldi-suisse.ch/aldiwoche_kw${String(kw).padStart(2, '0')}-${year}_de/`
 }
 
 export function catalogDataUrl(year: number, kw: number): string {
-  return `https://catalog.aldi-suisse.ch/aldiwoche_kw${String(kw).padStart(2, '0')}-${year}_de/data.json`
+  return `${catalogPageUrl(year, kw)}data.json`
 }
 
 /** Pulls the PDF url out of the Publitas catalogue descriptor. */
@@ -258,6 +284,7 @@ export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
         deps.reference ?? new Date(),
         deps.fallbackValidity ?? null,
         deps.pageImageUrl,
+        deps.flyerUrl,
       )
       return collectedWithYieldCheck({ retailer: 'aldi', expectedMinimumOffers }, offers, warnings)
     },

@@ -9,6 +9,7 @@ import { clusterIntoTiles } from '../pdf/tile-locator'
 import {
   createSparFlyerSource,
   findFlyerValidity,
+  flyerPageUrl,
   flyerPdfUrl,
   parseFlyer,
   parseFlyerValidity,
@@ -194,5 +195,46 @@ describe('createSparFlyerSource', () => {
   it('reports source-changed on an empty PDF', async () => {
     const r = await source(async () => []).fetchOffers('2026-W37')
     expect(r.ok).toBe(false)
+  })
+})
+
+/**
+ * WHY A FLYER-LEVEL sourceUrl AND NOT null, 2026-09-12.
+ *
+ * SPAR publishes no per-product page, so sourceUrl was null and the card was
+ * unclickable — and before that, while the card still rendered `<a href="#">`,
+ * clicking a SPAR product reloaded basketch.
+ *
+ * Pointing at the flyer THIS OFFER WAS READ FROM is the honest destination: it
+ * is the provenance of the price and it lets a visitor verify the claim, which
+ * Art. 3(1)(e) UWG effectively requires of a price comparison. VolgHtmlSource
+ * already does exactly this with its page URL.
+ */
+
+describe('flyerPageUrl — the human-readable flyer behind the PDF endpoint', () => {
+  it('is the PDF url without GetPDF.ashx', () => {
+    expect(flyerPageUrl(2026, 37)).toBe(
+      'https://angebote.spar.ch/flugblatt/2026/spar-angebote-kw37-2026/',
+    )
+    expect(flyerPdfUrl(2026, 37)).toBe(`${flyerPageUrl(2026, 37)}GetPDF.ashx`)
+  })
+
+  it('zero-pads the week the same way', () => {
+    expect(flyerPageUrl(2026, 7)).toContain('kw07-2026')
+  })
+})
+
+describe('every offer points at the flyer it was read from', () => {
+  const FLYER = 'https://angebote.spar.ch/flugblatt/2026/spar-angebote-kw37-2026/'
+
+  it('sets sourceUrl to the flyer url when one is supplied', () => {
+    const { offers } = parseFlyer(PAGES, FALLBACK, undefined, FLYER)
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.every((o) => o.sourceUrl === FLYER)).toBe(true)
+  })
+
+  it('leaves sourceUrl null when no flyer url is supplied', () => {
+    const { offers } = parseFlyer(PAGES, FALLBACK)
+    expect(offers.every((o) => o.sourceUrl === null)).toBe(true)
   })
 })

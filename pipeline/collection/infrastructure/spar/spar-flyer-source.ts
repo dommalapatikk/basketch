@@ -87,6 +87,7 @@ export function mapTileToOffer(
   page: PdfPage,
   validity: ValidityPeriod,
   pageImageUrl: string | null,
+  flyerUrl: string | null = null,
 ): SparTileResult {
   const ordered = tileWordsInOrder(tile)
   const stattIndexes = ordered
@@ -143,7 +144,9 @@ export function mapTileToOffer(
     image,
     // The flyer prints slogans, not categories.
     sourceCategory: null,
-    sourceUrl: null,
+    // SPAR has no per-product page. Point at the flyer this offer was read
+    // from — the provenance of the price, and something a visitor can check.
+    sourceUrl: flyerUrl,
   })
 
   return isOk(offer) ? { offer: offer.value } : { warning: `${name}: ${offer.error}` }
@@ -153,6 +156,7 @@ export function parseFlyer(
   pages: readonly PdfPage[],
   validity: ValidityPeriod,
   pageImageUrl?: (pageNumber: number) => string,
+  flyerUrl?: string,
 ): { offers: Offer[]; warnings: CollectionWarning[] } {
   const offers: Offer[] = []
   const warnings: CollectionWarning[] = []
@@ -162,7 +166,13 @@ export function parseFlyer(
       // Skip clusters that plainly are not products.
       if (!tile.words.some((w) => w.text.toLowerCase() === 'statt')) continue
 
-      const result = mapTileToOffer(tile, page, validity, pageImageUrl?.(page.pageNumber) ?? null)
+      const result = mapTileToOffer(
+        tile,
+        page,
+        validity,
+        pageImageUrl?.(page.pageNumber) ?? null,
+        flyerUrl ?? null,
+      )
       if ('offer' in result) offers.push(result.offer)
       else warnings.push({ message: result.warning, item: `page ${page.pageNumber}` })
     }
@@ -180,11 +190,28 @@ export type SparSourceDeps = {
   fallbackValidity?: ValidityPeriod | null
   pageImageUrl?: (pageNumber: number) => string
   expectedMinimumOffers?: number
+  /**
+   * The human-readable flyer this week's offers were read from, used as each
+   * offer's sourceUrl. SPAR publishes no per-product page, and a card that
+   * links nowhere is worse than one linking to the flyer the price is printed
+   * in.
+   */
+  flyerUrl?: string
+}
+
+/**
+ * The human-readable flyer — what a visitor should be sent to.
+ *
+ * `flyerPdfUrl` is this plus `GetPDF.ashx`; deriving one from the other means
+ * the link and the download can never point at different weeks.
+ */
+export function flyerPageUrl(year: number, kw: number): string {
+  const kwPadded = String(kw).padStart(2, '0')
+  return `https://angebote.spar.ch/flugblatt/${year}/spar-angebote-kw${kwPadded}-${year}/`
 }
 
 export function flyerPdfUrl(year: number, kw: number): string {
-  const kwPadded = String(kw).padStart(2, '0')
-  return `https://angebote.spar.ch/flugblatt/${year}/spar-angebote-kw${kwPadded}-${year}/GetPDF.ashx`
+  return `${flyerPageUrl(year, kw)}GetPDF.ashx`
 }
 
 export function createSparFlyerSource(deps: SparSourceDeps): OfferSource {
@@ -209,7 +236,7 @@ export function createSparFlyerSource(deps: SparSourceDeps): OfferSource {
         return collectionFailed('spar', 'source-changed', 'no validity window found on the flyer')
       }
 
-      const { offers, warnings } = parseFlyer(pages, validity, deps.pageImageUrl)
+      const { offers, warnings } = parseFlyer(pages, validity, deps.pageImageUrl, deps.flyerUrl)
       return collectedWithYieldCheck({ retailer: 'spar', expectedMinimumOffers }, offers, warnings)
     },
   }

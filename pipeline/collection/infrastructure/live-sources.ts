@@ -20,14 +20,23 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { OfferSource } from '../domain/offer-source'
 import type { ValidityPeriod } from '../domain/validity-period'
-import { catalogDataUrl, createAldiFlyerSource, findPdfUrl } from './aldi/aldi-flyer-source'
+import {
+  catalogDataUrl,
+  catalogPageUrl,
+  createAldiFlyerSource,
+  findPdfUrl,
+} from './aldi/aldi-flyer-source'
 import { createCoopAktionisSource, httpFetchPage as coopFetchPage } from './coop/coop-aktionis-source'
 import { createDennerApiSource, httpFetchPage as dennerFetchPage } from './denner/denner-api-source'
 import { createLidlFlyerSource, flyerUrl as lidlFlyerUrl } from './lidl/lidl-flyer-source'
 import { type OcrPage, createMigrosFlyerSource, issuuDocUrl } from './migros/migros-flyer-source'
 import { fetchFlyerImages, pageImageUrl as migrosPageImageUrl } from './migros/issuu-fetcher'
 import { fetchFlyerPages, fetchJson, fetchPdfText } from './pdf/flyer-fetcher'
-import { createSparFlyerSource, flyerPdfUrl as sparPdfUrl } from './spar/spar-flyer-source'
+import {
+  createSparFlyerSource,
+  flyerPageUrl as sparPageUrl,
+  flyerPdfUrl as sparPdfUrl,
+} from './spar/spar-flyer-source'
 import { createVolgHtmlSource, httpFetchPage as volgFetchPage } from './volg/volg-html-source'
 
 const run = promisify(execFile)
@@ -159,6 +168,7 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
       },
       fallbackValidity,
       pageImageUrl: () => sparPdfUrl(year, kw),
+      flyerUrl: sparPageUrl(year, kw),
     }),
 
     // ── Aldi: Publitas catalogue JSON carries the PDF url ───────────────────
@@ -172,6 +182,7 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
         return result.pages
       },
       fallbackValidity,
+      flyerUrl: catalogPageUrl(year, kw),
     }),
 
     // ── Lidl: flyer JSON + PDF text for the Lidl Plus cross-check ───────────
@@ -227,6 +238,7 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
       return pages
     },
     fallbackValidity: options.fallbackValidity ?? null,
+    flyerUrl: issuuDocUrl(kw, year),
     pageImageUrl: (pageNumber) => {
       // Only ever called after loadPages, for pages that produced offers.
       if (!revision) {

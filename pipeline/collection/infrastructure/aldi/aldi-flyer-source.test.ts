@@ -5,7 +5,14 @@ import { describe, expect, it } from 'vitest'
 import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
 import { parseBboxXml } from '../pdf/pdf-words'
-import { catalogDataUrl, createAldiFlyerSource, findPdfUrl, parseCycleStart, parseFlyer } from './aldi-flyer-source'
+import {
+  catalogDataUrl,
+  catalogPageUrl,
+  createAldiFlyerSource,
+  findPdfUrl,
+  parseCycleStart,
+  parseFlyer,
+} from './aldi-flyer-source'
 
 const PAGES = parseBboxXml(readFileSync(join(__dirname, '__fixtures__/catalog-kw37-pages3-6.xml'), 'utf8'))
 const REFERENCE = new Date('2026-09-09T00:00:00Z')
@@ -168,5 +175,50 @@ describe('createAldiFlyerSource', () => {
     const junk = [{ pageNumber: 1, widthPt: 0, heightPt: 0, words: [] }]
     const r = await source(async () => junk).fetchOffers('2026-W37')
     expect(r.ok).toBe(false)
+  })
+})
+
+/**
+ * WHY A FLYER-LEVEL sourceUrl AND NOT null, 2026-09-12.
+ *
+ * This retailer publishes no per-product page, so sourceUrl was null. On the
+ * site that made the card unclickable — and before that, when the card still
+ * rendered `<a href="#">`, clicking a ALDI product reloaded basketch.
+ * That was the reported bug: "migros and aldi product urls goes to basketch
+ * url not to companies link".
+ *
+ * Pointing at the flyer THIS OFFER WAS READ FROM is the honest destination.
+ * It is the actual provenance of the price, it lets a visitor verify the
+ * claim — which Art. 3(1)(e) UWG effectively requires of a price comparison —
+ * and it is the same thing VolgHtmlSource already does with its page URL.
+ *
+ * Not a store homepage: a homepage does not evidence this week's price.
+ */
+
+describe('catalogPageUrl — the human-readable catalogue behind the data.json', () => {
+  it('is the data.json url without the data.json', () => {
+    expect(catalogPageUrl(2026, 37)).toBe(
+      'https://catalog.aldi-suisse.ch/aldiwoche_kw37-2026_de/',
+    )
+    expect(catalogDataUrl(2026, 37)).toBe(`${catalogPageUrl(2026, 37)}data.json`)
+  })
+
+  it('zero-pads the week the same way', () => {
+    expect(catalogPageUrl(2026, 7)).toContain('kw07-2026')
+  })
+})
+
+describe('every offer points at the flyer it was read from', () => {
+  const FLYER = 'https://catalog.aldi-suisse.ch/aldiwoche_kw37-2026_de/'
+
+  it('sets sourceUrl to the flyer url when one is supplied', () => {
+    const { offers } = parseFlyer(PAGES, REFERENCE, null, undefined, FLYER)
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.every((o) => o.sourceUrl === FLYER)).toBe(true)
+  })
+
+  it('leaves sourceUrl null when no flyer url is supplied', () => {
+    const { offers } = parseFlyer(PAGES, REFERENCE, null)
+    expect(offers.every((o) => o.sourceUrl === null)).toBe(true)
   })
 })
