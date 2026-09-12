@@ -10,9 +10,10 @@ import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { CATEGORY_ACCENT } from '@/lib/store-tokens'
 import { STORE_BRAND } from '@/lib/store-tokens'
-import { buildMailtoHref, buildShareText, buildWhatsAppHref, groupByStore } from '@/lib/share'
-import { buildShareUrl } from '@/lib/share-url'
+import { groupByStore } from '@/lib/share'
+import { createShareTarget } from '@/lib/share-target'
 import { useIsDesktop } from '@/lib/use-is-desktop'
+import { useOrigin } from '@/lib/use-origin'
 import { useListStore, type ListItem } from '@/stores/list-store'
 import { useUiStore } from '@/stores/ui-store'
 
@@ -39,34 +40,15 @@ export function ListDrawer({ locale }: Props) {
   const direction = isDesktop ? 'right' : 'bottom'
   const groups = groupByStore(items)
 
-  // Share assets are computed lazily via these helpers — `window.location.origin`
-  // is undefined during the server-side prerender pass, and `new URL('')` throws.
-  function buildAssets() {
-    const origin = window.location.origin
-    const shareUrl = buildShareUrl({ origin, locale, items })
-    const shareText = buildShareText({ items, shareUrl, locale })
-    return { shareUrl, shareText }
-  }
-
-  function onWaClick(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (items.length === 0) {
-      e.preventDefault()
-      return
-    }
-    e.currentTarget.href = buildWhatsAppHref(buildAssets().shareText)
-  }
-
-  function onMailClick(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (items.length === 0) {
-      e.preventDefault()
-      return
-    }
-    e.currentTarget.href = buildMailtoHref({ text: buildAssets().shareText, locale })
-  }
+  // Both share destinations are resolved during RENDER. They used to be
+  // assigned from inside the click handlers, which left `href="#"` in the DOM
+  // at rest — so middle click, Cmd+click and "Copy link address" all went to
+  // basketch instead of WhatsApp or the mail client.
+  const shareTarget = createShareTarget({ origin: useOrigin(), locale, items })
 
   async function copyLink() {
-    if (items.length === 0) return
-    const { shareUrl, shareText } = buildAssets()
+    if (shareTarget.kind !== 'ready') return
+    const { shareUrl, shareText } = shareTarget
     try {
       await navigator.clipboard.writeText(shareUrl)
       setCopied(true)
@@ -129,16 +111,33 @@ export function ListDrawer({ locale }: Props) {
           {/* Share footer — only when list has items */}
           {items.length > 0 ? (
             <div className="border-t border-[var(--color-line)] bg-[var(--color-paper)] px-5 py-4">
-              <a
-                href="#"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={onWaClick}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] text-sm font-semibold text-white"
-                style={{ background: '#25D366' }}
-              >
-                <Share2 className="h-4 w-4" aria-hidden /> {t('share_whatsapp')}
-              </a>
+              {/*
+                The footer only renders with items present, so the sole reason
+                the target can be unavailable here is that the component has
+                not hydrated yet and the origin is still unknown. That lasts one
+                frame — and for that frame the control says what is true: it
+                cannot take you anywhere yet.
+              */}
+              {shareTarget.kind === 'ready' ? (
+                <a
+                  href={shareTarget.whatsappHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] text-sm font-semibold text-white"
+                  style={{ background: '#25D366' }}
+                >
+                  <Share2 className="h-4 w-4" aria-hidden /> {t('share_whatsapp')}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] text-sm font-semibold text-white opacity-60"
+                  style={{ background: '#25D366' }}
+                >
+                  <Share2 className="h-4 w-4" aria-hidden /> {t('share_whatsapp')}
+                </button>
+              )}
               <div className="mt-3 flex gap-3">
                 <button
                   type="button"
@@ -147,13 +146,22 @@ export function ListDrawer({ locale }: Props) {
                 >
                   <Copy className="h-4 w-4" aria-hidden /> {copied ? t('copied') : t('copy_link')}
                 </button>
-                <a
-                  href="#"
-                  onClick={onMailClick}
-                  className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line-strong)] text-sm font-medium text-[var(--color-ink)] hover:bg-[var(--color-page)]"
-                >
-                  <Mail className="h-4 w-4" aria-hidden /> {t('email')}
-                </a>
+                {shareTarget.kind === 'ready' ? (
+                  <a
+                    href={shareTarget.mailtoHref}
+                    className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line-strong)] text-sm font-medium text-[var(--color-ink)] hover:bg-[var(--color-page)]"
+                  >
+                    <Mail className="h-4 w-4" aria-hidden /> {t('email')}
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line-strong)] text-sm font-medium text-[var(--color-ink-2)] opacity-60"
+                  >
+                    <Mail className="h-4 w-4" aria-hidden /> {t('email')}
+                  </button>
+                )}
               </div>
               <button
                 type="button"
@@ -195,7 +203,10 @@ function ItemsByCategory({
             <span
               aria-hidden
               className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: CATEGORY_ACCENT[cat as keyof typeof CATEGORY_ACCENT] ?? 'var(--cat-other)' }}
+              style={{
+                background:
+                  CATEGORY_ACCENT[cat as keyof typeof CATEGORY_ACCENT] ?? 'var(--cat-other)',
+              }}
             />
             {labels[cat as keyof typeof labels] ?? cat} · {arr.length}{' '}
             {t(arr.length === 1 ? 'item_one' : 'item_other')}

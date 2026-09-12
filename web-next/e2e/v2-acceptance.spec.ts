@@ -5,14 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 // Selectors mirror what's actually rendered today by Header.tsx and DealCard.tsx.
 // Pages enumerated below match the routes shipped under src/app/[locale].
 
-const PAGES = [
-  '/de',
-  '/de/deals',
-  '/de/about',
-  '/en',
-  '/en/deals',
-  '/en/about',
-] as const
+const PAGES = ['/de', '/de/deals', '/de/about', '/en', '/en/deals', '/en/about'] as const
 
 const NOT_FOUND_TITLE = {
   de: 'Seite nicht gefunden',
@@ -140,27 +133,28 @@ test.describe('AC3 — about pages exist per locale', () => {
 // catch-all (Patch 5 from v2.1 didn't actually work). Needs proper Next.js 16
 // + next-intl debug — likely either: (a) restructure root not-found to be
 // locale-detecting, or (b) wrap [locale]/[...rest] differently.
-test.describe.skip('AC4 — localized 404', () => {
-  for (const locale of ['de', 'en'] as const) {
-    test(`/${locale}/asdf returns 404 in ${locale}`, async ({ page }) => {
-      const res = await page.goto(`/${locale}/asdf`, { waitUntil: 'networkidle' })
-      expect(res?.status(), `expected 404 for /${locale}/asdf`).toBe(404)
-      const body = (await page.locator('body').textContent())?.toLowerCase() ?? ''
-      expect(body).toContain(NOT_FOUND_TITLE[locale].toLowerCase())
-      // And critically: the OTHER locale's title must NOT appear (regression
-      // test for B4 where /en/asdf showed the German copy).
-      const other = locale === 'de' ? 'en' : 'de'
-      expect(body).not.toContain(NOT_FOUND_TITLE[other].toLowerCase())
-    })
-  }
-})
+test.describe
+  .skip('AC4 — localized 404', () => {
+    for (const locale of ['de', 'en'] as const) {
+      test(`/${locale}/asdf returns 404 in ${locale}`, async ({ page }) => {
+        const res = await page.goto(`/${locale}/asdf`, { waitUntil: 'networkidle' })
+        expect(res?.status(), `expected 404 for /${locale}/asdf`).toBe(404)
+        const body = (await page.locator('body').textContent())?.toLowerCase() ?? ''
+        expect(body).toContain(NOT_FOUND_TITLE[locale].toLowerCase())
+        // And critically: the OTHER locale's title must NOT appear (regression
+        // test for B4 where /en/asdf showed the German copy).
+        const other = locale === 'de' ? 'en' : 'de'
+        expect(body).not.toContain(NOT_FOUND_TITLE[other].toLowerCase())
+      })
+    }
+  })
 
 // ---------------------------------------------------------------------------
 // AC5 — Mobile DealCard: title and price-block bounding rects don't intersect.
 // ---------------------------------------------------------------------------
 test.describe('AC5 — no overlap on mobile DealCard', () => {
   test.use({ viewport: { width: 390, height: 844 } })
-  test('title link and price block are non-intersecting on /de/deals', async ({ page }) => {
+  test('title and price block are non-intersecting on /de/deals', async ({ page }) => {
     await gotoStable(page, '/de/deals')
     const articles = page.locator('main article')
     const count = await articles.count()
@@ -168,12 +162,17 @@ test.describe('AC5 — no overlap on mobile DealCard', () => {
 
     for (let i = 0; i < Math.min(count, 12); i++) {
       const article = articles.nth(i)
-      const title = article.locator('a[id^="dc-"]').first()
+      // Match on the id, NOT on the tag. A deal whose retailer gives us no
+      // product URL renders its title as a <p>, because an <a href="#"> that
+      // goes nowhere is worse than plain text. This locator said `a[id^=...]`
+      // and so hung for 30s the moment the first card was flyer-sourced —
+      // the test was pinned to the markup, while what it actually checks is
+      // that the two boxes do not overlap.
+      const title = article.locator('[id^="dc-"]').first()
+      await expect(title, `card #${i} has no title element`).toBeVisible()
       // PriceBlock uses tabular-nums and contains the price text. Pick the
       // first descendant containing a CHF currency string as the price box.
-      const price = article
-        .locator('text=/CHF|Fr\\./')
-        .first()
+      const price = article.locator('text=/CHF|Fr\\./').first()
       const titleBox = await title.boundingBox()
       const priceBox = await price.boundingBox()
       if (!titleBox || !priceBox) continue
@@ -219,17 +218,18 @@ test.describe('AC7 — one positive chip per card max', () => {
 // rendered after JS hydration + virtualizer initialization. The test counts
 // h2s right after networkidle but the virtualizer may still be measuring.
 // Needs an explicit wait for first h2 to be attached before counting.
-test.describe.skip('AC8 — section icons in headings', () => {
-  test('every h2 in main on /de/deals has an svg', async ({ page }) => {
-    await gotoStable(page, '/de/deals')
-    const headings = page.locator('main h2')
-    const headingCount = await headings.count()
-    test.skip(headingCount === 0, 'no section headings rendered')
+test.describe
+  .skip('AC8 — section icons in headings', () => {
+    test('every h2 in main on /de/deals has an svg', async ({ page }) => {
+      await gotoStable(page, '/de/deals')
+      const headings = page.locator('main h2')
+      const headingCount = await headings.count()
+      test.skip(headingCount === 0, 'no section headings rendered')
 
-    const headingsWithSvg = await page.locator('main h2 svg').count()
-    expect(headingsWithSvg).toBeGreaterThanOrEqual(headingCount)
+      const headingsWithSvg = await page.locator('main h2 svg').count()
+      expect(headingsWithSvg).toBeGreaterThanOrEqual(headingCount)
+    })
   })
-})
 
 // ---------------------------------------------------------------------------
 // AC9 — Every page has a real (non-URL) <title>.
@@ -262,10 +262,7 @@ test.describe('AC11 — axe-core sweep', () => {
       const blocking = results.violations.filter(
         (v) => v.impact === 'serious' || v.impact === 'critical',
       )
-      expect(
-        blocking,
-        `${path} a11y violations:\n${JSON.stringify(blocking, null, 2)}`,
-      ).toEqual([])
+      expect(blocking, `${path} a11y violations:\n${JSON.stringify(blocking, null, 2)}`).toEqual([])
     })
   }
 })
@@ -328,7 +325,9 @@ test.describe('AC16 — no overlap on compact rows across mobile widths', () => 
       for (let i = 0; i < Math.min(count, 8); i++) {
         const article = compacts.nth(i)
         const pill = article.locator('span.uppercase').first()
-        const name = article.locator('a[id^="dc-"]').first()
+        // Tag-agnostic for the same reason as AC5 above: a flyer-sourced deal
+        // has no product URL and renders its title as a <p>.
+        const name = article.locator('[id^="dc-"]').first()
         const price = article.locator('text=/CHF|Fr\\./').first()
         const [pBox, nBox, prBox] = await Promise.all([
           pill.boundingBox(),
@@ -379,9 +378,7 @@ test.describe('AC17 — Type is gone from FilterSheet, kicker shows scope', () =
     const drawerTitle = page.locator('[data-vaul-drawer] >> text=/Filters/i').first()
     await drawerTitle.waitFor({ state: 'visible', timeout: 5000 })
     const titleText = (await drawerTitle.innerText()).toLowerCase()
-    expect(titleText, 'drawer title should include the active Type as kicker').toMatch(
-      /long.?life/,
-    )
+    expect(titleText, 'drawer title should include the active Type as kicker').toMatch(/long.?life/)
     // No standalone "Type" section heading inside the drawer.
     const typeHeading = page.locator('[data-vaul-drawer] p.uppercase', {
       hasText: /^type/i,

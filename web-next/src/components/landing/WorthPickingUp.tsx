@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 
+import { Link } from '@/i18n/navigation'
+
 import { WorthPickingUpCard, type WorthPickingUpCandidate } from './WorthPickingUpCard'
 
 // Surface 3 — Worth Picking Up section (per docs/design-3-new-surfaces.md §3).
@@ -18,7 +20,7 @@ type Mode = 'personal' | 'cold-start'
 type Props = {
   mode: Mode
   candidates: WorthPickingUpCandidate[]
-  staleDaysAgo?: number  // when set, render the stale banner
+  staleDaysAgo?: number // when set, render the stale banner
   errored?: boolean
   onAdd: (candidate: WorthPickingUpCandidate) => void
   onNotNow: (candidate: WorthPickingUpCandidate) => void
@@ -37,8 +39,7 @@ export function WorthPickingUp(props: Props) {
   const remaining = props.candidates.length - ABOVE_FOLD_LIMIT
 
   const title = props.mode === 'personal' ? t('title_personal') : t('title_cold_start')
-  const subtitle =
-    props.mode === 'personal' ? t('subtitle_personal') : t('subtitle_cold_start')
+  const subtitle = props.mode === 'personal' ? t('subtitle_personal') : t('subtitle_cold_start')
 
   return (
     <section
@@ -47,7 +48,10 @@ export function WorthPickingUp(props: Props) {
     >
       <div className="mx-auto max-w-screen-md px-4">
         <header className="mb-4">
-          <h2 id="worth-picking-up-title" className="text-base font-semibold text-[var(--color-ink)]">
+          <h2
+            id="worth-picking-up-title"
+            className="text-base font-semibold text-[var(--color-ink)]"
+          >
             {title}
           </h2>
           <p className="mt-1 text-sm text-[var(--color-ink-2)]">{subtitle}</p>
@@ -96,12 +100,21 @@ export function WorthPickingUp(props: Props) {
 
             {props.mode === 'cold-start' && (
               <div className="mt-4">
-                <a
-                  href="#"
+                {/*
+                  Was href="#", which reloaded the homepage. There is no
+                  starter-pack route — the feature the copy promises does not
+                  exist yet — so this points at the deals list, the nearest
+                  real destination. FLAGGED FOR PM: the copy
+                  ("Starter-Set wählen" / "Pick a starter pack") and the
+                  destination do not match. Either the copy changes or the
+                  feature gets built; a link to nowhere is not the third option.
+                */}
+                <Link
+                  href="/deals"
                   className="inline-flex h-11 items-center gap-1 text-sm font-medium text-[var(--color-ink)] hover:underline"
                 >
                   {t('cold_start_cta')} <span aria-hidden>↗</span>
-                </a>
+                </Link>
               </div>
             )}
           </>
