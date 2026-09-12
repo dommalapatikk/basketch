@@ -443,3 +443,101 @@ describe('a transient lookup failure is retried, not treated as a miss', () => {
     expect(chunk).toBeGreaterThan(8)
   })
 })
+
+// ---------------------------------------------------------------------------
+// The reason a fetch failed must survive into the log
+// ---------------------------------------------------------------------------
+/**
+ * WHY THIS EXISTS, 2026-09-12.
+ *
+ * Three pipeline runs reported the same thing and taught us nothing:
+ *
+ *   [WARN] classification cache lookup: TypeError: fetch failed
+ *
+ * In Node that string is a WRAPPER. undici puts the actual reason on
+ * `error.cause` — ECONNRESET, UND_ERR_HEADERS_TIMEOUT, ConnectTimeoutError,
+ * getaddrinfo ENOTFOUND — and they call for completely different fixes. We
+ * logged `e.message` only, so every distinct failure looked identical and two
+ * hypotheses (transient blip, URL length) were investigated and disproven
+ * against evidence that could not distinguish them.
+ *
+ * A diagnostic that cannot tell two causes apart is not a diagnostic.
+ */
+describe('a wrapped fetch error reports its underlying cause', () => {
+  const throwingClient = (toThrow: unknown) =>
+    ({
+      from() {
+        return {
+          select() {
+            return {
+              in() {
+                throw toThrow
+              },
+            }
+          },
+        }
+      },
+    }) as unknown as SupabaseClient
+
+  it('includes error.cause, not just "fetch failed"', async () => {
+    const wrapped = new TypeError('fetch failed')
+    ;(wrapped as Error & { cause?: unknown }).cause = Object.assign(new Error('read ECONNRESET'), {
+      code: 'ECONNRESET',
+    })
+
+    const notes: string[] = []
+    await createSupabaseClassificationCache({
+      client: throwingClient(wrapped),
+      versions: CURRENT_VERSIONS,
+      sleep: async () => {},
+      onDegraded: (_op, d) => notes.push(d),
+    }).lookup(['k'])
+
+    const log = notes.join(' | ')
+    expect(log).toContain('fetch failed')
+    expect(log).toContain('ECONNRESET')
+  })
+
+  it('reports how many keys the failed chunk held, so size can be ruled in or out', async () => {
+    const notes: string[] = []
+    await createSupabaseClassificationCache({
+      client: throwingClient(new TypeError('fetch failed')),
+      versions: CURRENT_VERSIONS,
+      sleep: async () => {},
+      onDegraded: (_op, d) => notes.push(d),
+    }).lookup(['a', 'b', 'c'])
+
+    const log = notes.join(' ')
+    expect(log).toContain('3 keys')
+    // Duration distinguishes a timeout from a reset — both say "fetch failed".
+    expect(log).toMatch(/in \d+ms/)
+    expect(log).toMatch(/chunk \d+/)
+  })
+
+  it('survives a cause that is not an Error', async () => {
+    const wrapped = new TypeError('fetch failed')
+    ;(wrapped as Error & { cause?: unknown }).cause = 'socket hang up'
+
+    const notes: string[] = []
+    await createSupabaseClassificationCache({
+      client: throwingClient(wrapped),
+      versions: CURRENT_VERSIONS,
+      sleep: async () => {},
+      onDegraded: (_op, d) => notes.push(d),
+    }).lookup(['k'])
+
+    expect(notes.join(' ')).toContain('socket hang up')
+  })
+
+  it('does not invent a cause when there is none', async () => {
+    const notes: string[] = []
+    await createSupabaseClassificationCache({
+      client: throwingClient(new TypeError('fetch failed')),
+      versions: CURRENT_VERSIONS,
+      sleep: async () => {},
+      onDegraded: (_op, d) => notes.push(d),
+    }).lookup(['k'])
+
+    expect(notes.join(' ')).not.toMatch(/caused by:\s*(undefined|null)/i)
+  })
+})

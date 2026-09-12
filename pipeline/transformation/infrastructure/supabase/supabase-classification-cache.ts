@@ -101,6 +101,30 @@ export type SupabaseCacheDeps = {
   sleep?: (ms: number) => Promise<void>
 }
 
+/**
+ * A thrown value, flattened into something a log can be read from.
+ *
+ * `TypeError: fetch failed` is a WRAPPER. Node's undici puts the real reason on
+ * `.cause` — ECONNRESET, UND_ERR_HEADERS_TIMEOUT, ConnectTimeoutError,
+ * getaddrinfo ENOTFOUND — and those call for different fixes. Logging only
+ * `.message` is why three runs of this failure produced identical, useless log
+ * lines, and why two hypotheses were chased and disproven against evidence that
+ * could not tell them apart.
+ */
+function describeError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e)
+
+  const cause = (e as Error & { cause?: unknown }).cause
+  if (cause === undefined || cause === null) return e.message
+
+  const causeText =
+    cause instanceof Error
+      ? `${cause.message}${(cause as Error & { code?: string }).code ? ` (${(cause as Error & { code?: string }).code})` : ''}`
+      : String(cause)
+
+  return `${e.message} — caused by: ${causeText}`
+}
+
 function rowToCached(row: CacheRow): CachedClassification | null {
   const conf = createConfidence(Number(row.confidence))
   if (!isOk(conf)) return null
@@ -137,8 +161,12 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
    * — the one that actually bit us) and a returned PostgrestError. Treating
    * only the thrown one as retryable would leave half the hole open.
    */
-  async function readChunk(chunk: readonly string[]): Promise<CacheRow[] | null> {
+  async function readChunk(chunk: readonly string[], index: number): Promise<CacheRow[] | null> {
     let lastDetail = 'unknown error'
+    // Elapsed time separates a TIMEOUT (consistent, round number near a
+    // configured limit) from a CONNECTION RESET (fast, variable). Without it
+    // both read as "fetch failed".
+    const startedAt = Date.now()
 
     for (let attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
       if (attempt > 0) {
@@ -154,11 +182,15 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
         if (!error) return (data ?? []) as CacheRow[]
         lastDetail = error.message
       } catch (e) {
-        lastDetail = e instanceof Error ? e.message : String(e)
+        lastDetail = describeError(e)
       }
     }
 
-    degraded('lookup', `${chunk.length} keys unreadable after ${LOOKUP_ATTEMPTS} attempts: ${lastDetail}`)
+    degraded(
+      'lookup',
+      `chunk ${index}: ${chunk.length} keys unreadable after ${LOOKUP_ATTEMPTS} attempts ` +
+        `in ${Date.now() - startedAt}ms: ${lastDetail}`,
+    )
     return null
   }
 
@@ -173,7 +205,7 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
 
       for (let i = 0; i < cacheKeys.length; i += LOOKUP_CHUNK) {
         chunks++
-        const rows = await readChunk(cacheKeys.slice(i, i + LOOKUP_CHUNK))
+        const rows = await readChunk(cacheKeys.slice(i, i + LOOKUP_CHUNK), chunks)
         if (rows === null) {
           unreadable++
           continue
@@ -248,7 +280,7 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
           }
           written += rows.length
         } catch (e) {
-          degraded('save', e instanceof Error ? e.message : String(e))
+          degraded('save', describeError(e))
         }
       }
 
