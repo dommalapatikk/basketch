@@ -343,7 +343,7 @@ function SubCategorySection({
           }
           savingsPct={primary.discountPercent}
           isCheapest
-          href={primary.sourceUrl ?? '#'}
+          href={primary.sourceUrl}
           cheapestLabel={cheapestLabel}
           isUncertain={primary.isUncertain}
           unverifiedLabel={unverifiedLabel}
@@ -434,7 +434,7 @@ function OtherStoresBlock({
                   : null
               }
               savingsPct={d.discountPercent}
-              href={d.sourceUrl ?? '#'}
+              href={d.sourceUrl}
               isUncertain={d.isUncertain}
               unverifiedLabel={unverifiedLabel}
               memberPriceLabel={memberPriceLabel(d, locale)}

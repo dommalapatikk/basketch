@@ -242,3 +242,52 @@ describe('accessibility basics', () => {
     expect(link.getAttribute('target')).toBe('_blank')
   })
 })
+
+describe('a product with nowhere to link to', () => {
+  /**
+   * Aldi, Spar and Migros come from flyer PDFs and OCR. There is no per-product
+   * page on the retailer's site, so their adapters set `sourceUrl: null`
+   * deliberately (aldi-flyer-source.ts:179, spar-flyer-source.ts:146,
+   * migros-flyer-source.ts:241).
+   *
+   * The card fell back to `href="#"`, which looks like a link, invites a click,
+   * and leaves the visitor exactly where they were. 103 of 1,000 live deals
+   * behaved that way.
+   *
+   * The only URL we hold for those is `page_image_url` — a raw JPEG of the
+   * flyer page. Linking a product name to a bare image is worse than not
+   * linking at all.
+   */
+  it('renders the product name as text, not a dead link', () => {
+    const { container } = renderCard({ href: null })
+    const link = container.querySelector('a')
+    expect(link).toBeNull()
+    expect(screen.getByText('Emmi Vollmilch 1L')).toBeTruthy()
+  })
+
+  it('never emits href="#"', () => {
+    const { container } = renderCard({ href: null })
+    expect(container.innerHTML).not.toContain('href="#"')
+  })
+
+  it('still links when the retailer does have a product page', () => {
+    const { container } = renderCard({ href: 'https://denner.ch/x' })
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('https://denner.ch/x')
+  })
+
+  it('keeps the card accessible without a link', () => {
+    // aria-labelledby pointed at an id derived from the href. With no href the
+    // card must still name itself by its product title.
+    const { container } = renderCard({ href: null })
+    const article = container.querySelector('article') as HTMLElement
+    const id = article.getAttribute('aria-labelledby')
+    expect(id).toBeTruthy()
+    expect(document.getElementById(id as string)?.textContent).toBe('Emmi Vollmilch 1L')
+  })
+
+  it('applies to the compact card too', () => {
+    const { container } = renderCard({ variant: 'compact', href: null })
+    expect(container.querySelector('a')).toBeNull()
+    expect(screen.getByText('Emmi Vollmilch 1L')).toBeTruthy()
+  })
+})

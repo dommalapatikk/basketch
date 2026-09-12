@@ -29,7 +29,15 @@ type CommonProps = {
   perUnit?: string | null
   savingsPct?: number | null
   isCheapest?: boolean
-  href: string
+  /**
+   * The retailer's page for this product, or null when there is none.
+   *
+   * Aldi, Spar and Migros come from flyer PDFs and OCR — there is no
+   * per-product page, so their adapters set sourceUrl to null deliberately.
+   * The card used to fall back to href="#", which looks like a link, invites a
+   * click and goes nowhere. 103 of 1,000 live deals behaved that way.
+   */
+  href: string | null
   cheapestLabel?: string
   /**
    * The classifier's category for this deal is a guess it was not confident in.
@@ -99,7 +107,7 @@ function Primary({
   onlyStoreNote,
   attributes,
 }: CommonProps) {
-  const titleId = titleIdFor(href)
+  const titleId = titleIdFor(id)
   return (
     <article
       aria-labelledby={titleId}
@@ -142,15 +150,26 @@ function Primary({
           </div>
         </div>
 
-        <a
-          href={href}
-          rel="noopener nofollow ugc"
-          target="_blank"
-          id={titleId}
-          className="block text-base font-semibold leading-snug text-[var(--color-ink)] hover:underline sm:text-lg"
-        >
-          {productName}
-        </a>
+        {href ? (
+          <a
+            href={href}
+            rel="noopener nofollow ugc"
+            target="_blank"
+            id={titleId}
+            className="block text-base font-semibold leading-snug text-[var(--color-ink)] hover:underline sm:text-lg"
+          >
+            {productName}
+          </a>
+        ) : (
+          // No retailer page exists for flyer-sourced products. Plain text
+          // rather than a link that goes nowhere.
+          <p
+            id={titleId}
+            className="block text-base font-semibold leading-snug text-[var(--color-ink)] sm:text-lg"
+          >
+            {productName}
+          </p>
+        )}
 
         {format ? <p className="text-xs text-[var(--color-ink-3)]">{format}</p> : null}
 
@@ -202,7 +221,7 @@ function Compact({
   memberPriceLabel,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
-  const titleId = titleIdFor(href)
+  const titleId = titleIdFor(id)
   return (
     <article
       aria-labelledby={titleId}
@@ -247,15 +266,21 @@ function Compact({
             </span>
           ) : null}
         </div>
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener nofollow ugc"
-          id={titleId}
-          className="mt-0.5 block truncate text-sm text-[var(--color-ink)] hover:underline"
-        >
-          {productName}
-        </a>
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener nofollow ugc"
+            id={titleId}
+            className="mt-0.5 block truncate text-sm text-[var(--color-ink)] hover:underline"
+          >
+            {productName}
+          </a>
+        ) : (
+          <p id={titleId} className="mt-0.5 block truncate text-sm text-[var(--color-ink)]">
+            {productName}
+          </p>
+        )}
         {memberPriceLabel ? (
           // Legally required wherever the price is shown, so it appears on the
           // compact card too — truncated layout is not an exemption.
@@ -354,8 +379,8 @@ function StorePill({ store, size }: { store: StoreKey; size: 'sm' | 'md' }) {
   )
 }
 
-function titleIdFor(href: string): string {
-  return `dc-${hash(href)}`
+function titleIdFor(key: string): string {
+  return `dc-${hash(key)}`
 }
 
 function hash(s: string): string {
