@@ -1,15 +1,34 @@
 // SupabaseClassificationCache — the memo, persisted.
 //
-// THE RULE THIS FILE OBEYS: a cache failure degrades to a cache MISS, never to a
-// run failure. Losing the memo costs a few cents of model calls. Losing the run
-// costs a week of grocery data. So every method catches, logs and returns an
-// empty result rather than propagating.
+// THE RULE THIS FILE OBEYS, as amended 2026-09-12.
+//
+// It used to be absolute: a cache failure degrades to a cache MISS, never to a
+// run failure — losing the memo costs a few cents of model calls, losing the
+// run costs a week of grocery data.
+//
+// That arithmetic broke when classification moved to a free tier capped at 15
+// requests per MINUTE. A lost memo is no longer worth cents; it is worth
+// minutes, and enough of them exceed the step timeout. On run 34703713179
+// three unreadable lookup chunks (~600 products) turned a warm run — sized at
+// ~2 minutes in pipeline.yml — into a cold-start-sized one. Both attempts hit
+// the 45-minute wall and nothing was stored. Degrading did not protect the
+// run; it guaranteed a slower failure that also spent the quota.
+//
+// So the rule now reads:
+//   - a failed WRITE degrades to a miss, always. (Unchanged.)
+//   - a failed READ is RETRIED first — most are transient.
+//   - a minority of still-unreadable chunks degrades to a miss.
+//   - a majority FAILS the lookup, because proceeding is a doomed run.
+//
+// The asymmetry between read and write is deliberate: if Supabase cannot be
+// read it almost certainly cannot be written either, so a run that presses on
+// was going to fail at the storage step regardless.
 //
 // Supabase vocabulary — PostgrestError, .upsert(), snake_case columns — stops
 // here. The domain sees CachedClassification.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { type Result, isOk, ok } from '../../../collection/domain/result'
+import { type Result, err, isOk, ok } from '../../../collection/domain/result'
 import { createClassification, createConfidence } from '../../domain/classification'
 import type { CachedClassification, ClassificationCache } from '../../domain/classification-cache'
 import { mergeForCache } from '../../domain/classification-cache'
@@ -22,6 +41,40 @@ const TABLE = 'product_classification_cache'
  */
 const LOOKUP_CHUNK = 200
 const WRITE_CHUNK = 100
+
+/**
+ * How many times one lookup chunk is attempted before it counts as unreadable.
+ *
+ * Run 34703713179 lost three chunks — ~600 products — to `TypeError: fetch
+ * failed`, a transient network error that a single retry would almost
+ * certainly have cleared.
+ */
+const LOOKUP_ATTEMPTS = 3
+
+/** Backoff between lookup attempts. Short: eight chunks, and the run is waiting. */
+const LOOKUP_BACKOFF_MS = [250, 1_000] as const
+
+/**
+ * How much of the cache may be unreadable before the lookup FAILS instead of
+ * quietly reporting a miss.
+ *
+ * THE REASONING, and why this file's opening rule now has an exception.
+ *
+ * "Degrade to a miss, never to a run failure" assumed the downside was "a few
+ * cents of model calls". Under the free tier's 15 requests/minute that is no
+ * longer the downside. On 2026-09-12 losing ~440 cached classifications turned
+ * a warm run — which pipeline.yml sizes at ~2 minutes — into a cold-start-sized
+ * one that the 45-minute step timeout could not fit. Both attempts died.
+ *
+ * So proceeding on a mostly-unreadable cache does not degrade gracefully; it
+ * guarantees a slow failure while burning the day's quota. Failing here is
+ * faster, cheaper, and names the real cause in the log.
+ *
+ * A minority is still tolerated: one bad chunk in eight loses ~90 hits, which
+ * a warm run absorbs. Same shape of judgement as MIN_REFRESH_SHARE in
+ * stale-sweep.ts — proceed only on a plausible share of what should be there.
+ */
+const MAX_UNREADABLE_SHARE = 0.25
 
 type CacheRow = {
   cache_key: string
@@ -44,6 +97,8 @@ export type SupabaseCacheDeps = {
   versions: { taxonomyVersion: number; promptVersion: number; schemaVersion: number }
   /** Injected so a degraded cache is visible in telemetry rather than silent. */
   onDegraded?: (operation: string, detail: string) => void
+  /** Injected so retry tests do not actually wait. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 function rowToCached(row: CacheRow): CachedClassification | null {
@@ -73,6 +128,39 @@ function rowToCached(row: CacheRow): CachedClassification | null {
 
 export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): ClassificationCache {
   const degraded = (op: string, detail: string) => deps.onDegraded?.(op, detail)
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+
+  /**
+   * One chunk, retried. Returns null when every attempt failed.
+   *
+   * Both failure shapes are retried: a THROWN error (`TypeError: fetch failed`
+   * — the one that actually bit us) and a returned PostgrestError. Treating
+   * only the thrown one as retryable would leave half the hole open.
+   */
+  async function readChunk(chunk: readonly string[]): Promise<CacheRow[] | null> {
+    let lastDetail = 'unknown error'
+
+    for (let attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+      if (attempt > 0) {
+        await sleep(LOOKUP_BACKOFF_MS[attempt - 1] ?? LOOKUP_BACKOFF_MS[LOOKUP_BACKOFF_MS.length - 1] ?? 1_000)
+      }
+
+      try {
+        const { data, error } = await deps.client
+          .from(TABLE)
+          .select('cache_key,normalised_name,category,sub_category,attributes,confidence,is_uncertain,model,tier,taxonomy_version,prompt_version,schema_version,run_id')
+          .in('cache_key', chunk)
+
+        if (!error) return (data ?? []) as CacheRow[]
+        lastDetail = error.message
+      } catch (e) {
+        lastDetail = e instanceof Error ? e.message : String(e)
+      }
+    }
+
+    degraded('lookup', `${chunk.length} keys unreadable after ${LOOKUP_ATTEMPTS} attempts: ${lastDetail}`)
+    return null
+  }
 
   return {
     async lookup(cacheKeys): Promise<Result<readonly CachedClassification[]>> {
@@ -80,32 +168,39 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
 
       const found: CachedClassification[] = []
       let stale = 0
+      let chunks = 0
+      let unreadable = 0
 
       for (let i = 0; i < cacheKeys.length; i += LOOKUP_CHUNK) {
-        const chunk = cacheKeys.slice(i, i + LOOKUP_CHUNK)
-        try {
-          const { data, error } = await deps.client
-            .from(TABLE)
-            .select('cache_key,normalised_name,category,sub_category,attributes,confidence,is_uncertain,model,tier,taxonomy_version,prompt_version,schema_version,run_id')
-            .in('cache_key', chunk)
+        chunks++
+        const rows = await readChunk(cacheKeys.slice(i, i + LOOKUP_CHUNK))
+        if (rows === null) {
+          unreadable++
+          continue
+        }
 
-          if (error) {
-            // Degrade to a miss. The run continues and pays for the model.
-            degraded('lookup', error.message)
-            continue
-          }
-
-          for (const row of (data ?? []) as CacheRow[]) {
-            const mapped = rowToCached(row)
-            if (mapped) found.push(mapped)
-            else stale++
-          }
-        } catch (e) {
-          degraded('lookup', e instanceof Error ? e.message : String(e))
+        for (const row of rows) {
+          const mapped = rowToCached(row)
+          if (mapped) found.push(mapped)
+          else stale++
         }
       }
 
       if (stale > 0) degraded('lookup', `${stale} cached rows no longer satisfy the taxonomy and were ignored`)
+
+      // Note this counts CHUNKS THAT COULD NOT BE READ — not rows that were
+      // absent. An empty cache reads cleanly and returns nothing, which is a
+      // legitimate zero and must still proceed, or no cold start could ever
+      // run.
+      if (unreadable > 0 && unreadable > chunks * MAX_UNREADABLE_SHARE) {
+        const detail =
+          `${unreadable} of ${chunks} lookup chunks could not be read — refusing to treat ` +
+          `~${unreadable * LOOKUP_CHUNK} cached products as uncached. Re-classifying them at the ` +
+          `free tier's per-minute cap would exceed the step timeout and spend quota already paid.`
+        degraded('lookup', detail)
+        return err(detail)
+      }
+
       return ok(found)
     },
 

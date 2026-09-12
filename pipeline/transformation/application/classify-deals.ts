@@ -245,19 +245,35 @@ export async function classifyDeals(
       classification: CachedClassification['classification']
     }
   >()
-  if (isOk(lookup)) {
-    for (const entry of lookup.value) {
-      cached.set(entry.cacheKey, {
-        category: entry.classification.category,
-        subCategory: entry.classification.subCategory,
-        confidence: entry.classification.confidence.value,
-        isUncertain: entry.classification.isUncertain,
-        // Enriched once, reused every run. Without this the attributes are
-        // recomputed or — as they were until 2026-09-11 — simply dropped.
-        attributes: entry.attributes,
-        classification: entry.classification,
-      })
-    }
+  // NO SILENT `else`. A failed lookup used to fall through here leaving `cached`
+  // empty, which planRun reads as zero hits and therefore a COLD START — so the
+  // run re-classified everything it had already paid for. Under the free tier's
+  // 15 requests/minute that cannot finish inside the step timeout, which is
+  // precisely how run 34703713179 died twice and stored nothing.
+  //
+  // The cache only returns an error when MOST of it is unreadable; a minority
+  // of bad chunks still degrades to a miss, and an EMPTY cache is an ok([]).
+  // So reaching this branch means the memo is genuinely gone, and pressing on
+  // is a guaranteed slow failure that also spends the day's quota.
+  if (!isOk(lookup)) {
+    throw new Error(
+      `classification cache could not be read: ${lookup.error}. Refusing to continue — ` +
+        'treating cached products as uncached would re-classify the whole catalogue ' +
+        'and exceed the step timeout.',
+    )
+  }
+
+  for (const entry of lookup.value) {
+    cached.set(entry.cacheKey, {
+      category: entry.classification.category,
+      subCategory: entry.classification.subCategory,
+      confidence: entry.classification.confidence.value,
+      isUncertain: entry.classification.isUncertain,
+      // Enriched once, reused every run. Without this the attributes are
+      // recomputed or — as they were until 2026-09-11 — simply dropped.
+      attributes: entry.attributes,
+      classification: entry.classification,
+    })
   }
   log(`[transform] cache: ${cached.size}/${deals.length} hits`)
 

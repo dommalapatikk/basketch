@@ -52,7 +52,13 @@ function stubClient(behaviour: {
 }
 
 const make = (client: SupabaseClient, onDegraded?: (op: string, d: string) => void) =>
-  createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS, onDegraded })
+  createSupabaseClassificationCache({
+    client,
+    versions: CURRENT_VERSIONS,
+    onDegraded,
+    // Lookups now retry with backoff; without this the suite really waits.
+    sleep: async () => {},
+  })
 
 describe('the cache key', () => {
   it('ignores case and whitespace — one product, one entry, one model call', () => {
@@ -92,21 +98,43 @@ describe('lookup', () => {
   })
 })
 
-describe('a cache failure degrades to a MISS, never to a run failure', () => {
-  it('returns no hits when the query errors', async () => {
-    // Losing the memo costs cents. Losing the run costs a week of data.
+/**
+ * THIS BLOCK REVERSES A DELIBERATE DECISION. Read before changing it back.
+ *
+ * It used to read "a cache failure degrades to a MISS, never to a run failure",
+ * justified as: "Losing the memo costs cents. Losing the run costs a week of
+ * data." That was sound when a lost memo meant re-paying for a model call.
+ *
+ * It stopped being sound when the model moved to a free tier capped at 15
+ * requests per MINUTE. On run 34703713179 three unreadable lookup chunks
+ * turned a warm run — sized at ~2 minutes in pipeline.yml — into a
+ * cold-start-sized one that the 45-minute step timeout could not fit. Both
+ * attempts died and nothing was stored. Degrading did not save the run; it
+ * guaranteed a slower, more expensive failure.
+ *
+ * So the rule now has a threshold rather than being absolute:
+ *   - transient failures are RETRIED (LOOKUP_ATTEMPTS)
+ *   - a minority of unreadable chunks still degrades to a miss
+ *   - a majority FAILS, because proceeding is a doomed run that spends quota
+ *
+ * A failed WRITE still degrades — that half is unchanged and still correct.
+ *
+ * Note the asymmetry is deliberate: if Supabase cannot be READ, it almost
+ * certainly cannot be WRITTEN either, so the run was going to fail anyway.
+ */
+describe('an unreadable cache fails fast; a failed write still degrades', () => {
+  it('fails the lookup when the query errors on every attempt', async () => {
     const notes: string[] = []
     const { client } = stubClient({ selectResult: { data: null, error: { message: 'relation does not exist' } } })
     const r = await make(client, (op, d) => notes.push(`${op}: ${d}`)).lookup(['k'])
-    expect(isOk(r)).toBe(true)
-    if (isOk(r)) expect(r.value).toEqual([])
-    expect(notes[0]).toContain('relation does not exist')
+    expect(isOk(r)).toBe(false)
+    expect(notes.join(' ')).toContain('relation does not exist')
   })
 
-  it('survives the client throwing outright', async () => {
+  it('fails rather than pretending an unreachable cache is an empty one', async () => {
     const { client } = stubClient({ throwOn: 'select' })
     const r = await make(client).lookup(['k'])
-    expect(isOk(r) && r.value).toEqual([])
+    expect(isOk(r)).toBe(false)
   })
 
   it('reports a failed write instead of losing the run', async () => {
@@ -239,5 +267,179 @@ describe('one statement, one row per cache key', () => {
     const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
     const saved = await cache.save([entry('A'), entry('B'), entry('A')])
     expect(isOk(saved) ? saved.value : -1).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A transient lookup failure must not be reported as "not in the cache"
+// ---------------------------------------------------------------------------
+/**
+ * THE DEFECT, measured on run 34703713179, 2026-09-12.
+ *
+ * The pipeline log:
+ *
+ *   [WARN] classification cache lookup: TypeError: fetch failed   x3
+ *   [transform] cache: 742/1598 hits
+ *   chunk 1/8: classify+judge 1079.8s (100 products, 100 judged)
+ *   ##[error]Final attempt failed. Timeout of 2700000ms hit
+ *
+ * Lookups go out in chunks of LOOKUP_CHUNK (200). Three chunks failed with a
+ * transient network error, and `lookup` caught each one, logged it, and
+ * CONTINUED — so ~600 products that were sitting in the cache were reported as
+ * uncached and re-sent to the model. The five readable chunks hit 742/1000
+ * (74%), so those 600 most likely held ~440 more hits.
+ *
+ * The blast radius is not "a few cents". This was meant to be a WARM run,
+ * which pipeline.yml sizes at ~2 minutes. Re-classifying 440 products at the
+ * free tier's 15 requests/minute turned it into a cold-start-sized run that
+ * the 45-minute step timeout could never fit. Both attempts died mid-way, and
+ * the second restarted from chunk 1.
+ *
+ * The rule this file states —
+ *
+ *   "a cache failure degrades to a cache MISS, never to a run failure.
+ *    Losing the memo costs a few cents of model calls."
+ *
+ * — was written when model calls were cheap AND fast. Under a per-minute cap,
+ * losing the memo costs the whole run. So: retry first, and if a large share
+ * of the cache still cannot be read, say so instead of silently doing hours of
+ * work we already paid for.
+ *
+ * An empty cache is NOT this case. A first cold start reads every chunk
+ * successfully and finds no rows; that is a legitimate zero, and it still
+ * proceeds.
+ */
+
+/** Stub whose `in()` returns a different result per call, so retries are observable. */
+function sequencedClient(results: Array<{ data: unknown[] | null; error: { message: string } | null } | 'throw'>) {
+  let call = 0
+  const client = {
+    from() {
+      return {
+        select() {
+          return {
+            in() {
+              const r = results[Math.min(call, results.length - 1)]
+              call++
+              if (r === 'throw') throw new Error('TypeError: fetch failed')
+              return Promise.resolve(r)
+            },
+          }
+        },
+      }
+    },
+  } as unknown as SupabaseClient
+  return { client, calls: () => call }
+}
+
+const noSleep = async () => {}
+
+describe('a transient lookup failure is retried, not treated as a miss', () => {
+  it('retries and returns the rows the second attempt reads', async () => {
+    const { client, calls } = sequencedClient(['throw', { data: [row()], error: null }])
+    const cache = createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+    })
+
+    const r = await cache.lookup(['emmi milch|t3|p1|s1'])
+    expect(isOk(r)).toBe(true)
+    expect(unwrap(r)).toHaveLength(1)
+    expect(calls()).toBe(2)
+  })
+
+  it('retries a PostgREST error result, not just a thrown one', async () => {
+    const { client, calls } = sequencedClient([
+      { data: null, error: { message: 'upstream timeout' } },
+      { data: [row()], error: null },
+    ])
+    const cache = createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+    })
+
+    expect(unwrap(await cache.lookup(['emmi milch|t3|p1|s1']))).toHaveLength(1)
+    expect(calls()).toBe(2)
+  })
+
+  it('gives up after a bounded number of attempts rather than hanging the run', async () => {
+    const { client, calls } = sequencedClient(['throw'])
+    const cache = createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+    })
+
+    await cache.lookup(['k'])
+    expect(calls()).toBeLessThanOrEqual(3)
+    expect(calls()).toBeGreaterThan(1)
+  })
+
+  it('FAILS the lookup when the cache cannot be read at all', async () => {
+    // Proceeding here means re-classifying everything under a per-minute cap
+    // and hitting the step timeout anyway. Failing fast saves the quota and
+    // names the real cause in the log.
+    const { client } = sequencedClient(['throw'])
+    const notes: string[] = []
+    const cache = createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+      onDegraded: (op, d) => notes.push(`${op}: ${d}`),
+    })
+
+    const r = await cache.lookup(['k'])
+    expect(isOk(r)).toBe(false)
+    expect(notes.join(' ')).toMatch(/unreadable|could not be read/i)
+  })
+
+  it('an EMPTY cache is not an unreadable one — a cold start still proceeds', async () => {
+    // The distinction that matters: every chunk was read successfully and held
+    // no rows. That is a legitimate zero.
+    const { client } = sequencedClient([{ data: [], error: null }])
+    const cache = createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+    })
+
+    const r = await cache.lookup(['a', 'b', 'c'])
+    expect(isOk(r)).toBe(true)
+    expect(unwrap(r)).toEqual([])
+  })
+
+  it('tolerates a minority of unreadable chunks, since most of the memo survives', async () => {
+    // 1 unreadable chunk in 8 loses ~90 hits, which a warm run absorbs. The
+    // run continues rather than failing over a blip.
+    const keys = Array.from({ length: 1_600 }, (_, i) => `key-${i}`)
+    let chunk = 0
+    const client = {
+      from() {
+        return {
+          select() {
+            return {
+              in(_col: string, ks: string[]) {
+                // Fail every attempt of the first chunk only.
+                const isFirstChunk = ks[0] === 'key-0'
+                chunk++
+                if (isFirstChunk) throw new Error('TypeError: fetch failed')
+                return Promise.resolve({ data: [row()], error: null })
+              },
+            }
+          },
+        }
+      },
+    } as unknown as SupabaseClient
+
+    const r = await createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: noSleep,
+    }).lookup(keys)
+
+    expect(isOk(r)).toBe(true)
+    expect(chunk).toBeGreaterThan(8)
   })
 })

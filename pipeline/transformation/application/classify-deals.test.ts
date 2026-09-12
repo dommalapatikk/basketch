@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UnifiedDeal } from '../../../shared/types'
-import { ok, unwrap } from '../../collection/domain/result'
+import { err, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
@@ -792,5 +792,55 @@ describe('a product sold by several retailers is classified once', () => {
     const r = await run(['coop', 'denner', 'migros'].map((s) => deal('Coca-Cola Classic 6x50cl', s)))
     expect(r.deals).toHaveLength(3)
     for (const d of r.deals) expect(d.subCategory).toBe('dairy')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// An unreadable cache must stop the run, not restart it as a cold start
+// ---------------------------------------------------------------------------
+/**
+ * THE SECOND HALF OF THE 2026-09-12 DEFECT (run 34703713179).
+ *
+ * supabase-classification-cache.ts now FAILS the lookup when most of the cache
+ * cannot be read, instead of reporting the cached products as uncached. That
+ * fix does nothing on its own, because this is what the caller did with it:
+ *
+ *     if (isOk(lookup)) { ...populate the map... }
+ *     // no else
+ *
+ * An error simply left `cached` empty, planRun saw zero hits, declared a cold
+ * start, and the run re-classified ~1,600 products at 15 requests/minute until
+ * the 45-minute step timeout killed it. Exactly the outcome the cache fix
+ * exists to prevent — the fix was real, and nothing consumed it.
+ *
+ * That is the recurring shape in this pipeline: a correct unit with no wiring.
+ * So this test lives with the CALLER, and asserts the run stops.
+ */
+describe('an unreadable classification cache stops the run', () => {
+  const unreadable = {
+    lookup: async () => err<never[]>('7 of 8 lookup chunks could not be read'),
+    save: async () => ok(0),
+  }
+
+  it('refuses to proceed rather than re-classifying everything as a cold start', async () => {
+    await expect(run([deal('Emmi Milch')], { cache: unreadable })).rejects.toThrow(
+      /cache|unreadable|could not be read/i,
+    )
+  })
+
+  it('names the cause, so the log does not just show a timeout', async () => {
+    // The run that prompted this ended in `Timeout of 2700000ms hit`, which
+    // says nothing about why. The message must carry the real reason.
+    await expect(run([deal('Emmi Milch')], { cache: unreadable })).rejects.toThrow(
+      /could not be read/i,
+    )
+  })
+
+  it('still runs normally when the cache is merely EMPTY', async () => {
+    // A genuine cold start reads the cache successfully and finds nothing.
+    // That must keep working, or the first run of any new taxonomy is blocked.
+    const result = await run([deal('Emmi Milch')], { cache: createInMemoryCache() })
+    expect(result.deals.length).toBe(1)
+    expect(result.stats.cacheHits).toBe(0)
   })
 })
