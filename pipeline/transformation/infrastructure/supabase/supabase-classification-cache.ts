@@ -36,10 +36,36 @@ import { mergeForCache } from '../../domain/classification-cache'
 const TABLE = 'product_classification_cache'
 
 /**
- * Postgres has a practical ceiling on `IN (...)` list length, and a 1,800-key
- * lookup in one statement is both slow and fragile.
+ * How many BYTES of encoded cache keys may go into one lookup request.
+ *
+ * NOT A KEY COUNT, and that is the whole point. This used to be
+ * `LOOKUP_CHUNK = 200`, which made the request size a function of data we do
+ * not control: cacheKeyFor() returns the raw lowercased product name, and
+ * Swiss names carry umlauts, %, & and spaces that percent-encode to 3-6 bytes
+ * each. Two chunks of 200 keys can differ by kilobytes.
+ *
+ * That is why exactly 3 of 8 chunks failed on every attempt of every run while
+ * the other 5 were fine: the failures were the chunks holding the longest
+ * names. A count cannot express "keep the request small enough to send"; bytes
+ * can.
+ *
+ * VERIFIED IN postgrest-js src/PostgrestBuilder.ts:
+ *   :141  this.urlLengthLimit = builder.urlLengthLimit ?? 8000
+ *   :412  hint 'HTTP headers exceeded server limits (typically 16KB)'
+ *   :415  "If filtering with large arrays (e.g., .in('id', [200+ IDs])),
+ *          consider using an RPC function instead."
+ *
+ * The library anticipates this exact call shape. 5,000 leaves generous room
+ * under its 8,000 for the base URL, the select list and headers.
  */
-const LOOKUP_CHUNK = 200
+const LOOKUP_BUDGET_BYTES = 5_000
+
+/**
+ * Belt and braces: Postgres also has a practical ceiling on `IN (...)` length,
+ * independent of how short the keys are.
+ */
+const LOOKUP_MAX_KEYS = 150
+
 const WRITE_CHUNK = 100
 
 /**
@@ -55,8 +81,26 @@ const LOOKUP_ATTEMPTS = 3
 const LOOKUP_BACKOFF_MS = [250, 1_000] as const
 
 /**
- * How much of the cache may be unreadable before the lookup FAILS instead of
+ * How many PRODUCTS may be unreadable before the lookup FAILS instead of
  * quietly reporting a miss.
+ *
+ * COUNTED IN PRODUCTS, NOT CHUNKS, AND THAT MATTERS. The first version of this
+ * guard was a share of CHUNKS (0.25). Its denominator was an artefact of the
+ * chunking constant, so shrinking chunks — which the byte-budget fix does —
+ * would have turned the very failure it was written for (3 bad chunks) from
+ * 3/8 = 0.38 and FAILING into roughly 3/30 = 0.10 and silently degrading. A
+ * guard that flips meaning when you tune an unrelated constant is not a guard.
+ *
+ * CALIBRATED FROM THE BUDGET, not picked round. At the free tier's 15
+ * requests/minute, and against pipeline.yml's 45-minute step:
+ *
+ *     100 products ~  7 min   fits
+ *     200 products ~ 13 min   fits, with room for the rest of the run
+ *     440 products ~ 30 min   the 2026-09-12 failure — did NOT fit
+ *     600 products ~ 40 min   the same failure at its worst
+ *
+ * So 200 sits above what a run can genuinely absorb and well below what killed
+ * it. Lower is not safer: it would fail runs that would have finished.
  *
  * THE REASONING, and why this file's opening rule now has an exception.
  *
@@ -70,11 +114,12 @@ const LOOKUP_BACKOFF_MS = [250, 1_000] as const
  * guarantees a slow failure while burning the day's quota. Failing here is
  * faster, cheaper, and names the real cause in the log.
  *
- * A minority is still tolerated: one bad chunk in eight loses ~90 hits, which
- * a warm run absorbs. Same shape of judgement as MIN_REFRESH_SHARE in
- * stale-sweep.ts — proceed only on a plausible share of what should be there.
+ * A minority is still tolerated: two hundred lost hits is ~13 minutes, which a
+ * warm run absorbs. Same shape of judgement as MIN_REFRESH_SHARE in
+ * stale-sweep.ts — proceed only on a plausible share of what should be there —
+ * but expressed, as there, in a real-world unit rather than an internal one.
  */
-const MAX_UNREADABLE_SHARE = 0.25
+const MAX_UNREADABLE_KEYS = 200
 
 type CacheRow = {
   cache_key: string
@@ -123,6 +168,55 @@ function describeError(e: unknown): string {
       : String(cause)
 
   return `${e.message} — caused by: ${causeText}`
+}
+
+/**
+ * Bytes a set of keys occupies once percent-encoded into a query string.
+ *
+ * Length in CHARACTERS is the wrong unit — `ä` is one character and three
+ * bytes encoded (`%C3%A4`), and a space is one character and three (`%20`).
+ * Measuring characters is what let a "200 key" chunk silently become a
+ * 20-kilobyte request.
+ */
+export function encodedSize(keys: readonly string[]): number {
+  // +1 per key for the separating comma; quoting adds a couple more.
+  return keys.reduce((total, k) => total + encodeURIComponent(k).length + 3, 0)
+}
+
+/**
+ * Splits keys into chunks that each fit the transport budget.
+ *
+ * A single key larger than the whole budget is still emitted, alone. It will
+ * probably fail — but failing loudly on one product is honest, whereas
+ * dropping it means re-classifying it every run forever while the cache
+ * reports a clean lookup. That is the failure mode this codebase keeps
+ * producing, so it is refused explicitly here.
+ */
+export function chunkByEncodedSize(
+  keys: readonly string[],
+  budgetBytes: number = LOOKUP_BUDGET_BYTES,
+  maxKeys: number = LOOKUP_MAX_KEYS,
+): string[][] {
+  const chunks: string[][] = []
+  let current: string[] = []
+  let size = 0
+
+  for (const key of keys) {
+    const keySize = encodedSize([key])
+
+    const wouldOverflow = current.length > 0 && (size + keySize > budgetBytes || current.length >= maxKeys)
+    if (wouldOverflow) {
+      chunks.push(current)
+      current = []
+      size = 0
+    }
+
+    current.push(key)
+    size += keySize
+  }
+
+  if (current.length > 0) chunks.push(current)
+  return chunks
 }
 
 function rowToCached(row: CacheRow): CachedClassification | null {
@@ -180,7 +274,20 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
           .in('cache_key', chunk)
 
         if (!error) return (data ?? []) as CacheRow[]
-        lastDetail = error.message
+
+        // ⚠️ READ .details AND .hint, NOT JUST .message.
+        //
+        // postgrest-js CATCHES network errors and RETURNS them
+        // (PostgrestBuilder.ts:367), so the `catch` below never fires for a
+        // dropped connection. `.message` is hardcoded to the useless wrapper
+        // `"TypeError: fetch failed"` (:422) while the real cause goes to
+        // `.details` (:423) and the remedy to `.hint` (:424).
+        //
+        // Four runs of this failure produced identical, uninformative log
+        // lines for exactly this reason.
+        lastDetail = [error.message, error.details, error.hint]
+          .filter((part) => typeof part === 'string' && part.length > 0)
+          .join(' | ')
       } catch (e) {
         lastDetail = describeError(e)
       }
@@ -188,8 +295,8 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
 
     degraded(
       'lookup',
-      `chunk ${index}: ${chunk.length} keys unreadable after ${LOOKUP_ATTEMPTS} attempts ` +
-        `in ${Date.now() - startedAt}ms: ${lastDetail}`,
+      `chunk ${index}: ${chunk.length} keys (${encodedSize(chunk)} encoded bytes) unreadable ` +
+        `after ${LOOKUP_ATTEMPTS} attempts in ${Date.now() - startedAt}ms: ${lastDetail}`,
     )
     return null
   }
@@ -201,13 +308,16 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
       const found: CachedClassification[] = []
       let stale = 0
       let chunks = 0
-      let unreadable = 0
+      let unreadableChunks = 0
+      // Counted in PRODUCTS, not chunks — see MAX_UNREADABLE_KEYS.
+      let unreadableKeys = 0
 
-      for (let i = 0; i < cacheKeys.length; i += LOOKUP_CHUNK) {
+      for (const chunk of chunkByEncodedSize(cacheKeys)) {
         chunks++
-        const rows = await readChunk(cacheKeys.slice(i, i + LOOKUP_CHUNK), chunks)
+        const rows = await readChunk(chunk, chunks)
         if (rows === null) {
-          unreadable++
+          unreadableChunks++
+          unreadableKeys += chunk.length
           continue
         }
 
@@ -220,17 +330,37 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
 
       if (stale > 0) degraded('lookup', `${stale} cached rows no longer satisfy the taxonomy and were ignored`)
 
-      // Note this counts CHUNKS THAT COULD NOT BE READ — not rows that were
-      // absent. An empty cache reads cleanly and returns nothing, which is a
-      // legitimate zero and must still proceed, or no cold start could ever
-      // run.
-      if (unreadable > 0 && unreadable > chunks * MAX_UNREADABLE_SHARE) {
-        const detail =
-          `${unreadable} of ${chunks} lookup chunks could not be read — refusing to treat ` +
-          `~${unreadable * LOOKUP_CHUNK} cached products as uncached. Re-classifying them at the ` +
-          `free tier's per-minute cap would exceed the step timeout and spend quota already paid.`
+      // Counts PRODUCTS that could not be read — not rows that were absent. An
+      // empty cache reads cleanly and returns nothing, which is a legitimate
+      // zero and must still proceed, or no cold start could ever run.
+      // TWO conditions, because they catch different failures.
+      //
+      // A key count catches the partial case — enough products lost that the
+      // re-classification will not fit the step budget.
+      //
+      // A total outage catches the case a key count cannot see: EVERY chunk
+      // unreadable is Supabase being unreachable, and that is worth failing on
+      // even when the dataset is small, because the storage step at the end of
+      // the run is about to fail against the same host anyway.
+      const totalOutage = chunks > 0 && unreadableChunks === chunks
+      if (totalOutage || unreadableKeys > MAX_UNREADABLE_KEYS) {
+        const detail = totalOutage
+          ? `the classification cache is unreachable — all ${chunks} lookup chunks failed. ` +
+            'Refusing to treat the whole memo as empty; the storage step would fail against ' +
+            'the same host regardless.'
+          : `${unreadableKeys} cached products across ${unreadableChunks} of ${chunks} lookup chunks ` +
+            'could not be read — refusing to treat them as uncached. Re-classifying them at the ' +
+            "free tier's per-minute cap would exceed the step timeout and spend quota already paid."
         degraded('lookup', detail)
         return err(detail)
+      }
+
+      if (unreadableKeys > 0) {
+        degraded(
+          'lookup',
+          `${unreadableKeys} cached products were unreadable and will be re-classified — ` +
+            `under the ${MAX_UNREADABLE_KEYS} tolerated, so the run continues.`,
+        )
       }
 
       return ok(found)

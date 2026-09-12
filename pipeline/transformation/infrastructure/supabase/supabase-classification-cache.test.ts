@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { isOk, unwrap } from '../../../collection/domain/result'
 import { createClassification, createConfidence } from '../../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, normaliseForCache } from '../../domain/classification-cache'
-import { createSupabaseClassificationCache } from './supabase-classification-cache'
+import {
+  chunkByEncodedSize,
+  createSupabaseClassificationCache,
+  encodedSize,
+} from './supabase-classification-cache'
 
 const row = (over: Record<string, unknown> = {}) => ({
   cache_key: 'emmi milch|t3|p1|s1',
@@ -539,5 +543,104 @@ describe('a wrapped fetch error reports its underlying cause', () => {
     }).lookup(['k'])
 
     expect(notes.join(' ')).not.toMatch(/caused by:\s*(undefined|null)/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Request size must be bounded by BYTES, not by a key count
+// ---------------------------------------------------------------------------
+/**
+ * VERIFIED AGAINST THE LIBRARY, 2026-09-12 (postgrest-js src/PostgrestBuilder.ts).
+ *
+ *   line 141  this.urlLengthLimit = builder.urlLengthLimit ?? 8000
+ *   line 415  "Your request URL is N characters. If filtering with large
+ *              arrays (e.g., .in(\'id\', [200+ IDs])), consider using an RPC
+ *              function instead."
+ *   line 412  "HTTP headers exceeded server limits (typically 16KB)"
+ *
+ * The library anticipates this exact call shape. LOOKUP_CHUNK = 200 made the
+ * request size a function of DATA WE DO NOT CONTROL: cacheKeyFor() returns the
+ * raw lowercased product name, and Swiss names carry umlauts, %, & and spaces
+ * that percent-encode to 3-6 bytes each. So two chunks of the same 200 keys can
+ * differ by kilobytes, which is why exactly 3 of 8 failed, every time, while
+ * the other 5 were fine — the failures are the chunks with the longest names.
+ *
+ * A count-based chunk cannot express the constraint. Bytes can.
+ */
+describe('chunkByEncodedSize keeps every request under the transport budget', () => {
+  it('never emits a chunk whose encoded size exceeds the budget', () => {
+    const keys = Array.from({ length: 500 }, (_, i) => `produkt-nr-${i}-mit-umlauten-äöü-und-prozent-%|t3|p1|s1`)
+    for (const chunk of chunkByEncodedSize(keys, 2_000)) {
+      expect(encodedSize(chunk)).toBeLessThanOrEqual(2_000)
+    }
+  })
+
+  it('loses no keys and keeps their order', () => {
+    const keys = ['a', 'b', 'c', 'd', 'e']
+    expect(chunkByEncodedSize(keys, 12).flat()).toEqual(keys)
+  })
+
+  it('gives SMALLER chunks for long accented names than for short ascii ones', () => {
+    // The mechanism behind "only some chunks failed".
+    const short = Array.from({ length: 200 }, (_, i) => `k${i}`)
+    const long = Array.from({ length: 200 }, (_, i) => `denner schweinsnierstück ${i} 25% rabatt aktion|t3|p1|s1`)
+    expect(chunkByEncodedSize(long, 4_000).length).toBeGreaterThan(
+      chunkByEncodedSize(short, 4_000).length,
+    )
+  })
+
+  it('still emits a single oversized key rather than dropping it', () => {
+    // Cannot be split. Better to attempt and fail loudly than to silently omit
+    // a product from the cache lookup and re-classify it forever.
+    const huge = 'x'.repeat(5_000)
+    const chunks = chunkByEncodedSize([huge], 1_000)
+    expect(chunks).toEqual([[huge]])
+  })
+
+  it('returns nothing for no keys', () => {
+    expect(chunkByEncodedSize([], 1_000)).toEqual([])
+  })
+
+  it('measures BYTES, not characters — an umlaut is not one byte on the wire', () => {
+    expect(encodedSize(['ä'])).toBeGreaterThan(1)
+  })
+})
+
+describe('a PostgrestError carries its diagnosis in details and hint, not message', () => {
+  /**
+   * postgrest-js CATCHES network errors and RETURNS them (PostgrestBuilder.ts:367).
+   * `.message` is always the useless `"TypeError: fetch failed"`; the real cause
+   * is on `.details` and the remedy on `.hint`. Reading only `.message` is why
+   * four runs of this failure produced identical, uninformative logs.
+   */
+  it('logs details and hint, not just the wrapper message', async () => {
+    const client = {
+      from: () => ({
+        select: () => ({
+          in: () =>
+            Promise.resolve({
+              data: null,
+              error: {
+                message: 'TypeError: fetch failed',
+                details: 'TypeError: fetch failed — UND_ERR_HEADERS_OVERFLOW',
+                hint: 'HTTP headers exceeded server limits (typically 16KB)',
+                code: '',
+              },
+            }),
+        }),
+      }),
+    } as unknown as SupabaseClient
+
+    const notes: string[] = []
+    await createSupabaseClassificationCache({
+      client,
+      versions: CURRENT_VERSIONS,
+      sleep: async () => {},
+      onDegraded: (_op, d) => notes.push(d),
+    }).lookup(['k'])
+
+    const log = notes.join(' | ')
+    expect(log).toContain('UND_ERR_HEADERS_OVERFLOW')
+    expect(log).toContain('16KB')
   })
 })
