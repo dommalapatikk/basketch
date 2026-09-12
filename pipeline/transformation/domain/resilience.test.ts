@@ -174,3 +174,49 @@ describe('latency budget', () => {
     expect(isOk(r)).toBe(false)
   })
 })
+
+describe('a per-minute limit is not a per-day limit', () => {
+  /**
+   * MEASURED against the live API, 2026-09-12:
+   *
+   *   quotaId    = GenerateRequestsPerMinutePerProjectPerModel-FreeTier
+   *   value      = 15
+   *   retryDelay = 31s
+   *
+   * The free tier's binding constraint is 15 requests per MINUTE, recoverable
+   * in half a minute. Our runs reported "daily quota exhausted — no delay
+   * recovers this within the run" and abandoned seven of eight chunks, while a
+   * burst of 16 calls a moment later succeeded.
+   *
+   * Getting this wrong is expensive in one direction only: a per-minute limit
+   * misread as daily abandons a run that would have finished after a pause.
+   * The reverse merely wastes a few retries.
+   */
+  it('reads Google\'s per-minute violation as short, not daily', () => {
+    const body =
+      'HTTP 429: {"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. ' +
+      'For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.",' +
+      '"status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure",' +
+      '"violations":[{"quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests",' +
+      '"quotaId":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier","quotaValue":"15"}]},' +
+      '{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"31s"}]}}'
+    expect(classifyFailure(429, body)).toBe('rate-limited-short')
+  })
+
+  it('still reads a genuine per-day violation as daily', () => {
+    const body =
+      'HTTP 429: {"error":{"status":"RESOURCE_EXHAUSTED","details":[{"violations":[' +
+      '{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaValue":"200"}]}]}}'
+    expect(classifyFailure(429, body)).toBe('rate-limited-daily')
+  })
+
+  it('does not call a per-minute limit daily just because "PerDay" appears elsewhere', () => {
+    // Google lists several quotas in one body. Matching the word anywhere in
+    // the payload would abandon a run that only needed to wait 31 seconds.
+    const body =
+      'HTTP 429: {"error":{"details":[{"violations":[' +
+      '{"quotaId":"GenerateRequestsPerMinutePerProjectPerModel-FreeTier","quotaValue":"15"}]},' +
+      '{"note":"see also GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}}'
+    expect(classifyFailure(429, body)).toBe('rate-limited-short')
+  })
+})

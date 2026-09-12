@@ -46,7 +46,22 @@ export function classifyFailure(status: number | null, message: string): Failure
   if (status === 429 || m.includes('resource_exhausted') || m.includes('rate limit')) {
     // Google names the quota in the error body; a per-day quota is unrecoverable
     // within a run no matter how long we back off.
-    if (/perday|per day|requests per day|daily/i.test(message)) return 'rate-limited-daily'
+    // ⚠️ MATCH THE VIOLATED QUOTA, NOT THE WHOLE BODY. Google lists several
+    // quotas in one 429, so a stray mention of a per-day one made us abandon a
+    // run that only needed a 31-second pause. Measured live 2026-09-12, the
+    // binding free-tier constraint is:
+    //
+    //   quotaId    GenerateRequestsPerMinutePerProjectPerModel-FreeTier
+    //   value      15
+    //   retryDelay 31s
+    //
+    // Raising ERROR_BODY_CHARS 200 -> 2000, needed to recover retryDelay, is
+    // what let those extra quota names into this string. The asymmetry matters:
+    // a per-minute limit misread as daily abandons a run that would have
+    // finished; the reverse costs only a few retries.
+    const perMinuteQuota = /perminute|per minute|requests per minute/i.test(message)
+    const perDayQuota = /perday|per day|requests per day|daily/i.test(message)
+    if (perDayQuota && !perMinuteQuota) return 'rate-limited-daily'
     return 'rate-limited-short'
   }
 
