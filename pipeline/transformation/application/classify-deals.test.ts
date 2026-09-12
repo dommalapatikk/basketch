@@ -735,3 +735,62 @@ describe('a deferred product is not deferred forever', () => {
     expect(a.seen).toEqual(b.seen)
   })
 })
+
+describe('a product sold by several retailers is classified once', () => {
+  /**
+   * The cache key is deliberately retailer-independent, so Coca-Cola from Coop
+   * and from Denner produce byte-identical keys. Building `misses` per DEAL
+   * meant paying to classify it once per retailer, then handing the cache
+   * duplicate rows that Postgres rejected wholesale (SQLSTATE 21000), taking
+   * the other ~100 classifications in the statement down with them.
+   */
+  const spyCache = () => {
+    const inner = createInMemoryCache()
+    const offered: string[][] = []
+    return {
+      offered,
+      spy: {
+        lookup: inner.lookup.bind(inner),
+        async save(entries: readonly { cacheKey: string }[]) {
+          offered.push(entries.map((e) => e.cacheKey))
+          return inner.save(entries as never)
+        },
+      },
+    }
+  }
+
+  it('never offers the cache two entries for one product', async () => {
+    const { offered, spy } = spyCache()
+    await run([deal('Coca-Cola Classic 6x50cl', 'coop'), deal('Coca-Cola Classic 6x50cl', 'denner')], {
+      cache: spy as never,
+    })
+    for (const batch of offered) expect(new Set(batch).size).toBe(batch.length)
+  })
+
+  it('classifies it once even when three retailers sell it', async () => {
+    let seen = 0
+    const counting: Classifier = {
+      name: 'counting',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        seen += batch.length
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+      },
+    }
+    await run(
+      ['coop', 'denner', 'migros'].map((s) => deal('Coca-Cola Classic 6x50cl', s)),
+      { tier1: counting },
+    )
+    expect(seen).toBe(1)
+  })
+
+  it('still publishes every retailer\'s deal for a product it classified once', async () => {
+    // PIN, not red-first — it passes before and after. Its job is to fail if
+    // deduping `misses` ever breaks the map-back, which is the only way this
+    // change can take deals off the live site.
+    const r = await run(['coop', 'denner', 'migros'].map((s) => deal('Coca-Cola Classic 6x50cl', s)))
+    expect(r.deals).toHaveLength(3)
+    for (const d of r.deals) expect(d.subCategory).toBe('dairy')
+  })
+})

@@ -321,7 +321,26 @@ async function main(): Promise<void> {
   }
 
   const { deals: categorized, stats } = await classifyDeals(groceryOnly, {
-    cache: createSupabaseClassificationCache({ client: supabase, versions: CURRENT_VERSIONS }),
+    cache: createSupabaseClassificationCache({
+      client: supabase,
+      versions: CURRENT_VERSIONS,
+      // THE INSTRUMENT. Without this, degraded('save', ...) went nowhere: a
+      // failed cache write returned ok(0) and printed "cached 0
+      // classifications" — a visible zero with no cause, easily misread as
+      // "nothing needed caching". That is how a wholesale Postgres 21000
+      // rejection hid for weeks while we re-paid to classify the same
+      // products every run.
+      //
+      // A failed SAVE is an error: the run re-pays next week. A degraded
+      // LOOKUP is informational — it also reports stale-row counts.
+      onDegraded: (operation, detail) => {
+        if (operation === 'save') {
+          console.error(`[pipeline] [ERROR] classification cache save degraded: ${detail}`)
+        } else {
+          console.warn(`[pipeline] [WARN] classification cache ${operation}: ${detail}`)
+        }
+      },
+    }),
     // Wrapped: rate limiting, exponential backoff and a circuit breaker.
     // Without this a single 429 kills a whole batch of 25 products, which is
     // exactly what happened repeatedly while measuring models on 2026-09-10.

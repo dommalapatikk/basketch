@@ -174,3 +174,70 @@ describe('save', () => {
     expect(isOk(await make(client).save([])) && calls.upserted.length).toBe(0)
   })
 })
+
+describe('one statement, one row per cache key', () => {
+  /**
+   * THE DEFECT, verified against the live table 2026-09-12. Postgres rejects
+   * the WHOLE statement with SQLSTATE 21000 when it carries a conflict key
+   * twice, so a single duplicate pair discarded ~100 classifications per chunk.
+   * `save` then took its error branch, returned 0, and nothing surfaced why.
+   */
+  const entry = (name: string, runId = 'run-1') => ({
+    cacheKey: cacheKeyFor(name),
+    normalisedName: normaliseForCache(name),
+    classification: unwrap(
+      createClassification({
+        category: 'dairy',
+        subCategory: 'dairy',
+        confidence: unwrap(createConfidence(0.9)),
+        tier: 1,
+        model: 'gemini-3.5-flash-lite',
+      }),
+    ),
+    attributes: {},
+    runId,
+  })
+
+  it('never sends the same cache_key twice — Postgres would reject the whole batch', async () => {
+    const { client, calls } = stubClient({})
+    const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
+    const saved = await cache.save([entry('Emmi Vollmilch 1L'), entry('Emmi Vollmilch 1L')])
+
+    const keys = (calls.upserted[0] as { cache_key: string }[]).map((r) => r.cache_key)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(isOk(saved) ? saved.value : -1).toBe(1)
+  })
+
+  it('the same product from two retailers is one row — the key is retailer-independent by design', async () => {
+    // This is the production condition, not a corner case: seven retailers,
+    // and the key deliberately omits the retailer so a product classified once
+    // is classified for everyone.
+    const { client, calls } = stubClient({})
+    const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
+    const saved = await cache.save([
+      entry('Coca-Cola Classic 6x50cl', 'coop-run'),
+      entry('Coca-Cola Classic 6x50cl', 'denner-run'),
+    ])
+    expect(calls.upserted[0]).toHaveLength(1)
+    expect(isOk(saved) ? saved.value : -1).toBe(1)
+  })
+
+  it('merges BEFORE chunking, so a duplicate never splits a statement', async () => {
+    // Deduping per chunk would stop the 21000 but leave two writes of one key
+    // in two statements — last-write-wins across statements, so the enriched
+    // copy could still be overwritten by the empty one, non-deterministically.
+    const { client, calls } = stubClient({})
+    const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
+    const many = Array.from({ length: 150 }, (_, i) => entry(`Produkt ${i % 100}`))
+    await cache.save(many)
+    expect(calls.upserted).toHaveLength(1)
+    expect(calls.upserted[0]).toHaveLength(100)
+  })
+
+  it('counts rows written, not entries offered', async () => {
+    const { client } = stubClient({})
+    const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
+    const saved = await cache.save([entry('A'), entry('B'), entry('A')])
+    expect(isOk(saved) ? saved.value : -1).toBe(2)
+  })
+})

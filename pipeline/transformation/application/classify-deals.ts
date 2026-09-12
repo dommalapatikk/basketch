@@ -157,7 +157,9 @@ async function persistChunk(
     const t0 = Date.now()
     const saved = await deps.cache.save(toCache)
     saveMs = Date.now() - t0
-    log(`[transform] cached ${isOk(saved) ? saved.value : 0} classifications`)
+    // N of M, not a bare N: after deduping these should be equal, so a gap is
+    // a visible signal that a call site has reintroduced duplicate keys.
+    log(`[transform] cached ${isOk(saved) ? saved.value : 0} of ${toCache.length} classifications`)
   }
 
   return { enrichMs, saveMs }
@@ -265,11 +267,20 @@ export async function classifyDeals(
   const plan = planRun(deals.length, cached.size, FREE_TIER_BUDGET, ZERO_SPEND)
   if (plan.isColdStart) log(`[transform] ${plan.reason}`)
 
-  const misses: { deal: UnifiedDeal; key: string }[] = []
+  // ONE ENTRY PER CACHE KEY. `misses` was built per DEAL, so the same product
+  // sold by several retailers was classified — and PAID FOR — once each, then
+  // handed to the cache as duplicate rows that Postgres rejected wholesale.
+  //
+  // The key is deliberately retailer-independent, so a product classified once
+  // is classified for everyone. Safe because the map-back below finds outcomes
+  // by normalised name, which is the only variable part of the cache key — the
+  // dropped duplicates still find the survivor's answer.
+  const missByKey = new Map<string, { deal: UnifiedDeal; key: string }>()
   deals.forEach((deal, i) => {
     const key = keys[i] as string
-    if (!cached.has(key)) misses.push({ deal, key })
+    if (!cached.has(key) && !missByKey.has(key)) missByKey.set(key, { deal, key })
   })
+  const misses = [...missByKey.values()]
 
   // Cache hits a cold start left without attributes. Classification is settled
   // for these — only the metadata is owed — so they must NOT be re-classified.
@@ -277,11 +288,15 @@ export async function classifyDeals(
   // deferral: the hit path below returns entry.attributes verbatim and never
   // reaches the enricher.
   const owedEnrichment: { deal: UnifiedDeal; key: string; subCategory: string }[] = []
+  const owedKeys = new Set<string>()
   if (plan.enrich) {
     deals.forEach((deal, i) => {
       const hit = cached.get(keys[i] as string)
-      if (hit && needsEnrichment(hit)) {
-        owedEnrichment.push({ deal, key: keys[i] as string, subCategory: hit.subCategory })
+      const key = keys[i] as string
+      // Same rule as `misses`: one request per cache key, not per deal.
+      if (hit && needsEnrichment(hit) && !owedKeys.has(key)) {
+        owedKeys.add(key)
+        owedEnrichment.push({ deal, key, subCategory: hit.subCategory })
       }
     })
     if (owedEnrichment.length > 0) {

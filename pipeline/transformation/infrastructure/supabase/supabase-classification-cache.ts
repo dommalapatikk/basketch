@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { type Result, isOk, ok } from '../../../collection/domain/result'
 import { createClassification, createConfidence } from '../../domain/classification'
 import type { CachedClassification, ClassificationCache } from '../../domain/classification-cache'
+import { mergeForCache } from '../../domain/classification-cache'
 
 const TABLE = 'product_classification_cache'
 
@@ -111,9 +112,21 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
     async save(entries): Promise<Result<number>> {
       if (entries.length === 0) return ok(0)
 
+      // ⚠️ ONE ROW PER CONFLICT KEY, ENFORCED HERE. Line below is the only place
+      // in the codebase that says `onConflict: 'cache_key'`, so this is the
+      // layer that owns that clause's precondition: Postgres raises SQLSTATE
+      // 21000 and rejects the WHOLE statement if a key appears twice.
+      //
+      // Putting this in the callers would be an invariant that only exists in
+      // the caller — and there are two of them, plus every future one. Merging
+      // BEFORE chunking matters too: per-chunk dedupe would still allow two
+      // statements for one key, where last-write-wins could overwrite enriched
+      // attributes with an empty bag depending on where the chunk boundary fell.
+      const merged = mergeForCache(entries)
+
       let written = 0
-      for (let i = 0; i < entries.length; i += WRITE_CHUNK) {
-        const chunk = entries.slice(i, i + WRITE_CHUNK)
+      for (let i = 0; i < merged.length; i += WRITE_CHUNK) {
+        const chunk = merged.slice(i, i + WRITE_CHUNK)
         const rows: CacheRow[] = chunk.map((e) => ({
           cache_key: e.cacheKey,
           normalised_name: e.normalisedName,

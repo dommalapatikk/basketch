@@ -15,6 +15,7 @@
 
 import type { Result } from '../../collection/domain/result'
 import type { Classification } from './classification'
+import { markUncertain } from './classification'
 
 /** Bump any of these and every existing entry is invalidated by construction. */
 export type CacheVersions = {
@@ -82,8 +83,14 @@ export function createInMemoryCache(seed: readonly CachedClassification[] = []):
       return { ok: true, value: found }
     },
     async save(entries) {
-      for (const e of entries) store.set(e.cacheKey, e)
-      return { ok: true, value: entries.length }
+      // Merge first, exactly as the real adapter does. A bare Map silently
+      // absorbs duplicates AND reports entries.length — a count Postgres
+      // cannot produce — which is why the whole suite passed straight through
+      // the duplicate-key defect. The two implementations of this port must
+      // return the same number for the same input.
+      const merged = mergeForCache(entries)
+      for (const e of merged) store.set(e.cacheKey, e)
+      return { ok: true, value: merged.length }
     },
   }
 }
@@ -112,4 +119,66 @@ export function needsEnrichment(entry: { attributes: Record<string, unknown> | n
   const attributes = entry.attributes
   if (!attributes) return true
   return Object.keys(attributes).length === 0
+}
+
+/**
+ * Collapses entries that share a cache key, folding their fields.
+ *
+ * WHY THIS EXISTS. `cache_key` is the PRIMARY KEY and the upsert's conflict
+ * target. Postgres raises SQLSTATE 21000 — "ON CONFLICT DO UPDATE command
+ * cannot affect row a second time" — when one statement carries the same key
+ * twice, and rejects the WHOLE statement. Each persist is exactly one statement
+ * of 100, so a single duplicate pair discarded ~100 classifications already
+ * paid for.
+ *
+ * The collision is by design, not by accident: the key is deliberately
+ * RETAILER-INDEPENDENT, so the same product sold by Coop and Denner produces
+ * byte-identical keys. Across seven retailers that is routine. Measured on
+ * 2026-09-12: 1,315 products classified, 446 persisted — and 0% once stable
+ * ordering put identical names in the same chunk.
+ *
+ * WHY A FOLD AND NOT A PICK. Colliding entries are usually identical but not
+ * always: one may have been judged and the other not (the judge samples 1 in 4
+ * on a cold start), one enriched and the other empty.
+ *
+ *   attributes   first NON-EMPTY wins — an empty bag is an absence, not an
+ *                answer, and writing {} over real attributes costs a backfill
+ *                round-trip and the storage facet (ADR-001)
+ *   isUncertain  STICKY — if any entry is uncertain the survivor is. `false` is
+ *                usually the absence of a judge call rather than counter-
+ *                evidence, and the costs are one-sided: wrongly uncertain
+ *                withholds a label while the price still shows (D3); wrongly
+ *                certain ships a disputed label that the cache then serves
+ *                forever, never returning to the review queue.
+ *   everything else  first-seen wins
+ *
+ * Last-write-wins — what Postgres and a bare Map both do — is what kept this
+ * latent for months, and it is order-dependent in a system whose ordering just
+ * changed underneath it.
+ */
+export function mergeForCache(
+  entries: readonly CachedClassification[],
+): CachedClassification[] {
+  const byKey = new Map<string, CachedClassification>()
+
+  for (const entry of entries) {
+    const existing = byKey.get(entry.cacheKey)
+    if (!existing) {
+      byKey.set(entry.cacheKey, entry)
+      continue
+    }
+
+    const attributes = needsEnrichment(existing) ? entry.attributes : existing.attributes
+    const isUncertain = existing.classification.isUncertain || entry.classification.isUncertain
+
+    byKey.set(entry.cacheKey, {
+      ...existing,
+      attributes,
+      classification: isUncertain
+        ? markUncertain(existing.classification)
+        : existing.classification,
+    })
+  }
+
+  return [...byKey.values()]
 }
