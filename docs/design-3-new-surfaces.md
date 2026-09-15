@@ -680,6 +680,14 @@ Per the data model spec: "until you have 5+ interest items, fall back to top dea
 ─────────────────────────────────────────────
 ```
 
+> **2026-09-15 — PM decision:** the subtitle's second sentence ("Pick a
+> starter pack to make this personal.") and the `[ Pick a starter pack · ↗ ]`
+> CTA shown in the wireframe above were removed from the shipped product —
+> "no one is using it, remove it." No starter-pack feature or route was ever
+> built for it to link to. This wireframe is left as originally designed;
+> see `web-next/src/components/landing/WorthPickingUp.test.tsx` for current
+> behaviour.
+
 Differences:
 - Title changes: "Worth picking up" → "Worth a look" (honest — it's not yet personal).
 - Subtitle is a soft CTA explaining the missing personalisation.
@@ -741,6 +749,11 @@ Italian remains the longest-string stress target. Longest per row noted in **bol
 | Cold-start CTA | Pick a starter pack | Starterpaket wählen | Choisir un pack de départ | _**Scegli un pacchetto di partenza**_ |
 | Overflow menu label (M4 <360 px) | More actions | Weitere Aktionen | Plus d'actions | _**Altre azioni**_ |
 
+> **2026-09-15 — PM decision:** the "Cold-start CTA" row above ("Pick a
+> starter pack" / DE / FR / IT) was removed from the shipped product — "no
+> one is using it, remove it." The row is left in this table as originally
+> designed, not deleted, so the copy history stays intact.
+
 **Longest-string rows for the 200% zoom test:** "Card context line — back this week" (IT, ~74 chars) and "First-visit empty hint" (IT, 70 chars) — both confirmed to wrap cleanly to 2 lines at 375 px and remain readable at 200% zoom.
 
 ### 3.12 Accessibility checklist
@@ -754,6 +767,9 @@ Italian remains the longest-string stress target. Longest per row noted in **bol
 - [x] **(D4)** "Don't suggest again" confirmation has explicit Stop/Cancel pair; no swipe-to-confirm (Norman: constraint).
 - [x] Toast undo is keyboard-focusable (focus moves to it on appear, returns to card area on dismiss).
 - [x] Cold-start "Pick a starter pack" link has `aria-label="Pick a starter pack to personalise these suggestions"`.
+  > **2026-09-15 — PM decision:** this control was removed from the shipped
+  > product — "no one is using it, remove it." The checklist item above is
+  > left as originally designed, not deleted.
 - [x] No emoji used as informational icons (per Swiss tone).
 - [x] All copy fits within card padding at default and at 200% zoom across EN/DE/FR/IT (M2). Italian (longest) tested: "Aggiunto 6 settimane fa — forte offerta di nuovo questa settimana" wraps to 2 lines on 375 px, 3 lines at 200% zoom — confirmation prompt and overflow menu remain reachable.
 

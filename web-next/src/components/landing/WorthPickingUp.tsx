@@ -3,8 +3,6 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 
-import { Link } from '@/i18n/navigation'
-
 import { WorthPickingUpCard, type WorthPickingUpCandidate } from './WorthPickingUpCard'
 
 // Surface 3 — Worth Picking Up section (per docs/design-3-new-surfaces.md §3).
@@ -96,26 +94,6 @@ export function WorthPickingUp(props: Props) {
                 {t('show_all', { n: props.candidates.length })}
                 <span aria-hidden>↓</span>
               </button>
-            )}
-
-            {props.mode === 'cold-start' && (
-              <div className="mt-4">
-                {/*
-                  Was href="#", which reloaded the homepage. There is no
-                  starter-pack route — the feature the copy promises does not
-                  exist yet — so this points at the deals list, the nearest
-                  real destination. FLAGGED FOR PM: the copy
-                  ("Starter-Set wählen" / "Pick a starter pack") and the
-                  destination do not match. Either the copy changes or the
-                  feature gets built; a link to nowhere is not the third option.
-                */}
-                <Link
-                  href="/deals"
-                  className="inline-flex h-11 items-center gap-1 text-sm font-medium text-[var(--color-ink)] hover:underline"
-                >
-                  {t('cold_start_cta')} <span aria-hidden>↗</span>
-                </Link>
-              </div>
             )}
           </>
         )}
