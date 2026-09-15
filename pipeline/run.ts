@@ -63,12 +63,12 @@ import {
   reportUnknownTags,
   resolveTaxonomy,
 } from './resolve-taxonomy'
-import { activeDealCountByStore, storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
+import { activeCountsByWindow, storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName, productLookupKey } from './store'
 import { resolveProducts } from './product-resolve'
 import { supabase } from './supabase-client'
 import { isValidDealEntry } from './validate'
 import { populateV3Layer } from './v3-cutover'
-import { storesSafeToSweep } from './storage/domain/stale-sweep'
+import { sweepPlan } from './storage/domain/stale-sweep'
 
 /**
  * RETIRED 2026-09-10 by decision D3.
@@ -437,6 +437,16 @@ async function main(): Promise<void> {
 
   console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
 
+  // F1, 2026-09-15: read live counts BEFORE this run writes anything, or
+  // "before" and "after" are the same read and the sweep plan's share
+  // checks measure a run against data it just changed itself. Paginated
+  // (store.ts): PostgREST silently caps an unpaginated read at its
+  // configured max-rows — a `.limit(10_000)` call that quietly returns 1000
+  // rows is why the old share guard was inert for exactly the row range
+  // that mattered. `null` means the read failed; sweepPlan below treats
+  // that as "sweep nothing", never as "nothing is live".
+  const liveByWindowBeforeWrite = await activeCountsByWindow()
+
   // Store deals (now with categorySlug attached) + product_id references
   const writeResult = await storeDeals(resolved, productIds)
   const storedCount = writeResult.total
@@ -465,9 +475,10 @@ async function main(): Promise<void> {
     console.error('[pipeline] [ERROR] v3 cutover failed (legacy data still saved):', err)
   }
 
-  // Sync-purge: any previously-active row for a successfully-refreshed store
-  // that wasn't touched in this run is stale and should be deactivated.
-  // Stores with failed fetches keep their last-known data (failure-safe).
+  // Sync-purge: any previously-active row inside this run's own publication
+  // range that wasn't re-written is stale and should be deactivated. Stores
+  // with failed fetches, or whose write does not clear the share checks,
+  // keep their last-known data (failure-safe).
   //
   // ⚠️ COLLECTING IS NOT REFRESHING. This used to key off the fetch alone,
   // which is a different question from whether anything was WRITTEN. The two
@@ -475,54 +486,46 @@ async function main(): Promise<void> {
   // every classification call timed out and nothing was stored. Every store
   // looked "successful", so the sweep would have switched off every deal on the
   // site. Only a 15-minute step timeout firing first prevented it.
-  //
-  // storesSafeToSweep requires BOTH — see storage/domain/stale-sweep.ts.
   const collectionSucceeded = [...storeStatusMap.entries()]
     .filter(([, r]) => r.status === 'success' && r.count > 0)
     .map(([store]) => store)
-  // ⚠️ AND THE COUNT MUST COME FROM THE DATABASE. The first version of this
-  // guard passed countByStore(resolved) — the deals HANDED TO the writer — so a
-  // run whose every row was rejected still reported seven healthy stores.
-  // Replay 2026-09-11's `Upserted 0 of 922` against that and the sweep
-  // deactivates every deal on the site. A guard fed a lie is not a guard.
-  const storedByStore = writeResult.byStore
-  // What was live BEFORE this run. Without it the guard can only ask "did this
-  // store write anything", and a quota-truncated run that wrote 2 Migros deals
-  // swept the 168 already there — the site fell from 787 to 491.
-  const activeByStore = await activeDealCountByStore()
-  const successfulStores = storesSafeToSweep({ collectionSucceeded, storedByStore, activeByStore })
 
-  const thin = collectionSucceeded.filter(
-    (s) => (storedByStore.get(s) ?? 0) > 0 && !successfulStores.includes(s),
-  )
-  if (thin.length > 0) {
+  // sweepPlan (storage/domain/stale-sweep.ts) is the one place both the
+  // store-level guard and the row-level window scope are decided together —
+  // see item #10 (F1/F3/F4). `writtenByWindow` comes from the DATABASE
+  // (defect #5), `liveByWindowBeforeWrite` was read before this run touched
+  // anything (F1) and a `null` there means "sweep nothing", never "nothing
+  // is live".
+  const plan = sweepPlan({
+    collectionSucceeded,
+    writtenByWindow: writeResult.writtenByWindow,
+    liveByWindow: liveByWindowBeforeWrite,
+  })
+
+  const skipped = collectionSucceeded.filter((s) => !plan.has(s))
+  if (skipped.length > 0) {
+    // Loud: a store that collected but wrote nothing this run is a real
+    // failure, and keeping its previous week visible is a deliberate
+    // fallback, not a no-op.
     console.error(
-      `[pipeline] [ERROR] NOT sweeping ${thin.map((s) => `${s} (wrote ${storedByStore.get(s)} of ${activeByStore.get(s)} live)`).join(', ')} — too few rows refreshed to claim the rest were withdrawn. Their existing deals stay visible.`,
+      `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
     )
   }
 
-  // The blunt backstop, above and beyond the per-store guard: if the write
-  // accepted NOTHING, no sweep can be correct, whatever the per-store map says.
+  // The blunt backstop, above and beyond the per-store plan: if the write
+  // accepted NOTHING, no sweep can be correct, whatever the plan says.
   if (writeResult.attempted > 0 && writeResult.total === 0) {
     console.error(
       `[pipeline] [ERROR] Wrote 0 of ${writeResult.attempted} deals — skipping the stale sweep entirely. Every deal currently on the site stays visible.`,
     )
   }
 
-  const skipped = collectionSucceeded.filter((s) => !successfulStores.includes(s))
-  if (skipped.length > 0) {
-    // Loud: a store that collected but stored nothing is a real failure, and
-    // keeping its previous week visible is a deliberate fallback, not a no-op.
-    console.error(
-      `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
-    )
-  }
   if (writeResult.attempted === 0 || writeResult.total > 0) {
-    // Scoped to the publication windows this run actually WROTE (item #10,
-    // 2026-09-15) — see storage/domain/stale-sweep.ts and store.ts for the
-    // row predicate. Without this a newer flyer switches off deals still in
-    // effect (run 34833209176: aldi=143, lidl=80, spar=69, 0 offers left).
-    await deactivateStaleForStores(successfulStores, startDate, writeResult.windowsByStore)
+    // Scoped to each store's publication range AND its exact sweepable
+    // windows (item #10, F3/F4). Without this a newer flyer switches off
+    // deals still in effect (run 34833209176: aldi=143, lidl=80, spar=69, 0
+    // offers left).
+    await deactivateStaleForStores(startDate, plan)
   }
 
   // Check for significant storage loss (more than 10% of deals failed to store)

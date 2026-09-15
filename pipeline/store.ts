@@ -6,7 +6,8 @@ import 'dotenv/config'
 import type { Deal } from '../shared/types'
 import { dealToRow } from '../shared/types'
 
-import { sweepWindows } from './storage/domain/stale-sweep'
+import type { StoreSweepPlan, WrittenRow } from './storage/domain/stale-sweep'
+import { writtenCountsByWindow } from './storage/domain/stale-sweep'
 import { supabase } from './supabase-client'
 
 const BATCH_SIZE = 100
@@ -32,11 +33,6 @@ import { normalizeProductName } from '../shared/types'
 export { normalizeProductName }
 
 /**
- * Upserts deals to Supabase in batches of 100.
- * Conflict key: (store, product_name, valid_from).
- * Returns the number of deals successfully stored.
- */
-/**
  * What the DATABASE accepted, per store — never what we handed it.
  *
  * `total` was a plain number and `storedCount += batch.length` was a claim, not
@@ -44,29 +40,48 @@ export { normalizeProductName }
  * rejected, so a batch that landed nothing looked identical to one that worked.
  * On 2026-09-11 that read `Upserted 922 of 922` while the table gained nothing.
  *
- * `byStore` exists because this number feeds `storesSafeToSweep`, which decides
- * which stores have their un-refreshed deals switched off. Fed the input count,
- * a run that stored NOTHING would have deactivated every deal on a public site.
- * A guard fed a lie is not a guard.
+ * `byStore` exists because this number used to feed the store-level sweep
+ * guard, and still logs storage shortfalls. Fed the input count, a run that
+ * stored NOTHING would have deactivated every deal on a public site. A guard
+ * fed a lie is not a guard.
  *
- * `windowsByStore` is the same lesson applied to WHICH ROWS may be swept, not
- * just which stores: the publication windows (by `valid_from`) this store's
- * WRITTEN rows actually belong to (see `sweepWindows`, item #10). Built from
- * the same accepted-by-the-database rows as `byStore` — never from `deals`,
- * the input — for the identical reason.
+ * `writtenByWindow` is the same lesson applied to WHICH ROWS may be swept,
+ * not just which stores: how many rows landed per store PER PUBLICATION
+ * WINDOW (`valid_from`) — see `writtenCountsByWindow` and `sweepPlan`, item
+ * #10. Built from the same accepted-by-the-database rows as `byStore` —
+ * never from `deals`, the input — for the identical reason.
  */
 export type StoreDealsResult = {
   readonly attempted: number
   readonly total: number
   readonly byStore: Map<string, number>
-  readonly windowsByStore: Map<string, Set<string>>
+  readonly writtenByWindow: Map<string, Map<string, number>>
+}
+
+/**
+ * F2, 2026-09-15. `accepted` is cast from the database response, not
+ * validated — a row missing `valid_from` (a null from a schema drift, a
+ * partial select, a future column rename) would silently pollute the sweep
+ * with an `undefined` window. This narrows one row, dropping — and WARNing
+ * about — any accepted row without a usable `valid_from`, so a malformed row
+ * can be excluded from `writtenByWindow` WITHOUT hiding that the database
+ * genuinely stored it (see the caller: it still counts toward `byStore`).
+ */
+function validWindowRow(row: { store: string; valid_from: unknown }): WrittenRow | null {
+  if (typeof row.valid_from === 'string' && row.valid_from.length > 0) {
+    return { store: row.store, validFrom: row.valid_from }
+  }
+  console.warn(
+    `[storage] [WARN] Accepted row for ${row.store} has no usable valid_from — excluded from the sweep window`,
+  )
+  return null
 }
 
 export async function storeDeals(
   deals: Deal[],
   productIds?: Map<string, string>,
 ): Promise<StoreDealsResult> {
-  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map(), windowsByStore: new Map() }
+  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map(), writtenByWindow: new Map() }
 
   const allRows = deals.map((d) => {
     const row = dealToRow(d, productIds?.get(productLookupKey(d.store, d.productName)))
@@ -89,16 +104,19 @@ export async function storeDeals(
   const rows = [...deduped.values()]
   let storedCount = 0
   const byStore = new Map<string, number>()
-  const writtenRows: { store: string; validFrom: string }[] = []
+  const writtenRows: WrittenRow[] = []
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
 
     // .select() is the whole point: without it the response carries no rows and
     // a batch the database rejected is indistinguishable from one it accepted.
-    // valid_from is selected alongside store/id so sweepWindows below can be
-    // built from what the database actually WROTE, not from what was handed
-    // to it — the same discipline as `byStore` (defect #5).
+    // valid_from is selected alongside store/id so writtenCountsByWindow below
+    // can be built from what the database actually WROTE, not from what was
+    // handed to it — the same discipline as `byStore` (defect #5). F2: the
+    // exact projection is asserted in store.test.ts, and a mutation dropping
+    // valid_from from it is red — silently losing this column is how a
+    // TypeScript cast on the response would have hidden the defect.
     const { data, error } = await supabase
       .from('deals')
       .upsert(batch, {
@@ -114,11 +132,12 @@ export async function storeDeals(
       continue
     }
 
-    const accepted = (data ?? []) as { store: string; valid_from: string }[]
+    const accepted = (data ?? []) as { store: string; valid_from: unknown }[]
     storedCount += accepted.length
     for (const row of accepted) {
       byStore.set(row.store, (byStore.get(row.store) ?? 0) + 1)
-      writtenRows.push({ store: row.store, validFrom: row.valid_from })
+      const written = validWindowRow(row)
+      if (written) writtenRows.push(written)
     }
 
     if (accepted.length < batch.length) {
@@ -129,7 +148,7 @@ export async function storeDeals(
   }
 
   console.log(`[storage] [INFO] Upserted ${storedCount} of ${deals.length} deals`)
-  return { attempted: deals.length, total: storedCount, byStore, windowsByStore: sweepWindows(writtenRows) }
+  return { attempted: deals.length, total: storedCount, byStore, writtenByWindow: writtenCountsByWindow(writtenRows) }
 }
 
 export interface PipelineRunInput {
@@ -180,123 +199,166 @@ export async function deactivateExpiredDeals(): Promise<number> {
 }
 
 /**
- * Sync-purge stale rows after a successful fetch.
+ * Deactivates one store's stale rows per its sweep plan: within the plan's
+ * `[min, max]` publication range AND restricted to the plan's exact
+ * sweepable windows, AND not re-written since `cutoff` — see
+ * `deactivateStaleForStores` below for the full row predicate this
+ * implements. The range bound and the exact-window bound are deliberately
+ * both present: `windows` is already exact, so `gte`/`lte` cannot widen what
+ * gets swept, but it is one independent check against a bug in how
+ * `windows` was computed ever reaching the database.
  *
- * The upsert conflict key is (store, product_name, valid_from). When a
- * retailer changes the valid_from date on a card between runs, upsert
- * creates a NEW row instead of updating, and the old row stays
- * is_active=true until its valid_to passes. Coop accumulated ~450 such
- * stale rows before this was caught.
- *
- * ITEM #10, 2026-09-15 — THE ROW PREDICATE (see stale-sweep.ts for the full
- * reasoning). A row may be swept only if ALL of:
- *   - its store is in `successfulStores` (storesSafeToSweep already
- *     required a plausible refresh share for that store), AND
- *   - its `valid_from` is a window THIS run actually WROTE for that store
- *     (`windowsByStore`, from `sweepWindows` over accepted rows), AND
- *   - its `updated_at` is older than `runStartedAt` (not re-written).
- * A row whose `valid_from` is a window this run did not write is NEVER
- * swept here, however old its `updated_at` — it was never this run's to
- * judge. It stays visible until `deactivateExpiredDeals` retires it on
- * `valid_to`. Run 34833209176 is the incident this guards against: it wrote
- * ALDI/LIDL/SPAR's NEXT WEEK flyer and, without this scope, deactivated
- * every active row of those stores — including the CURRENT week's, which
- * this run never touched — leaving 0 offers in effect for three retailers.
- *
- * Looped per store rather than one query across `successfulStores`: windows
- * differ store to store, and a single `.in('valid_from', …)` shared across
- * stores would let one store's window scope a sweep for another. At most
- * seven stores exist, so this is not the batch-vs-loop antipattern the
- * project avoids elsewhere — it is the only correct shape here.
- *
- * Skipped stores (not in `successfulStores`, or with no recorded window)
- * keep their previous data intact (failure-safe).
- *
- * Returns the total number of rows deactivated across all successful stores.
+ * Returns the count switched off (0 on a query error, logged with
+ * `.details`/`.hint` and swallowed here so one store's failure does not
+ * abort the rest — the same failure-safe shape as the caller).
  */
-/**
- * Deactivates one store's stale rows, scoped to that store's own windows —
- * the query the row predicate above describes. Returns the count switched
- * off (0 on a query error, logged and swallowed here so one store's failure
- * does not abort the rest — the same failure-safe shape as the caller).
- */
-async function sweepStoreWindows(store: string, windows: Set<string>, cutoff: string): Promise<number> {
+async function sweepStoreWindows(store: string, plan: StoreSweepPlan, cutoff: string): Promise<number> {
   const { data, error } = await supabase
     .from('deals')
     .update({ is_active: false })
     .eq('is_active', true)
     .eq('store', store)
-    .in('valid_from', [...windows])
+    .gte('valid_from', plan.range.min)
+    .lte('valid_from', plan.range.max)
+    .in('valid_from', [...plan.windows])
     .lt('updated_at', cutoff)
     .select('id')
 
   if (error) {
-    console.error(`[storage] [ERROR] Failed to deactivate stale deals for ${store}:`, error.message)
+    const { details, hint } = error
+    console.error(`[storage] [ERROR] Failed to deactivate stale deals for ${store}:`, error.message, {
+      details,
+      hint,
+    })
     return 0
   }
   return data?.length ?? 0
 }
 
+/**
+ * Sync-purge stale rows after a successful fetch, scoped by `plan` — the
+ * output of `sweepPlan` (`storage/domain/stale-sweep.ts`), which is the one
+ * place both halves of the row predicate below are decided together.
+ *
+ * ITEM #10, 2026-09-15 — THE ROW PREDICATE. A row may be swept only if ALL of:
+ *   - its store has a plan (`sweepPlan` already required collection to have
+ *     succeeded AND a plausible refresh share), AND
+ *   - its `valid_from` is one of that store's plan.windows — inside the
+ *     range this run published AND clearing the per-window or whole-range
+ *     share check (F3/F4) — AND
+ *   - its `updated_at` is older than `runStartedAt` (not re-written).
+ * A row whose `valid_from` is not in `plan.windows` is NEVER swept here,
+ * however old its `updated_at` — it was never this run's to judge. It stays
+ * visible until `deactivateExpiredDeals` retires it on `valid_to`.
+ *
+ * Run 34833209176 is the incident this guards against: it wrote
+ * ALDI/LIDL/SPAR's NEXT WEEK flyer and, without a plan, deactivated every
+ * active row of those stores — including the CURRENT week's, which this run
+ * never touched — leaving 0 offers in effect for three retailers.
+ *
+ * Looped per store rather than one query across every planned store: ranges
+ * and windows differ store to store, and a single shared filter would let
+ * one store's window scope a sweep for another. At most seven stores exist,
+ * so this is not the batch-vs-loop antipattern the project avoids
+ * elsewhere — it is the only correct shape here.
+ *
+ * A store absent from `plan` (collection failed, or nothing was written)
+ * keeps its previous data intact (failure-safe). Every store IN the plan is
+ * logged every run, even when it sweeps zero rows — a silent no-op sweep is
+ * as worth seeing as a loud one (F5).
+ *
+ * Returns the total number of rows deactivated across all planned stores.
+ */
 export async function deactivateStaleForStores(
-  successfulStores: string[],
   runStartedAt: Date,
-  windowsByStore: Map<string, Set<string>>,
+  plan: Map<string, StoreSweepPlan>,
 ): Promise<number> {
-  if (successfulStores.length === 0) return 0
+  if (plan.size === 0) return 0
 
   const cutoff = runStartedAt.toISOString()
   const byStore: Record<string, number> = {}
 
-  for (const store of successfulStores) {
-    const windows = windowsByStore.get(store)
-    // No window recorded means this run wrote nothing for this store — which
-    // storesSafeToSweep should already have excluded from successfulStores.
-    // If it happens anyway, sweeping nothing is the safe default.
-    if (!windows || windows.size === 0) continue
+  for (const [store, storePlan] of plan) {
+    if (storePlan.windows.size === 0) {
+      console.log(
+        `[storage] [INFO] Swept ${store}: range=[${storePlan.range.min}, ${storePlan.range.max}] windows=[] deactivated=0`,
+      )
+      continue
+    }
 
-    const n = await sweepStoreWindows(store, windows, cutoff)
-    if (n > 0) byStore[store] = n
+    const n = await sweepStoreWindows(store, storePlan, cutoff)
+    byStore[store] = n
+    console.log(
+      `[storage] [INFO] Swept ${store}: range=[${storePlan.range.min}, ${storePlan.range.max}] windows=[${[...storePlan.windows].join(', ')}] deactivated=${n}`,
+    )
   }
 
   const count = Object.values(byStore).reduce((sum, n) => sum + n, 0)
   if (count > 0) {
     const breakdown = Object.entries(byStore)
+      .filter(([, n]) => n > 0)
       .sort((a, b) => b[1] - a[1])
       .map(([s, n]) => `${s}=${n}`)
       .join(', ')
-    console.log(`[storage] [INFO] Deactivated ${count} stale deals (${breakdown})`)
+    console.log(`[storage] [INFO] Deactivated ${count} stale deals total (${breakdown})`)
   }
   return count
 }
 
 /**
- * How many active, unexpired deals each store currently has.
+ * How many active, unexpired deals exist per (store, valid_from) window,
+ * read BEFORE this run writes anything (F1, 2026-09-15).
  *
- * Read BEFORE the write, so the sweep can ask "did this run refresh a plausible
- * share of what is already live?" rather than merely "did it write anything".
+ * PAGINATED, in a deterministic order. PostgREST caps a single request's
+ * rows at its configured `db-max-rows` (commonly 1000) regardless of
+ * `.limit()`, SILENTLY — no error, just fewer rows than asked for. The prior
+ * version called `.limit(10_000)` and never noticed it was only ever
+ * receiving up to 1000: past that point every store looked like it had
+ * fewer live rows than it really did, which is the wrong direction for a
+ * guard whose whole job is refusing to sweep too much.
  *
- * The difference is not academic: on 2026-09-11 a quota-truncated run wrote 2
- * Migros deals and swept the 168 that were already there.
+ * Read is per (store, valid_from), not per store — the F1/F3/F4 sweep plan
+ * needs to compare a run's write against what was live IN THE SAME WINDOW,
+ * not the store's grand total, which could span an unrelated publication.
+ *
+ * Returns `null` — never an empty map — on any read error, so the caller
+ * (`sweepPlan`) can tell "genuinely nothing live" from "we don't know" and
+ * sweep NOTHING rather than guess. A guard that reads "don't know" as
+ * "nothing live" permits sweeping on a lie — the same defect class as #5,
+ * one level up the call chain.
  */
-export async function activeDealCountByStore(): Promise<Map<string, number>> {
-  const counts = new Map<string, number>()
-  const today = new Date().toISOString().slice(0, 10)
-  const { data, error } = await supabase
-    .from('deals')
-    .select('store')
-    .eq('is_active', true)
-    .gte('valid_to', today)
-    .limit(10_000)
+const LIVE_COUNT_PAGE_SIZE = 1000
 
-  if (error) {
-    // Fail SAFE: an empty map means every store looks like a first run, which
-    // permits sweeping. That is the wrong direction, so say so loudly and let
-    // the caller decide — it is better than silently guessing either way.
-    console.error('[storage] [ERROR] Could not read active deal counts:', error.message)
-    return counts
+export async function activeCountsByWindow(): Promise<Map<string, Map<string, number>> | null> {
+  const counts = new Map<string, Map<string, number>>()
+  const today = new Date().toISOString().slice(0, 10)
+  let from = 0
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from('deals')
+      .select('store, valid_from')
+      .eq('is_active', true)
+      .gte('valid_to', today)
+      .order('id')
+      .range(from, from + LIVE_COUNT_PAGE_SIZE - 1)
+
+    if (error) {
+      const { details, hint } = error
+      console.error('[storage] [ERROR] Could not read active window counts:', error.message, { details, hint })
+      return null
+    }
+
+    const page = (data ?? []) as { store: string; valid_from: string }[]
+    for (const row of page) {
+      const forStore = counts.get(row.store) ?? new Map<string, number>()
+      forStore.set(row.valid_from, (forStore.get(row.valid_from) ?? 0) + 1)
+      counts.set(row.store, forStore)
+    }
+
+    if (page.length < LIVE_COUNT_PAGE_SIZE) break
+    from += LIVE_COUNT_PAGE_SIZE
   }
-  for (const row of (data ?? []) as { store: string }[]) {
-    counts.set(row.store, (counts.get(row.store) ?? 0) + 1)
-  }
+
   return counts
 }

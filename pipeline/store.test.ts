@@ -3,26 +3,52 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import type { Deal } from '../shared/types'
+import type { StoreSweepPlan } from './storage/domain/stale-sweep'
 
 // Mock @supabase/supabase-js before importing store module.
 //
 // `.update()` is chained differently by each caller — deactivateExpiredDeals
 // is `eq().lt().select()`, deactivateStaleForStores is now
-// `eq().eq().in().lt().select()` (store.ts: item #10, 2026-09-15) — so the
-// chain below is a single flexible builder rather than a fixed shape, and
-// each test supplies its own chain so it can assert exactly which filters
-// were applied.
+// `eq().eq().gte().lte().in().lt().select()` (store.ts: item #10, F3/F4) —
+// so the chain below is a single flexible builder rather than a fixed shape,
+// and each test supplies its own chain so it can assert exactly which
+// filters were applied.
 type UpdateChainResult = {
   data: { id: string; store?: string }[] | null
-  error: { message: string } | null
+  error: { message: string; details?: string; hint?: string } | null
 }
 
 function createUpdateChain(result: UpdateChainResult) {
   const chain = {
     eq: vi.fn(() => chain),
     in: vi.fn(() => chain),
+    gte: vi.fn(() => chain),
+    lte: vi.fn(() => chain),
     lt: vi.fn(() => chain),
     select: vi.fn(() => Promise.resolve(result)),
+  }
+  return chain
+}
+
+// A `.select().eq().gte().order().range()` read chain — activeCountsByWindow
+// (F1). `range` is the terminal call and resolves one PAGE per invocation, in
+// order, so pagination can be exercised.
+type SelectPage = {
+  data: { store: string; valid_from: string }[] | null
+  error: { message: string; details?: string; hint?: string } | null
+}
+
+function createSelectChain(pages: SelectPage[]) {
+  let call = 0
+  const chain = {
+    eq: vi.fn(() => chain),
+    gte: vi.fn(() => chain),
+    order: vi.fn(() => chain),
+    range: vi.fn(() => {
+      const page = pages[Math.min(call, pages.length - 1)]!
+      call += 1
+      return Promise.resolve(page)
+    }),
   }
   return chain
 }
@@ -30,9 +56,10 @@ function createUpdateChain(result: UpdateChainResult) {
 const mockUpdate = vi.fn()
 const mockUpsert = vi.fn()
 const mockInsert = vi.fn()
+const mockSelectDeals = vi.fn()
 const mockFrom = vi.fn((table: string) => {
   if (table === 'deals') {
-    return { upsert: mockUpsert, update: mockUpdate }
+    return { upsert: mockUpsert, update: mockUpdate, select: mockSelectDeals }
   }
   if (table === 'pipeline_runs') {
     return { insert: mockInsert }
@@ -45,8 +72,14 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 // Must import after mocking
-const { storeDeals, logPipelineRun, deactivateExpiredDeals, deactivateStaleForStores, normalizeProductName } =
-  await import('./store')
+const {
+  storeDeals,
+  logPipelineRun,
+  deactivateExpiredDeals,
+  deactivateStaleForStores,
+  activeCountsByWindow,
+  normalizeProductName,
+} = await import('./store')
 
 function makeDeal(index: number): Deal {
   return {
@@ -74,7 +107,11 @@ describe('storeDeals', () => {
     mockUpsert.mockImplementation((batch: unknown[]) => ({
       select: () =>
         Promise.resolve({
-          data: batch.map((r) => ({ id: 'x', store: (r as { store: string }).store })),
+          data: batch.map((r) => ({
+            id: 'x',
+            store: (r as { store: string }).store,
+            valid_from: (r as { valid_from: string }).valid_from,
+          })),
           error: null,
         }),
     }))
@@ -113,7 +150,11 @@ describe('storeDeals', () => {
     const accepted = (batch: unknown[]) => ({
       select: () =>
         Promise.resolve({
-          data: batch.map((r) => ({ id: 'x', store: (r as { store: string }).store })),
+          data: batch.map((r) => ({
+            id: 'x',
+            store: (r as { store: string }).store,
+            valid_from: (r as { valid_from: string }).valid_from,
+          })),
           error: null,
         }),
     })
@@ -154,6 +195,15 @@ describe('storeDeals', () => {
     const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
     expect(upsertedRows[0]).toHaveProperty('product_name', 'vollmilch 1 l')
   })
+
+  it('selects id, store and valid_from on every upsert — the sweep plan depends on it (F2)', async () => {
+    const select = vi.fn(() => Promise.resolve({ data: [], error: null }))
+    mockUpsert.mockReturnValue({ select })
+
+    await storeDeals([makeDeal(0)])
+
+    expect(select).toHaveBeenCalledWith('id, store, valid_from')
+  })
 })
 
 describe('deactivateExpiredDeals', () => {
@@ -182,18 +232,23 @@ describe('deactivateExpiredDeals', () => {
   })
 })
 
-describe('deactivateStaleForStores scopes to the publication windows this run wrote', () => {
+/** Builds a StoreSweepPlan fixture, for readable test setup. */
+function plan(min: string, max: string, windows: string[]): StoreSweepPlan {
+  return { range: { min, max }, windows: new Set(windows) }
+}
+
+describe('deactivateStaleForStores sweeps exactly what its plan says (F3/F4)', () => {
   /**
-   * ITEM #10, 2026-09-15. `deactivateStaleForStores` used to deactivate every
-   * active row of a refreshed store whose `updated_at < runStart`, WHATEVER
-   * its `valid_from`. Run 34833209176 fetched ALDI's, LIDL's and SPAR's NEXT
-   * WEEK flyer; the sweep read "not refreshed by this run" as "withdrawn by
-   * the retailer", when it meant "belongs to a publication this run never
-   * touched". `Deactivated 316 stale deals (aldi=143, lidl=80, spar=69,
-   * coop=19, denner=5)` left ALDI, LIDL and SPAR with 0 offers in effect.
-   *
-   * The fix restricts the update to `.in('valid_from', …)` — the windows
-   * `sweepWindows` reports this store's WRITTEN rows actually belong to.
+   * ITEM #10, 2026-09-15. `deactivateStaleForStores` used to deactivate
+   * every active row of a refreshed store whose `updated_at < runStart`,
+   * WHATEVER its `valid_from`. Run 34833209176 fetched ALDI's, LIDL's and
+   * SPAR's NEXT WEEK flyer; the sweep read "not refreshed by this run" as
+   * "withdrawn by the retailer", when it meant "belongs to a publication
+   * this run never touched". `Deactivated 316 stale deals (aldi=143,
+   * lidl=80, spar=69, coop=19, denner=5)` left ALDI, LIDL and SPAR with 0
+   * offers in effect. The fix takes a `sweepPlan` output (range + exact
+   * windows, `stale-sweep.ts`) and applies it as-is — nothing is decided
+   * here that wasn't already decided by the plan.
    */
   beforeEach(() => {
     vi.clearAllMocks()
@@ -203,23 +258,23 @@ describe('deactivateStaleForStores scopes to the publication windows this run wr
     const chain = createUpdateChain({ data: [{ id: '1' }], error: null })
     mockUpdate.mockReturnValue(chain)
 
-    // This run wrote ONLY the 17.9 window for aldi — never 08.9, the window
-    // still in effect. The query must be scoped to what was actually wrote.
-    const windowsByStore = new Map([['aldi', new Set(['2026-09-17'])]])
-    await deactivateStaleForStores(['aldi'], new Date('2026-09-15T05:00:00Z'), windowsByStore)
+    const stalePlan = new Map([['aldi', plan('2026-09-17', '2026-09-21', ['2026-09-17', '2026-09-21'])]])
+    await deactivateStaleForStores(new Date('2026-09-15T05:00:00Z'), stalePlan)
 
-    // Scoped to exactly the window this run wrote, called exactly once —
-    // together these rule out 08.9 (this week) ever reaching the query.
-    expect(chain.in).toHaveBeenCalledWith('valid_from', ['2026-09-17'])
-    expect(chain.in).toHaveBeenCalledTimes(1)
+    expect(chain.gte).toHaveBeenCalledWith('valid_from', '2026-09-17')
+    expect(chain.lte).toHaveBeenCalledWith('valid_from', '2026-09-21')
+    expect(chain.in).toHaveBeenCalledWith('valid_from', ['2026-09-17', '2026-09-21'])
+    // This week's window (08.9) must never appear anywhere in the query.
+    expect(chain.gte).not.toHaveBeenCalledWith('valid_from', '2026-09-08')
+    expect(chain.in).not.toHaveBeenCalledWith('valid_from', expect.arrayContaining(['2026-09-08']))
   })
 
   it('a deal that vanished from the same publication window is still swept', async () => {
     const chain = createUpdateChain({ data: [{ id: '1' }], error: null })
     mockUpdate.mockReturnValue(chain)
 
-    const windowsByStore = new Map([['lidl', new Set(['2026-09-17'])]])
-    const count = await deactivateStaleForStores(['lidl'], new Date('2026-09-15T05:00:00Z'), windowsByStore)
+    const stalePlan = new Map([['lidl', plan('2026-09-17', '2026-09-17', ['2026-09-17'])]])
+    const count = await deactivateStaleForStores(new Date('2026-09-15T05:00:00Z'), stalePlan)
 
     expect(chain.eq).toHaveBeenCalledWith('store', 'lidl')
     expect(chain.in).toHaveBeenCalledWith('valid_from', ['2026-09-17'])
@@ -227,23 +282,35 @@ describe('deactivateStaleForStores scopes to the publication windows this run wr
     expect(count).toBe(1)
   })
 
-  it('skips a store with no recorded window rather than sweeping unscoped', async () => {
-    const count = await deactivateStaleForStores(['aldi'], new Date(), new Map())
+  it('asserts is_active=true is part of the query — a sweep must never touch an already-inactive row', async () => {
+    const chain = createUpdateChain({ data: [{ id: '1' }], error: null })
+    mockUpdate.mockReturnValue(chain)
+
+    await deactivateStaleForStores(new Date(), new Map([['aldi', plan('2026-09-17', '2026-09-17', ['2026-09-17'])]]))
+
+    expect(chain.eq).toHaveBeenCalledWith('is_active', true)
+  })
+
+  it('skips a store whose plan has no sweepable windows, without querying unscoped', async () => {
+    const count = await deactivateStaleForStores(
+      new Date(),
+      new Map([['aldi', plan('2026-09-17', '2026-09-21', [])]]),
+    )
 
     expect(mockUpdate).not.toHaveBeenCalled()
     expect(count).toBe(0)
   })
 
-  it('scopes each store to its own windows — one store never sweeps by another store"s window', async () => {
+  it('scopes each store to its own plan — one store never sweeps by another store"s window', async () => {
     const aldiChain = createUpdateChain({ data: [{ id: '1' }, { id: '2' }], error: null })
     const lidlChain = createUpdateChain({ data: [{ id: '3' }], error: null })
     mockUpdate.mockReturnValueOnce(aldiChain).mockReturnValueOnce(lidlChain)
 
-    const windowsByStore = new Map([
-      ['aldi', new Set(['2026-09-17'])],
-      ['lidl', new Set(['2026-09-24'])],
+    const stalePlan = new Map([
+      ['aldi', plan('2026-09-17', '2026-09-17', ['2026-09-17'])],
+      ['lidl', plan('2026-09-24', '2026-09-24', ['2026-09-24'])],
     ])
-    const count = await deactivateStaleForStores(['aldi', 'lidl'], new Date(), windowsByStore)
+    const count = await deactivateStaleForStores(new Date(), stalePlan)
 
     expect(aldiChain.eq).toHaveBeenCalledWith('store', 'aldi')
     expect(aldiChain.in).toHaveBeenCalledWith('valid_from', ['2026-09-17'])
@@ -252,8 +319,43 @@ describe('deactivateStaleForStores scopes to the publication windows this run wr
     expect(count).toBe(3)
   })
 
-  it('returns 0 for no successful stores', async () => {
-    const count = await deactivateStaleForStores([], new Date(), new Map())
+  it('one store"s sweep error does not abort the others', async () => {
+    const failedChain = createUpdateChain({ data: null, error: { message: 'timeout' } })
+    const okChain = createUpdateChain({ data: [{ id: '1' }, { id: '2' }], error: null })
+    mockUpdate.mockReturnValueOnce(failedChain).mockReturnValueOnce(okChain)
+
+    const stalePlan = new Map([
+      ['aldi', plan('2026-09-17', '2026-09-17', ['2026-09-17'])],
+      ['lidl', plan('2026-09-17', '2026-09-17', ['2026-09-17'])],
+    ])
+    const count = await deactivateStaleForStores(new Date(), stalePlan)
+
+    expect(failedChain.eq).toHaveBeenCalledWith('store', 'aldi')
+    expect(okChain.eq).toHaveBeenCalledWith('store', 'lidl')
+    expect(count).toBe(2)
+  })
+
+  it('logs .details and .hint on a sweep query error, not just .message', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockUpdate.mockReturnValue(
+      createUpdateChain({
+        data: null,
+        error: { message: 'permission denied', details: 'RLS blocked the update', hint: 'check policies' },
+      }),
+    )
+
+    await deactivateStaleForStores(new Date(), new Map([['aldi', plan('2026-09-17', '2026-09-17', ['2026-09-17'])]]))
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('aldi'),
+      'permission denied',
+      { details: 'RLS blocked the update', hint: 'check policies' },
+    )
+    errorSpy.mockRestore()
+  })
+
+  it('returns 0 for an empty plan', async () => {
+    const count = await deactivateStaleForStores(new Date(), new Map())
     expect(count).toBe(0)
     expect(mockUpdate).not.toHaveBeenCalled()
   })
@@ -331,10 +433,11 @@ describe('storeDeals reports what the database accepted, not what it was handed'
    * `.select()`, so a batch every row of which the database rejected was
    * indistinguishable from one that landed.
    *
-   * That number feeds `storesSafeToSweep`, which decides which stores have
-   * their un-refreshed deals switched off. Replay the real failure: every row
-   * violates deals_category_check, the writer still reports 922 across seven
-   * stores, every store looks sweepable, and the sweep empties a public site.
+   * That number used to feed the store-level sweep guard directly; it now
+   * also feeds `sweepPlan`'s share checks (`writtenByWindow`). Replay the
+   * real failure: every row violates deals_category_check, the writer still
+   * reports 922 across seven stores, every store looks sweepable, and the
+   * sweep empties a public site.
    *
    * A guard fed a lie is not a guard. The count must come from the database.
    */
@@ -371,7 +474,11 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     mockUpsert.mockReturnValue({
       select: () =>
         Promise.resolve({
-          data: [{ id: '1', store: 'coop' }, { id: '2', store: 'coop' }, { id: '3', store: 'denner' }],
+          data: [
+            { id: '1', store: 'coop', valid_from: '2026-09-09' },
+            { id: '2', store: 'coop', valid_from: '2026-09-09' },
+            { id: '3', store: 'denner', valid_from: '2026-09-09' },
+          ],
           error: null,
         }),
     })
@@ -390,7 +497,7 @@ describe('storeDeals reports what the database accepted, not what it was handed'
   it('derives sweep windows from what the database WROTE, not from what was attempted', async () => {
     // Two deals attempted, in two different publication windows. The database
     // accepts only the 2026-09-09 row (the 2026-09-16 row is rejected, e.g.
-    // by a CHECK constraint). windowsByStore must reflect ONLY the accepted
+    // by a CHECK constraint). writtenByWindow must reflect ONLY the accepted
     // window — feeding the sweep an attempted-not-written window is the same
     // shape of lie as defect #5 (storedByStore from `resolved`, not the DB).
     mockUpsert.mockReturnValue({
@@ -405,7 +512,104 @@ describe('storeDeals reports what the database accepted, not what it was handed'
       { ...deal('aldi', 'B'), validFrom: '2026-09-16' },
     ])
 
-    expect(result.windowsByStore.get('aldi')).toEqual(new Set(['2026-09-09']))
-    expect(result.windowsByStore.get('aldi')?.has('2026-09-16')).toBe(false)
+    expect(result.writtenByWindow.get('aldi')).toEqual(new Map([['2026-09-09', 1]]))
+  })
+
+  it('drops an accepted row with no usable valid_from from the sweep windows, logs a WARN, but still counts it as stored (F2)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockUpsert.mockReturnValue({
+      select: () =>
+        Promise.resolve({
+          data: [{ id: '1', store: 'aldi', valid_from: null }],
+          error: null,
+        }),
+    })
+
+    const result = await storeDeals([deal('aldi', 'A')])
+
+    expect(result.writtenByWindow.get('aldi')).toBeUndefined()
+    expect(result.total).toBe(1)
+    expect(result.byStore.get('aldi')).toBe(1)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('valid_from'))
+    warnSpy.mockRestore()
+  })
+})
+
+describe('activeCountsByWindow — live counts read BEFORE this run writes anything (F1)', () => {
+  /**
+   * F1, 2026-09-15. The prior `activeDealCountByStore` called `.limit(10_000)`
+   * and was read AFTER `storeDeals` — both wrong. PostgREST silently caps an
+   * unpaginated read at its configured `db-max-rows` (commonly 1000)
+   * regardless of `.limit()`; a store past that point looked like it had
+   * fewer live rows than it really did, which is the wrong direction for a
+   * guard that exists to refuse sweeping too much.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('aggregates active rows per store per window from a single page', async () => {
+    mockSelectDeals.mockReturnValue(
+      createSelectChain([
+        {
+          data: [
+            { store: 'aldi', valid_from: '2026-09-17' },
+            { store: 'aldi', valid_from: '2026-09-17' },
+            { store: 'lidl', valid_from: '2026-09-17' },
+          ],
+          error: null,
+        },
+        { data: [], error: null },
+      ]),
+    )
+
+    const counts = await activeCountsByWindow()
+
+    expect(counts?.get('aldi')).toEqual(new Map([['2026-09-17', 2]]))
+    expect(counts?.get('lidl')).toEqual(new Map([['2026-09-17', 1]]))
+  })
+
+  it('a store past row 1000 is not a first run — pagination sums across pages instead of truncating', async () => {
+    const page1 = Array.from({ length: 1000 }, () => ({ store: 'coop', valid_from: '2026-09-08' }))
+    const page2 = Array.from({ length: 500 }, () => ({ store: 'coop', valid_from: '2026-09-08' }))
+    const chain = createSelectChain([
+      { data: page1, error: null },
+      { data: page2, error: null },
+    ])
+    mockSelectDeals.mockReturnValue(chain)
+
+    const counts = await activeCountsByWindow()
+
+    expect(counts?.get('coop')?.get('2026-09-08')).toBe(1500)
+    expect(chain.range).toHaveBeenCalledTimes(2)
+    expect(chain.range).toHaveBeenNthCalledWith(1, 0, 999)
+    expect(chain.range).toHaveBeenNthCalledWith(2, 1000, 1999)
+  })
+
+  it('reads in a deterministic order — pagination without one can skip or repeat rows', async () => {
+    const chain = createSelectChain([{ data: [], error: null }])
+    mockSelectDeals.mockReturnValue(chain)
+
+    await activeCountsByWindow()
+
+    expect(chain.order).toHaveBeenCalledWith('id')
+  })
+
+  it('an unreadable count returns null, never an empty map, and logs .details/.hint', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const chain = createSelectChain([
+      { data: null, error: { message: 'connection reset', details: 'upstream closed', hint: 'retry' } },
+    ])
+    mockSelectDeals.mockReturnValue(chain)
+
+    const counts = await activeCountsByWindow()
+
+    expect(counts).toBeNull()
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('active window counts'),
+      'connection reset',
+      { details: 'upstream closed', hint: 'retry' },
+    )
+    errorSpy.mockRestore()
   })
 })
