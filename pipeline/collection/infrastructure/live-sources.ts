@@ -16,6 +16,9 @@
 //   Migros   24 pages, OCR at native resolution
 
 import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { OfferSource } from '../domain/offer-source'
@@ -30,7 +33,7 @@ import { createCoopAktionisSource, httpFetchPage as coopFetchPage } from './coop
 import { createDennerApiSource, httpFetchPage as dennerFetchPage } from './denner/denner-api-source'
 import { createLidlFlyerSource, flyerUrl as lidlFlyerUrl } from './lidl/lidl-flyer-source'
 import { type OcrPage, createMigrosFlyerSource, issuuDocUrl } from './migros/migros-flyer-source'
-import { fetchFlyerImages, pageImageUrl as migrosPageImageUrl } from './migros/issuu-fetcher'
+import { type FlyerImage, fetchFlyerImages, pageImageUrl as migrosPageImageUrl } from './migros/issuu-fetcher'
 import { fetchFlyerPages, fetchJson, fetchPdfText } from './pdf/flyer-fetcher'
 import {
   createSparFlyerSource,
@@ -54,21 +57,15 @@ export type Transport = {
   fetchPdfPages: typeof fetchFlyerPages
   fetchPdfText: typeof fetchPdfText
   fetchFlyerImages: typeof fetchFlyerImages
-  ocr: (imageUrls: readonly string[], tiled: boolean) => Promise<OcrPage[]>
+  /**
+   * Takes the ALREADY-DOWNLOADED page images (real page numbers, real bytes —
+   * see the "fetch once" note on ocrPages below), never a list of URLs to
+   * fetch again.
+   */
+  ocr: (images: readonly FlyerImage[], tiled: boolean) => Promise<OcrPage[]>
   dennerFetchPage: typeof dennerFetchPage
   coopFetchPage: typeof coopFetchPage
   volgFetchPage: typeof volgFetchPage
-}
-
-export const LIVE_TRANSPORT: Transport = {
-  fetchJson,
-  fetchPdfPages: fetchFlyerPages,
-  fetchPdfText,
-  fetchFlyerImages,
-  ocr: ocrPages,
-  dennerFetchPage,
-  coopFetchPage,
-  volgFetchPage,
 }
 
 export type LiveSourceOptions = {
@@ -95,26 +92,47 @@ function unavailable(retailer: string, reason: string): never {
 }
 
 // ── Migros OCR ───────────────────────────────────────────────────────────────
+//
+// FETCH ONCE (WP-C1, 2026-09-15). fetchFlyerImages already downloaded every
+// page's bytes — that download IS "one fetch per store per week". The OLD
+// code handed ocr.py the ORIGINAL https:// urls, and ocr.py's load_image()
+// re-fetched every one of them, doubling Issuu bandwidth for nothing: the
+// bytes it needed were already sitting in `images[i].bytes`.
+//
+// This also carries REAL page numbers through. ocr.py numbered pages by their
+// position in argv; if fetchFlyerImages skipped a page (a 404, say), the
+// surviving images shift down one slot and every later CropRegion silently
+// points at the WRONG page's photograph. Passing the manifest's own
+// pageNumber for each temp file, instead of relying on array position, is
+// what the manifest contract exists to fix — see build_manifest in ocr.py.
 
 const OCR_SCRIPT = fileURLToPath(new URL('./migros/ocr.py', import.meta.url))
 
+/** One page written to a temp file, ready for ocr.py's --manifest argument. */
+export type OcrManifestEntry = { readonly pageNumber: number; readonly source: string }
+
 /**
- * Runs the OCR subprocess over the flyer's page images.
- *
- * Python is used for exactly one thing — rapidocr-onnxruntime has no TypeScript
- * equivalent — and the boundary is a line-delimited JSON contract.
+ * Pairs each downloaded image with a local file path, preserving the image's
+ * OWN page number — never the array index. Pure: the disk write is the
+ * caller's job (`pathFor`), so this is unit-testable without touching a
+ * filesystem.
  */
-async function ocrPages(imageUrls: readonly string[], tiled: boolean): Promise<OcrPage[]> {
-  const python = process.env.MIGROS_OCR_PYTHON ?? 'python3'
-  const args = [OCR_SCRIPT, ...(tiled ? ['--tiled'] : []), ...imageUrls]
+export function buildOcrManifest(
+  images: readonly FlyerImage[],
+  pathFor: (image: FlyerImage, index: number) => string,
+): OcrManifestEntry[] {
+  return images.map((image, index) => ({ pageNumber: image.pageNumber, source: pathFor(image, index) }))
+}
 
-  const { stdout } = await run(python, args, { maxBuffer: 128 * 1024 * 1024 })
+type OcrLineResult = { pageNumber: number; width: number; height: number; items?: unknown[]; error?: string }
 
+/** Parses ocr.py's line-delimited JSON stdout into OcrPage[]. Pure. */
+export function parseOcrOutput(stdout: string): OcrPage[] {
   const pages: OcrPage[] = []
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue
     try {
-      const parsed = JSON.parse(line) as { pageNumber: number; width: number; height: number; items?: unknown[]; error?: string }
+      const parsed = JSON.parse(line) as OcrLineResult
       // One unreadable page must not lose the flyer.
       if (parsed.error || !parsed.items) continue
       pages.push({
@@ -128,6 +146,47 @@ async function ocrPages(imageUrls: readonly string[], tiled: boolean): Promise<O
     }
   }
   return pages
+}
+
+type ExecPython = (python: string, args: readonly string[], opts: { maxBuffer: number }) => Promise<{ stdout: string }>
+
+/**
+ * Builds the OCR runner. `exec` is injected so tests can assert what would
+ * have been sent to the subprocess (the manifest file's own content — real
+ * page numbers, local paths, never the original urls) without spawning
+ * python or touching the network.
+ */
+export function createOcrRunner(exec: ExecPython): (images: readonly FlyerImage[], tiled: boolean) => Promise<OcrPage[]> {
+  return async (images, tiled) => {
+    const python = process.env.MIGROS_OCR_PYTHON ?? 'python3'
+    const dir = await mkdtemp(join(tmpdir(), 'migros-ocr-'))
+    try {
+      const manifest = buildOcrManifest(images, (image, index) => join(dir, `page-${image.pageNumber}-${index}.jpg`))
+      await Promise.all(images.map((image, index) => writeFile(manifest[index]!.source, image.bytes)))
+
+      const manifestPath = join(dir, 'manifest.json')
+      await writeFile(manifestPath, JSON.stringify(manifest))
+
+      const args = [OCR_SCRIPT, ...(tiled ? ['--tiled'] : []), '--manifest', manifestPath]
+      const { stdout } = await exec(python, args, { maxBuffer: 128 * 1024 * 1024 })
+      return parseOcrOutput(stdout)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+}
+
+const ocrPages = createOcrRunner(run)
+
+export const LIVE_TRANSPORT: Transport = {
+  fetchJson,
+  fetchPdfPages: fetchFlyerPages,
+  fetchPdfText,
+  fetchFlyerImages,
+  ocr: ocrPages,
+  dennerFetchPage,
+  coopFetchPage,
+  volgFetchPage,
 }
 
 // ── The seven ────────────────────────────────────────────────────────────────
@@ -230,10 +289,9 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
 
       revision = images.location.revision
 
-      const pages = await net.ocr(
-        images.images.map((i) => i.url),
-        options.migrosTiledOcr ?? false,
-      )
+      // The already-downloaded images go through, real page numbers and all —
+      // never re-derived from a url list. See the "FETCH ONCE" note above.
+      const pages = await net.ocr(images.images, options.migrosTiledOcr ?? false)
       if (pages.length === 0) unavailable('migros', 'OCR produced no pages — is rapidocr-onnxruntime installed?')
       return pages
     },

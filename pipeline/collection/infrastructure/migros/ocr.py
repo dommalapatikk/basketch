@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """OCR a Migros flyer page into positioned text items.
 
-Reads image paths on argv, writes one JSON object per page to stdout:
+Reads a manifest on argv, writes one JSON object per page to stdout:
 
     {"pageNumber": 1, "width": 2199, "height": 2997,
      "items": [{"text": "5.95", "box": [[x,y],[x,y],[x,y],[x,y]]}, ...]}
@@ -32,6 +32,28 @@ whole benefit: a recovered reference price, not a recovered sale price. The
 earlier claim that 2x recovered a SALE price of 9.90 did not reproduce.
 
 Default is therefore 1x. Pass --tiled to trade time for reference prices.
+
+── FETCH ONCE, AND CARRY REAL PAGE NUMBERS THROUGH (WP-C1, 2026-09-15) ──────
+
+The caller (live-sources.ts) downloads every flyer page image exactly once —
+that download IS the "one fetch per store per week" the pipeline is bound to.
+This script must never fetch the flyer again: pass it local file paths (the
+already-downloaded bytes, written to temp files), not the original https://
+urls, and load_image() never touches the network for a local path.
+
+Page numbers are read from the MANIFEST, never from argv position. If the
+caller's download step skipped one page (that page 404'd, say), the surviving
+images keep their REAL page numbers — position 3 in the list can legitimately
+be page 4. Numbering by position would silently shift every later page's
+CropRegion onto the wrong image; nothing downstream would report an error,
+because a CropRegion pointing at the wrong photograph is not itself invalid.
+
+    ocr.py [--tiled] --manifest <manifest.json>
+        manifest.json: [{"pageNumber": 4, "source": "/tmp/.../page-4.jpg"}, ...]
+
+A bare positional-args form is kept ONLY for ad-hoc manual runs from a
+terminal ("ocr.py page1.jpg page2.jpg"), numbering by argv position exactly as
+before — production (live-sources.ts) never uses it.
 """
 
 import io
@@ -102,11 +124,56 @@ def ocr_tiled(ocr, img, rows=DEFAULT_ROWS, scale=DEFAULT_SCALE):
     return items
 
 
+def build_manifest(argv):
+    """Returns [(page_number, source), ...] from argv.
+
+    `--manifest PATH` reads a JSON file: [{"pageNumber": int, "source": str},
+    ...] and returns exactly those (page_number, source) pairs, in file order.
+    This is the ONLY form live-sources.ts uses, because it is the only form
+    that survives a gap (a page the caller could not download).
+
+    Without `--manifest`, sources are taken as bare positional args and
+    numbered by ARGV POSITION — kept for ad-hoc terminal use only. Production
+    never takes this path: numbering by position is exactly the bug a skipped
+    page turns into a silently wrong CropRegion.
+    """
+    if "--manifest" in argv:
+        path = argv[argv.index("--manifest") + 1]
+        with open(path, encoding="utf-8") as f:
+            entries = json.load(f)
+        return [(int(e["pageNumber"]), e["source"]) for e in entries]
+    sources = [a for a in argv if not a.startswith("--")]
+    return list(enumerate(sources, start=1))
+
+
+def process_entries(entries, ocr, tiled, load_image_fn=load_image):
+    """Yields one result dict per (page_number, source) entry.
+
+    Pure aside from the injected `ocr` and `load_image_fn` — this is what lets
+    the page-numbering contract be tested without rapidocr-onnxruntime or a
+    real image installed (see test_ocr.py).
+
+    One bad page must not lose the flyer: an exception for one entry yields an
+    {"error": ...} record for THAT page number and moves on.
+    """
+    for page_number, source in entries:
+        try:
+            img = load_image_fn(source)
+            items = ocr_tiled(ocr, img) if tiled else ocr_native(ocr, img)
+            # width/height are always NATIVE, whichever path ran, so downstream
+            # CropRegion fractions are computed against the image the browser
+            # will actually fetch.
+            yield {"pageNumber": page_number, "width": img.size[0], "height": img.size[1], "items": items}
+        except Exception as exc:  # noqa: BLE001 - one bad page must not lose the flyer
+            yield {"pageNumber": page_number, "error": str(exc)}
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    tiled = "--tiled" in sys.argv
-    if not args:
-        print("usage: ocr.py [--tiled] <image-or-url> [...]", file=sys.stderr)
+    argv = sys.argv[1:]
+    tiled = "--tiled" in argv
+    entries = build_manifest(argv)
+    if not entries:
+        print("usage: ocr.py [--tiled] --manifest <manifest.json> | <image-or-url> [...]", file=sys.stderr)
         return 2
 
     try:
@@ -120,16 +187,9 @@ def main():
 
     ocr = RapidOCR()
 
-    for index, source in enumerate(args, start=1):
-        try:
-            img = load_image(source)
-            items = ocr_tiled(ocr, img) if tiled else ocr_native(ocr, img)
-            # width/height are always NATIVE, whichever path ran, so downstream
-            # CropRegion fractions are computed against the image the browser
-            # will actually fetch.
-            print(json.dumps({"pageNumber": index, "width": img.size[0], "height": img.size[1], "items": items}))
-        except Exception as exc:  # noqa: BLE001 - one bad page must not lose the flyer
-            print(json.dumps({"pageNumber": index, "error": str(exc)}), file=sys.stderr)
+    for result in process_entries(entries, ocr, tiled):
+        stream = sys.stderr if "error" in result else sys.stdout
+        print(json.dumps(result), file=stream)
 
     return 0
 

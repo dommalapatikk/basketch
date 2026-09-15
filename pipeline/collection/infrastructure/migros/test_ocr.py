@@ -9,11 +9,18 @@ CropRegion points at the wrong part of the page, the visitor sees a neighbouring
 product's photograph, and nothing anywhere reports an error.
 """
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from ocr import DEFAULT_ROWS, STRIP_OVERLAP_PX, strip_box_to_page  # noqa: E402
+from ocr import (  # noqa: E402
+    DEFAULT_ROWS,
+    STRIP_OVERLAP_PX,
+    build_manifest,
+    process_entries,
+    strip_box_to_page,
+)
 
 
 def test_identity_at_scale_one_top_zero():
@@ -65,3 +72,120 @@ def test_strips_overlap_so_a_seam_line_is_read_whole():
         this_bottom = min(page_h, (i + 1) * page_h // rows + STRIP_OVERLAP_PX)
         next_top = max(0, (i + 1) * page_h // rows - STRIP_OVERLAP_PX)
         assert this_bottom > next_top, "strips must overlap or a seam line is lost"
+
+
+# ---------------------------------------------------------------------------
+# build_manifest / process_entries — page numbers are the FLYER's page
+# numbers, never argv position (WP-C1, 2026-09-15).
+#
+# THE DEFECT THIS GUARDS: production numbered pages by their position in the
+# argv list. fetchFlyerImages skips a page that failed to download (23 of 24
+# pages is still a usable flyer), so the surviving images are e.g. pages
+# [1, 2, 4, 5, ...] — position 3 in that list is REALLY page 4. Numbering by
+# position silently relabels it "page 3", and every CropRegion on it points at
+# the wrong photograph in the visitor's browser. Nothing downstream reports an
+# error, because a CropRegion pointing at the wrong image is not itself an
+# invalid CropRegion.
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_page_numbers_survive_a_skipped_page(tmp_path):
+    # Pages 2 and 3 were not downloaded upstream — only 1, 4 and 5 arrived.
+    manifest = [
+        {"pageNumber": 1, "source": "/tmp/page-1.jpg"},
+        {"pageNumber": 4, "source": "/tmp/page-4.jpg"},
+        {"pageNumber": 5, "source": "/tmp/page-5.jpg"},
+    ]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    entries = build_manifest(["--manifest", str(manifest_path)])
+
+    # NOT [(1, ...), (2, ...), (3, ...)] — argv-position numbering, the bug.
+    assert entries == [
+        (1, "/tmp/page-1.jpg"),
+        (4, "/tmp/page-4.jpg"),
+        (5, "/tmp/page-5.jpg"),
+    ]
+
+
+def test_manifest_preserves_file_order_even_when_page_numbers_are_out_of_order(tmp_path):
+    manifest = [{"pageNumber": 9, "source": "b"}, {"pageNumber": 2, "source": "a"}]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    entries = build_manifest(["--manifest", str(manifest_path)])
+
+    assert entries == [(9, "b"), (2, "a")]
+
+
+def test_positional_fallback_numbers_by_argv_position_ad_hoc_use_only():
+    # Documented, ad-hoc-only behaviour: no manifest means "trust argv order".
+    # Production (live-sources.ts) never takes this path.
+    entries = build_manifest(["--tiled", "page-a.jpg", "page-b.jpg"])
+    assert entries == [(1, "page-a.jpg"), (2, "page-b.jpg")]
+
+
+class _FakeImage:
+    """Stands in for a PIL Image — only `.size` is read by process_entries."""
+
+    def __init__(self, size):
+        self.size = size
+
+
+def test_process_entries_emits_the_manifest_page_number_not_a_position_index():
+    entries = [(1, "a"), (4, "b"), (5, "c")]
+
+    results = list(
+        process_entries(
+            entries,
+            ocr=lambda arr: ([], None),
+            tiled=False,
+            load_image_fn=lambda source: _FakeImage((2199, 2997)),
+        )
+    )
+
+    # MUTATION this catches: reverting to `enumerate(entries, start=1)`
+    # (or dropping the manifest page number and using the loop index) would
+    # produce pageNumber 1, 2, 3 here instead of 1, 4, 5.
+    assert [r["pageNumber"] for r in results] == [1, 4, 5]
+
+
+def test_process_entries_keeps_the_manifest_page_number_even_when_that_page_errors():
+    entries = [(1, "a"), (4, "boom")]
+
+    def load_image_fn(source):
+        if source == "boom":
+            raise ValueError("truncated JPEG")
+        return _FakeImage((2199, 2997))
+
+    results = list(process_entries(entries, ocr=lambda arr: ([], None), tiled=False, load_image_fn=load_image_fn))
+
+    assert results[0]["pageNumber"] == 1
+    assert "error" not in results[0]
+    assert results[1] == {"pageNumber": 4, "error": "truncated JPEG"}
+
+
+def test_process_entries_never_touches_the_network_for_a_local_path():
+    # "Fetch once": the caller already downloaded the bytes. A source that is
+    # NOT an http(s) url must be opened locally — load_image()'s own
+    # startswith("http") branch is what real production relies on; this test
+    # pins the contract at the process_entries level, where a regression would
+    # silently double every week's Issuu bandwidth.
+    seen_sources = []
+
+    def load_image_fn(source):
+        seen_sources.append(source)
+        return _FakeImage((10, 10))
+
+    list(
+        process_entries(
+            [(1, "/tmp/basketch-migros/page-1.jpg")],
+            ocr=lambda arr: ([], None),
+            tiled=False,
+            load_image_fn=load_image_fn,
+        )
+    )
+
+    assert seen_sources == ["/tmp/basketch-migros/page-1.jpg"]
+    assert not seen_sources[0].startswith("http")
