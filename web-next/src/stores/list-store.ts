@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
 import type { StoreKey } from '@/lib/store-tokens'
-import type { DealCategory } from '@/lib/types'
+import type { DealCategory, PriceBasis } from '@/lib/types'
 
 // What the user "added" to their shopping list. We snapshot the relevant deal
 // fields at add-time so the list survives even if the upstream snapshot
@@ -18,6 +18,16 @@ export type ListItem = {
   salePrice: number
   imageUrl: string | null
   sourceUrl: string | null
+  /**
+   * Raw fields, not a pre-rendered label — the label is locale text
+   * (lib/format.ts formatValidFromShort, lib/domain/price-basis.ts
+   * programmeOf) computed where it is shown (ListDrawer, buildShareText), so
+   * it stays correct if the item is viewed a day later or shared to a
+   * different locale. CLAUDE.md: a member price must be labelled wherever
+   * its price is shown, and the list drawer and the shared text both show it.
+   */
+  validFrom: string
+  priceBasis: PriceBasis
 }
 
 type ListState = {

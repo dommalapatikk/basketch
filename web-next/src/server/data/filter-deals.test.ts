@@ -14,6 +14,8 @@ import {
   subCategoryCounts,
 } from './filter-deals'
 
+const TODAY = '2026-04-24'
+
 const D = (overrides: Partial<Deal>): Deal => ({
   id: '1',
   store: 'migros',
@@ -227,7 +229,7 @@ describe('buildSections', () => {
       D({ id: '2', subCategory: 'Dairy', discountPercent: 50 }),
       D({ id: '3', subCategory: 'Dairy', discountPercent: 30 }),
     ]
-    const sections = buildSections(deals)
+    const sections = buildSections(deals, TODAY)
     expect(sections[0].subCategory).toBe('Dairy')
     expect(sections[0].primary.id).toBe('2')
     expect(sections[0].others.map((d) => d.id)).toEqual(['3', '1'])
@@ -237,8 +239,70 @@ describe('buildSections', () => {
     const deals = Array.from({ length: 10 }, (_, i) =>
       D({ id: String(i), subCategory: 'Dairy', discountPercent: 100 - i }),
     )
-    const sections = buildSections(deals, 4)
+    const sections = buildSections(deals, TODAY, 4)
     expect(sections[0].others.length).toBe(4)
+  })
+
+  it('marks the primary Cheapest when it is in effect and open-priced', () => {
+    const deals = [D({ id: '1', subCategory: 'Dairy', discountPercent: 40 })]
+    const sections = buildSections(deals, TODAY)
+    expect(sections[0].primaryIsCheapest).toBe(true)
+  })
+
+  it('a not-yet-started deal is never labelled Cheapest, even at the top discount', () => {
+    // Root cause, 2026-09-15: buildSections picked the highest-discount deal
+    // in the group and the caller tagged it "Cheapest" unconditionally — so a
+    // flyer fetched a week early could wear the tag before it was on sale.
+    // The section's headline still goes to a deal that actually votes today;
+    // the future one is not hidden — it moves to "others", with its own
+    // "from" label — it just never wears the Cheapest claim.
+    const deals = [
+      D({ id: '1', subCategory: 'Dairy', discountPercent: 20 }),
+      // Best discount in the group, but starts next week.
+      D({
+        id: '2',
+        subCategory: 'Dairy',
+        discountPercent: 90,
+        validFrom: '2026-05-01',
+        validTo: '2026-05-07',
+      }),
+    ]
+    const sections = buildSections(deals, TODAY)
+    expect(sections[0].primary.id).toBe('1')
+    expect(sections[0].primaryIsCheapest).toBe(true)
+    expect(sections[0].others.map((d) => d.id)).toEqual(['2'])
+  })
+
+  it('a member-only price is never labelled Cheapest either — same rule as future-dated (TP-10)', () => {
+    const deals = [
+      D({ id: '1', subCategory: 'Dairy', discountPercent: 20 }),
+      D({
+        id: '2',
+        subCategory: 'Dairy',
+        discountPercent: 95,
+        store: 'lidl',
+        priceBasis: { kind: 'member-only' as const, programme: 'Lidl Plus' },
+      }),
+    ]
+    const sections = buildSections(deals, TODAY)
+    expect(sections[0].primary.id).toBe('1')
+    expect(sections[0].primaryIsCheapest).toBe(true)
+    expect(sections[0].others.map((d) => d.id)).toEqual(['2'])
+  })
+
+  it('shows no Cheapest tag when nothing in the group is in effect yet', () => {
+    const deals = [
+      D({
+        id: '1',
+        subCategory: 'Dairy',
+        discountPercent: 50,
+        validFrom: '2026-05-01',
+        validTo: '2026-05-07',
+      }),
+    ]
+    const sections = buildSections(deals, TODAY)
+    expect(sections[0].primary.id).toBe('1')
+    expect(sections[0].primaryIsCheapest).toBe(false)
   })
 })
 
@@ -306,7 +370,7 @@ describe('onlyStoreSubCategories', () => {
       D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
       D({ id: '2', store: 'coop', subCategory: 'Dairy' }),
     ]
-    expect(onlyStoreSubCategories(deals).get('Dairy')).toBe('coop')
+    expect(onlyStoreSubCategories(deals, TODAY).get('Dairy')).toBe('coop')
   })
 
   it('says nothing when a second store also has one', () => {
@@ -314,7 +378,7 @@ describe('onlyStoreSubCategories', () => {
       D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
       D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
     ]
-    expect(onlyStoreSubCategories(deals).has('Dairy')).toBe(false)
+    expect(onlyStoreSubCategories(deals, TODAY).has('Dairy')).toBe(false)
   })
 
   it('judges each sub-category independently', () => {
@@ -323,7 +387,7 @@ describe('onlyStoreSubCategories', () => {
       D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
       D({ id: '3', store: 'volg', subCategory: 'Wine' }),
     ]
-    const only = onlyStoreSubCategories(deals)
+    const only = onlyStoreSubCategories(deals, TODAY)
     expect(only.has('Dairy')).toBe(false)
     expect(only.get('Wine')).toBe('volg')
   })
@@ -332,7 +396,7 @@ describe('onlyStoreSubCategories', () => {
     // Nothing is known about what it is, so nothing can be said about who else
     // has one — in either direction.
     const deals = [D({ id: '1', store: 'coop', subCategory: null })]
-    expect(onlyStoreSubCategories(deals).size).toBe(0)
+    expect(onlyStoreSubCategories(deals, TODAY).size).toBe(0)
   })
 
   it('is computed over the whole snapshot, not a filtered view', () => {
@@ -344,8 +408,40 @@ describe('onlyStoreSubCategories', () => {
       D({ id: '2', store: 'migros', subCategory: 'Dairy' }),
     ]
     const filtered = filterDeals(all, { ...DEFAULT_FILTERS, stores: ['coop'] })
-    expect(onlyStoreSubCategories(all).has('Dairy')).toBe(false)
+    expect(onlyStoreSubCategories(all, TODAY).has('Dairy')).toBe(false)
     // Proof the distinction is real: the filtered view would have claimed it.
-    expect(onlyStoreSubCategories(filtered).get('Dairy')).toBe('coop')
+    expect(onlyStoreSubCategories(filtered, TODAY).get('Dairy')).toBe('coop')
+  })
+
+  it('a not-yet-started deal does not count toward an "only at" claim', () => {
+    // Otherwise a flyer fetched early for one store could manufacture a false
+    // "no other store has a Dairy deal this week" the moment it lands, before
+    // it is even on sale.
+    const deals = [
+      D({
+        id: '1',
+        store: 'coop',
+        subCategory: 'Dairy',
+        validFrom: '2026-05-01',
+        validTo: '2026-05-07',
+      }),
+    ]
+    expect(onlyStoreSubCategories(deals, TODAY).has('Dairy')).toBe(false)
+  })
+
+  it('a not-yet-started Lidl deal does not break "Only at Coop"', () => {
+    // Coop is genuinely the only store with a Dairy deal IN EFFECT today.
+    // LIDL's flyer for next week must not count as LIDL "also" having one.
+    const deals = [
+      D({ id: '1', store: 'coop', subCategory: 'Dairy' }),
+      D({
+        id: '2',
+        store: 'lidl',
+        subCategory: 'Dairy',
+        validFrom: '2026-05-01',
+        validTo: '2026-05-07',
+      }),
+    ]
+    expect(onlyStoreSubCategories(deals, TODAY).get('Dairy')).toBe('coop')
   })
 })

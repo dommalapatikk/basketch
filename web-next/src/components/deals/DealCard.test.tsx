@@ -34,6 +34,8 @@ const renderCard = (over: Partial<DealCardProps> = {}) => {
     previous: 1.95,
     savingsPct: 26,
     href: 'https://coop.ch/x',
+    validFrom: '2026-04-01',
+    priceBasis: { kind: 'everyone' },
     ...over,
   }
   return render(
@@ -77,6 +79,35 @@ describe('the member price label (Art. 3(1)(e) UWG)', () => {
     // price whose programme is unknown.
     const basis = createPriceBasis('member-only', null)
     expect(basis.ok).toBe(false)
+  })
+})
+
+describe('the not-yet-started label (RCA #10)', () => {
+  // A deal fetched from a flyer published early is still shown — hiding it
+  // would be its own inaccuracy — but it must say so, in text, the same way
+  // the member price note does.
+  it('shows the "from" date on the primary card', () => {
+    renderCard({ notYetStartedLabel: 'From Thu 17.9.' })
+    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
+  })
+
+  it('shows the "from" date on the compact card too', () => {
+    renderCard({ variant: 'compact', notYetStartedLabel: 'From Thu 17.9.' })
+    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
+  })
+
+  it('says nothing for a deal that is already in effect', () => {
+    renderCard({ notYetStartedLabel: null })
+    expect(screen.queryByText(/^From /)).toBeNull()
+  })
+
+  it('can appear alongside the member price note — the two facts are independent', () => {
+    renderCard({
+      memberPriceLabel: 'Lidl Plus members only',
+      notYetStartedLabel: 'From Thu 17.9.',
+    })
+    expect(screen.getByText('Lidl Plus members only')).toBeTruthy()
+    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
   })
 })
 

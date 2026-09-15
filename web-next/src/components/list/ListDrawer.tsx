@@ -8,6 +8,7 @@ import { Drawer as Vaul } from 'vaul'
 
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
+import { todayInZurich } from '@/lib/domain/validity'
 import { CATEGORY_ACCENT } from '@/lib/store-tokens'
 import { STORE_BRAND } from '@/lib/store-tokens'
 import { groupByStore } from '@/lib/share'
@@ -16,6 +17,8 @@ import { useIsDesktop } from '@/lib/use-is-desktop'
 import { useOrigin } from '@/lib/use-origin'
 import { useListStore, type ListItem } from '@/stores/list-store'
 import { useUiStore } from '@/stores/ui-store'
+
+import { ItemNote } from './ItemNote'
 
 type Props = { locale: string }
 
@@ -188,6 +191,7 @@ function ItemsByCategory({
   locale: string
 }) {
   const t = useTranslations('list')
+  const today = todayInZurich()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
   const byCat = new Map<string, ListItem[]>()
   for (const it of items) {
@@ -238,6 +242,7 @@ function ItemsByCategory({
                   <p className="font-mono text-[11px] tabular-nums text-[var(--color-ink-3)]">
                     {STORE_BRAND[it.store].label} · CHF {it.salePrice.toFixed(2)}
                   </p>
+                  <ItemNote item={it} locale={locale} today={today} />
                 </div>
                 <button
                   type="button"

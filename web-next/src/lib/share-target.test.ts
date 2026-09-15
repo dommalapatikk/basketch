@@ -48,6 +48,8 @@ const item = (id: string, salePrice: number): ListItem => ({
   salePrice,
   imageUrl: null,
   sourceUrl: null,
+  validFrom: '2026-04-01',
+  priceBasis: { kind: 'everyone' },
 })
 
 const ORIGIN = 'https://basketch.vercel.app'

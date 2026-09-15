@@ -80,7 +80,7 @@ Named exports only (no default exports). Union types over enums.
 - **One component per file.** No barrel files. Import directly.
 - **Three states always:** loading, error, success -- every data-fetching component.
 - **Supabase queries stay in the server data layer** -- components never call `supabase.from()`.
-- **Date filter safety net** on all deal queries: `.gte('valid_to', today)` prevents showing expired deals.
+- **A deal is "in effect" when `valid_from ≤ today ≤ valid_to`, using the Zurich calendar date** — not UTC (`web-next/src/lib/domain/validity.ts`: `todayInZurich`, `isInEffect`). `.gte('valid_to', today)` on every deal query remains the safety net that keeps expired rows out at the source, but it is only half the rule: a not-yet-started deal (a flyer fetched before its own start date) still passes it. Such a deal is still SHOWN, with a "from `<weekday> <date>`" label — it is just excluded from the category verdict and can never wear the "Cheapest" tag (`server/verdict/algorithm.ts` `votesInVerdict`).
 - **Pipeline sources never throw.** They return a result. **Empty is not success** — a source that normally yields ~200 offers returning 3 is `BelowExpectedYield`, a failure.
 - **Pipeline flow:** collect -> normalize -> extract metadata -> categorize -> resolve product -> upsert deal -> revalidate.
 - **`discount_percent` is NOT NULL** in the database. Pipeline calculates from prices if source omits it — **but only when an original price genuinely exists** (see the ALDI rule below).
@@ -225,6 +225,7 @@ NEXT     -> Move to next module
 - Do NOT import html2canvas at the top of a file. Lazy-load via `import()` on user action.
 - Do NOT hardcode store brand hexes — import from `store-tokens.ts`. Brand colour is never a background.
 - Do NOT omit the date filter safety net (`.gte('valid_to', today)`) on deal queries.
+- Do NOT treat `.gte('valid_to', today)` as the whole date rule — a deal is only "in effect" when `valid_from ≤ today ≤ valid_to` (Zurich date, `lib/domain/validity.ts`). A not-yet-started deal must still be shown with its "from" label, but excluded from the category verdict and never labelled "Cheapest" — the same "listed but does not vote" rule applies to a member-only price.
 - Do NOT let retailer field names into the domain layer.
 - Do NOT compute a discount for ALDI when no original price is printed — both fields stay null.
 - Do NOT publish a LIDL price without checking whether it is a Lidl Plus member price.

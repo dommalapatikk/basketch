@@ -6,7 +6,7 @@ import { ProductImage } from '@/components/ui/product-image'
 import { Tag } from '@/components/ui/tag'
 import { type DealAttribute, isStandaloneAttribute } from '@/lib/deal-attributes'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
-import type { CropRegion, DealCategory } from '@/lib/types'
+import type { CropRegion, DealCategory, PriceBasis } from '@/lib/types'
 
 import { AddToListButton } from './AddToListButton'
 
@@ -57,6 +57,23 @@ type CommonProps = {
    */
   memberPriceLabel?: string | null
   /**
+   * "From Thu 17.9." — set only when the deal has not started yet
+   * (server/data/filter-deals.ts votesInVerdict via lib/domain/validity.ts
+   * startsAfterToday). RCA #10: retailers' own flyers publish 1-2 weeks
+   * ahead, so a deal can be collected before it is on sale. Hiding it would
+   * be its own inaccuracy — it is shown, with this date, and it never wears
+   * the "Cheapest" tag (isCheapest is already false when this is set).
+   */
+  notYetStartedLabel?: string | null
+  /**
+   * The deal's own validity start and price basis, snapshotted into the
+   * shopping list at add-time (stores/list-store.ts) so ListDrawer and the
+   * share text can render the same labels later, in whatever locale the list
+   * is viewed in.
+   */
+  validFrom: string
+  priceBasis: PriceBasis
+  /**
    * Localised "Only at Coop" — shown ONLY together with onlyStoreNote, which
    * states the scope of the claim. The badge on its own would read as "this
    * product is only at Coop", which is not what the data supports.
@@ -103,6 +120,9 @@ function Primary({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  notYetStartedLabel,
+  validFrom,
+  priceBasis,
   onlyStoreBadge,
   onlyStoreNote,
   attributes,
@@ -176,6 +196,7 @@ function Primary({
         <AttributeLine attributes={attributes} />
 
         {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
+        {notYetStartedLabel ? <NotYetStartedNote label={notYetStartedLabel} /> : null}
 
         {onlyStoreNote ? (
           <p className="text-xs leading-snug text-[var(--color-ink-3)]">{onlyStoreNote}</p>
@@ -197,6 +218,8 @@ function Primary({
             salePrice={current}
             imageUrl={imageUrl}
             sourceUrl={href}
+            validFrom={validFrom}
+            priceBasis={priceBasis}
           />
         </div>
       </div>
@@ -219,6 +242,9 @@ function Compact({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  notYetStartedLabel,
+  validFrom,
+  priceBasis,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
   const titleId = titleIdFor(id)
@@ -288,6 +314,11 @@ function Compact({
             {memberPriceLabel}
           </p>
         ) : null}
+        {notYetStartedLabel ? (
+          <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
+            {notYetStartedLabel}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-3 md:contents">
@@ -308,6 +339,8 @@ function Compact({
           salePrice={current}
           imageUrl={imageUrl}
           sourceUrl={href}
+          validFrom={validFrom}
+          priceBasis={priceBasis}
           size="sm"
         />
       </div>
@@ -356,6 +389,24 @@ function MemberPriceNote({ label }: { label: string }) {
       <span
         aria-hidden
         className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-signal)]"
+      />
+      {label}
+    </p>
+  )
+}
+
+/**
+ * "From Thu 17.9." — text, not colour, same WCAG reasoning as the member
+ * price note. Neutral tone: unlike a member price, a not-yet-started deal is
+ * not a legal exposure to flag in signal colour, just a fact worth stating
+ * plainly before the price applies.
+ */
+function NotYetStartedNote({ label }: { label: string }) {
+  return (
+    <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-ink-3)]"
       />
       {label}
     </p>

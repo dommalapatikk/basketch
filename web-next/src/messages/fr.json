@@ -119,7 +119,8 @@
   "deals": {
     "category_unverified": "Catégorie non vérifiée",
     "only_store_note": "Aucun autre magasin que nous suivons n'a d'offre {category} cette semaine.",
-    "only_store_badge": "Seulement chez {store}"
+    "only_store_badge": "Seulement chez {store}",
+    "from_date": "Dès {date}"
   },
   "filters": {
     "storage": "Conservation",
