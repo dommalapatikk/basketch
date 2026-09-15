@@ -48,10 +48,11 @@ describe('buildShareText', () => {
     expect(text).toContain('https://basketch.app/list')
   })
 
-  it('carries a member-only price into the shared text (Art. 3(1)(e) UWG)', () => {
-    // A recipient who never sees the site must still learn this price is
-    // conditional — CLAUDE.md requires the label wherever the price is shown,
-    // and a WhatsApp message showing the price is exactly that.
+  it('names the programme for a member-only price (code review MEDIUM: "1 member price" named nobody)', () => {
+    // CLAUDE.md: "always label member-only prices (Lidl Plus, Supercard,
+    // Cumulus)" — naming the programme, not just flagging that one exists. A
+    // recipient who never opens basketch must still learn WHICH membership
+    // this price needs.
     const text = buildShareText({
       items: [
         item({
@@ -64,7 +65,27 @@ describe('buildShareText', () => {
       locale: 'en',
       today: TODAY,
     })
-    expect(text).toMatch(/LIDL:.*\(1 member price\)/)
+    expect(text).toMatch(/LIDL:.*\(Lidl Plus members only\)/)
+  })
+
+  it('names every distinct programme when a store group mixes them', () => {
+    const text = buildShareText({
+      items: [
+        item({
+          store: 'coop',
+          priceBasis: { kind: 'member-only', programme: 'Supercard' },
+        }),
+        item({
+          store: 'coop',
+          priceBasis: { kind: 'member-only', programme: 'Cumulus' },
+        }),
+      ],
+      shareUrl: 'https://basketch.app/list',
+      locale: 'en',
+      today: TODAY,
+    })
+    expect(text).toContain('Supercard')
+    expect(text).toContain('Cumulus')
   })
 
   it('carries a not-yet-started item into the shared text', () => {
@@ -75,6 +96,30 @@ describe('buildShareText', () => {
       today: TODAY,
     })
     expect(text).toMatch(/ALDI:.*\(1 not started yet\)/)
+  })
+
+  it('does not throw for a list item saved before WP-W2 (no priceBasis, no validFrom)', () => {
+    // BLOCKER, code review of 9525601: groupNote called isMemberOnly on an
+    // item with no priceBasis key at all and threw. A returning user with a
+    // non-empty list could never open the share sheet.
+    const legacyItem = {
+      id: 'legacy-1',
+      store: 'coop' as const,
+      productName: 'Milk',
+      category: 'fresh' as const,
+      salePrice: 2,
+      imageUrl: null,
+      sourceUrl: null,
+      // No validFrom, no priceBasis.
+    }
+    expect(() =>
+      buildShareText({
+        items: [legacyItem],
+        shareUrl: 'https://basketch.app/list',
+        locale: 'en',
+        today: TODAY,
+      }),
+    ).not.toThrow()
   })
 
   it('says nothing extra for a store whose items are all open and in effect', () => {

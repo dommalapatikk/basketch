@@ -5,9 +5,14 @@ import { isMemberOnly, type PriceBasis, programmeOf } from './domain/price-basis
  * required label (CLAUDE.md; Art. 3(1)(e) UWG) is worded, so the deals list,
  * the shopping list drawer and the shared WhatsApp/email text cannot drift
  * into saying three slightly different things about the same fact. Returns
- * null for an open price — nothing to say, nothing rendered.
+ * null for an open price, and for `undefined` — a `ListItem` persisted
+ * before this field existed (code review of 9525601, BLOCKER) has no
+ * `priceBasis` at all, and that must read as "nothing to say", never throw.
  */
-export function formatMemberPriceLabel(priceBasis: PriceBasis, locale: string): string | null {
+export function formatMemberPriceLabel(
+  priceBasis: PriceBasis | undefined,
+  locale: string,
+): string | null {
   if (!isMemberOnly(priceBasis)) return null
   // isMemberOnly guarantees a programme name: createPriceBasis refuses to
   // build a member-only PriceBasis without one (the LIDL rule).

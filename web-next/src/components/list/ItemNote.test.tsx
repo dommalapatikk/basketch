@@ -54,6 +54,12 @@ describe('ItemNote', () => {
     expect(screen.getByText(/^From /)).toBeTruthy()
   })
 
+  it('wraps the date in a machine-readable <time dateTime> (a11y)', () => {
+    renderNote({ item: item({ validFrom: '2026-09-17' }) })
+    const time = screen.getByText(/^From /).closest('time')
+    expect(time?.getAttribute('dateTime')).toBe('2026-09-17')
+  })
+
   it('shows both facts together when both apply', () => {
     renderNote({
       item: item({
@@ -68,6 +74,26 @@ describe('ItemNote', () => {
 
   it('renders nothing for an open, already-started item', () => {
     const { container } = renderNote({ item: item() })
+    expect(container.textContent).toBe('')
+  })
+
+  it('a list saved before WP-W2 still opens — renders nothing rather than throwing', () => {
+    // BLOCKER, code review of 9525601: ListDrawer is mounted in every
+    // layout and calls this component for every item. A legacy item with no
+    // priceBasis/validFrom key at all threw a TypeError, crashing the page
+    // for every returning user with a non-empty list.
+    const legacyItem = {
+      id: 'legacy-1',
+      store: 'coop' as const,
+      productName: 'Milk',
+      category: 'fresh' as const,
+      salePrice: 1.5,
+      imageUrl: null,
+      sourceUrl: null,
+      // No validFrom, no priceBasis.
+    }
+    expect(() => renderNote({ item: legacyItem })).not.toThrow()
+    const { container } = renderNote({ item: legacyItem })
     expect(container.textContent).toBe('')
   })
 })

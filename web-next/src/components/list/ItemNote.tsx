@@ -23,13 +23,22 @@ export function ItemNote({
 }) {
   const t = useTranslations('deals')
   const memberLabel = formatMemberPriceLabel(item.priceBasis, locale)
-  const fromLabel = startsAfterToday(item, today)
-    ? t('from_date', { date: formatValidFromShort(item.validFrom, locale) })
-    : null
-  if (!memberLabel && !fromLabel) return null
+  // The `item.validFrom &&` guard is what lets TypeScript narrow it to
+  // `string` below — startsAfterToday already returns false for
+  // `undefined`, so this never changes which branch runs.
+  const showsFromDate = Boolean(item.validFrom) && startsAfterToday(item, today)
+  if (!memberLabel && !showsFromDate) return null
   return (
     <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
-      {[memberLabel, fromLabel].filter(Boolean).join(' · ')}
+      {memberLabel}
+      {memberLabel && showsFromDate ? ' · ' : null}
+      {showsFromDate && item.validFrom ? (
+        // The date itself is wrapped in <time dateTime> (code review LOW,
+        // a11y) — validFrom is already machine-readable ISO (YYYY-MM-DD).
+        <time dateTime={item.validFrom}>
+          {t('from_date', { date: formatValidFromShort(item.validFrom, locale) })}
+        </time>
+      ) : null}
     </p>
   )
 }

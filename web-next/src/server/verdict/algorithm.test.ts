@@ -3,12 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ACTIVE_CATEGORIES } from '@/lib/category-rules'
 import type { Deal, DealCategory } from '@/lib/types'
 
-import {
-  computeAllVerdicts,
-  computeCategoryVerdict,
-  scoreStoresForCategory,
-  votesInVerdict,
-} from './algorithm'
+import { computeAllVerdicts, computeCategoryVerdict, scoreStoresForCategory } from './algorithm'
 
 const TODAY = '2026-04-27'
 
@@ -170,35 +165,12 @@ describe('uncertain deals do not vote (D3)', () => {
   })
 })
 
-describe('votesInVerdict — the single "listed but does not vote" rule (D2)', () => {
-  it('votes when in effect, open-priced and confidently categorised', () => {
-    expect(votesInVerdict(make('coop', 'fresh', 20), TODAY)).toBe(true)
-  })
+// votesInVerdict itself is unit-tested at its own home,
+// lib/domain/votes-in-verdict.test.ts. These two describes cover the
+// integration — that scoreStoresForCategory/computeCategoryVerdict actually
+// apply it, not merely that the predicate itself is correct in isolation.
 
-  it('does not vote when the classifier was not confident', () => {
-    expect(votesInVerdict({ ...make('coop', 'fresh', 20), isUncertain: true }, TODAY)).toBe(false)
-  })
-
-  it('does not vote when the price is member-only', () => {
-    const deal = {
-      ...make('lidl', 'fresh', 20),
-      priceBasis: { kind: 'member-only' as const, programme: 'Lidl Plus' },
-    }
-    expect(votesInVerdict(deal, TODAY)).toBe(false)
-  })
-
-  it('does not vote when the deal has not started yet', () => {
-    const deal = { ...make('aldi', 'fresh', 20), validFrom: '2026-05-01', validTo: '2026-05-07' }
-    expect(votesInVerdict(deal, TODAY)).toBe(false)
-  })
-
-  it('does not vote once the deal has expired', () => {
-    const deal = { ...make('aldi', 'fresh', 20), validFrom: '2026-04-01', validTo: '2026-04-10' }
-    expect(votesInVerdict(deal, TODAY)).toBe(false)
-  })
-})
-
-describe('a deal starting Thursday does not vote in today\'s verdict', () => {
+describe("a deal starting Thursday does not vote in today's verdict", () => {
   // Root cause, 2026-09-15: run 34833209176 fetched next week's ALDI, LIDL and
   // SPAR flyers early. Every one of those rows had `validFrom` after the run
   // date, but nothing checked it — so ALDI, LIDL and SPAR voted in the

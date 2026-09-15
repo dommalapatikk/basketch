@@ -8,6 +8,7 @@ import {
   countMatches,
   filterDeals,
   matchDeal,
+  onlyStoreBadgeStore,
   onlyStoreSubCategories,
   storageCounts,
   storeCounts,
@@ -443,5 +444,55 @@ describe('onlyStoreSubCategories', () => {
       }),
     ]
     expect(onlyStoreSubCategories(deals, TODAY).get('Dairy')).toBe('coop')
+  })
+})
+
+describe('onlyStoreBadgeStore — HIGH, code review of 9525601: a false comparative claim', () => {
+  // The section's headline card is not always a deal from the "only" store —
+  // pickPrimary can fall back to the best discount overall when nothing
+  // votes (server/data/filter-deals.ts buildSections). Attaching the badge
+  // to whatever card is featured, without checking whose card it actually
+  // is, can put "Only at Coop" on a LIDL card. That is a false comparative
+  // claim under Art. 3(1)(e) UWG, not a cosmetic bug.
+  const onlyStore = new Map([['Dairy', 'coop' as const]])
+
+  it('shows the badge when the primary card really is from the only store', () => {
+    const primary = D({ id: '1', store: 'coop', subCategory: 'Dairy' })
+    expect(onlyStoreBadgeStore({ subCategory: 'Dairy', primary }, onlyStore, TODAY)).toBe('coop')
+  })
+
+  it('withholds the badge when the primary card belongs to a DIFFERENT store', () => {
+    // Reproduces the exact defect: buildSections' fallback picked LIDL's
+    // higher-discount, not-yet-started deal as primary while Coop remains
+    // the only store with anything in effect today.
+    const primary = D({
+      id: '2',
+      store: 'lidl',
+      subCategory: 'Dairy',
+      discountPercent: 90,
+      validFrom: '2026-05-01',
+      validTo: '2026-05-07',
+    })
+    expect(onlyStoreBadgeStore({ subCategory: 'Dairy', primary }, onlyStore, TODAY)).toBeNull()
+  })
+
+  it('withholds the badge when the primary card is from the right store but is itself not in effect', () => {
+    // Coop could itself have a second, higher-discount but not-yet-started
+    // deal that outranks its own in-effect one. The store name matches, but
+    // "Only at Coop" next to a "from Thu" card of a price that is not on
+    // sale yet is its own confusing half-truth.
+    const primary = D({
+      id: '3',
+      store: 'coop',
+      subCategory: 'Dairy',
+      validFrom: '2026-05-01',
+      validTo: '2026-05-07',
+    })
+    expect(onlyStoreBadgeStore({ subCategory: 'Dairy', primary }, onlyStore, TODAY)).toBeNull()
+  })
+
+  it('withholds the badge when no store is "only" for this sub-category', () => {
+    const primary = D({ id: '4', store: 'coop', subCategory: 'Bread' })
+    expect(onlyStoreBadgeStore({ subCategory: 'Bread', primary }, onlyStore, TODAY)).toBeNull()
   })
 })

@@ -17,6 +17,7 @@ import {
   buildSections,
   categoryCounts,
   filterDeals,
+  onlyStoreBadgeStore,
   onlyStoreSubCategories,
   storageCounts,
   storeCounts,
@@ -220,6 +221,10 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
             >
               {sectionVirtualizer.getVirtualItems().map((vRow) => {
                 const s = sections[vRow.index]
+                // null unless the section's OWN featured card is genuinely
+                // from the "only" store AND is itself in effect — see
+                // onlyStoreBadgeStore's doc comment (code review HIGH).
+                const badgeStore = onlyStoreBadgeStore(s, onlyStore, snapshot.today)
                 return (
                   <div
                     key={s.subCategory}
@@ -244,14 +249,12 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
                       othersLabel={t('section_others')}
                       unverifiedLabel={t('category_unverified')}
                       onlyStoreBadge={
-                        onlyStore.has(s.subCategory)
-                          ? t('only_store_badge', {
-                              store: STORE_BRAND[onlyStore.get(s.subCategory) as StoreKey].label,
-                            })
+                        badgeStore
+                          ? t('only_store_badge', { store: STORE_BRAND[badgeStore].label })
                           : null
                       }
                       onlyStoreNote={
-                        onlyStore.has(s.subCategory)
+                        badgeStore
                           ? t('only_store_note', {
                               category: subCategoryLabel(s.subCategory, locale),
                             })
@@ -368,7 +371,7 @@ function SubCategorySection({
           cheapestLabel={cheapestLabel}
           isUncertain={primary.isUncertain}
           unverifiedLabel={unverifiedLabel}
-          memberPriceLabel={memberPriceLabel(primary, locale)}
+          memberPriceLabel={formatMemberPriceLabel(primary.priceBasis, locale)}
           notYetStartedLabel={notYetStartedLabel(primary)}
           validFrom={primary.validFrom}
           priceBasis={primary.priceBasis}
@@ -464,7 +467,7 @@ function OtherStoresBlock({
               href={d.sourceUrl}
               isUncertain={d.isUncertain}
               unverifiedLabel={unverifiedLabel}
-              memberPriceLabel={memberPriceLabel(d, locale)}
+              memberPriceLabel={formatMemberPriceLabel(d.priceBasis, locale)}
               notYetStartedLabel={notYetStartedLabel(d)}
               validFrom={d.validFrom}
               priceBasis={d.priceBasis}
@@ -480,14 +483,3 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-/**
- * The label a members-only price must carry, or null for an open price.
- *
- * Art. 3(1)(e) UWG and CLAUDE.md both make this binding: a Lidl Plus, Supercard
- * or Cumulus price may never render as one anybody can pay. Wording lives in
- * lib/format.ts (formatMemberPriceLabel) — one place, so the deals list, the
- * list drawer and the shared WhatsApp/email text never drift apart on it.
- */
-function memberPriceLabel(deal: Deal, locale: string): string | null {
-  return formatMemberPriceLabel(deal.priceBasis, locale)
-}

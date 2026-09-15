@@ -31,6 +31,29 @@ describe('todayInZurich — the date rule is Zurich, not UTC', () => {
     // lexicographically against valid_from/valid_to.
     expect(todayInZurich()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
+
+  it('crosses midnight correctly in winter too — CET is UTC+1, not UTC+2', () => {
+    // The September test above covers CEST (UTC+2). Winter is a full hour
+    // less of a gap, and it is a different code path only if the offset were
+    // ever hardcoded instead of read from the IANA zone — it is not, but this
+    // is the test that would catch it if it regressed.
+    const clock = () => new Date('2026-01-15T23:30:00Z') // 2026-01-16T00:30 CET
+    expect(todayInZurich(clock)).toBe('2026-01-16')
+  })
+
+  it('stays on the correct calendar day through the spring-forward transition night', () => {
+    // 2026-03-29 02:00 CET skips forward to 03:00 CEST. Neither side of that
+    // jump should ever miscount the calendar day.
+    expect(todayInZurich(() => new Date('2026-03-29T00:30:00Z'))).toBe('2026-03-29') // 01:30 CET
+    expect(todayInZurich(() => new Date('2026-03-29T01:30:00Z'))).toBe('2026-03-29') // 03:30 CEST
+  })
+
+  it('stays on the correct calendar day through the autumn-back transition night', () => {
+    // 2026-10-25 03:00 CEST falls back to 02:00 CET. The Zurich date still
+    // rolls over at Zurich midnight, not at the UTC instant of the fallback.
+    const clock = () => new Date('2026-10-24T22:30:00Z') // 2026-10-25T00:30 CEST
+    expect(todayInZurich(clock)).toBe('2026-10-25')
+  })
 })
 
 describe('isInEffect', () => {
@@ -69,5 +92,12 @@ describe('startsAfterToday', () => {
 
   it('is false once the deal is already running', () => {
     expect(startsAfterToday({ validFrom: '2026-09-10' }, '2026-09-17')).toBe(false)
+  })
+
+  it('is false — not a crash — for a persisted list item with no validFrom at all', () => {
+    // stores/list-store.ts: a ListItem saved before WP-W2 has no validFrom
+    // key. Unknown start reads as "already running" (claims less than
+    // "upcoming" would) rather than throwing — the code-review BLOCKER.
+    expect(startsAfterToday({ validFrom: undefined }, '2026-09-17')).toBe(false)
   })
 })

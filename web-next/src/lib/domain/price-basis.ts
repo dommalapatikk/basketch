@@ -54,11 +54,20 @@ export function createPriceBasis(
   return ok({ kind: 'member-only', programme: named })
 }
 
-export function isMemberOnly(basis: PriceBasis): boolean {
-  return basis.kind === 'member-only'
+/**
+ * `undefined` is accepted alongside `PriceBasis` because `ListItem`
+ * (stores/list-store.ts) persists to localStorage across deploys: a list
+ * saved before this field existed rehydrates with `priceBasis` simply
+ * absent. Reading that as "not member-only" is the same "claims less" rule
+ * `createPriceBasis` already applies to an unrecognised database value — an
+ * unknown basis must never be read as an open price's opposite, but it also
+ * must never crash the page it appears on.
+ */
+export function isMemberOnly(basis: PriceBasis | undefined): boolean {
+  return basis?.kind === 'member-only'
 }
 
-/** The programme name, or null for an open price. For display only. */
-export function programmeOf(basis: PriceBasis): string | null {
-  return basis.kind === 'member-only' ? basis.programme : null
+/** The programme name, or null for an open price (or an unknown one). For display only. */
+export function programmeOf(basis: PriceBasis | undefined): string | null {
+  return basis?.kind === 'member-only' ? basis.programme : null
 }

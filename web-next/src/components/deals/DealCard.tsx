@@ -196,7 +196,9 @@ function Primary({
         <AttributeLine attributes={attributes} />
 
         {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
-        {notYetStartedLabel ? <NotYetStartedNote label={notYetStartedLabel} /> : null}
+        {notYetStartedLabel ? (
+          <NotYetStartedNote label={notYetStartedLabel} validFrom={validFrom} />
+        ) : null}
 
         {onlyStoreNote ? (
           <p className="text-xs leading-snug text-[var(--color-ink-3)]">{onlyStoreNote}</p>
@@ -316,7 +318,7 @@ function Compact({
         ) : null}
         {notYetStartedLabel ? (
           <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
-            {notYetStartedLabel}
+            <time dateTime={validFrom}>{notYetStartedLabel}</time>
           </p>
         ) : null}
       </div>
@@ -400,15 +402,20 @@ function MemberPriceNote({ label }: { label: string }) {
  * price note. Neutral tone: unlike a member price, a not-yet-started deal is
  * not a legal exposure to flag in signal colour, just a fact worth stating
  * plainly before the price applies.
+ *
+ * The date itself is wrapped in `<time dateTime>` (code review LOW, a11y) —
+ * `validFrom` is already machine-readable ISO (`YYYY-MM-DD`), so this is
+ * free: no parsing, no guessing, just naming what the visible text already
+ * says in a form assistive tech and browsers can act on.
  */
-function NotYetStartedNote({ label }: { label: string }) {
+function NotYetStartedNote({ label, validFrom }: { label: string; validFrom: string }) {
   return (
     <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
       <span
         aria-hidden
         className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-ink-3)]"
       />
-      {label}
+      <time dateTime={validFrom}>{label}</time>
     </p>
   )
 }

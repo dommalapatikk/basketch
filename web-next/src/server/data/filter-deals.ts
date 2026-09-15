@@ -1,9 +1,8 @@
 import { isInEffect } from '@/lib/domain/validity'
+import { votesInVerdict } from '@/lib/domain/votes-in-verdict'
 import type { DealsFilters } from '@/lib/filters'
 import type { StoreKey } from '@/lib/store-tokens'
 import type { Deal, StorageState } from '@/lib/types'
-
-import { votesInVerdict } from '../verdict/algorithm'
 
 // Slim shape used both for in-memory filtering and for client-side facet count.
 // Anything richer than this lives only on the server side of the wire.
@@ -240,6 +239,34 @@ export function onlyStoreSubCategories(deals: Deal[], today: string): Map<string
   return out
 }
 
+/**
+ * The store to badge "Only at X" for one section's headline card, or `null`
+ * when the badge would be a false claim.
+ *
+ * HIGH, code review of 9525601: `buildSections`' primary is not always a
+ * deal from `onlyStoreSubCategories`' named store — `pickPrimary` falls back
+ * to the section's best discount overall when nothing in it votes
+ * (lib/domain/votes-in-verdict.ts), and that fallback can be a different
+ * store entirely. Attaching the badge to whatever card is featured, without
+ * checking whose card it is, put "Only at Coop" on a LIDL card — an Art.
+ * 3(1)(e) UWG false comparative claim, not a cosmetic bug.
+ *
+ * Two conditions, both required: the primary must actually BE from the named
+ * store, and it must itself be in effect — a "from Thu" card of a price that
+ * is not on sale yet is not evidence that no other store has one THIS WEEK.
+ */
+export function onlyStoreBadgeStore(
+  section: { subCategory: string; primary: Deal },
+  onlyStore: Map<string, StoreKey>,
+  today: string,
+): StoreKey | null {
+  const only = onlyStore.get(section.subCategory)
+  if (!only) return null
+  if (section.primary.store !== only) return null
+  if (!isInEffect(section.primary, today)) return null
+  return only
+}
+
 export type DealsSection = {
   subCategory: string
   primary: Deal
@@ -247,7 +274,7 @@ export type DealsSection = {
    * Whether `primary` may wear the "Cheapest" tag. False does not mean
    * `primary` is hidden or wrong — it is still the best discount in the
    * group — only that the group has nothing eligible to make the claim
-   * (server/verdict/algorithm.ts votesInVerdict), so no deal in it may be
+   * (lib/domain/votes-in-verdict.ts), so no deal in it may be
    * called Cheapest today.
    */
   primaryIsCheapest: boolean

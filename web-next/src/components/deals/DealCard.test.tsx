@@ -109,6 +109,12 @@ describe('the not-yet-started label (RCA #10)', () => {
     expect(screen.getByText('Lidl Plus members only')).toBeTruthy()
     expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
   })
+
+  it('wraps the date in a machine-readable <time dateTime> (a11y)', () => {
+    renderCard({ notYetStartedLabel: 'From Thu 17.9.', validFrom: '2026-09-17' })
+    const time = screen.getByText('From Thu 17.9.').closest('time')
+    expect(time?.getAttribute('dateTime')).toBe('2026-09-17')
+  })
 })
 
 describe('the flyer crop (Art. 2 Abs. 3bis URG)', () => {

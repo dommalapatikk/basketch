@@ -39,12 +39,18 @@ const ZURICH_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
 /**
  * Today's date in Zurich, as `YYYY-MM-DD`.
  *
- * `en-CA` is not a nod to Canada — it is the one built-in locale whose default
- * formatting is already `YYYY-MM-DD`, which is also the lexicographic order
- * Postgres `date` columns (`valid_from`, `valid_to`) compare in as strings.
+ * Built from `formatToParts` rather than trusting a locale's default part
+ * ORDER (`lib/format.ts` `formatValidFromShort` does the same, for the same
+ * reason): the locale tag here only chooses which calendar and digit script
+ * to use, not the shape of the output, so the YYYY-MM-DD assembly is ours,
+ * not implicit in a locale's formatting convention. That shape is also the
+ * lexicographic order Postgres `date` columns (`valid_from`, `valid_to`)
+ * compare in as strings.
  */
 export function todayInZurich(clock: Clock = systemClock): string {
-  return ZURICH_DATE_FORMATTER.format(clock())
+  const parts = ZURICH_DATE_FORMATTER.formatToParts(clock())
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
 }
 
 /**
@@ -56,7 +62,16 @@ export function isInEffect(deal: { validFrom: string; validTo: string }, today: 
   return deal.validFrom <= today && today <= deal.validTo
 }
 
-/** True when a deal's window has not opened yet, by the Zurich date. */
-export function startsAfterToday(deal: { validFrom: string }, today: string): boolean {
-  return deal.validFrom > today
+/**
+ * True when a deal's window has not opened yet, by the Zurich date.
+ *
+ * `validFrom` is optional here — not on `Deal`, which always has one, but on
+ * `ListItem` (stores/list-store.ts), which persists to localStorage across
+ * deploys: an item saved before this field existed rehydrates without it.
+ * Unknown reads as "already running" — the reading that claims less, and the
+ * one that never puts an unearned "from <date>" label on a price nobody
+ * ever withheld.
+ */
+export function startsAfterToday(deal: { validFrom?: string }, today: string): boolean {
+  return deal.validFrom !== undefined && deal.validFrom > today
 }

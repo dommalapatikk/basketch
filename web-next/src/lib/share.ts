@@ -1,5 +1,5 @@
 import type { ListItem } from '@/stores/list-store'
-import { isMemberOnly } from '@/lib/domain/price-basis'
+import { programmeOf } from '@/lib/domain/price-basis'
 import { startsAfterToday, todayInZurich } from '@/lib/domain/validity'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
 
@@ -26,23 +26,29 @@ const formatCHF = (value: number, locale = 'de-CH') =>
   }).format(value)
 
 /**
- * "(1 member price)" / "(1 not started yet)" appended to a store's line —
- * the recipient of a shared WhatsApp/email message never opens basketch, so
- * a price shown there without this note is exactly the unlabelled member
- * price Art. 3(1)(e) UWG and CLAUDE.md forbid. Says nothing when every item
- * in the group is open-priced and already in effect — the common case stays
- * as short as it always was.
+ * "(Lidl Plus members only)" / "(1 not started yet)" appended to a store's
+ * line — the recipient of a shared WhatsApp/email message never opens
+ * basketch, so a price shown there without this note is exactly the
+ * unlabelled member price Art. 3(1)(e) UWG and CLAUDE.md forbid. CLAUDE.md
+ * names the requirement precisely — "always label member-only prices (Lidl
+ * Plus, Supercard, Cumulus)" — so the programme is named, not just counted;
+ * an earlier version of this wrote "(1 member price)" and named nobody, the
+ * exact fallback `formatMemberPriceLabel`'s own doc comment warns against.
+ * Says nothing when every item in the group is open-priced and already in
+ * effect — the common case stays as short as it always was.
  */
 function groupNote(items: ListItem[], locale: string, today: string): string | null {
-  const memberOnly = items.filter((it) => isMemberOnly(it.priceBasis)).length
+  const programmes = new Set<string>()
+  for (const it of items) {
+    const programme = programmeOf(it.priceBasis)
+    if (programme) programmes.add(programme)
+  }
   const notStarted = items.filter((it) => startsAfterToday(it, today)).length
+
   const parts: string[] = []
-  if (memberOnly > 0) {
-    parts.push(
-      locale === 'de'
-        ? `${memberOnly} Mitgliederpreis${memberOnly === 1 ? '' : 'e'}`
-        : `${memberOnly} member price${memberOnly === 1 ? '' : 's'}`,
-    )
+  if (programmes.size > 0) {
+    const names = Array.from(programmes).join(', ')
+    parts.push(locale === 'de' ? `nur mit ${names}` : `${names} members only`)
   }
   if (notStarted > 0) {
     parts.push(locale === 'de' ? `${notStarted} noch nicht gestartet` : `${notStarted} not started yet`)
