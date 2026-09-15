@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { storesSafeToSweep } from './stale-sweep'
+import { storesSafeToSweep, sweepWindows } from './stale-sweep'
 
 /**
  * The guard on the most destructive operation in the pipeline.
@@ -186,5 +186,58 @@ describe('a store that wrote implausibly little must not sweep the rest', () => 
       activeByStore: new Map([['volg', 18]]),
     })
     expect(safe).toEqual([])
+  })
+})
+
+describe('sweepWindows — the publication windows a run actually wrote', () => {
+  /**
+   * ITEM #10, 2026-09-15. Run 34833209176 fetched ALDI's, LIDL's and SPAR's
+   * NEXT WEEK flyer, wrote it, then `deactivateStaleForStores` switched off
+   * every active row of those stores regardless of validFrom — including
+   * THIS week's rows, which the run never touched because it never intended
+   * to. `Deactivated 316 stale deals (aldi=143, lidl=80, spar=69, coop=19,
+   * denner=5)` left ALDI, LIDL and SPAR with 0 offers in effect on 15.9.
+   *
+   * `sweepWindows` is the fix's data structure: the set of publication
+   * windows (by validFrom) a store's WRITTEN rows actually belong to, so the
+   * sweep query can be scoped to `.in('valid_from', …)` and never touch a
+   * window this run did not write.
+   */
+  it('a next-week flyer does not deactivate this weeks deals — run 34833209176 deactivated aldi=143, lidl=80, spar=69 and left 0 offers in effect', () => {
+    // This run wrote ONLY next week's ALDI window (17.9 and 21.9). It never
+    // wrote a row for this week's window (08.9) — so this week must not
+    // appear in the windows sweepWindows hands back for aldi.
+    const windows = sweepWindows([
+      { store: 'aldi', validFrom: '2026-09-17' },
+      { store: 'aldi', validFrom: '2026-09-17' },
+      { store: 'aldi', validFrom: '2026-09-21' },
+    ])
+    expect(windows.get('aldi')).toEqual(new Set(['2026-09-17', '2026-09-21']))
+    expect(windows.get('aldi')?.has('2026-09-08')).toBe(false)
+  })
+
+  it('a deal that vanished from the same publication window is still swept', () => {
+    // Two of three products written to the 17.9 window on the PREVIOUS run;
+    // this run wrote only one of them back (the other was pulled from the
+    // flyer). sweepWindows must still report 17.9 as a window this store
+    // wrote THIS run, so deactivateStaleForStores can sweep the row that
+    // vanished — it is a real withdrawal, not a publication this run never
+    // touched.
+    const windows = sweepWindows([{ store: 'lidl', validFrom: '2026-09-17' }])
+    expect(windows.get('lidl')).toEqual(new Set(['2026-09-17']))
+  })
+
+  it('groups multiple stores independently', () => {
+    const windows = sweepWindows([
+      { store: 'aldi', validFrom: '2026-09-17' },
+      { store: 'lidl', validFrom: '2026-09-17' },
+      { store: 'lidl', validFrom: '2026-09-24' },
+    ])
+    expect(windows.get('aldi')).toEqual(new Set(['2026-09-17']))
+    expect(windows.get('lidl')).toEqual(new Set(['2026-09-17', '2026-09-24']))
+  })
+
+  it('returns an empty map for no written rows', () => {
+    expect(sweepWindows([])).toEqual(new Map())
   })
 })

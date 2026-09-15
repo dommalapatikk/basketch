@@ -6,6 +6,7 @@ import 'dotenv/config'
 import type { Deal } from '../shared/types'
 import { dealToRow } from '../shared/types'
 
+import { sweepWindows } from './storage/domain/stale-sweep'
 import { supabase } from './supabase-client'
 
 const BATCH_SIZE = 100
@@ -47,18 +48,25 @@ export { normalizeProductName }
  * which stores have their un-refreshed deals switched off. Fed the input count,
  * a run that stored NOTHING would have deactivated every deal on a public site.
  * A guard fed a lie is not a guard.
+ *
+ * `windowsByStore` is the same lesson applied to WHICH ROWS may be swept, not
+ * just which stores: the publication windows (by `valid_from`) this store's
+ * WRITTEN rows actually belong to (see `sweepWindows`, item #10). Built from
+ * the same accepted-by-the-database rows as `byStore` — never from `deals`,
+ * the input — for the identical reason.
  */
 export type StoreDealsResult = {
   readonly attempted: number
   readonly total: number
   readonly byStore: Map<string, number>
+  readonly windowsByStore: Map<string, Set<string>>
 }
 
 export async function storeDeals(
   deals: Deal[],
   productIds?: Map<string, string>,
 ): Promise<StoreDealsResult> {
-  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map() }
+  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map(), windowsByStore: new Map() }
 
   const allRows = deals.map((d) => {
     const row = dealToRow(d, productIds?.get(productLookupKey(d.store, d.productName)))
@@ -81,18 +89,22 @@ export async function storeDeals(
   const rows = [...deduped.values()]
   let storedCount = 0
   const byStore = new Map<string, number>()
+  const writtenRows: { store: string; validFrom: string }[] = []
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
 
     // .select() is the whole point: without it the response carries no rows and
     // a batch the database rejected is indistinguishable from one it accepted.
+    // valid_from is selected alongside store/id so sweepWindows below can be
+    // built from what the database actually WROTE, not from what was handed
+    // to it — the same discipline as `byStore` (defect #5).
     const { data, error } = await supabase
       .from('deals')
       .upsert(batch, {
         onConflict: 'store,product_name,valid_from',
       })
-      .select('id, store')
+      .select('id, store, valid_from')
 
     if (error) {
       console.error(
@@ -102,9 +114,12 @@ export async function storeDeals(
       continue
     }
 
-    const accepted = (data ?? []) as { store: string }[]
+    const accepted = (data ?? []) as { store: string; valid_from: string }[]
     storedCount += accepted.length
-    for (const row of accepted) byStore.set(row.store, (byStore.get(row.store) ?? 0) + 1)
+    for (const row of accepted) {
+      byStore.set(row.store, (byStore.get(row.store) ?? 0) + 1)
+      writtenRows.push({ store: row.store, validFrom: row.valid_from })
+    }
 
     if (accepted.length < batch.length) {
       console.error(
@@ -114,7 +129,7 @@ export async function storeDeals(
   }
 
   console.log(`[storage] [INFO] Upserted ${storedCount} of ${deals.length} deals`)
-  return { attempted: deals.length, total: storedCount, byStore }
+  return { attempted: deals.length, total: storedCount, byStore, windowsByStore: sweepWindows(writtenRows) }
 }
 
 export interface PipelineRunInput {
@@ -167,45 +182,84 @@ export async function deactivateExpiredDeals(): Promise<number> {
 /**
  * Sync-purge stale rows after a successful fetch.
  *
- * The upsert conflict key is (store, product_name, valid_from). When aktionis
- * changes the valid_from date on a card between runs, upsert creates a NEW
- * row instead of updating, and the old row stays is_active=true until its
- * valid_to passes. Coop accumulated ~450 such stale rows before this was
- * caught.
+ * The upsert conflict key is (store, product_name, valid_from). When a
+ * retailer changes the valid_from date on a card between runs, upsert
+ * creates a NEW row instead of updating, and the old row stays
+ * is_active=true until its valid_to passes. Coop accumulated ~450 such
+ * stale rows before this was caught.
  *
- * For each store that we successfully refreshed in this run, mark any
- * is_active=true row whose updated_at is older than runStartedAt as inactive.
- * Skipped stores keep their previous data intact (failure-safe).
+ * ITEM #10, 2026-09-15 — THE ROW PREDICATE (see stale-sweep.ts for the full
+ * reasoning). A row may be swept only if ALL of:
+ *   - its store is in `successfulStores` (storesSafeToSweep already
+ *     required a plausible refresh share for that store), AND
+ *   - its `valid_from` is a window THIS run actually WROTE for that store
+ *     (`windowsByStore`, from `sweepWindows` over accepted rows), AND
+ *   - its `updated_at` is older than `runStartedAt` (not re-written).
+ * A row whose `valid_from` is a window this run did not write is NEVER
+ * swept here, however old its `updated_at` — it was never this run's to
+ * judge. It stays visible until `deactivateExpiredDeals` retires it on
+ * `valid_to`. Run 34833209176 is the incident this guards against: it wrote
+ * ALDI/LIDL/SPAR's NEXT WEEK flyer and, without this scope, deactivated
+ * every active row of those stores — including the CURRENT week's, which
+ * this run never touched — leaving 0 offers in effect for three retailers.
+ *
+ * Looped per store rather than one query across `successfulStores`: windows
+ * differ store to store, and a single `.in('valid_from', …)` shared across
+ * stores would let one store's window scope a sweep for another. At most
+ * seven stores exist, so this is not the batch-vs-loop antipattern the
+ * project avoids elsewhere — it is the only correct shape here.
+ *
+ * Skipped stores (not in `successfulStores`, or with no recorded window)
+ * keep their previous data intact (failure-safe).
  *
  * Returns the total number of rows deactivated across all successful stores.
  */
-export async function deactivateStaleForStores(
-  successfulStores: string[],
-  runStartedAt: Date,
-): Promise<number> {
-  if (successfulStores.length === 0) return 0
-
-  const cutoff = runStartedAt.toISOString()
+/**
+ * Deactivates one store's stale rows, scoped to that store's own windows —
+ * the query the row predicate above describes. Returns the count switched
+ * off (0 on a query error, logged and swallowed here so one store's failure
+ * does not abort the rest — the same failure-safe shape as the caller).
+ */
+async function sweepStoreWindows(store: string, windows: Set<string>, cutoff: string): Promise<number> {
   const { data, error } = await supabase
     .from('deals')
     .update({ is_active: false })
     .eq('is_active', true)
-    .in('store', successfulStores)
+    .eq('store', store)
+    .in('valid_from', [...windows])
     .lt('updated_at', cutoff)
-    .select('id, store')
+    .select('id')
 
   if (error) {
-    console.error('[storage] [ERROR] Failed to deactivate stale deals:', error.message)
+    console.error(`[storage] [ERROR] Failed to deactivate stale deals for ${store}:`, error.message)
     return 0
   }
+  return data?.length ?? 0
+}
 
-  const count = data?.length ?? 0
+export async function deactivateStaleForStores(
+  successfulStores: string[],
+  runStartedAt: Date,
+  windowsByStore: Map<string, Set<string>>,
+): Promise<number> {
+  if (successfulStores.length === 0) return 0
+
+  const cutoff = runStartedAt.toISOString()
+  const byStore: Record<string, number> = {}
+
+  for (const store of successfulStores) {
+    const windows = windowsByStore.get(store)
+    // No window recorded means this run wrote nothing for this store — which
+    // storesSafeToSweep should already have excluded from successfulStores.
+    // If it happens anyway, sweeping nothing is the safe default.
+    if (!windows || windows.size === 0) continue
+
+    const n = await sweepStoreWindows(store, windows, cutoff)
+    if (n > 0) byStore[store] = n
+  }
+
+  const count = Object.values(byStore).reduce((sum, n) => sum + n, 0)
   if (count > 0) {
-    const byStore: Record<string, number> = {}
-    for (const row of data ?? []) {
-      const s = (row as { store: string }).store
-      byStore[s] = (byStore[s] ?? 0) + 1
-    }
     const breakdown = Object.entries(byStore)
       .sort((a, b) => b[1] - a[1])
       .map(([s, n]) => `${s}=${n}`)

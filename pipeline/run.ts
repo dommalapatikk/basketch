@@ -518,7 +518,11 @@ async function main(): Promise<void> {
     )
   }
   if (writeResult.attempted === 0 || writeResult.total > 0) {
-    await deactivateStaleForStores(successfulStores, startDate)
+    // Scoped to the publication windows this run actually WROTE (item #10,
+    // 2026-09-15) — see storage/domain/stale-sweep.ts and store.ts for the
+    // row predicate. Without this a newer flyer switches off deals still in
+    // effect (run 34833209176: aldi=143, lidl=80, spar=69, 0 offers left).
+    await deactivateStaleForStores(successfulStores, startDate, writeResult.windowsByStore)
   }
 
   // Check for significant storage loss (more than 10% of deals failed to store)

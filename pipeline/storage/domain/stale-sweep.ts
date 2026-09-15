@@ -88,3 +88,76 @@ export function countByStore(deals: readonly { store: string }[]): Map<string, n
   for (const d of deals) counts.set(d.store, (counts.get(d.store) ?? 0) + 1)
   return counts
 }
+
+// ============================================================
+// Which ROWS may be swept (item #10, 2026-09-15)
+// ============================================================
+//
+// `storesSafeToSweep` above answers "may this STORE be swept at all" — a
+// coarse, store-level eligibility gate. It says nothing about which of that
+// store's rows are fair game, and until this fix `deactivateStaleForStores`
+// filled that gap with `updated_at < runStart` alone: every active row of an
+// eligible store, WHATEVER ITS validFrom.
+//
+// That reads "not refreshed by this run" as "withdrawn by the retailer",
+// which is only true if the run could have refreshed it. Run 34833209176
+// (2026-09-15) fetched ALDI's, LIDL's and SPAR's NEXT WEEK flyer — a
+// different, later publication from the one currently in effect. This run
+// never touched — and never intended to touch — this week's rows, but the
+// sweep does not distinguish "not touched because withdrawn" from "not
+// touched because it isn't the publication we fetched". Deactivated 316
+// (aldi=143, lidl=80, spar=69, coop=19, denner=5); ALDI, LIDL and SPAR fell
+// to 0 offers in effect.
+//
+// THE ROW PREDICATE (what may be swept, stated once so it is not
+// re-derived, wrongly, at the call site):
+//
+//   - Row's store was refreshed this run (storesSafeToSweep), AND
+//   - Row's valid_from is a window THIS RUN WROTE for that store, AND
+//   - Row's updated_at is older than this run's start (not re-written)
+//     ⇒ withdrawn from that publication → SWEEP.
+//
+//   - Row's valid_from is a window this run did NOT write for that store
+//     ⇒ this run has no opinion on it. It is NEVER swept by this run;
+//       it lives until deactivateExpiredDeals expires it on valid_to.
+//
+// `sweepWindows` supplies the second clause: the set of publication windows
+// (by valid_from) a store's WRITTEN rows actually belong to. `store.ts`
+// applies it with `.in('valid_from', …)` per store, alongside the existing
+// `updated_at` cutoff.
+
+/** A row this run's write actually accepted — never a row merely attempted. */
+export type WrittenRow = {
+  readonly store: string
+  readonly validFrom: string
+}
+
+/**
+ * Groups the rows this run WROTE into the publication windows they belong to,
+ * per store — the scope `deactivateStaleForStores` must restrict itself to.
+ *
+ * Fed from what the DATABASE accepted (see `StoreDealsResult.windowsByStore`
+ * in `store.ts`), never from what was merely attempted — the same lesson as
+ * `storedByStore` above (defect #5): a guard fed a count of intent, not
+ * outcome, is not a guard.
+ */
+export function sweepWindows(writtenRows: readonly WrittenRow[]): Map<string, Set<string>> {
+  const windows = new Map<string, Set<string>>()
+  for (const row of writtenRows) {
+    const forStore = windows.get(row.store) ?? new Set<string>()
+    forStore.add(row.validFrom)
+    windows.set(row.store, forStore)
+  }
+  return windows
+}
+
+// CONSIDERED AND DEFERRED: computing MIN_REFRESH_SHARE per publication window
+// rather than per store. Store-level share can be misleading once a store
+// carries two live windows at once (this week's, still in effect, and next
+// week's, newly published) — a thin write to the NEW window can look
+// "plausible" only because it is compared against the OLD window's healthy
+// count. The row-level scope above already prevents the data-loss failure
+// mode this store-level share exists to catch (a thin write can no longer
+// license switching off an unrelated window), so this WP stops at row
+// scoping and leaves per-window share sizing to a follow-up rather than
+// widening `storesSafeToSweep`'s contract and every test built on it here.
