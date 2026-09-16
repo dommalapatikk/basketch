@@ -28,6 +28,7 @@ import { writeEnrichment } from './storage/infrastructure/write-enrichment'
 import { pingRevalidateWebhook } from './observability/revalidate-webhook'
 import { populateV3Layer } from './v3-cutover'
 import { unwrap } from './collection/domain/result'
+import { guardClassifier } from './transformation/domain/classifier'
 import { CURRENT_VERSIONS } from './transformation/domain/classification-cache'
 import {
   JUDGE_CHAIN,
@@ -41,7 +42,6 @@ import { createGeminiReflector, createOpenRouterJudge } from './transformation/i
 import { createGeminiClassifier } from './transformation/infrastructure/gemini/gemini-classifier'
 import { createGeminiEnricher } from './transformation/infrastructure/gemini/gemini-enricher'
 import { createModelGate, type ModelGate, type ModelGateDeps } from './transformation/infrastructure/model-gate'
-import { resilientClassifier } from './transformation/infrastructure/resilient-classifier'
 import { createSupabaseClassificationCache } from './transformation/infrastructure/supabase/supabase-classification-cache'
 import { probeModels } from './transformation/infrastructure/model-probe'
 
@@ -107,9 +107,17 @@ async function selectTier1Spec(env: Env, log: (message: string) => void): Promis
  * 255 of them refused. `unwrap` is safe here — `spec` is always our own
  * static registry data (or the fallback literal above), never untrusted
  * input, so a rejected policy is a defect in THIS file, caught at startup.
+ *
+ * F1 (code review): `log` is wired to the RUN's own logger, not left to the
+ * gate's silent default. Without this, every "waiting 57s", "retrying in
+ * 57s (attempt 2)" and "giving up" line the gate emits went nowhere — a run
+ * could sleep 12 minutes honouring a Retry-After and the Categorize log
+ * would be blank between two chunk summaries, exactly the evidence gap this
+ * WP exists to close. `overrides` still wins where a test supplies its own
+ * `log` (or a scripted clock), because it is spread AFTER.
  */
-function buildGate(spec: ModelSpec, overrides: ModelGateDeps = {}): ModelGate {
-  return createModelGate(unwrap(createModelCallPolicy(spec)), overrides)
+function buildGate(spec: ModelSpec, log: (message: string) => void, overrides: ModelGateDeps = {}): ModelGate {
+  return createModelGate(unwrap(createModelCallPolicy(spec)), { log, ...overrides })
 }
 
 // THE INSTRUMENT. Without this, degraded('save', ...) went nowhere: a failed
@@ -141,17 +149,19 @@ async function buildClassificationDeps(
   // ONE gate for this run's Gemini model, shared by the classifier, the
   // reflector and the enricher — every caller of this model pays out of the
   // SAME 15-requests-per-minute bucket Google actually enforces (WP-P5). This
-  // replaces resilientClassifier's rate/retry loop, which was a decorator
-  // private to the classifier alone and never saw the other two callers.
-  const tier1Gate = buildGate(tier1Spec, gateDeps)
+  // replaces the rate/retry loop that used to live on a decorator private to
+  // the classifier alone, which never saw the other two callers.
+  const tier1Gate = buildGate(tier1Spec, log, gateDeps)
 
   return {
     cache: buildClassificationCache(),
-    // Retry, pacing and the circuit breaker now live in `tier1Gate`, injected
-    // at `postJson`. `resilientClassifier` is left only guarding the port
-    // contract — a Classifier that throws must still come back as an Err.
-    tier1: resilientClassifier({
-      inner: createGeminiClassifier({
+    // Retry, pacing and the circuit breaker live in `tier1Gate`, injected at
+    // `postJson`. `guardClassifier` is the one thing left for a decorator to
+    // do here — a Classifier that throws must still come back as an Err
+    // (F6, code review: the old one-line `resilientClassifier` wrapper added
+    // nothing beyond this call and was deleted).
+    tier1: guardClassifier(
+      createGeminiClassifier({
         apiKey: env.GOOGLE_AI_API_KEY ?? '',
         model: tier1Model,
         tier: 1,
@@ -160,7 +170,7 @@ async function buildClassificationDeps(
         gate: tier1Gate,
       }),
       log,
-    }),
+    ),
     // THE ESCALATION TRIGGER. Both degrade to null when their key is absent,
     // so a missing OpenRouter key costs escalation, never the run. Its own
     // (provider, model) gate — the judge is a different provider and, today,
@@ -170,7 +180,7 @@ async function buildClassificationDeps(
           apiKey: env.OPENROUTER_API_KEY,
           model: JUDGE_SPEC.id,
           taxonomy: TAXONOMY,
-          gate: buildGate(JUDGE_SPEC, gateDeps),
+          gate: buildGate(JUDGE_SPEC, log, gateDeps),
           log,
         })
       : null,

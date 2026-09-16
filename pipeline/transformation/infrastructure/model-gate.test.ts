@@ -145,6 +145,13 @@ describe('reading the provider through ModelHttpError', () => {
 
     await expect(gate.request(attempt)).rejects.toThrow(/rate-limited-daily/)
     expect(calls).toBe(1)
+
+    // F5 (code review): asserting only the rejection let this pass even if
+    // recordFailure were never called — the CIRCUIT is what stops every
+    // later caller from paying for the same exhausted day. A daily quota
+    // opens it immediately, same as resilient-classifier.ts used to.
+    await expect(gate.request(async () => 'ok')).rejects.toThrow(/circuit-open/)
+    expect(calls).toBe(1) // the second attempt() was never even invoked
   })
 
   it('gives up after the policy\'s attempt limit rather than retrying forever', async () => {
@@ -162,6 +169,65 @@ describe('reading the provider through ModelHttpError', () => {
 
     await expect(gate.request(attempt)).rejects.toThrow(/503/)
     expect(calls).toBe(2) // maxAttempts: 2 means two calls, not one plus two retries
+  })
+})
+
+describe("a content failure from ONE caller must not stop every other caller's requests (F2)", () => {
+  it("an oversized-prompt 400 does not open the circuit — it would let one enricher batch stop the whole run's classification", async () => {
+    // MEASURED: Gemini answers an oversized prompt with HTTP 400
+    // INVALID_ARGUMENT. The enricher's batches vary in size (grouped by
+    // sub-category); the classifier's are a fixed 25. Before this fix, one
+    // bad enricher batch opened the circuit this gate now shares with the
+    // classifier and the reflector, and every classify() call for the rest
+    // of the run failed `circuit-open` — a content complaint about one
+    // request costing the entire run's categorisation.
+    const gate = createModelGate(unwrap(createModelCallPolicy(spec(), { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 })), fakeClock())
+
+    await expect(
+      gate.request(async () => {
+        throw new ModelHttpError('HTTP 400: {"error":{"code":400,"status":"INVALID_ARGUMENT"}}', 400, null)
+      }),
+    ).rejects.toThrow(/permanent/)
+
+    // A later, unrelated call (the classifier, say) must still be allowed
+    // through — the circuit must NOT have opened.
+    const result = await gate.request(async () => 'classified')
+    expect(result).toBe('classified')
+  })
+
+  it('a 401 (bad key) still opens the circuit immediately — that IS model-wide, unlike a 400', async () => {
+    const gate = createModelGate(unwrap(createModelCallPolicy(spec(), { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 })), fakeClock())
+
+    await expect(
+      gate.request(async () => {
+        throw new ModelHttpError('HTTP 401: invalid api key', 401, null)
+      }),
+    ).rejects.toThrow(/permanent/)
+
+    await expect(gate.request(async () => 'ok')).rejects.toThrow(/circuit-open/)
+  })
+
+  it('a 404 (retired model) still opens the circuit immediately — every future call with this model id fails identically', async () => {
+    const gate = createModelGate(unwrap(createModelCallPolicy(spec(), { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 })), fakeClock())
+
+    await expect(
+      gate.request(async () => {
+        throw new ModelHttpError('HTTP 404: This model is no longer available to new users', 404, null)
+      }),
+    ).rejects.toThrow(/model-gone/)
+
+    await expect(gate.request(async () => 'ok')).rejects.toThrow(/circuit-open/)
+  })
+
+  it('five consecutive 400s still do NOT open the circuit — content failures are excluded entirely, not just individually forgiven', async () => {
+    const gate = createModelGate(unwrap(createModelCallPolicy(spec(), { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 })), fakeClock())
+    const badRequest = async () => {
+      throw new ModelHttpError('HTTP 400: INVALID_ARGUMENT', 400, null)
+    }
+
+    for (let i = 0; i < 5; i++) await expect(gate.request(badRequest)).rejects.toThrow(/permanent/)
+
+    await expect(gate.request(async () => 'still open for business')).resolves.toBe('still open for business')
   })
 })
 

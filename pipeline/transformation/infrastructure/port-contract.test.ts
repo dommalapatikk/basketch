@@ -20,11 +20,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isOk } from '../../collection/domain/result'
 import { createNoopGate } from '../../test-support/gate'
 import { createClassification, createConfidence } from '../domain/classification'
+import { guardClassifier } from '../domain/classifier'
 import { unwrap } from '../../collection/domain/result'
 import { createGeminiClassifier } from './gemini/gemini-classifier'
 import { createGeminiEnricher } from './gemini/gemini-enricher'
 import { createGeminiReflector, createOpenRouterJudge } from './gemini/gemini-judge'
-import { resilientClassifier } from './resilient-classifier'
 
 const TAXONOMY = [{ category: 'dairy', subCategories: ['dairy', 'eggs'] }]
 const request = { productName: 'Emmi Milch', descriptor: null, retailer: 'denner' }
@@ -95,13 +95,15 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
   })
 })
 
-// resilientClassifier is itself a Classifier, so the same contract binds it —
+// guardClassifier is itself a Classifier, so the same contract binds it —
 // including when the adapter it decorates is the one breaking the rules.
+// (F6, code review: this used to go through resilientClassifier, deleted
+// once it shrank to a one-line call to guardClassifier and nothing else.)
 describe('a decorator is a port implementation too', () => {
   it('returns Err when the classifier it wraps throws instead of returning', async () => {
     const logged: string[] = []
-    const port = resilientClassifier({
-      inner: {
+    const port = guardClassifier(
+      {
         name: 'rude-model',
         tier: 1,
         batchSize: 25,
@@ -109,8 +111,8 @@ describe('a decorator is a port implementation too', () => {
           throw new Error('ECONNRESET')
         },
       },
-      log: (m) => logged.push(m),
-    })
+      (m) => logged.push(m),
+    )
 
     const r = await port.classify([request])
 

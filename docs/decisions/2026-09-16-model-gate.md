@@ -112,9 +112,8 @@ infrastructure
                            postJson. No adapter parses status/retryDelay out of
                            a string any more — that is now a typed field on the
                            thrown error.
-  resilient-classifier.ts — rate/retry/circuit retired. What remains is
-                             guardClassifier: a Classifier that throws must
-                             still come back as an Err. Nothing to do with quota.
+  (resilient-classifier.ts deleted — F6, below. What it used to own now lives
+   in model-gate.ts; what was left, guardClassifier, is called directly.)
 
 composition root (composition.ts)
   Builds ONE ModelGate per (provider, model) actually in play this run — one
@@ -155,6 +154,57 @@ the semaphore inside `model-gate.ts` a meaningful backstop rather than a formali
 change ever dispatched two Gemini calls concurrently (a bug, not a feature, today), the gate would
 serialize them instead of doubling the effective rate against Google's bucket.
 
+### The shared circuit's new blast radius, and the one content-failure exception (F2)
+
+Sharing rate/retry state across the classifier, the reflector and the enricher is the point of
+this ADR — but the circuit breaker shares the SAME state, and the circuit's failure mode is
+different in kind from the rate limiter's. A shared rate limiter can only make a caller wait
+longer; **a shared circuit can make one caller's failure stop every other caller outright.**
+
+Verified directly (code review of this WP): one `ModelHttpError('HTTP 400', 400, null)` from the
+enricher — Gemini's `INVALID_ARGUMENT` on an oversized prompt, reachable because the enricher's
+batches are grouped by sub-category and therefore vary in size, unlike the classifier's fixed 25 —
+opened the circuit, and every later classifier call in the same run rejected `circuit-open`.
+Before this WP that same 400 was a logged skip costing one batch's metadata (`gemini-enricher.ts`'s
+`continue`); sharing state turned it into a run-wide outage of categorisation. This is a direct
+consequence of the fix being correct in the dimension it targets (rate) and a new risk in a
+dimension it did not originally consider (the circuit).
+
+**The fix:** `model-gate.ts`'s `isRequestContentFailure(kind, status)` excludes exactly
+`kind === 'permanent' && status === 400` from `recordFailure` — the request still fails, the
+caller still sees an error, but the circuit does not move. 401 (bad key), 403 (forbidden) and 404
+(model retired) are left circuit-opening on purpose: those genuinely predict that every future
+call with the same key or model id will fail the same way, which is exactly the pattern the
+circuit exists to stop paying for. A 400 predicts nothing about the NEXT request — it says this
+one request's content was rejected.
+
+This is narrower than D4's full content/transport split (truncation bisected and retried,
+neither counting toward the circuit), which is WP-P6's job and already has a design
+(`docs/rca/2026-09-15-tech-lead-items-6-9.md` §9.4, `.../architect-review-of-tech-lead.md` §A
+item 9). It is the minimum P5-scoped fix the shared circuit's new blast radius requires
+immediately, not an attempt to anticipate P6's fuller guard. Covered by four tests in
+`model-gate.test.ts`: a lone 400 does not open the circuit; a 401 and a 404 still do (regression
+guards against over-widening the exception); and five CONSECUTIVE 400s still do not open it
+(proving the exclusion is unconditional, not merely a forgiveness that still counts toward the
+threshold).
+
+### Probing spends real quota too, invisibly (F4, carried forward — not fixed here)
+
+Each probe call is a genuine request against the SAME underlying Google quota the production gate
+paces against, even though it uses its own ad hoc gate rather than the shared one (see below): the
+probe and the production gate do not coordinate, because they cannot — the model being probed is
+not yet chosen, so there is nothing to share a gate WITH until `selectTier1Spec` returns. On a
+cold key with no prior calls this is one request out of fifteen per minute, invisible. It is not
+invisible if a run is ALREADY near the per-minute ceiling when the next run's probe fires (the
+probe runs once per `createProductionDeps` call, i.e. once per pipeline invocation, not once per
+chunk) — the probe's one request is real spend against the same 15/min bucket the classifier is
+about to start pacing against, and nothing accounts for it in `checkRate`'s window. At today's
+volume (one probe per run, ~1-3 candidate models tried before the first success) this is 1-3
+requests out of a 15/minute budget — headroom, not a defect, and not worth a shared-gate redesign
+at 10-50 users. Flagged here rather than fixed: if the chain ever grows long enough that probing
+alone approaches double digits, or if runs start firing close together (concurrent dispatches),
+this stops being free headroom.
+
 ## Why probes get their own gate, not the shared production one
 
 `model-probe.ts` calls each candidate model **once**, with the explicit goal of failing fast (its
@@ -164,9 +214,10 @@ attempts with real delays), which contradicts that goal and would slow every mod
 exercises a failure path. `model-probe.ts` therefore builds a small, ad hoc, single-use
 `ModelGate` per candidate spec (`probeGate`), with `retry.maxAttempts: 1` and a permissive rate —
 correct because a probe is inherently a single call, never a sustained caller sharing a bucket
-with anything else. This is a deliberate, narrow exception to "one gate per (provider, model)":
-probing and production classification are different call sites with different failure semantics,
-and the exception is documented at its one call site rather than folded silently into the shared
+with anything else — **at the cost of the invisible-spend headroom described above (F4)**. This is
+a deliberate, narrow exception to "one gate per (provider, model)": probing and production
+classification are different call sites with different failure semantics, and the exception is
+documented at its one call site rather than folded silently into the shared
 policy.
 
 ## Alternatives considered
@@ -198,9 +249,17 @@ three separate files have to remember to follow.
   by convention.
 - The provider's own retry instruction is read once, in one place (`model-http.ts`), as a
   structured field — no adapter or decorator regexes a message string it did not construct.
-- `resilient-classifier.ts` shrank to a single-purpose port-contract guard; the rate/retry/circuit
-  it used to own is now exercised, and covered, once, in `model-gate.test.ts`, instead of being
-  implicitly re-tested (or not) by every caller that happened to wrap it.
+- The gate's own pacing/retry/give-up lines are wired into the RUN's logger from
+  `composition.ts` (code review F1), not left at the gate's silent no-op default. A run that
+  sleeps minutes honouring a real `Retry-After` now says so in the Categorize log, the same
+  evidence `resilientClassifier`'s deleted `says why it is waiting` test used to cover — this WP's
+  whole purpose is closing exactly this kind of evidence gap, so leaving the gate itself silent
+  by default would have been the one place it undid its own goal.
+- `resilient-classifier.ts` is gone (code review F6): once its rate/retry/circuit logic moved into
+  the gate, it was a one-line wrapper around `guardClassifier` with no behaviour of its own and a
+  name that no longer described what it did. `composition.ts` calls `guardClassifier`
+  (`domain/classifier.ts`) directly; its tests moved to `domain/classifier.test.ts`, next to the
+  function they cover, rather than staying attached to a file that no longer exists.
 
 **Harder / accepted**
 - Every `GeminiDeps`, `EnricherDeps`, `JudgeDeps` and `ReflectorDeps` now requires a `gate` field.
@@ -212,6 +271,15 @@ three separate files have to remember to follow.
   (one HTTP round-trip) more than once. A caller that wants "exactly one attempt, no matter what"
   (the probe) must build a gate that says so explicitly, rather than relying on `postJson` itself
   having no retry concept at all.
+- **The circuit breaker's blast radius widened along with the rate limiter's, and that needed a
+  separate fix (code review F2).** Sharing state across three callers is the entire point of this
+  ADR for the rate limiter — it is exactly what a shared circuit does NOT get for free, because
+  the circuit's failure mode (stop calling this model at all) is qualitatively worse than the rate
+  limiter's (wait a bit longer). See "The shared circuit's new blast radius" above for the fix
+  (`isRequestContentFailure`) and why it is scoped to exactly one status code rather than
+  generalised. Any future failure kind added to `FailureKind` that is genuinely request-specific
+  (not provider-specific) needs the same exclusion considered explicitly — this is not a rule the
+  type system enforces.
 
 ## Seams for WP-P6 and WP-P8
 

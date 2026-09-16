@@ -61,9 +61,9 @@ export type Classifier = {
  * contract.
  *
  * It lives beside the port, not beside a caller, because EVERY caller needs it:
- * `resilientClassifier` wraps an adapter and `buildClassifyGraph` wraps that,
- * and neither had a try/catch. A contract stated only in this file's header is
- * a comment; this makes it a property.
+ * `composition.ts` wraps an adapter with it directly and `buildClassifyGraph`
+ * wraps that again, and neither had a try/catch of its own. A contract stated
+ * only in this file's header is a comment; this makes it a property.
  *
  * The fallback is the port's own declared failure value — Err — so callers need
  * no new branch. An Err already means "the whole call failed", which is exactly

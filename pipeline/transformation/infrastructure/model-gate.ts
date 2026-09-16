@@ -43,6 +43,7 @@ import type { ModelCallPolicy } from '../domain/model-registry'
 import {
   CIRCUIT_CLOSED,
   type CircuitState,
+  type FailureKind,
   FRESH_RATE_STATE,
   type RateState,
   checkRate,
@@ -99,6 +100,36 @@ const MAX_RATE_WAITS = 5
 function statusAndRetryAfter(e: unknown): { status: number | null; retryAfterMs: number | null } {
   if (e instanceof ModelHttpError) return { status: e.status, retryAfterMs: e.retryAfterMs }
   return { status: null, retryAfterMs: null }
+}
+
+/**
+ * A failure that says something about THIS REQUEST'S CONTENT, not about the
+ * provider or the key — never counted toward the shared circuit.
+ *
+ * F2 (code review): the circuit is now shared by every caller of a model, so
+ * its blast radius changed with this WP. Verified live: one
+ * `ModelHttpError('HTTP 400', 400, null)` from the enricher — Gemini's
+ * INVALID_ARGUMENT on an oversized prompt, reachable from the enricher's
+ * variable-size batches — opened the circuit and every LATER classifier call
+ * rejected `circuit-open` for the rest of the run. Before WP-P5 that same 400
+ * was a logged skip costing one batch's metadata; sharing the circuit turned
+ * a content complaint about one request into a run-wide outage.
+ *
+ * 401/403 (bad key, forbidden) and 404 (model retired) stay circuit-opening —
+ * those ARE model-wide: every future call with the same key or the same
+ * model id will fail identically, which is exactly what the circuit exists
+ * to stop paying for. 400 is different: Gemini's own docs name it
+ * INVALID_ARGUMENT, and the classifier's batches are a fixed size (25) while
+ * the enricher's vary — the shape most likely to trip it is a request, not
+ * the provider.
+ *
+ * A full content/transport split (D4: truncation bisected and retried,
+ * neither counting toward the circuit) is WP-P6's job — the classifier
+ * already reads `finishReason` for that. This is the narrow, P5-scoped
+ * exception the shared circuit's new blast radius requires immediately.
+ */
+function isRequestContentFailure(kind: FailureKind, status: number | null): boolean {
+  return kind === 'permanent' && status === 400
 }
 
 /**
@@ -181,8 +212,12 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
           const decision = decideRetry(kind, callAttempt, policy.retry, retryAfterMs)
 
           if (!decision.retry) {
-            circuit = recordFailure(circuit, kind)
-            log(`${key}: giving up after attempt ${callAttempt + 1} — ${decision.reason}`)
+            const contentFailure = isRequestContentFailure(kind, status)
+            if (!contentFailure) circuit = recordFailure(circuit, kind)
+            log(
+              `${key}: giving up after attempt ${callAttempt + 1} — ${decision.reason}` +
+                (contentFailure ? ' (content failure — this request only, not counted toward the circuit)' : ''),
+            )
             // Prefixed with `kind`, same convention resilientClassifier used —
             // callers (and tests) grep the message for 'rate-limited-daily',
             // 'circuit-open' and friends without needing the structured fields.

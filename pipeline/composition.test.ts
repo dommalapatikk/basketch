@@ -64,7 +64,8 @@ describe('classifier, reflector and enricher share ONE Gemini quota — backfill
         },
       },
     )
-    const classification = await deps.createClassificationDeps(() => {})
+    const runLog: string[] = []
+    const classification = await deps.createClassificationDeps((m) => runLog.push(m))
     expect(classification.reflector).not.toBeNull()
     expect(classification.enricher).not.toBeNull()
 
@@ -87,6 +88,12 @@ describe('classifier, reflector and enricher share ONE Gemini quota — backfill
     expect(fetchCalls).toBe(15) // 14 model calls + 1 startup probe (its own, separate gate)
     expect(sleeps).toHaveLength(1)
     expect(sleeps[0]).toBeGreaterThan(0)
+
+    // F1 (code review): the gate's own pacing line must reach the RUN's log,
+    // not the gate's silent default (`() => {}`). Before this fix a run
+    // could sleep minutes honouring a Retry-After and the Categorize log
+    // would show nothing between two chunk summaries.
+    expect(runLog.some((m) => m.includes('waiting'))).toBe(true)
   })
 })
 
