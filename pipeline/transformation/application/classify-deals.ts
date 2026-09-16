@@ -22,7 +22,7 @@ import type { CachedClassification, ClassificationCache } from '../domain/classi
 import { CURRENT_VERSIONS, cacheKeyFor, needsEnrichment, normaliseForCache } from '../domain/classification-cache'
 import type { ClassificationRequest, Classifier } from '../domain/classifier'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
-import { checkDeadline } from '../domain/resilience'
+import { checkChunkDuration, checkDeadline } from '../domain/resilience'
 import { orderForColdStart, planRun } from '../domain/run-plan'
 import { type GraphDeps, type Outcome, buildClassifyGraph } from './classify-graph'
 
@@ -490,13 +490,20 @@ export async function classifyDeals(
       // to it, the gap is whatever nobody has accounted for, and it becomes
       // visible instead of arguable.
       const judged = final.outcomes.filter((o) => o.judgeVerdict != null).length
+      const chunkTotalMs = Date.now() - chunkStart
       log(
         `[transform] chunk ${chunkNo}/${chunkCount}: ` +
           `classify+judge ${(graphMs / 1000).toFixed(1)}s (${slice.length} products, ${judged} judged) · ` +
           `enrich ${(enrichMs / 1000).toFixed(1)}s · ` +
           `save ${(saveMs / 1000).toFixed(1)}s · ` +
-          `total ${((Date.now() - chunkStart) / 1000).toFixed(1)}s`,
+          `total ${(chunkTotalMs / 1000).toFixed(1)}s`,
       )
+      // N4 (code review, round 2): MAX_CHUNK_MS is an observed max, not a
+      // physical limit — nothing bounds a chunk against a provider slowdown
+      // or a long Retry-After wait. Warn the moment reality exceeds it,
+      // rather than trusting a four-sample observation forever.
+      const chunkDurationWarning = checkChunkDuration(chunkTotalMs)
+      if (chunkDurationWarning) log(`[transform] ⚠ ${chunkDurationWarning}`)
 
       attemptedCount += slice.length
 

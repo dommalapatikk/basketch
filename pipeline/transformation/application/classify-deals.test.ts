@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { UnifiedDeal } from '../../../shared/types'
 import { err, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
+import { MAX_CHUNK_MS } from '../domain/resilience'
 import { statefulClock } from '../../test-support/clock'
 import { classifyDeals } from './classify-deals'
 
@@ -344,6 +345,30 @@ describe('the in-process deadline (WP-P3) — attempt 1 persists what it has, in
   it('a run with no deadline set behaves exactly as before — deadlineAtMs defaults to null', async () => {
     const r = await run([deal('Emmi Milch')])
     expect(r.stats.deadlineHit).toBe(false)
+  })
+})
+
+describe('the deadline arithmetic is monitored, not just trusted (N4, code review round 2)', () => {
+  it('warns when a chunk takes longer than MAX_CHUNK_MS — the constant is an observation, not a bound', async () => {
+    // Real elapsed time, not the injected deadline clock: chunk timing
+    // (`chunkStart`/`chunkTotalMs`) reads `Date.now()` directly, same as the
+    // pre-existing `graphMs`/`enrichMs`/`saveMs` metrics — this proves the
+    // WARN is actually WIRED to that measurement, not only correct in
+    // isolation (`resilience.test.ts`), without sleeping for real minutes.
+    let t = 0
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      t += MAX_CHUNK_MS + 1
+      return t
+    })
+    const warnings: string[] = []
+
+    try {
+      await run([deal('Slow Chunk Product')], { log: (m) => { if (/⚠/.test(m)) warnings.push(m) } })
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+
+    expect(warnings.some((w) => w.includes('MAX_CHUNK_MS'))).toBe(true)
   })
 })
 

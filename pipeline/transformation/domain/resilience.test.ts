@@ -6,10 +6,14 @@ import {
   DEFAULT_RETRY,
   FRESH_RATE_STATE,
   KNOWN_LIMITS,
+  MAX_CHUNK_MS,
   RUN_DEADLINE_MS,
   RUN_TIMEOUT_MS,
+  WRITE_TAIL_MS,
+  checkChunkDuration,
   checkDeadline,
   checkRate,
+  checkWriteTailDuration,
   classifyFailure,
   decideRetry,
   parseRetryAfter,
@@ -199,6 +203,35 @@ describe('the in-process deadline (WP-P3) — a process that exits on purpose is
     // RUN_TIMEOUT_MS, read against the real pipeline.yml), which is
     // mutation-tested to catch exactly what this assertion cannot.
     expect(RUN_DEADLINE_MS).toBeLessThan(RUN_TIMEOUT_MS)
+  })
+})
+
+describe('the deadline arithmetic is monitored, not just trusted (N4, code review round 2)', () => {
+  it('checkChunkDuration is silent when a chunk finishes within MAX_CHUNK_MS', () => {
+    expect(checkChunkDuration(MAX_CHUNK_MS)).toBeNull()
+    expect(checkChunkDuration(MAX_CHUNK_MS - 1)).toBeNull()
+  })
+
+  it('checkChunkDuration warns, naming the constant, once a chunk exceeds MAX_CHUNK_MS', () => {
+    const warning = checkChunkDuration(MAX_CHUNK_MS + 1)
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('MAX_CHUNK_MS')
+    // Names WHICH run set the constant, so a reader knows what to compare
+    // this run against, not just that a threshold was crossed.
+    expect(warning).toMatch(/run 34833209176/)
+  })
+
+  it('checkWriteTailDuration is silent when the write tail finishes within WRITE_TAIL_MS', () => {
+    expect(checkWriteTailDuration(WRITE_TAIL_MS)).toBeNull()
+  })
+
+  it('checkWriteTailDuration warns, naming the constant, once the write tail exceeds WRITE_TAIL_MS', () => {
+    // THE N4 SCENARIO: a catalogue that grew past the ~1,500 deals
+    // WRITE_TAIL_MS was measured against (live count 1,523 and rising).
+    const warning = checkWriteTailDuration(WRITE_TAIL_MS + 60_000)
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('WRITE_TAIL_MS')
+    expect(warning).toMatch(/run 34833209176/)
   })
 })
 

@@ -31,7 +31,7 @@ import type { ClassificationCache } from './transformation/domain/classification
 import { createInMemoryCache } from './transformation/domain/classification-cache'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, Classifier } from './transformation/domain/classifier'
-import { RUN_DEADLINE_MS } from './transformation/domain/resilience'
+import { RUN_DEADLINE_MS, WRITE_TAIL_MS } from './transformation/domain/resilience'
 import type { StoreSweepPlan } from './storage/domain/stale-sweep'
 import { statefulClock } from './test-support/clock'
 import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
@@ -466,6 +466,35 @@ describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1
     expect(exitCodeFor(outcome)).toBe(75)
     expect(storage.calls).toEqual([])
     expect(revalidate.calls).toBe(0)
+  })
+})
+
+describe('the write tail is monitored, not just trusted (N4, code review round 2)', () => {
+  it('warns when the write tail takes longer than WRITE_TAIL_MS — the constant scales with deal count and erodes silently', async () => {
+    // Named per call, in order, the same discipline as `deadlineHitClockScript`
+    // (F9): 1. runPipeline's startTime. 2. classify-deals' one deadline check
+    // (1 offer is 1 chunk — still comfortably inside RUN_DEADLINE_MS).
+    // 3. writeTailStart. 4. durationMs. 5. writeTailMs — jumped far enough
+    // past `writeTailStart` to exceed WRITE_TAIL_MS. 6-7. finishRun's alert
+    // evaluation (finishedAtMs, then evaluateAlerts's nowMs) — same fixed
+    // value as call 5, so the huge duration reads as zero elapsed time
+    // AFTER the run finished, and no stale-run alert fires by accident.
+    const t0 = 1_700_000_000_000
+    const afterWriteTail = t0 + WRITE_TAIL_MS + 60_000
+    const clock = statefulClock([t0, t0, t0, afterWriteTail, afterWriteTail, afterWriteTail, afterWriteTail])
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
+    const warnings: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '))
+    })
+
+    try {
+      const outcome = await runPipeline(deps, { ...baseOptions, clock })
+      expect(outcome.status).toBe('ok')
+      expect(warnings.some((w) => w.includes('WRITE_TAIL_MS'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
 

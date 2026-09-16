@@ -43,7 +43,7 @@ import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/ap
 import { ClassificationCacheUnreadableError, classifyDeals } from './transformation/application/classify-deals'
 import type { Alert, RunSnapshot } from './transformation/domain/alerts'
 import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
-import { RUN_DEADLINE_MS } from './transformation/domain/resilience'
+import { RUN_DEADLINE_MS, checkWriteTailDuration } from './transformation/domain/resilience'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
 import type { DealEnrichment } from './storage/domain/offer-to-unified'
 import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
@@ -778,6 +778,11 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   console.log(
     `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → v3 cutover → sweep → deactivate → logRun)`,
   )
+  // N4 (code review, round 2): WRITE_TAIL_MS scales with deal count — warn
+  // the moment a real run exceeds it, rather than trusting a measurement
+  // taken at a smaller catalogue forever.
+  const writeTailWarning = checkWriteTailDuration(writeTailMs)
+  if (writeTailWarning) console.warn(`[pipeline] [WARN] ${writeTailWarning}`)
 
   return finishRun(deps, {
     runId: options.runId,

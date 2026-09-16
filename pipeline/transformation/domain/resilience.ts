@@ -268,9 +268,17 @@ export const REQUEST_TIMEOUT_MS = 60_000
 export const RUN_TIMEOUT_MS = 60 * 60_000
 
 /**
- * p99 duration of ONE classification chunk (100 products: tier-1 batches,
- * judge escalations, enrichment) against the free tier's ~15 req/min pacing.
- * Measured against run 34833209176, attempt 2, chunk 2.
+ * Duration of ONE classification chunk (100 products: tier-1 batches, judge
+ * escalations, enrichment) against the free tier's ~15 req/min pacing.
+ *
+ * N4 (code review, round 2): NOT a p99 — the first WP-P3 submission called it
+ * one, but it is the MAX of four chunks actually observed on run
+ * 34833209176 (attempt 2): 1042.9s, 1165.8s, 1064.7s, 313.4s. Four samples
+ * cannot support a percentile claim, and nothing here BOUNDS a chunk — a 429
+ * storm honouring `Retry-After` up to 90s per call (WP-P5's `ModelCallPolicy`)
+ * can push a real chunk past this. `checkChunkDuration` below WARNS the
+ * first time that happens instead of silently trusting a four-sample
+ * observation forever.
  */
 export const MAX_CHUNK_MS = 19.5 * 60_000
 
@@ -289,11 +297,53 @@ export const MAX_CHUNK_MS = 19.5 * 60_000
  * (`runTransform`'s "write tail" log) so this number stays measurable from a
  * normal run instead of rotting into folklore — WP-P7 will feed it into the
  * stored run metrics.
+ *
+ * N4: SCALES WITH DEAL COUNT, not fixed. 9m15s over that run's ~1,500 deals
+ * ≈ 0.37s/deal. The live site was 1,213 deals when this constant was
+ * measured and is 1,523 and rising — at 0.37s/deal, ~3,000 deals ≈ 18.5 min,
+ * which alone would break the F1 inequality (28 + 19.5 + 18.5 + 2 = 68 > 60).
+ * Re-derive this constant from a fresh measurement at the THEN-current deal
+ * count, not from this comment — `checkWriteTailDuration` below WARNS when
+ * a real run exceeds it, so drift is caught rather than assumed away.
  */
 export const WRITE_TAIL_MS = 9.5 * 60_000
 
 /** Headroom against measurement noise in `MAX_CHUNK_MS` and `WRITE_TAIL_MS`. */
 export const SAFETY_MARGIN_MS = 2 * 60_000
+
+/**
+ * N4 (code review, round 2): both constants above are OBSERVATIONS, not
+ * physical limits, and nothing forces them to stay true as the model's
+ * latency, the retry policy or the deal count changes. Making them DYNAMIC
+ * (re-measured and self-adjusting every run) is the wrong weight for a
+ * threshold nobody should need to think about weekly — it would hide a real
+ * regression behind a number that quietly absorbs it. A WARN, fired the
+ * moment a real run exceeds what the constant claims, is the right weight:
+ * loud enough that "the arithmetic behind the deadline no longer holds" is
+ * read in the log the FIRST time it stops holding, cheap enough to ship
+ * without a dashboard.
+ */
+const RUN_34833209176 = 'run 34833209176'
+
+/** `null` when `chunkMs` is within `MAX_CHUNK_MS`; otherwise a log-ready warning naming both the constant and the run it was measured from. */
+export function checkChunkDuration(chunkMs: number): string | null {
+  if (chunkMs <= MAX_CHUNK_MS) return null
+  return (
+    `chunk took ${(chunkMs / 1000).toFixed(1)}s — longer than MAX_CHUNK_MS ` +
+    `(${(MAX_CHUNK_MS / 1000).toFixed(1)}s, set from the max of four chunks on ${RUN_34833209176}). ` +
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant.'
+  )
+}
+
+/** `null` when `writeTailMs` is within `WRITE_TAIL_MS`; otherwise a log-ready warning naming both the constant and the run it was measured from. */
+export function checkWriteTailDuration(writeTailMs: number): string | null {
+  if (writeTailMs <= WRITE_TAIL_MS) return null
+  return (
+    `write tail took ${(writeTailMs / 1000).toFixed(1)}s — longer than WRITE_TAIL_MS ` +
+    `(${(WRITE_TAIL_MS / 1000).toFixed(1)}s, set from ${RUN_34833209176}, attempt 2, at ~1,500 deals). ` +
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant.'
+  )
+}
 
 /**
  * In-process deadline (WP-P3 / RCA T1): stop starting new classification

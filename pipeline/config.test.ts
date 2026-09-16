@@ -15,7 +15,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MAX_CHUNK_MS, RUN_DEADLINE_MS, SAFETY_MARGIN_MS, WRITE_TAIL_MS } from './transformation/domain/resilience'
+import { MAX_CHUNK_MS, RUN_DEADLINE_MS, RUN_TIMEOUT_MS, SAFETY_MARGIN_MS, WRITE_TAIL_MS } from './transformation/domain/resilience'
 
 const WORKFLOW_PATH = path.resolve(import.meta.dirname, '../.github/workflows/pipeline.yml')
 const STEP_ANCHOR = 'Categorize and store (with retry)'
@@ -61,7 +61,14 @@ function readCategorizeStepBlock(): string {
 
 function readCategorizeStepTimeoutMinutes(): number {
   const block = readCategorizeStepBlock()
-  const match = block.match(/timeout_minutes:\s*(\d+)/)
+  // N2 (code review, round 2): this was the one regex in this file left
+  // unanchored. Safe today only because no comment happens to contain
+  // "timeout_minutes: N" — but this file's OWN prose two lines below
+  // literally writes "45 → 60" next to real keys, and the exact trap this
+  // anchors against is a future comment like "# timeout_minutes: 45 was
+  // unsafe" matching before the real key. Anchored like the other three
+  // (`^\s*…$`, multiline) for the same reason.
+  const match = block.match(/^\s*timeout_minutes:\s*(\d+)\s*$/m)
   if (!match?.[1]) {
     throw new Error(`no timeout_minutes found under the "${STEP_ANCHOR}" step`)
   }
@@ -82,7 +89,7 @@ describe('the step-block scoping itself (F2) — a defect the old, file-wide reg
 
     const block = extractStepBlock(syntheticYaml, STEP_ANCHOR)
     expect(block).not.toContain('999')
-    expect(block.match(/timeout_minutes:\s*(\d+)/)?.[1]).toBe('60')
+    expect(block.match(/^\s*timeout_minutes:\s*(\d+)\s*$/m)?.[1]).toBe('60')
   })
 
   it('throws loudly when the step no longer carries its own timeout_minutes at all, rather than reading a later one', () => {
@@ -99,7 +106,7 @@ describe('the step-block scoping itself (F2) — a defect the old, file-wide reg
     ].join('\n')
 
     const block = extractStepBlock(syntheticYaml, STEP_ANCHOR)
-    expect(block.match(/timeout_minutes:\s*(\d+)/)).toBeNull()
+    expect(block.match(/^\s*timeout_minutes:\s*(\d+)\s*$/m)).toBeNull()
   })
 
   it('stops at a dedent back to job level, not only at a sibling step', () => {
@@ -124,6 +131,17 @@ describe('the T1 retry contract in pipeline.yml (F2) — each piece asserted, no
     // without the other breaks this test loudly, rather than silently
     // drifting the two apart.
     expect(readCategorizeStepTimeoutMinutes()).toBe(60)
+  })
+
+  // N1 (code review, round 2): `RUN_TIMEOUT_MS` was never actually compared
+  // to the workflow file anywhere — its docstring calls it "THE ONE
+  // DEFINITION", and `alerts.ts` derives `run-slow` from it, but a mutation
+  // to 90 with `pipeline.yml` left at 60 left all 40 config tests green.
+  // `RUN_DEADLINE_MS + …  ≤ timeoutMs` below checks the DEADLINE is safe
+  // relative to whatever `RUN_TIMEOUT_MS` claims; it says nothing about
+  // whether `RUN_TIMEOUT_MS` ITSELF still matches the real file.
+  it('RUN_TIMEOUT_MS equals the real timeout_minutes — the "one definition" claim, checked', () => {
+    expect(RUN_TIMEOUT_MS).toBe(readCategorizeStepTimeoutMinutes() * 60_000)
   })
 
   // ⚠️ LINE-ANCHORED (`^\s*key:`, multiline flag) — NOT a bare substring
