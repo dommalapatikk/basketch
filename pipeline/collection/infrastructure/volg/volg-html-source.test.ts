@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createVolgHtmlSource,
+  isChromeImagePath,
   parsePage,
   parseReduction,
   parseSectionDates,
@@ -146,6 +147,86 @@ describe('parsePage — against the real page', () => {
       const actual = ((o.originalPrice!.rappen - o.salePrice.rappen) / o.originalPrice!.rappen) * 100
       expect(Math.abs(actual - o.discount!.percent)).toBeLessThanOrEqual(1.5)
     }
+  })
+})
+
+describe('isChromeImagePath', () => {
+  it('rejects the site footer logo — QA 2026-09-16: "volg küchenreiniger spray" was published with the footer logo as its product image', () => {
+    expect(isChromeImagePath('https://www.volg.ch/_assets/9936fbff2fa9683e2f00411c767453f4/Images/logo-footer.svg')).toBe(
+      true,
+    )
+  })
+
+  it('rejects other obvious chrome paths', () => {
+    expect(isChromeImagePath('https://www.volg.ch/favicon.ico')).toBe(true)
+    expect(isChromeImagePath('https://www.volg.ch/_assets/sprite-icons.svg')).toBe(true)
+  })
+
+  it('accepts a real product photo path', () => {
+    expect(isChromeImagePath('https://www.volg.ch/fileadmin/_processed_/5/5/csm_promo_75895_de_156ace7fc2.jpg')).toBe(
+      false,
+    )
+  })
+})
+
+/**
+ * THE DEFECT (QA 2026-09-16), reproduced end-to-end against the committed
+ * fixture rather than a synthetic snippet: `parseProductBlocks` slices the
+ * LAST product in the LAST section all the way to the end of the fetched
+ * HTML (no next "c-product" marker exists), so when that product's own image
+ * div is empty the greedy `<img>` match falls through into `<footer
+ * class="c-footer">` and picks up Volg's own logo. On this fixture that
+ * product is "Glade Duftkerze Anti-Tabac" — a different item than QA's live
+ * "volg küchenreiniger spray", same bug.
+ */
+describe('parsePage never publishes site chrome as a product image', () => {
+  const { offers } = parsePage(FIXTURE, REFERENCE)
+
+  it('the last product on the page — with no image of its own — gets null, not the footer logo', () => {
+    const o = offers.find((x) => x.productName === 'Glade Duftkerze Anti-Tabac')
+    expect(o).toBeDefined()
+    expect(o?.image).toBeNull()
+  })
+
+  it('no offer anywhere on the page carries a chrome path as its image', () => {
+    for (const o of offers) {
+      if (o.image?.kind === 'source-url') {
+        expect(isChromeImagePath(o.image.url), o.image.url).toBe(false)
+      }
+    }
+  })
+})
+
+/**
+ * MUST-FIX 1 (code review of the image guard above): the SAME unbounded slice
+ * that let a wrong IMAGE through can just as easily fabricate a wrong PRICE —
+ * a worse defect, because `statt <price>` becomes `originalPrice`, and a
+ * crossed-out price Volg never printed for that product is exactly the Art.
+ * 3(1)(e) UWG exposure this codebase's own domain rules exist to prevent.
+ *
+ * `title`, `price-main` and `reduction` are all anchored on `c-product__*`
+ * classes, but the "statt" match (`/statt\s*([\d.,–-]+)/`) is a BARE text
+ * search over the whole block with no class anchor at all. Reproduced against
+ * the real fixture: remove "Glade Duftkerze Anti-Tabac"'s own `statt 12.50`
+ * and plant an unrelated `statt 99.90` in the page chrome between the product
+ * grid and `<footer>` — before the fix, the unbounded last-block slice let
+ * that stray text become this product's `originalPrice`.
+ */
+describe('parsePage never fabricates a price from page chrome after the last product', () => {
+  it('a stray "statt 99.90" planted before <footer> never becomes an offer\'s originalPrice', () => {
+    const mutated = FIXTURE.replace('statt 12.50', '').replace('<footer', 'Aktion statt 99.90 sparen<footer')
+
+    const { offers } = parsePage(mutated, REFERENCE)
+    const o = offers.find((x) => x.productName === 'Glade Duftkerze Anti-Tabac')
+
+    expect(o).toBeDefined()
+    // Never the fabricated price — this is the defect this test exists to catch.
+    expect(o?.originalPrice?.rappen).not.toBe(9990)
+    // With its own statt removed and the block correctly bounded before
+    // <footer>, no statt is visible to this product at all — null is the
+    // honest result, matching the ALDI-rule invariant (original null <=> discount null).
+    expect(o?.originalPrice).toBeNull()
+    expect(o?.discount).toBeNull()
   })
 })
 

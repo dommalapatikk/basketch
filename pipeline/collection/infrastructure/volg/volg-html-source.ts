@@ -148,12 +148,59 @@ export function splitSections(html: string, reference: Date): Section[] {
   }))
 }
 
+/**
+ * MUST-FIX 1 (code review): the LAST product in a section has no next
+ * "c-product" marker to stop at, so its slice used to run all the way to the
+ * end of `sectionHtml` — which, for the page's last section, is the end of
+ * the entire fetched document: share buttons, scripts, and `<footer>`. A bare
+ * text search anywhere in THAT block (the "statt" price match below has no
+ * class anchor, unlike title/price/reduction) can then pick up chrome content
+ * as if it belonged to the product — a wrong IMAGE (isChromeImagePath) or,
+ * worse, a fabricated PRICE (a crossed-out price Volg never printed, the Art.
+ * 3(1)(e) UWG exposure the regression test below is named after). Bounding
+ * every block before the trailing chrome — the share-buttons `<section>` AND
+ * `<footer>`, see below — closes both at once, at the source.
+ */
 function parseProductBlocks(sectionHtml: string): string[] {
   // Blocks are delimited by the opening tag; slice to the next one.
   const starts: number[] = []
   const re = /<div class="c-product"/g
   for (const m of sectionHtml.matchAll(re)) starts.push(m.index)
-  return starts.map((s, i) => sectionHtml.slice(s, starts[i + 1] ?? sectionHtml.length))
+
+  // On the LAST promo section, sectionHtml runs past the product grid: a
+  // share-buttons `<section>` and scripts sit between the grid and
+  // `<footer>` (verified on the committed fixture). Bounding at `<footer`
+  // alone is not enough — that chrome section itself, not only the footer,
+  // is where the fabricated-price mutation in the regression test lands.
+  // Bounding at whichever of `<section` or `<footer` comes first closes both.
+  const chromeIndexes = [sectionHtml.search(/<section\b/), sectionHtml.search(/<footer\b/)].filter((i) => i >= 0)
+  const end = chromeIndexes.length > 0 ? Math.min(...chromeIndexes) : sectionHtml.length
+
+  return starts.map((s, i) => sectionHtml.slice(s, starts[i + 1] ?? end))
+}
+
+/**
+ * Rejects an image path that is obviously site chrome, not a product photo.
+ *
+ * THE DEFECT (QA 2026-09-16): "volg küchenreiniger spray" was published with
+ * `image_url = https://www.volg.ch/_assets/.../Images/logo-footer.svg` — the
+ * site's own footer logo. Root cause, traced against the committed fixture:
+ * `parseProductBlocks` slices each product from its own `<div class="c-product">`
+ * to the NEXT one — or, for the LAST product in the LAST section, to the end
+ * of the fetched HTML, because no next marker exists. When that last product's
+ * own `<div class="c-product__image">` is empty (no `<img>` at all — a real,
+ * fairly common shape on this page), the single greedy `<img>` regex below
+ * keeps scanning past the product grid, past the share buttons, into
+ * `<footer class="c-footer">`, and finds the site's own logo — reproduced
+ * verbatim on the committed fixture's last item, "Glade Duftkerze Anti-Tabac".
+ *
+ * A content guard is the fix that holds regardless of which product ends up
+ * last on a future page (restructuring the slice boundary would only move the
+ * failure mode, not remove it): if the matched path names logo/icon/sprite
+ * chrome, it was never a product photo, so no image beats a wrong one.
+ */
+export function isChromeImagePath(url: string): boolean {
+  return /\b(logo|favicon|sprite|icon)\b/i.test(url)
 }
 
 export function mapBlockToOffer(
@@ -192,7 +239,8 @@ export function mapBlockToOffer(
   }
 
   const imgSrc = block.match(/<img[^>]+src="([^"]+)"/)
-  const imageUrl = imgSrc ? (imgSrc[1]!.startsWith('http') ? imgSrc[1]! : `${SITE}${imgSrc[1]}`) : null
+  const rawImageUrl = imgSrc ? (imgSrc[1]!.startsWith('http') ? imgSrc[1]! : `${SITE}${imgSrc[1]}`) : null
+  const imageUrl = rawImageUrl && !isChromeImagePath(rawImageUrl) ? rawImageUrl : null
   const image = imageUrl ? sourceUrlImage(imageUrl) : null
 
   const offer = createOffer({
