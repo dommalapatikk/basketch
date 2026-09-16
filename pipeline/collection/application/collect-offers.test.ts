@@ -180,6 +180,29 @@ describe('collectOffers — tracing', () => {
     expect(telemetry.spans[0]?.warnings[0]).toBe('page 12 tile 3: no price found')
   })
 
+  it('a source that is ok but degraded flips the run status — WP-C3 code review F2 (was written, read by nothing)', async () => {
+    // 6 of 100 offers have a display-truncated name — over collected()'s own
+    // 5% threshold, so CollectionResult.degraded is true even though the
+    // source itself succeeded.
+    const truncated = Array.from({ length: 6 }, (_, i) => offer('coop', `Truncated Product ${i}...`))
+    const clean = Array.from({ length: 94 }, (_, i) => offer('coop', `Product ${i}`))
+    const telemetry = createInMemoryTelemetry()
+    const o = await collectOffers(
+      [sourceReturning('coop', collected('coop', [...truncated, ...clean]))],
+      WEEK_ID,
+      { clock: fakeClock(), newRunId: () => 'run_test', telemetry },
+    )
+    expect(telemetry.spans[0]?.status).toBe('ok')
+    expect(telemetry.spans[0]?.degraded).toBe(true)
+    expect(o.trace.status).toBe('degraded')
+  })
+
+  it('a source with few truncated names stays ok, not degraded', async () => {
+    const clean = Array.from({ length: 100 }, (_, i) => offer('coop', `Product ${i}`))
+    const o = await collectOffers([sourceReturning('coop', collected('coop', clean))], WEEK_ID, opts())
+    expect(o.trace.status).toBe('ok')
+  })
+
   it('maps a trace onto the existing pipeline_runs shape', async () => {
     const o = await collectOffers(
       [

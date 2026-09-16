@@ -31,7 +31,11 @@ export type CollectionFailureReason =
 
 export type CollectionWarning = {
   readonly message: string
-  /** Item that was dropped, where one can be identified. */
+  /**
+   * The item the warning is about, where one can be identified. NOT always a
+   * dropped item: a Coop card that falls back to its truncated h3 (WP-C3)
+   * carries a warning here while its offer is still published.
+   */
   readonly item?: string
 }
 
@@ -40,7 +44,13 @@ export type CollectionResult =
       readonly ok: true
       readonly retailer: Retailer
       readonly offers: readonly Offer[]
-      /** Items dropped during parsing. An empty array means a clean run. */
+      /**
+       * Per-item notices raised during parsing. NOT all dropped items: since
+       * WP-C3 a warning can accompany an offer that was still published (a
+       * Coop card whose title attribute didn't extend its truncated h3, and
+       * so fell back to that h3, with a warning — the offer is kept). An
+       * empty array means nothing needed a note, not that nothing happened.
+       */
       readonly warnings: readonly CollectionWarning[]
       /**
        * True when more than `DISPLAY_TRUNCATED_NAME_DEGRADED_SHARE` of the

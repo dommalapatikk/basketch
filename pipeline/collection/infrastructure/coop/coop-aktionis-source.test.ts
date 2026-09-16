@@ -238,6 +238,28 @@ describe('resolving the full name — the title cross-check (WP-C3 / HANDOVER it
       expect(r.warning).toBeUndefined()
     }
   })
+
+  it('a name containing an en dash keeps its full name — the dash is not always aktionis’ own descriptor (code review F1)', () => {
+    // "Bio Rüebli – Schweiz" is not truncated, so it never reaches the
+    // cross-check at all — it goes straight through stripAktionisDescriptor.
+    // Before the shape guard, indexOf(' – ') alone would have cut this to
+    // "Bio Rüebli" permanently, with no warning: display truncation by a
+    // different route than the h3 one this file exists to fix.
+    const card =
+      '<div data-upox-id="1">' +
+      '<a href="/deals/bio-rueebli" title="Mehr Infos über Bio Rüebli – Schweiz">' +
+      '<h3 class="card-title">Bio Rüebli – Schweiz</h3>' +
+      '</a>' +
+      '<span class="card-date">07.09.2026 - 09.09.2026</span>' +
+      '<span class="price-new">1.00</span>' +
+      '</div>'
+    const r = mapCardToOffer(card)
+    expect('offer' in r).toBe(true)
+    if ('offer' in r) {
+      expect(r.offer.productName).toBe('Bio Rüebli – Schweiz')
+      expect(r.warning).toContain("does not match aktionis' descriptor shape")
+    }
+  })
 })
 
 describe('mapCardToOffer — defensive', () => {
@@ -261,7 +283,7 @@ describe('createCoopAktionisSource + collectOffers — the composition-level che
   // other six retailers' transport plumbing is irrelevant to this defect,
   // and createLiveSources hard-codes Coop's real 300-offer yield floor,
   // which the 6-card fixture could never clear.
-  it('createLiveSources’ Coop wiring + collectOffers over the Coop fixture keeps 6 of 6 cards', async () => {
+  it('createCoopAktionisSource + collectOffers over the Coop fixture keeps 6 of 6 cards', async () => {
     const source = createCoopAktionisSource({
       fetchPage: async (p) => (p === 1 ? FIXTURE : ''),
       expectedMinimumOffers: 1,

@@ -24,8 +24,20 @@ export type SourceSpan = {
   /** Present only when status is 'failed'. */
   readonly failureReason?: CollectionFailureReason
   readonly detail?: string
-  /** Offers dropped before they reached the domain, with reasons. */
+  /**
+   * Per-item notices, not all drops: some accompany a KEPT offer (e.g. a
+   * Coop card that fell back to its truncated h3 — the offer still
+   * publishes). `warningCount` is not a count of offers lost.
+   */
   readonly warnings: readonly string[]
+  /**
+   * True when `CollectionResult.degraded` was true — more than
+   * `DISPLAY_TRUNCATED_NAME_DEGRADED_SHARE` of this source's offers carry a
+   * display-truncated name (WP-C3 / HANDOVER item 8). A source can be `ok`
+   * and `degraded` at once: it still published offers, but something about
+   * the source's own markup needs a human look.
+   */
+  readonly degraded: boolean
 }
 
 export type RunTrace = {
@@ -35,7 +47,11 @@ export type RunTrace = {
   readonly durationMs: number
   readonly sources: readonly SourceSpan[]
   readonly totalOffers: number
-  /** ok = every source succeeded · degraded = some failed · failed = all failed. */
+  /**
+   * ok = every source succeeded and none is degraded · degraded = some
+   * failed, OR every source succeeded but at least one is degraded ·
+   * failed = all failed.
+   */
   readonly status: 'ok' | 'degraded' | 'failed'
 }
 

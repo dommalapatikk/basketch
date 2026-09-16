@@ -44,6 +44,9 @@ export function createJsonTelemetry(sink: Sink = defaultSink): Telemetry {
         // Cap warnings: a badly broken parse can produce hundreds, and the log
         // should stay readable. The count above remains exact.
         ...(span.warnings.length > 0 ? { warnings: span.warnings.slice(0, 20) } : {}),
+        // Only when true: a source is degraded far less often than it has
+        // warnings, so this stays a signal rather than noise on every line.
+        ...(span.degraded ? { degraded: true } : {}),
       })
     },
 
@@ -61,6 +64,7 @@ export function createJsonTelemetry(sink: Sink = defaultSink): Telemetry {
           offerCount: s.offerCount,
           durationMs: s.durationMs,
           ...(s.failureReason ? { failureReason: s.failureReason } : {}),
+          ...(s.degraded ? { degraded: true } : {}),
         })),
       })
     },
@@ -98,7 +102,7 @@ export function formatRunSummary(trace: RunTrace): string {
   ]
 
   for (const s of trace.sources) {
-    const status = s.status === 'ok' ? '✅ ok' : `❌ ${s.failureReason}`
+    const status = s.status === 'failed' ? `❌ ${s.failureReason}` : s.degraded ? '⚠️ ok (degraded)' : '✅ ok'
     lines.push(
       `| ${s.retailer} | ${status} | ${s.offerCount} | ${s.warningCount} | ${(s.durationMs / 1000).toFixed(1)}s |`,
     )
@@ -108,6 +112,18 @@ export function formatRunSummary(trace: RunTrace): string {
   if (failed.length > 0) {
     lines.push('', '### Failures', '')
     for (const f of failed) lines.push(`- **${f.retailer}** — ${f.failureReason}: ${f.detail ?? ''}`)
+  }
+
+  // A degraded-but-ok source still published offers, so it never reaches the
+  // Failures section above — this is the only place an operator would see it
+  // without opening the log (WP-C3 code review F2: previously nothing read
+  // `degraded` at all, so the guard fired silently).
+  const degraded = trace.sources.filter((s) => s.status === 'ok' && s.degraded)
+  if (degraded.length > 0) {
+    lines.push('', '### Degraded', '')
+    for (const d of degraded) {
+      lines.push(`- **${d.retailer}** — more than 5% of its offers have a display-truncated name`)
+    }
   }
 
   return lines.join('\n')

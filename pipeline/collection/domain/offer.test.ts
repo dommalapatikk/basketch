@@ -208,9 +208,16 @@ describe('Offer — de-duplication of display-truncated names (WP-C3 / HANDOVER 
     validity: WEEK,
   }
 
-  it('never merges two truncated names that link to different offers', () => {
+  it('keeps two truncated names distinct through collection — different sourceUrls (code review F3)', () => {
     // This is the exact defect: aktionis truncates the 2024 and 2025 vintage
-    // to the identical title. Losing the vintage must not also lose the row.
+    // to the identical title. Losing the vintage must not also lose the row
+    // — at THIS layer. This is a collection-layer guarantee only: storage
+    // (store.ts) upserts on (store, normalizeProductName(product_name),
+    // valid_from), which has no sourceUrl column, so if the ACL's own
+    // cross-check ever falls back to two IDENTICAL truncated names (the
+    // "does not extend" warning path), the second row still overwrites the
+    // first at write time. This test proves collectOffers never merges them
+    // in memory; it does not prove the database keeps both.
     const vintage2025 = unwrap(
       createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2025' }),
     )

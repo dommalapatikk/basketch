@@ -125,6 +125,20 @@ export function parseCardDate(text: string | null): ValidityPeriod | null {
 // silently publishing a stray title string as a product name.
 
 /**
+ * The SHAPE aktionis' own appended descriptor always takes: " – <type>,
+ * <country> (<volume>)" — e.g. " – Weisswein, Italien (0.75l)". Verified
+ * against all 17 dash-bearing titles across both committed fixtures.
+ *
+ * Deliberately a shape check, not "does it contain ' – ' at all": a product's
+ * OWN name can contain an en dash, or a hyphen an editor typed as one — e.g.
+ * a hypothetical "Bio Rüebli – Schweiz". Stripping on `indexOf(' – ')` alone
+ * would cut that to "Bio Rüebli" permanently, with no warning — the exact
+ * defect this file exists to fix, by a different route (code review finding
+ * F1, WP-C3 round 2).
+ */
+const AKTIONIS_DESCRIPTOR_SHAPE = /^ – [^–,]+, [^–(]+\(\d+(?:[.,]\d+)?\s*[a-zA-Zäöü]+\)$/
+
+/**
  * aktionis appends its own descriptor after every wine's full name, separated
  * by an en dash: "Chardonnay California Round Hill (2023) – Weisswein, USA
  * (0.75l)". TP-8 (PM decision, 2026-09-15): identity only. The vintage stays
@@ -135,12 +149,23 @@ export function parseCardDate(text: string | null): ValidityPeriod | null {
  * classifier — there is nowhere downstream that could pick it up again,
  * because this adapter never puts it in `sourceAttributes.descriptor` either.
  *
- * Verified against every wine card in the April 51-card fixture: the " – "
- * separator appears exactly once, always in this position.
+ * A " – " that does NOT match the descriptor shape is left untouched, with a
+ * warning rather than silence — so an aktionis format change is visible in
+ * the run log instead of quietly cutting a real product name.
  */
-function stripAktionisDescriptor(fullName: string): string {
+function stripAktionisDescriptor(fullName: string): { name: string; warning?: string } {
   const dashIndex = fullName.indexOf(' – ')
-  return dashIndex === -1 ? fullName : fullName.slice(0, dashIndex).trim()
+  if (dashIndex === -1) return { name: fullName }
+
+  const tail = fullName.slice(dashIndex)
+  if (!AKTIONIS_DESCRIPTOR_SHAPE.test(tail)) {
+    return {
+      name: fullName,
+      warning: `${fullName}: a " – " is present but its tail does not match aktionis' descriptor shape — kept in full`,
+    }
+  }
+
+  return { name: fullName.slice(0, dashIndex).trim() }
 }
 
 function withoutTruncationMarker(name: string): string {
@@ -158,11 +183,11 @@ function withoutTruncationMarker(name: string): string {
  *   the truncated h3, with a warning — never publish an unrelated string.
  */
 function resolveFullName(h3Name: string, rawTitle: string | null): { name: string; warning?: string } {
-  if (!isDisplayTruncated(h3Name)) return { name: stripAktionisDescriptor(h3Name) }
+  if (!isDisplayTruncated(h3Name)) return stripAktionisDescriptor(h3Name)
 
   const h3Prefix = withoutTruncationMarker(h3Name)
   if (rawTitle && rawTitle.startsWith(h3Prefix)) {
-    return { name: stripAktionisDescriptor(rawTitle) }
+    return stripAktionisDescriptor(rawTitle)
   }
 
   return {
