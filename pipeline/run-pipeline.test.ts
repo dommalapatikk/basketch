@@ -4,33 +4,34 @@
 // that nothing wires up." That happened because `main()` in run.ts was a
 // 700-line unexported function — nothing could build it with a fake source, a
 // fake cache or a fake judge and watch what came out. These tests go through
-// `runPipeline`, the composition root (`createProductionDeps`), or both —
-// never only a hand-built fake in isolation — because the production wiring
-// is exactly what went untested.
+// `runPipeline` (or `finishRun` directly for the exit-mapping baseline),
+// never only a hand-built fake in isolation.
+//
+// NO SUPABASE MOCK: this file imports only `run-pipeline.ts` (application
+// layer) and hand-built fakes. Code review of WP-P2 (F1) found that
+// `run-pipeline.ts` transitively constructed a real Supabase client at import
+// time via `./store` — proved by this file needing `vi.mock('@supabase/supabase-js')`
+// just to load. That import is now `../shared/types` (normalizeProductName)
+// and `storage/domain/product-key.ts` (productLookupKey), both pure. The
+// composition-root tests that legitimately DO need Supabase construction
+// (because that is composition.ts's whole job) live in composition.test.ts,
+// with the mock — the same pattern store.test.ts already uses for
+// infrastructure-layer tests.
 
 import { tmpdir } from 'node:os'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-// composition.ts pulls in product-resolve.ts and store.ts, both of which
-// create a real Supabase client AT MODULE LOAD TIME. None of these tests
-// talk to Supabase — every test either injects a fake `StorageDeps` or only
-// exercises the collection wiring — so the client itself is mocked away
-// before anything imports it, the same pattern store.test.ts uses.
-vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: () => ({}) }) }))
-
-import { RETAILERS, createOffer } from './collection/domain/offer'
+import { createOffer } from './collection/domain/offer'
 import { createMoney } from './collection/domain/money'
 import { collected } from './collection/domain/offer-source'
 import type { OfferSource } from './collection/domain/offer-source'
 import { ok, unwrap } from './collection/domain/result'
 import { createValidityPeriod } from './collection/domain/validity-period'
-import type { Transport } from './collection/infrastructure/live-sources'
 import { createInMemoryCache } from './transformation/domain/classification-cache'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, Classifier } from './transformation/domain/classifier'
-import { createProductionDeps } from './composition'
 import type { ClassificationDeps, PipelineDeps, StorageDeps } from './run-pipeline'
-import { runPipeline } from './run-pipeline'
+import { finishRun, runPipeline } from './run-pipeline'
 import type { Deal } from '../shared/types'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
@@ -48,14 +49,12 @@ const classifierAnswering = (category: string, subCategory: string): Classifier 
   },
 })
 
-/** Records every call, in order, and every deal `storeDeals` actually received. */
-function fakeStorage(): StorageDeps & { readonly calls: string[]; readonly storedDeals: Deal[] } {
+/** Records every call, in order, and every deal `storeDeals` actually received. `overrides` replaces individual methods for one test's scenario (e.g. a storage shortfall). */
+function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { readonly calls: string[]; readonly storedDeals: Deal[] } {
   const calls: string[] = []
   const storedDeals: Deal[] = []
 
-  return {
-    calls,
-    storedDeals,
+  const defaults: StorageDeps = {
     async loadAliases() {
       calls.push('loadAliases')
       return new Map()
@@ -106,6 +105,8 @@ function fakeStorage(): StorageDeps & { readonly calls: string[]; readonly store
       calls.push('logPipelineRun')
     },
   }
+
+  return { calls, storedDeals, ...defaults, ...overrides }
 }
 
 function fakeClassificationDeps(): ClassificationDeps {
@@ -120,13 +121,13 @@ function fakeClassificationDeps(): ClassificationDeps {
 
 type FakeDeps = PipelineDeps & { readonly storage: ReturnType<typeof fakeStorage> }
 
-function fakeDeps(overrides: Partial<Omit<PipelineDeps, 'storage'>> = {}): FakeDeps {
+function fakeDeps(overrides: Partial<Omit<PipelineDeps, 'storage'>> = {}, storage = fakeStorage()): FakeDeps {
   return {
     sources: () => [],
     createClassificationDeps: async () => fakeClassificationDeps(),
     revalidate: async () => {},
     ...overrides,
-    storage: fakeStorage(),
+    storage,
   }
 }
 
@@ -178,28 +179,6 @@ describe('a full run through the composition root stores what the fake sources r
   })
 })
 
-describe('the root wires classifier, reflector, judge and enricher from env — nothing built inline', () => {
-  it('builds no escalation path with no API keys, and makes no network call to decide that', async () => {
-    const deps = createProductionDeps({})
-    const classification = await deps.createClassificationDeps(() => {})
-
-    expect(classification.tier1).toBeTruthy()
-    expect(classification.cache).toBeTruthy()
-    expect(classification.judge).toBeNull()
-    expect(classification.reflector).toBeNull()
-    expect(classification.enricher).toBeNull()
-  })
-
-  it('wires the OpenRouter judge from OPENROUTER_API_KEY alone — reflector and enricher still need the Google key', async () => {
-    const deps = createProductionDeps({ OPENROUTER_API_KEY: 'test-key' })
-    const classification = await deps.createClassificationDeps(() => {})
-
-    expect(classification.judge).not.toBeNull()
-    expect(classification.reflector).toBeNull()
-    expect(classification.enricher).toBeNull()
-  })
-})
-
 describe('live counts are read BEFORE storeDeals — a post-write count makes the sweep guard permissive', () => {
   it('calls activeCountsByWindow before storeDeals, every run', async () => {
     const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
@@ -213,67 +192,69 @@ describe('live counts are read BEFORE storeDeals — a post-write count makes th
   })
 })
 
-describe('createProductionDeps wires the REAL adapters — the production wiring is what goes untested', () => {
-  it('builds one real OfferSource per retailer, against a fake transport, not a hand-built fake', () => {
-    const deps = createProductionDeps({}, { transport: stubTransport() })
+// ── F3: lock today's PipelineOutcome contract before WP-P3 rewrites the exit
+// mapping. `run.ts` itself has no test — it unconditionally calls `shell()`
+// as a module-load side effect, so importing it would run the pipeline for
+// real. Testing `finishRun` (the function that DECIDES the outcome) and
+// `runPipeline`'s 'no-data'/'ok' paths above covers the same contract without
+// restructuring the shell.
+describe('the PipelineOutcome contract every exit-code mapping depends on', () => {
+  it('produces "ok" and calls revalidate — the only status a non-zero exit is not mapped from', async () => {
+    const deps = fakeDeps()
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1 })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
-
-    expect(sources).toHaveLength(RETAILERS.length)
-    expect(sources.map((s) => s.retailer).sort()).toEqual([...RETAILERS].sort())
+    expect(outcome).toEqual({ status: 'ok', storedCount: 10 })
   })
 
-  it('the real Spar adapter builds the requested week into the URL it asks the fake transport for', async () => {
-    const { transport, urls } = recordingTransport()
-    const deps = createProductionDeps({}, { transport })
+  it('produces "storage-shortfall" when stored deals fall below 80% of resolved, and does NOT call revalidate', async () => {
+    const revalidate = spy()
+    const deps = fakeDeps({ revalidate: revalidate.fn })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
-    await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1 })
 
-    expect(urls.some((u) => u.includes('kw37-2026'))).toBe(true)
+    expect(outcome).toEqual({ status: 'storage-shortfall' })
+    expect(revalidate.calls).toBe(0)
+  })
+
+  it('produces "alert-failed" when a critical alert fires, and does NOT call revalidate', async () => {
+    const revalidate = spy()
+    const deps = fakeDeps({ revalidate: revalidate.fn })
+    // A stale-run clock: `finishedAtMs` reads first (T), `nowMs` reads second
+    // (T + 9 days) — past STALE_RUN_MS (8 days), the only alert this function
+    // can currently reach (every other field it keys on is hardcoded null —
+    // see the comment on `evaluateAlertsStep`).
+    const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
+
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1, now: staleClock })
+
+    expect(outcome).toEqual({ status: 'alert-failed' })
+    expect(revalidate.calls).toBe(0)
   })
 })
 
-// ── A minimal Transport double: enough to build every source, none of it
-// pretends to be a working network. Matches live-sources.test.ts's own shape
-// so a "real wiring" test is asking the same question that file asks — just
-// through composition.ts instead of calling createLiveSources directly.
-function stubTransport(): Transport {
-  return recordingTransport().transport
+/** A minimal `ClassifyDealsResult['stats']` shape — only `total`/`cacheHits` are read by the alert snapshot. */
+function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
+  return {
+    total,
+    cacheHits: 0,
+    classified: total,
+    uncertain: 0,
+    rejected: 0,
+    blocked: 0,
+    heldBack: 0,
+    judgeUnavailable: 0,
+    deferred: 0,
+    isColdStart: false,
+  }
 }
 
-function recordingTransport(): { transport: Transport; urls: string[] } {
-  const urls: string[] = []
-  const transport: Transport = {
-    fetchJson: async (u) => {
-      urls.push(u)
-      return {}
-    },
-    fetchPdfPages: async (u) => {
-      urls.push(u)
-      return { ok: false, reason: 'stub' }
-    },
-    fetchPdfText: async (u) => {
-      urls.push(u)
-      return { ok: false, reason: 'stub' }
-    },
-    fetchFlyerImages: async (u) => {
-      urls.push(u)
-      return { ok: false, reason: 'stub' }
-    },
-    ocr: async () => ({ pages: [], errors: [] }),
-    dennerFetchPage: async (_id, page) => {
-      urls.push(`denner:page${page}`)
-      return {}
-    },
-    coopFetchPage: async (page) => {
-      urls.push(`coop:page${page}`)
-      return ''
-    },
-    volgFetchPage: async () => {
-      urls.push('volg')
-      return ''
-    },
-  }
-  return { transport, urls }
+/** Returns each value in `values` once, in order, then repeats the last — enough to simulate time passing between two back-to-back `now()` reads. */
+function statefulClock(values: readonly number[]): () => number {
+  let i = 0
+  return () => values[Math.min(i++, values.length - 1)]!
+}
+
+function spy(): { fn: () => Promise<void>; calls: number } {
+  const state = { calls: 0 }
+  return { fn: async () => { state.calls += 1 }, get calls() { return state.calls } }
 }

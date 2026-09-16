@@ -22,7 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { Deal, Store, UnifiedDeal } from '../shared/types'
-import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
+import { ALL_STORES, aktionisSlugToStore, normalizeProductName } from '../shared/types'
 
 import type { CollectOffersOutcome } from './collection/application/collect-offers'
 import { collectOffers } from './collection/application/collect-offers'
@@ -40,9 +40,9 @@ import { classifyDeals } from './transformation/application/classify-deals'
 import type { Alert, RunSnapshot } from './transformation/domain/alerts'
 import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
-import { normalizeProductName, productLookupKey } from './store'
 import type { DealEnrichment } from './storage/domain/offer-to-unified'
 import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
+import { productLookupKey } from './storage/domain/product-key'
 import type { StoreSweepPlan } from './storage/domain/stale-sweep'
 import { sweepPlan } from './storage/domain/stale-sweep'
 
@@ -360,7 +360,7 @@ async function classifyGroceryDeals(deps: PipelineDeps, groceryOnly: readonly Un
 async function resolveTaxonomyStep(deps: PipelineDeps, categorized: readonly Deal[]): Promise<Deal[]> {
   const aliases = await deps.storage.loadAliases()
   const resolved = categorized.map((d) => resolveTaxonomy(d, aliases))
-  const unknowns = collectUnknownTags(categorized as Deal[], aliases)
+  const unknowns = collectUnknownTags(categorized, aliases)
   if (unknowns.length > 0) {
     console.warn(`[pipeline] [WARN] ${unknowns.length} unmapped sub_category tag(s): ${unknowns.map((u) => u.source_tag).join(', ')}`)
     await deps.storage.reportUnknownTags(unknowns)
@@ -521,10 +521,17 @@ async function logRunStep(deps: PipelineDeps, params: LogRunParams): Promise<voi
 // for months and nobody read it, so a categorisation regression stayed
 // invisible while the pipeline reported success. Emitting data is not
 // observability — something has to LOOK at it.
-function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], durationMs: number): boolean {
+//
+// `now` is injected (defaulting to `Date.now`, so production is unchanged)
+// purely so a test can pin the 'alert-failed' outcome — every OTHER field a
+// critical alert could key on (`halted`, `benchmarkMacroF1`,
+// `publishedDataCoverage`, `previous`) is hardcoded here today (WP-P7 wires
+// them up for real; HANDOVER §8 item 2 records that `shouldFailRun` cannot
+// currently return true any other way).
+function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], durationMs: number, now: () => number = Date.now): boolean {
   const snapshot: RunSnapshot = {
     runId,
-    finishedAtMs: Date.now(),
+    finishedAtMs: now(),
     totalProducts: stats.total,
     classified: stats.classified,
     uncertain: stats.uncertain,
@@ -542,7 +549,7 @@ function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], 
 
   // No previous run to compare against yet — regression detection needs two
   // points. Passing null is honest; inventing a baseline would not be.
-  const alerts: readonly Alert[] = evaluateAlerts(snapshot, null, Date.now())
+  const alerts: readonly Alert[] = evaluateAlerts(snapshot, null, now())
   console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
   if (shouldFailRun(alerts)) {
     console.error('[pipeline] [ERROR] a critical alert fired — failing the run so it is visible')
@@ -569,17 +576,24 @@ export type RunTransformOptions = {
   readonly runId: string
 }
 
-type FinishRunParams = {
+export type FinishRunParams = {
   readonly runId: string
   readonly stats: ClassifyDealsResult['stats']
   readonly resolvedLength: number
   readonly storedCount: number
   readonly durationMs: number
+  /** Test-only seam — see `evaluateAlertsStep`. Production never sets this. */
+  readonly now?: () => number
 }
 
-/** The exit checks: an alert, then a storage shortfall, then (only then) success — same order `run.ts` used. */
-async function finishRun(deps: PipelineDeps, params: FinishRunParams): Promise<TransformOutcome> {
-  if (evaluateAlertsStep(params.runId, params.stats, params.durationMs)) {
+/**
+ * The exit checks: an alert, then a storage shortfall, then (only then)
+ * success — same order `run.ts` used. Exported so WP-P3, which rewrites
+ * exactly this mapping, and today's tests, can both drive it directly without
+ * running the whole transform phase.
+ */
+export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Promise<TransformOutcome> {
+  if (evaluateAlertsStep(params.runId, params.stats, params.durationMs, params.now)) {
     return { status: 'alert-failed' }
   }
   if (storageRatioBelowThreshold(params.resolvedLength, params.storedCount)) {
