@@ -29,7 +29,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { type Result, err, isOk, ok } from '../../../collection/domain/result'
-import { createClassification, createConfidence } from '../../domain/classification'
+import { createClassification, createConfidence, markUncertain } from '../../domain/classification'
 import type { CachedClassification, ClassificationCache } from '../../domain/classification-cache'
 import { mergeForCache } from '../../domain/classification-cache'
 
@@ -235,10 +235,22 @@ function rowToCached(row: CacheRow): CachedClassification | null {
   })
   if (!isOk(built)) return null
 
+  // WP-P6a. `createClassification` derives `isUncertain` from confidence
+  // ALONE, and confidence is not what made this row uncertain — a judge
+  // dispute is. A judge-disputed classification can carry a high
+  // self-reported confidence (the classifier said 0.95; the judge disputed it
+  // anyway), so re-deriving the flag from confidence on every READ would
+  // silently promote a disputed row back to certain the moment it is served
+  // from the cache. `is_uncertain` is the column that exists to prevent
+  // exactly that (20260910_classification_cache.sql) — it must be the
+  // authority here, not a number `createClassification` cannot see the
+  // history behind.
+  const classification = row.is_uncertain ? markUncertain(built.value) : built.value
+
   return {
     cacheKey: row.cache_key,
     normalisedName: row.normalised_name,
-    classification: built.value,
+    classification,
     attributes: row.attributes ?? {},
     runId: row.run_id,
   }
