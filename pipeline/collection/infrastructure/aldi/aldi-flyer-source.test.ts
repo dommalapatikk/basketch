@@ -12,6 +12,7 @@ import {
   createAldiFlyerSource,
   findPageImageUrls,
   findPdfUrl,
+  pageImageCoverageWarning,
   parseCycleStart,
   parseFlyer,
 } from './aldi-flyer-source'
@@ -85,6 +86,72 @@ describe('findPageImageUrls', () => {
   it('does not mistake the PDF href for a page image', () => {
     const data = { pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf?x=1' }] }
     expect(findPageImageUrls(data).size).toBe(0)
+  })
+
+  /**
+   * MUST-FIX 2a (code review): the same hash appearing twice (a thumbnail
+   * reusing a real page's hash, say) used to consume a page-number slot
+   * without being a distinct page — page 2's real hash would have been
+   * numbered 3, shifting every later page's CropRegion onto the WRONG
+   * product's photo, silently. Deduping closes exactly this case.
+   */
+  it('dedupes a repeated hash instead of shifting every later page number', () => {
+    const repeated = '/95562/3331426/pages/' + '1'.repeat(40)
+    const pageTwo = '/95562/3331426/pages/' + '2'.repeat(40)
+    const pageThree = '/95562/3331426/pages/' + '3'.repeat(40)
+    const data = {
+      // A thumbnail reference repeats page 1's own hash before the real list.
+      spreads: [
+        { pages: [repeated] },
+        { pages: [repeated] },
+        { pages: [pageTwo] },
+        { pages: [pageThree] },
+      ],
+    }
+    const urls = findPageImageUrls(data)
+    expect(urls.size).toBe(3)
+    expect(urls.get(1)).toContain('1'.repeat(40))
+    // MUTATION this catches: without dedupe, page 2 would be numbered 2 with
+    // the repeated hash, and pageTwo's real hash would land on page 3.
+    expect(urls.get(2)).toContain('2'.repeat(40))
+    expect(urls.get(3)).toContain('3'.repeat(40))
+  })
+})
+
+/**
+ * MUST-FIX 2b (code review): the silent `image: null` degradation is correct
+ * behaviour for one missing page, but if the WHOLE catalogue carries no
+ * page-image data (or is misnumbered), the pipeline itself can detect that —
+ * it just wasn't saying so anywhere a human would see it.
+ */
+describe('pageImageCoverageWarning', () => {
+  const twoPages = [PAGES[0]!, PAGES[1]!]
+
+  it('warns when data.json carried no page-image data at all — ALDI pre-fix state', () => {
+    const warning = pageImageCoverageWarning(twoPages, () => '')
+    expect(warning).toContain('page-image count (0)')
+    expect(warning).toContain(`page count (${twoPages.length})`)
+  })
+
+  it('warns when the distinct image count falls short of the page count', () => {
+    // Both pages resolve to the SAME url — one real image, two pages.
+    const warning = pageImageCoverageWarning(twoPages, () => 'https://view.publitas.com/x/y/pages/z-at1600.jpg')
+    expect(warning).toContain('page-image count (1)')
+  })
+
+  it('does not warn when every page has its own distinct image', () => {
+    const warning = pageImageCoverageWarning(twoPages, (n) => `https://view.publitas.com/x/y/pages/${n}-at1600.jpg`)
+    expect(warning).toBeNull()
+  })
+
+  it('does not warn when no pageImageUrl dependency was supplied at all', () => {
+    // SPAR's own shape (MUST-FIX from the same review round): omitting the
+    // dependency entirely is a deliberate "no image" choice, not a defect.
+    expect(pageImageCoverageWarning(twoPages, undefined)).toBeNull()
+  })
+
+  it('does not warn on an empty page list', () => {
+    expect(pageImageCoverageWarning([], () => '')).toBeNull()
   })
 })
 
@@ -223,6 +290,32 @@ describe('createAldiFlyerSource', () => {
     const junk = [{ pageNumber: 1, widthPt: 0, heightPt: 0, words: [] }]
     const r = await source(async () => junk).fetchOffers('2026-W37')
     expect(r.ok).toBe(false)
+  })
+
+  /**
+   * MUST-FIX 2b (code review), through the real adapter rather than the
+   * pure helper alone — the same "unit correct, nothing wires it up" defect
+   * class this whole fix exists to close (see live-sources.test.ts).
+   */
+  it('surfaces a page-image coverage warning in the real result when pageImageUrl never resolves', async () => {
+    const r = await createAldiFlyerSource({
+      loadPages: async () => PAGES,
+      reference: REFERENCE,
+      expectedMinimumOffers: 5,
+      pageImageUrl: () => '',
+    }).fetchOffers('2026-W37')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.warnings.some((w) => w.message.includes('page-image count (0)'))).toBe(true)
+    }
+  })
+
+  it('does not warn when pageImageUrl is not supplied at all — SPAR-shaped "no image" is not a defect', async () => {
+    const r = await source(async () => PAGES).fetchOffers('2026-W37')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.warnings.some((w) => w.message.includes('page-image count'))).toBe(false)
+    }
   })
 })
 

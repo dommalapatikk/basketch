@@ -309,16 +309,53 @@ const PAGE_IMAGE_PATH = /"(\/\d+\/\d+\/pages\/[0-9a-f]{40})"/g
  * a catalogue with no image data at all) — the caller degrades to no image for
  * that page, never a wrong one. See `cropRegionFromPoints`: an empty url fails
  * `isHttpUrl`, so the offer keeps `image: null` exactly as it does today.
+ *
+ * DEDUPES (MUST-FIX 2a, code review): the same hash path appearing twice
+ * (a thumbnail reusing a page's own hash, say) would otherwise consume a
+ * page-number slot without being a distinct page, shifting every SUBSEQUENT
+ * page's number by one — silently handing every later offer the WRONG
+ * page's photo, which is worse than the `image: null` this function exists
+ * to replace. This closes the "same hash repeated" case; it cannot know
+ * whether a DIFFERENT hash (a cover, an unrelated thumbnail) is a real page —
+ * that residual risk is why `createAldiFlyerSource.fetchOffers` cross-checks
+ * this map's size against the PDF's own page count and warns on a mismatch.
  */
 export function findPageImageUrls(dataJson: unknown): ReadonlyMap<number, string> {
   const text = JSON.stringify(dataJson ?? null).replace(/\\\//g, '/')
   const map = new Map<number, string>()
+  const seen = new Set<string>()
   let page = 0
   for (const m of text.matchAll(PAGE_IMAGE_PATH)) {
+    const path = m[1]!
+    if (seen.has(path)) continue
+    seen.add(path)
     page += 1
-    map.set(page, `https://view.publitas.com${m[1]}-at${ALDI_PAGE_IMAGE_WIDTH}.jpg`)
+    map.set(page, `https://view.publitas.com${path}-at${ALDI_PAGE_IMAGE_WIDTH}.jpg`)
   }
   return map
+}
+
+/**
+ * Counts the DISTINCT page images `pageImageUrl` actually resolves across the
+ * PDF's own page range, and compares it to the PDF's own page count.
+ *
+ * MUST-FIX 2b (code review): a mismatch here — 0 (the catalogue carried no
+ * page-image data at all, ALDI's pre-fix state) OR any other count short of
+ * `pages.length` (findPageImageUrls' dedupe closed the "repeated hash" case,
+ * but it can't know whether a genuinely different, non-page hash — a cover,
+ * an unrelated thumbnail — shifted every later page's number) — was
+ * previously invisible: `image: null` degrades a card gracefully, but
+ * nothing said WHY, so only a human QA pass could find it. Returning the
+ * warning message (or null when the counts agree) keeps this pure and
+ * independently testable, and lets `fetchOffers` push it into the SAME
+ * `warnings` channel every other diagnostic on this source already uses —
+ * `SourceSpan.warnings` / `pipeline_runs`, no new plumbing required.
+ */
+export function pageImageCoverageWarning(pages: readonly PdfPage[], pageImageUrl?: (pageNumber: number) => string): string | null {
+  if (!pageImageUrl || pages.length === 0) return null
+  const distinct = new Set(pages.map((p) => pageImageUrl(p.pageNumber)).filter((url) => url.length > 0))
+  if (distinct.size === pages.length) return null
+  return `page-image count (${distinct.size}) does not match the PDF's own page count (${pages.length}) — pages may be misnumbered, or the catalogue's page-image data may be partly or entirely absent`
 }
 
 export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
@@ -343,6 +380,10 @@ export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
         deps.pageImageUrl,
         deps.flyerUrl,
       )
+
+      const coverageWarning = pageImageCoverageWarning(pages, deps.pageImageUrl)
+      if (coverageWarning) warnings.push({ message: coverageWarning })
+
       return collectedWithYieldCheck({ retailer: 'aldi', expectedMinimumOffers }, offers, warnings)
     },
   }
