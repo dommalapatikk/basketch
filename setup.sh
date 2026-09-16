@@ -11,16 +11,21 @@ echo ""
 
 # Check prerequisites
 command -v node >/dev/null 2>&1 || { echo "Error: Node.js is required. Install from https://nodejs.org"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "Error: Python 3 is required. Install from https://python.org"; exit 1; }
 
-echo "1/3  Installing pipeline dependencies..."
+echo "1/4  Installing pipeline dependencies..."
 cd pipeline && npm install && cd ..
 
 echo ""
-echo "2/3  Installing frontend dependencies..."
-cd web && npm install && cd ..
+echo "2/4  Installing frontend dependencies..."
+cd web-next && npm install && cd ..
 
 echo ""
-echo "3/3  Setting up environment file..."
+echo "3/4  Installing Python dependencies (Migros flyer OCR)..."
+pip3 install -r pipeline/collection/infrastructure/migros/requirements.txt
+
+echo ""
+echo "4/4  Setting up environment file..."
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "     Created .env from template"
@@ -35,6 +40,6 @@ echo "==============================="
 echo ""
 echo "Next steps:"
 echo "  1. Edit .env with your Supabase credentials"
-echo "  2. cd web && npm run dev    (start frontend)"
+echo "  2. cd web-next && npm run dev    (start frontend)"
 echo "  3. Read CLAUDE.md for the full guide"
 echo ""
