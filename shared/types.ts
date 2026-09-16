@@ -474,6 +474,18 @@ export interface UnifiedDeal {
   sourceCategory: string | null // original category from source
   sourceUrl: string | null      // link to deal on source site
 
+  /**
+   * How many items must be bought for `salePrice` to apply (WP-C4, TP-7a) —
+   * Migros "ab 2 Stück". `null`/absent means the single-item price, the
+   * ordinary case. NOT the same concept as `quantity` below, which is a
+   * PACK SIZE (litres, grams) from aktionis — this is a PURCHASE CONDITION
+   * from the collection domain's `QuantityRequirement`. A conditional price
+   * must always render its "from N items" label; never publish this value
+   * without also showing it (Art. 3(1)(e) UWG, the same rule already applied
+   * to a member-only price).
+   */
+  minQuantity?: number | null
+
   // Optional fields emitted by aktionis Python scraper (see aktionis/normalize.py).
   // format-extract consumes these as authoritative when present and falls back to
   // regex on productName/description only when they are absent.
@@ -590,6 +602,11 @@ export interface DealRow {
   is_uncertain: boolean
   storage: StorageState | null
   attributes: Record<string, unknown>
+  // Added by supabase/migrations/20260916_quantity_requirement.sql (WP-C4, NOT YET
+  // APPLIED — see that file). NULL means the single-item price; a value
+  // means "from N items" (Migros "ab N Stück"). Never NOT NULL: unlike
+  // discount_percent, there is no honest default to fall back to.
+  min_quantity: number | null
   fetched_at: string
   created_at: string
   updated_at: string
@@ -976,6 +993,12 @@ export function dealToRow(
     is_uncertain: deal.isUncertain ?? false,
     storage: deal.storage ?? null,
     attributes: deal.attributes ?? {},
+    // WP-C4: written only once supabase/migrations/20260916_quantity_requirement.sql
+    // has been applied — see that file's PM instructions. Until then this
+    // key reaches PostgREST as an unknown column, which Supabase's schema
+    // cache rejects the whole row for; do not deploy pipeline code that
+    // calls dealToRow ahead of applying the migration.
+    min_quantity: deal.minQuantity ?? null,
   }
 }
 

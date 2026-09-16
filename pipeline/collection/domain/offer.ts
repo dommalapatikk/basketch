@@ -10,6 +10,7 @@ import { type Discount, deriveDiscount, isConsistentWithPrices } from './discoun
 import { type Money, toFrancs } from './money'
 import { type PriceBasis, isMemberOnly } from './price-basis'
 import type { ProductImage } from './product-image'
+import { SINGLE_ITEM, type QuantityRequirement, isMinimumQuantity } from './quantity-requirement'
 import { type Result, err, ok } from './result'
 import { EMPTY_SOURCE_ATTRIBUTES, type SourceAttributes } from './source-attributes'
 import type { ValidityPeriod } from './validity-period'
@@ -26,6 +27,12 @@ export type Offer = {
   readonly discount: Discount | null
   readonly validity: ValidityPeriod
   readonly priceBasis: PriceBasis
+  /**
+   * How many items must be bought for this price (WP-C4, TP-7a). Independent
+   * of `priceBasis` — see the file header for why a union of the two would be
+   * wrong. Defaults to `SINGLE_ITEM`: most offers apply to one item.
+   */
+  readonly quantityRequirement: QuantityRequirement
   readonly image: ProductImage | null
   /** The retailer's own category, where it publishes one (Denner, Migros). */
   readonly sourceCategory: string | null
@@ -47,6 +54,8 @@ export type OfferInput = {
   discount?: Discount | null
   validity: ValidityPeriod
   priceBasis?: PriceBasis
+  /** Omit for the ordinary single-item price. */
+  quantityRequirement?: QuantityRequirement
   image?: ProductImage | null
   sourceCategory?: string | null
   /** Omit when the retailer publishes nothing beyond name and price. */
@@ -113,6 +122,19 @@ export function createOffer(input: OfferInput): Result<Offer> {
     return err('member-only price must name its loyalty programme (the LIDL rule)')
   }
 
+  const quantityRequirement = input.quantityRequirement ?? SINGLE_ITEM
+
+  // Re-enforced here, not just in `minimumQuantity()`'s own constructor —
+  // same defensive shape as the LIDL rule above. `QuantityRequirement` is a
+  // plain union, so a caller can construct `{ kind: 'minimum', count: 1 }`
+  // by hand, bypassing the factory. An invariant that only exists in one
+  // constructor a caller could skip is not enforced, it is a suggestion.
+  if (isMinimumQuantity(quantityRequirement) && (!Number.isInteger(quantityRequirement.count) || quantityRequirement.count < 2)) {
+    return err(
+      `a minimum-quantity requirement must be a whole number of at least 2, got ${quantityRequirement.count}`,
+    )
+  }
+
   return ok({
     retailer: input.retailer,
     productName: name,
@@ -121,6 +143,7 @@ export function createOffer(input: OfferInput): Result<Offer> {
     discount,
     validity: input.validity,
     priceBasis,
+    quantityRequirement,
     image: input.image ?? null,
     sourceCategory: input.sourceCategory?.trim() || null,
     sourceAttributes: input.sourceAttributes ?? EMPTY_SOURCE_ATTRIBUTES,
@@ -150,11 +173,19 @@ export function createOffer(input: OfferInput): Result<Offer> {
  * uses to match a row by name (HANDOVER §5: one definition, in the shared
  * kernel). Two definitions of "same name" is how 48 collided rows were once
  * reported as failed writes instead of collapses.
+ *
+ * Includes `quantityRequirement` (D2, WP-C4): a "from 2 items" price and the
+ * ordinary single-item price for the SAME product, on the same dates, are two
+ * different offers a shopper can choose between — not duplicates of one
+ * another. Without this, a Migros multi-buy price would silently collapse
+ * into its own everyone-price sibling the moment both exist for one product
+ * in one week.
  */
 export function offerKey(o: Offer): string {
   const name = normalizeProductName(o.productName)
   const basis = o.priceBasis.kind === 'everyone' ? 'all' : o.priceBasis.programme
-  const parts = [o.retailer, name, o.salePrice.rappen, o.validity.from, o.validity.to, basis]
+  const quantity = o.quantityRequirement.kind === 'single' ? 'single' : `min${o.quantityRequirement.count}`
+  const parts = [o.retailer, name, o.salePrice.rappen, o.validity.from, o.validity.to, basis, quantity]
   if (isDisplayTruncated(o.productName)) parts.push(o.sourceUrl ?? '')
   return parts.join('|')
 }

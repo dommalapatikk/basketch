@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { isMinimumQuantity } from '../../domain/quantity-requirement'
 import { createValidityPeriod } from '../../domain/validity-period'
 import {
   type OcrItem,
@@ -13,6 +14,7 @@ import {
   joinNameParts,
   migrosYieldReason,
   parseFlyer,
+  parseMultiBuyQuantity,
   parseValidityLine,
   toFrancs,
 } from './migros-flyer-source'
@@ -379,11 +381,19 @@ describe('a "gültig" line with no date is not a validity override', () => {
 // tests below.
 // ---------------------------------------------------------------------------
 
-type GoldenTriple = { name: string; sale: number; statt: number }
+type GoldenTriple = { name: string; sale: number; statt: number; quantity?: number }
 
 const GOLDEN_MASTER: GoldenTriple[] = [
   // page 2 — the one non-multi-buy anchor on the page.
   { name: 'Kartoffeln Patatli', sale: 1.4, statt: 2.1 },
+  // page 2 — the five multi-buy anchors (WP-C4): each reads "ab 2 Stück" and
+  // is now published with QuantityRequirement.minimum(2), hand-verified
+  // against the OCR item positions in ocr-kw36-zh-pages2-5.json.
+  { name: 'Zwetschgen', sale: 3.02, statt: 4.5, quantity: 2 },
+  { name: 'Trauben weiss und gemischt,kernlos', sale: 1.17, statt: 1.75, quantity: 2 },
+  { name: 'Extra Himbeeren', sale: 4.66, statt: 6.95, quantity: 2 },
+  { name: 'Migros Bio Bohnen', sale: 2.88, statt: 4.3, quantity: 2 },
+  { name: 'Extra Kiwi Gold', sale: 0.94, statt: 1.4, quantity: 2 },
   // page 3 — WP-C2: "1.20 statt 1.85" printed 33% (true 35.1%) is 4 rappen off
   // Migros's own 5-rappen shelf-price grid (round(185*0.67)=124, sale=120),
   // and was wrongly rejected as a mis-pair before the rappen-grid fix.
@@ -402,12 +412,17 @@ const GOLDEN_MASTER: GoldenTriple[] = [
   { name: 'Optigal PouletOberschenkel', sale: 9.35, statt: 14.0 }, // whole-franc "statt 14.--"
 ]
 
-describe('golden master — KW36 pp. 2-5 yield exactly these (name, sale, statt) triples', () => {
+describe('golden master — KW36 pp. 2-5 yield exactly these (name, sale, statt, quantity) triples', () => {
   const { offers } = parseFlyer(PAGES, REFERENCE, null)
 
-  it('accepts exactly the 12 hand-verified offers, nothing more, nothing fewer', () => {
+  it('accepts exactly the 17 hand-verified offers (12 single-item + 5 "ab 2 Stück"), nothing more, nothing fewer', () => {
     const actual = offers
-      .map((o) => ({ name: o.productName, sale: o.salePrice.rappen / 100, statt: (o.originalPrice?.rappen ?? 0) / 100 }))
+      .map((o) => ({
+        name: o.productName,
+        sale: o.salePrice.rappen / 100,
+        statt: (o.originalPrice?.rappen ?? 0) / 100,
+        ...(isMinimumQuantity(o.quantityRequirement) ? { quantity: o.quantityRequirement.count } : {}),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name))
     const expected = [...GOLDEN_MASTER].sort((a, b) => a.name.localeCompare(b.name))
     expect(actual).toEqual(expected)
@@ -609,28 +624,60 @@ describe('"statt 14.--" is 14.00 — Swiss whole-franc notation', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Multi-buy: parsed, counted, never published (PARSE ONLY per WP-C1 scope;
-// publishing waits for QuantityRequirement, WP-C4, PM decision TP-7a).
+// Multi-buy: PUBLISHED, labelled "from N items" (WP-C4, PM decision TP-7a).
+// WP-C1 only parsed and counted these; this WP is what makes them
+// publishable, the moment a quantity can be read honestly from a nearby
+// "ab N Stück" label.
 // ---------------------------------------------------------------------------
 
-describe('inline "X statt Y" (the "ab 2 Stück" multi-buy form)', () => {
-  const { offers, warnings, funnel } = parseFlyer(PAGES, REFERENCE, null)
-
-  it('is recognised and parsed, not reported as an unreadable display price', () => {
-    const multiBuyWarnings = warnings.filter((w) => w.message.startsWith('multi-buy:'))
-    expect(multiBuyWarnings.length).toBe(5)
-    // Spot-check one: Zwetschgen, "3.02statt 4.50" — parsed correctly, not
-    // just detected.
-    expect(multiBuyWarnings.some((w) => w.message.includes('3.02 statt 4.50'))).toBe(true)
+describe('parseMultiBuyQuantity — N is read from the label, never hardcoded', () => {
+  it('reads "ab 2 Stück" as 2 — the only value the committed fixture actually prints', () => {
+    expect(parseMultiBuyQuantity('ab 2 Stuck')).toBe(2)
   })
 
-  it('is never published as a bare offer', () => {
-    expect(offers.some((o) => o.productName.includes('Zwetschgen'))).toBe(false)
-    expect(offers.some((o) => o.productName.includes('Trauben'))).toBe(false)
+  it('reads a different printed quantity if one is ever printed — "ab 3 Stück" is 3, not 2', () => {
+    expect(parseMultiBuyQuantity('ab 3 Stück')).toBe(3)
   })
 
-  it('is counted in the funnel as multi-buy, not folded into "accepted" or "rejected"', () => {
+  it('reads the glued OCR form "ab2Stuck" the same way', () => {
+    expect(parseMultiBuyQuantity('ab2Stuck')).toBe(2)
+  })
+
+  it('returns null, never a guessed number, when no label text is given', () => {
+    expect(parseMultiBuyQuantity('')).toBeNull()
+    expect(parseMultiBuyQuantity('irrelevant text')).toBeNull()
+  })
+})
+
+describe('inline "X statt Y" (the "ab 2 Stück" multi-buy form) is published as minimum(2), never bare', () => {
+  const { offers, funnel } = parseFlyer(PAGES, REFERENCE, null)
+
+  it('"ab 2 Stück 3.02 statt 4.50" is published as minimum(2), never bare', () => {
+    const zwetschgen = offers.find((o) => o.productName === 'Zwetschgen')
+    expect(zwetschgen).toBeDefined()
+    expect(zwetschgen?.salePrice.rappen).toBe(302)
+    expect(zwetschgen?.originalPrice?.rappen).toBe(450)
+    expect(zwetschgen?.quantityRequirement).toEqual({ kind: 'minimum', count: 2 })
+  })
+
+  it('publishes all five real multi-buy anchors on the committed fixture, each labelled "from 2 items"', () => {
+    for (const name of ['Zwetschgen', 'Trauben weiss und gemischt,kernlos', 'Extra Himbeeren', 'Migros Bio Bohnen', 'Extra Kiwi Gold']) {
+      const offer = offers.find((o) => o.productName === name)
+      expect(offer, `expected ${name} to be published`).toBeDefined()
+      expect(isMinimumQuantity(offer!.quantityRequirement)).toBe(true)
+      if (isMinimumQuantity(offer!.quantityRequirement)) expect(offer!.quantityRequirement.count).toBe(2)
+    }
+  })
+
+  it('the funnel counts all five as accepted AND as multi-buy — a subset, not a withheld count', () => {
     expect(funnel.multiBuy).toBe(5)
+    expect(funnel.multiBuyUnquantified).toBe(0)
+    expect(funnel.accepted).toBeGreaterThanOrEqual(5)
+  })
+
+  it("the funnel's multiBuy count reconciles with what is actually emitted", () => {
+    const publishedMultiBuy = offers.filter((o) => isMinimumQuantity(o.quantityRequirement)).length
+    expect(publishedMultiBuy).toBe(funnel.multiBuy)
   })
 })
 
@@ -643,8 +690,10 @@ describe('multi-buy is still detected when OCR SPLITS the inline price into two 
   // `isPlausibleSaleFor` bound against the nearby "2.88" — it would
   // otherwise publish as an ordinary, UNLABELLED everyone-price. The
   // "ab N Stück" label printed above the badge is the second, independent
-  // signal that catches this regardless of how OCR tokenised the price.
-  it('an "ab 2 Stück" label above a split price+statt pair still withholds the price, unlabelled', () => {
+  // signal that catches this regardless of how OCR tokenised the price, and
+  // (WP-C4) supplies the quantity that makes it publishable as "from 2 items"
+  // instead.
+  it('an "ab 2 Stück" label above a split price+statt pair publishes it labelled, not bare', () => {
     const page: OcrPage = {
       pageNumber: 1,
       width: 2199,
@@ -656,10 +705,49 @@ describe('multi-buy is still detected when OCR SPLITS the inline price into two 
         item('statt 4.30', 143, 1870, 292, 1900), // standalone — NOT the inline-glued form
       ],
     }
-    const { offers, funnel, warnings } = parseFlyer([page], REFERENCE, FLYER_WEEK_LITERAL)
-    expect(offers.some((o) => o.productName === 'TestSplitProduct')).toBe(false)
+    const { offers, funnel } = parseFlyer([page], REFERENCE, FLYER_WEEK_LITERAL)
+    const offer = offers.find((o) => o.productName === 'TestSplitProduct')
+    expect(offer).toBeDefined()
+    expect(offer?.salePrice.rappen).toBe(288)
+    expect(offer?.originalPrice?.rappen).toBe(430)
+    expect(offer?.quantityRequirement).toEqual({ kind: 'minimum', count: 2 })
     expect(funnel.multiBuy).toBe(1)
-    expect(warnings.some((w) => w.message.startsWith('multi-buy:') && w.message.includes('ab 2 Stuck'))).toBe(true)
+    expect(funnel.multiBuyUnquantified).toBe(0)
+  })
+})
+
+describe('a multi-buy-shaped anchor with NO readable quantity is withheld, never guessed (TP-7a)', () => {
+  it('an inline price with no locatable "ab N Stück" label anywhere in the tile is withheld', () => {
+    const page: OcrPage = {
+      pageNumber: 1,
+      width: 2199,
+      height: 2997,
+      items: [
+        item('UnlabelledProduct', 362, 946, 700, 980),
+        item('2.88statt4.30', 143, 1040, 400, 1070), // inline form, but no "ab N Stück" anywhere on the page
+      ],
+    }
+    const { offers, funnel, warnings } = parseFlyer([page], REFERENCE, FLYER_WEEK_LITERAL)
+    expect(offers).toHaveLength(0)
+    expect(funnel.multiBuy).toBe(0)
+    expect(funnel.multiBuyUnquantified).toBe(1)
+    expect(warnings.some((w) => w.message.startsWith('multi-buy:') && w.message.includes('no readable'))).toBe(true)
+  })
+
+  it('a found label stating "ab 1 Stück" also withholds — 1 is not a real multi-buy quantity, never assumed 2', () => {
+    const page: OcrPage = {
+      pageNumber: 1,
+      width: 2199,
+      height: 2997,
+      items: [
+        item('ab 1 Stuck', 150, 950, 290, 980),
+        item('GarbledLabelProduct', 362, 1040, 700, 1075),
+        item('2.88statt4.30', 143, 1090, 400, 1120),
+      ],
+    }
+    const { offers, funnel } = parseFlyer([page], REFERENCE, FLYER_WEEK_LITERAL)
+    expect(offers).toHaveLength(0)
+    expect(funnel.multiBuyUnquantified).toBe(1)
   })
 })
 
@@ -727,11 +815,17 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
   it('accounts for all 18 anchors on the committed fixture', () => {
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(funnel.anchors).toBe(18)
-    expect(funnel.accepted).toBe(12)
-    // F6: exactly one of those 12 needed the rappen grid, not the pp rule —
-    // "Schweins-Geschnetzeltes," (1.20 statt 1.85, printed 33%, true 35.1%).
+    // WP-C4: 12 single-item + 5 multi-buy (each honestly labelled "from 2
+    // items") = 17 accepted. `multiBuy` and `gridAccepted` are both SUBSETS
+    // of `accepted` now, like each other — neither is part of the outcome
+    // total below.
+    expect(funnel.accepted).toBe(17)
+    // F6: exactly one of the 12 single-item offers needed the rappen grid,
+    // not the pp rule — "Schweins-Geschnetzeltes," (1.20 statt 1.85, printed
+    // 33%, true 35.1%).
     expect(funnel.gridAccepted).toBe(1)
     expect(funnel.multiBuy).toBe(5)
+    expect(funnel.multiBuyUnquantified).toBe(0)
     expect(funnel.noDisplayPrice).toBe(1) // Eierschwämme, "06'6" for 9.90
     // "1.20 statt 1.85", printed 33% (true 35.1%), is now ACCEPTED — WP-C2's
     // rappen-grid rule recognises Migros's own 5-rappen shelf-price rounding.
@@ -741,7 +835,7 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
     expect(funnel.invalidValidity).toBe(0)
     const total =
       funnel.accepted +
-      funnel.multiBuy +
+      funnel.multiBuyUnquantified +
       funnel.noDisplayPrice +
       funnel.invariantRejected +
       funnel.unreadablePrice +
@@ -753,7 +847,8 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
   it('formats a one-line summary that a run log can carry', () => {
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(formatFunnel(funnel)).toBe(
-      'funnel: 18 anchors -> 12 accepted (1 via the rappen grid), 5 multi-buy (not published), ' +
+      'funnel: 18 anchors -> 17 accepted (1 via the rappen grid, 5 multi-buy "from N items"), ' +
+        '0 multi-buy unquantified (withheld), ' +
         '0 unreadable statt, 1 no display price, 0 no name, 0 invalid validity, 0 discount-inconsistent',
     )
   })
@@ -799,20 +894,20 @@ describe('a badge-inconsistent tile is rejected, not silently published (the WP-
 
 // ---------------------------------------------------------------------------
 // The 50%-of-PUBLISHABLE-anchors yield guard (real units, not chunks —
-// HANDOVER §5). Publishable = anchors - multiBuy: multi-buy is withheld by
-// PRODUCT POLICY (TP-7a), not a parsing failure, so a genuinely multi-buy-
-// heavy week must not trip the parsing-quality guard. Page 2 alone is 5 of 6
-// anchors multi-buy (83%) — under the OLD anchors-based denominator that
-// would read as a 17% yield and fail the week for a product decision.
+// HANDOVER §5). WP-C4: a multi-buy anchor now counts toward `acceptedCount`
+// like any other published offer — the denominator no longer excludes it.
+// The only anchors still excluded are the ones structurally impossible to
+// publish honestly: `multiBuyUnquantifiedCount`, a conditional price whose
+// "ab N Stück" quantity could not be read at all. A genuinely multi-buy-
+// heavy week where every label DOES read must not trip the guard; a week
+// where the LABELS cannot be read still should.
 // ---------------------------------------------------------------------------
 
 describe('migrosYieldReason', () => {
-  it('excludes multi-buy anchors from the denominator — a multi-buy-heavy page is not a parsing failure', () => {
-    // Page 2 alone: 6 anchors, 5 multi-buy, 1 accepted. Publishable = 6 - 5 =
-    // 1, and 1 of 1 is 100% — not a failure. Counting multi-buy in the
-    // denominator (the OLD behaviour) would read this as 1/6 (~17%), failing
-    // Migros for the week over a product decision, not a parsing defect.
-    expect(migrosYieldReason(1, 6, 5)).toBeNull()
+  it('excludes only UNQUANTIFIED multi-buy anchors from the denominator — a page of published multi-buy offers is not a parsing failure', () => {
+    // Page 2 alone: 6 anchors, all 5 multi-buy ones publish (WP-C4), 1
+    // ordinary. acceptedCount=6, publishable=6-0=6, 100% — not a failure.
+    expect(migrosYieldReason(6, 6, 0)).toBeNull()
   })
 
   it('a run converting well under half its PUBLISHABLE anchors is below expected yield', () => {
@@ -824,30 +919,39 @@ describe('migrosYieldReason', () => {
     expect(migrosYieldReason(5, 18, 0)).toBe('below-expected-yield')
   })
 
-  it("the fixed parser's 85% (11 of 13 publishable) on the committed fixture passes", () => {
-    expect(migrosYieldReason(11, 18, 5)).toBeNull()
+  it("the fixed parser's 94% (17 of 18) on the committed fixture passes", () => {
+    expect(migrosYieldReason(17, 18, 0)).toBeNull()
   })
 
   it('zero anchors is not a yield failure by itself — a different guard handles empty', () => {
     expect(migrosYieldReason(0, 0, 0)).toBeNull()
   })
 
-  it('every anchor being multi-buy is not a yield failure by itself — nothing was publishable to begin with', () => {
+  it('every anchor being unquantified multi-buy is not a yield failure by itself — nothing was publishable to begin with', () => {
     expect(migrosYieldReason(0, 5, 5)).toBeNull()
+  })
+
+  it('a week whose multi-buy labels cannot be read at all still fails the ratio guard', () => {
+    // 6 anchors, 4 genuinely unquantified (withheld), 1 accepted, publishable
+    // = 6 - 4 = 2, and 1 of 2 (50%) is NOT below the floor — but 0 accepted
+    // of the same 2 publishable is.
+    expect(migrosYieldReason(0, 6, 4)).toBe('below-expected-yield')
   })
 })
 
 describe('createMigrosFlyerSource — the ratio guard fires through the port', () => {
-  // Built synthetically (WP-C2) rather than off pages 2+3 of the committed
-  // fixture: that combination's only rejection used to be the "1.20 statt
-  // 1.85" printed-33% offer, which the rappen-grid fix now correctly
-  // accepts, so it no longer demonstrates the ratio guard. 1 accepted, 2
-  // withheld as multi-buy, 2 rejected (a text-sized candidate mistaken for
-  // nothing, per the existing "text-sized token" pattern) — publishable =
-  // 5 - 2 = 3, accepted = 1, so 1/3 (~33%) is below the 50% floor, even
-  // though 1 accepted offer clears an expectedMinimumOffers of 1. Removing
-  // the ratio guard and keeping only the absolute floor would make this
-  // PASS — that is exactly the mutation this test exists to catch.
+  // Built synthetically (WP-C2, updated WP-C4) rather than off pages 2+3 of
+  // the committed fixture: that combination's only rejection used to be the
+  // "1.20 statt 1.85" printed-33% offer, which the rappen-grid fix now
+  // correctly accepts, so it no longer demonstrates the ratio guard. 1
+  // accepted, 2 multi-buy-shaped anchors with NO "ab N Stück" label anywhere
+  // (unquantified — still withheld under WP-C4, TP-7a requires an honest
+  // label), 2 rejected (a text-sized candidate mistaken for nothing, per the
+  // existing "text-sized token" pattern) — publishable = 5 - 2 = 3, accepted
+  // = 1, so 1/3 (~33%) is below the 50% floor, even though 1 accepted offer
+  // clears an expectedMinimumOffers of 1. Removing the ratio guard and
+  // keeping only the absolute floor would make this PASS — that is exactly
+  // the mutation this test exists to catch.
   const RATIO_GUARD_PAGE: OcrPage = {
     pageNumber: 1,
     width: 2199,
@@ -858,16 +962,13 @@ describe('createMigrosFlyerSource — the ratio guard fires through the port', (
       item('AcceptedProduct', 362, 497, 700, 531),
       item('statt 4.30', 143, 591, 292, 621),
       item('33%', 700, 560, 850, 590),
-      // Multi-buy #1 — "ab 2 Stück" label withholds it, unlabelled.
-      item('ab 2 Stuck', 150, 2000, 290, 2030),
-      item('2.88', 112, 2130, 324, 2205),
+      // Multi-buy-unquantified #1 — inline form, no "ab N Stück" label
+      // anywhere on the page, so no quantity can be read and it is withheld.
       item('MultiBuyProduct1', 362, 2130, 700, 2165),
-      item('statt 4.30', 143, 2220, 292, 2250),
-      // Multi-buy #2 — same shape, shifted well clear of every other group.
-      item('ab 2 Stuck', 150, 3500, 290, 3530),
-      item('2.88', 112, 3630, 324, 3705),
+      item('2.88statt4.30', 143, 2220, 400, 2250),
+      // Multi-buy-unquantified #2 — same shape, shifted well clear.
       item('MultiBuyProduct2', 362, 3630, 700, 3665),
-      item('statt 4.30', 143, 3720, 292, 3750),
+      item('2.88statt4.30', 143, 3720, 400, 3750),
       // Rejected #1 — a text-sized ("0.58") token is not the display price.
       item('statt5.70', 143, 5040, 292, 5070),
       item('RejectedProduct1', 362, 4946, 700, 4980),
@@ -892,10 +993,11 @@ describe('createMigrosFlyerSource — the ratio guard fires through the port', (
     })
   })
 
-  it('sanity-checks the synthetic page: 5 anchors, 2 multi-buy, 1 accepted', () => {
+  it('sanity-checks the synthetic page: 5 anchors, 2 multi-buy unquantified, 1 accepted', () => {
     const { funnel } = parseFlyer([RATIO_GUARD_PAGE], REFERENCE, FLYER_WEEK_LITERAL)
     expect(funnel.anchors).toBe(5)
-    expect(funnel.multiBuy).toBe(2)
+    expect(funnel.multiBuyUnquantified).toBe(2)
+    expect(funnel.multiBuy).toBe(0)
     expect(funnel.accepted).toBe(1)
     expect(funnel.noDisplayPrice).toBe(2)
   })
@@ -997,7 +1099,7 @@ describe('createMigrosFlyerSource', () => {
   it('collects from captured OCR', async () => {
     const r = await source().fetchOffers('2026-W36')
     expect(r.ok).toBe(true)
-    if (r.ok) expect(r.offers.length).toBe(12)
+    if (r.ok) expect(r.offers.length).toBe(17)
   })
 
   it('reports source-unavailable when pages cannot be loaded', async () => {

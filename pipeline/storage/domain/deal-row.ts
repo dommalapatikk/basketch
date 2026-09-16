@@ -24,6 +24,7 @@ import { BROWSE_CATEGORIES } from '../../../shared/types'
 import type { Offer } from '../../collection/domain/offer'
 import { toFrancs } from '../../collection/domain/money'
 import { isMemberOnly } from '../../collection/domain/price-basis'
+import { isMinimumQuantity } from '../../collection/domain/quantity-requirement'
 
 /** Exactly the columns this layer writes. */
 export type DealRow = {
@@ -47,6 +48,8 @@ export type DealRow = {
   crop_h: number | null
   price_basis: 'everyone' | 'member-only'
   loyalty_programme: string | null
+  /** How many items must be bought for `sale_price` (WP-C4). NULL = single-item. */
+  min_quantity: number | null
   source_category: string | null
   source_url: string | null
   storage: string | null
@@ -127,6 +130,8 @@ export function offerToRow(offer: Offer, classified: Classified, runId: string):
     // already forbids constructing one, so this is belt and braces.
     price_basis: isMemberOnly(offer.priceBasis) ? 'member-only' : 'everyone',
     loyalty_programme: isMemberOnly(offer.priceBasis) ? offer.priceBasis.programme : null,
+
+    min_quantity: isMinimumQuantity(offer.quantityRequirement) ? offer.quantityRequirement.count : null,
 
     source_category: offer.sourceCategory,
     source_url: offer.sourceUrl,

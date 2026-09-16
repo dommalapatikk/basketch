@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import type { Offer } from '../domain/offer'
+import { isMinimumQuantity } from '../domain/quantity-requirement'
 import { unwrap } from '../domain/result'
 import { createValidityPeriod } from '../domain/validity-period'
 import { COOP_PRICE_STEP_RAPPEN, parsePage as parseCoopPage } from './coop/coop-aktionis-source'
@@ -41,17 +42,52 @@ function pricesRappen(offers: readonly Offer[]): number[] {
   return prices
 }
 
+/**
+ * Same, but excludes a multi-buy offer's SALE price (WP-C4).
+ *
+ * Hand-verified against the KW36 fixture: every multi-buy ORIGINAL price
+ * ("statt") is still on Migros's ordinary 5-rappen shelf grid (450, 175, 695,
+ * 430, 140 rappen — all multiples of 5), but the per-item SALE price printed
+ * next to "ab N Stück" is not (302, 117, 466, 288, 94 rappen — none are). A
+ * multi-buy per-item price reads as a bundle total divided by N ("2 für
+ * 6.04" -> "3.02 je"), not an independently shelf-rounded price, so it is
+ * exempt from this property BY EVIDENCE, not by assumption. The ORIGINAL
+ * price of a multi-buy offer is still checked — only the sale price is
+ * exempt. `isConsistentWithPrices` already accepted every one of these five
+ * offers on the plain percentage-point rule alone (WP-C1), without needing
+ * this grid.
+ */
+function pricesRappenExcludingMultiBuySale(offers: readonly Offer[]): number[] {
+  const prices: number[] = []
+  for (const o of offers) {
+    if (!isMinimumQuantity(o.quantityRequirement)) prices.push(o.salePrice.rappen)
+    if (o.originalPrice) prices.push(o.originalPrice.rappen)
+  }
+  return prices
+}
+
 /** Lists the offending (non-multiple) prices, in FRANCS, so a failure is readable without a calculator. */
 function offGrid(prices: readonly number[], step: number): number[] {
   return prices.filter((p) => p % step !== 0).map((p) => p / 100)
 }
 
 describe('WP-C2 property (F1): every real price an adapter parses sits on its declared rounding grid', () => {
-  it('Migros — every sale/original price on the KW36 fixture is a multiple of MIGROS_PRICE_STEP_RAPPEN', () => {
+  it('Migros — every single-item sale/original price on the KW36 fixture is a multiple of MIGROS_PRICE_STEP_RAPPEN', () => {
     const PAGES = JSON.parse(readFileSync(join(__dirname, 'migros/__fixtures__/ocr-kw36-zh-pages2-5.json'), 'utf8'))
     const { offers } = parseMigrosFlyer(PAGES, new Date('2026-09-09T00:00:00Z'), null)
     expect(offers.length).toBeGreaterThan(0)
-    expect(offGrid(pricesRappen(offers), MIGROS_PRICE_STEP_RAPPEN)).toEqual([])
+    expect(offGrid(pricesRappenExcludingMultiBuySale(offers), MIGROS_PRICE_STEP_RAPPEN)).toEqual([])
+  })
+
+  it('Migros — a multi-buy offer’s ORIGINAL price is still on the grid; only its per-item sale price is not (WP-C4)', () => {
+    const PAGES = JSON.parse(readFileSync(join(__dirname, 'migros/__fixtures__/ocr-kw36-zh-pages2-5.json'), 'utf8'))
+    const { offers } = parseMigrosFlyer(PAGES, new Date('2026-09-09T00:00:00Z'), null)
+    const multiBuy = offers.filter((o) => isMinimumQuantity(o.quantityRequirement))
+    expect(multiBuy.length).toBe(5)
+    const originals = multiBuy.map((o) => o.originalPrice!.rappen)
+    expect(offGrid(originals, MIGROS_PRICE_STEP_RAPPEN)).toEqual([])
+    const sales = multiBuy.map((o) => o.salePrice.rappen)
+    expect(offGrid(sales, MIGROS_PRICE_STEP_RAPPEN).length).toBe(5)
   })
 
   it('Coop — every sale/original price on the fixture is a multiple of COOP_PRICE_STEP_RAPPEN', () => {

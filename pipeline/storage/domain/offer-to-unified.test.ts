@@ -3,6 +3,7 @@ import { printedDiscount } from '../../collection/domain/discount'
 import { createMoney } from '../../collection/domain/money'
 import { type Offer, createOffer } from '../../collection/domain/offer'
 import { cropRegionImage, sourceUrlImage } from '../../collection/domain/product-image'
+import { minimumQuantity } from '../../collection/domain/quantity-requirement'
 import { unwrap } from '../../collection/domain/result'
 import { createValidityPeriod } from '../../collection/domain/validity-period'
 import { dealStoreEnrichment, naturalKey, offerToUnifiedDeal } from './offer-to-unified'
@@ -53,6 +54,15 @@ describe('offerToUnifiedDeal — the shared path', () => {
   it('drops a CropRegion — it has no single url, so the enrichment pass carries it', () => {
     const image = unwrap(cropRegionImage({ pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 }))
     expect(offerToUnifiedDeal(offer({ image })).imageUrl).toBeNull()
+  })
+
+  it('leaves minQuantity null for the ordinary single-item price (WP-C4)', () => {
+    expect(offerToUnifiedDeal(offer()).minQuantity).toBeNull()
+  })
+
+  it('carries a multi-buy quantity requirement through the MAIN write, not the enrichment pass', () => {
+    const d = offerToUnifiedDeal(offer({ quantityRequirement: unwrap(minimumQuantity(2)) }))
+    expect(d.minQuantity).toBe(2)
   })
 })
 
@@ -123,5 +133,16 @@ describe('the two halves fit back together', () => {
     const o = offer({ retailer: 'spar', productName: 'Fleischkäse' })
     const d = offerToUnifiedDeal(o)
     expect(dealStoreEnrichment(o)?.key).toBe(naturalKey(d.store, d.productName, d.validFrom))
+  })
+
+  it('minQuantity (WP-C4) is carried by the MAIN mapper alone — dealStoreEnrichment never mentions it', () => {
+    // Deliberate, not an oversight: see offerToUnifiedDeal's own comment.
+    // Routing it through the enrichment pass's natural key
+    // (store|productName|validFrom) would put it on the one identity that
+    // does NOT distinguish a multi-buy offer from its single-item sibling.
+    const o = offer({ quantityRequirement: unwrap(minimumQuantity(2)) })
+    expect(offerToUnifiedDeal(o).minQuantity).toBe(2)
+    expect(dealStoreEnrichment(o)).not.toHaveProperty('minQuantity')
+    expect(dealStoreEnrichment(o)).not.toHaveProperty('min_quantity')
   })
 })
