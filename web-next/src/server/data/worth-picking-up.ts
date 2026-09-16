@@ -2,6 +2,7 @@ import 'server-only'
 
 import { unstable_cacheLife as cacheLife } from 'next/cache'
 
+import { isInEffect } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
 import { STORE_META, type Store } from '@/lib/v3-types'
 import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingUpCard'
@@ -13,9 +14,51 @@ import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingU
 // 'use cache' satisfies Next.js 16 Cache Components — without it, Next refuses
 // to prerender the home page (uncached data outside <Suspense>).
 
+/**
+ * One row of `worth_picking_up_candidates`, the columns this module reads.
+ * `valid_from`/`valid_to` exist so `inEffectCandidateRows` can re-check
+ * validity at read time — see that function for why.
+ */
+type PersonalCandidateRow = {
+  concept_id: string
+  deal_store: string
+  deal_id: string
+  deal_price: number
+  deal_regular_price: number | null
+  discount_percent: number
+  valid_from: string
+  valid_to: string
+  interest_signal: string
+  interest_added_at: string
+}
+
+/**
+ * Re-applies `isInEffect` to rows already read from the
+ * `worth_picking_up_candidates` materialised view.
+ *
+ * WHY THIS EXISTS (WP-W3, docs/decisions/2026-09-15-in-effect-vs-upcoming.md
+ * "Open"; migration 20260916_mv_validity_window.sql). A materialised view
+ * freezes `CURRENT_DATE` at REFRESH time, not at read time — REFRESH runs
+ * once, at the end of every pipeline run. The migration's WHERE clause is
+ * correct AT REFRESH, but a row it correctly included can still have expired,
+ * or a row can still be one whose window has not yet opened relative to a
+ * request that lands hours or days later, before the next refresh. This is
+ * the exact reason `WeeklySnapshot.today` is threaded into `buildSections`
+ * instead of trusting a query filter alone (WP-W2) — the same predicate,
+ * reused, not reimplemented, here.
+ */
+export function inEffectCandidateRows<T extends { valid_from: string; valid_to: string }>(
+  rows: T[],
+  today: string,
+): T[] {
+  return rows.filter((row) => isInEffect({ validFrom: row.valid_from, validTo: row.valid_to }, today))
+}
+
 export async function getWorthPickingUpCandidates(args: {
   userEmail?: string | null
   locale: string
+  /** Zurich calendar date (`YYYY-MM-DD`) — the same one carried on `WeeklySnapshot.today`. */
+  today: string
 }): Promise<{ mode: 'personal' | 'cold-start'; candidates: WorthPickingUpCandidate[] }> {
   'use cache'
   cacheLife('hours')
@@ -39,7 +82,9 @@ export async function getWorthPickingUpCandidates(args: {
   // 2. Personal path — read from MV.
   const { data, error } = await sb
     .from('worth_picking_up_candidates')
-    .select('concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, interest_signal, interest_added_at')
+    .select(
+      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, interest_signal, interest_added_at',
+    )
     .eq('user_email', args.userEmail)
     .order('score', { ascending: false })
     .limit(10)
@@ -48,8 +93,16 @@ export async function getWorthPickingUpCandidates(args: {
     return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
   }
 
+  // Re-apply isInEffect: the MV's own filter is only as fresh as its last
+  // REFRESH (WP-W3). Falls back to cold-start on an empty result, same as
+  // an empty MV read — the personal path has nothing honest to show today.
+  const inEffect = inEffectCandidateRows(data as PersonalCandidateRow[], args.today)
+  if (inEffect.length === 0) {
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+  }
+
   // Hydrate concept names + image (latest deal image as a proxy).
-  const conceptIds = data.map((r) => r.concept_id)
+  const conceptIds = inEffect.map((r) => r.concept_id)
   const { data: concepts } = await sb
     .from('concept')
     .select('id, display_name')
@@ -59,12 +112,12 @@ export async function getWorthPickingUpCandidates(args: {
   const { data: dealImages } = await sb
     .from('deals')
     .select('id, image_url')
-    .in('id', data.map((r) => r.deal_id))
+    .in('id', inEffect.map((r) => r.deal_id))
   const imageByDealId = new Map((dealImages ?? []).map((d) => [d.id, d.image_url as string | null]))
 
   return {
     mode: 'personal',
-    candidates: data.map((r) => {
+    candidates: inEffect.map((r) => {
       const meta = STORE_META[r.deal_store as Store]
       return {
         conceptId: r.concept_id,
@@ -81,6 +134,12 @@ export async function getWorthPickingUpCandidates(args: {
   }
 }
 
+// WP-W3 FINDING, NOT FIXED HERE (see the work package report): this query has
+// no `valid_to`/`valid_from` filter at all — not even the CLAUDE.md safety
+// net every other deal query in this codebase carries. It is a distinct,
+// pre-existing defect (never applied a date filter) from the one this WP
+// fixes (a materialised view's filter going stale between refreshes) and is
+// out of WP-W3's named scope. Reported for the PM to schedule its own fix.
 async function coldStartCandidates(
   sb: ReturnType<typeof createAnonClient>,
 ): Promise<WorthPickingUpCandidate[]> {

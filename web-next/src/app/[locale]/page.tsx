@@ -24,7 +24,7 @@ export default async function HomePage({
 
   // Surface 3 — Worth Picking Up. Solo project: no email yet, so always
   // cold-start. Section omits itself when N=0 (calm-by-absence per §3.2).
-  const wpu = await getWorthPickingUpCandidates({ userEmail: null, locale })
+  const wpu = await getWorthPickingUpCandidates({ userEmail: null, locale, today: snapshot.today })
 
   return (
     <section className="mx-auto max-w-[1240px] px-4 py-12 md:px-10 md:py-20">

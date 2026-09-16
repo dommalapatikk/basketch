@@ -3,7 +3,13 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
-    alias: { '@': resolve(__dirname, 'src') },
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      // 'server-only' is a Next.js build-time alias, not a real package — see
+      // src/test/server-only-stub.ts for why this is needed to import any
+      // server-data module from a test.
+      'server-only': resolve(__dirname, 'src/test/server-only-stub.ts'),
+    },
   },
   test: {
     // Default stays `node` — the domain, filter and provider suites have no DOM
