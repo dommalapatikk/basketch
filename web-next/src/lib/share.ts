@@ -1,7 +1,8 @@
-import type { ListItem } from '@/stores/list-store'
 import { programmeOf } from '@/lib/domain/price-basis'
 import { startsAfterToday, todayInZurich } from '@/lib/domain/validity'
+import { formatMemberPriceLabel } from '@/lib/format'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
+import type { ListItem } from '@/stores/list-store'
 
 // Group list items by store and sum prices — drives both the in-drawer
 // "where to buy" panel and the WhatsApp/email share message.
@@ -26,7 +27,7 @@ const formatCHF = (value: number, locale = 'de-CH') =>
   }).format(value)
 
 /**
- * "(1 × Lidl Plus)" / "(2 not started yet)" appended to a store's line — the
+ * "(1 × Lidl Plus members only)" / "(2 not started yet)" appended to a store's line — the
  * recipient of a shared WhatsApp/email message never opens basketch, so a
  * price shown there without this note is exactly the unlabelled member price
  * Art. 3(1)(e) UWG and CLAUDE.md forbid. CLAUDE.md names the requirement
@@ -55,10 +56,17 @@ function groupNote(items: ListItem[], locale: string, today: string): string | n
 
   const parts: string[] = []
   for (const [programme, count] of programmeCounts) {
-    parts.push(`${count} × ${programme}`)
+    // The full label, not the bare programme name (code review of db1dd78):
+    // "1 × Supercard" names who but never says the price is restricted, and
+    // this is the one surface whose reader cannot see the card that does.
+    // formatMemberPriceLabel stays the single place that wording lives.
+    const label = formatMemberPriceLabel({ kind: 'member-only', programme }, locale)
+    parts.push(`${count} × ${label}`)
   }
   if (notStarted > 0) {
-    parts.push(locale === 'de' ? `${notStarted} noch nicht gestartet` : `${notStarted} not started yet`)
+    parts.push(
+      locale === 'de' ? `${notStarted} noch nicht gestartet` : `${notStarted} not started yet`,
+    )
   }
   return parts.length > 0 ? `(${parts.join(', ')})` : null
 }
@@ -105,13 +113,7 @@ export function buildWhatsAppHref(text: string): string {
   return `https://wa.me/?text=${encodeURIComponent(text)}`
 }
 
-export function buildMailtoHref({
-  text,
-  locale,
-}: {
-  text: string
-  locale: string
-}): string {
+export function buildMailtoHref({ text, locale }: { text: string; locale: string }): string {
   const subject = locale === 'de' ? 'Meine basketch-Liste' : 'My basketch list'
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`
 }

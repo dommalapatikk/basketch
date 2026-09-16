@@ -65,7 +65,7 @@ describe('buildShareText', () => {
       locale: 'en',
       today: TODAY,
     })
-    expect(text).toMatch(/LIDL:.*\(1 × Lidl Plus\)/)
+    expect(text).toMatch(/LIDL:.*\(1 × Lidl Plus members only\)/)
   })
 
   it('names every distinct programme WITH its own count when a store group mixes them', () => {
@@ -88,8 +88,8 @@ describe('buildShareText', () => {
       locale: 'en',
       today: TODAY,
     })
-    expect(text).toContain('1 × Supercard')
-    expect(text).toContain('2 × Cumulus')
+    expect(text).toContain('1 × Supercard members only')
+    expect(text).toContain('2 × Cumulus members only')
   })
 
   it('does not imply every item in the group is a member price when only some are (code review NEW-1: ambiguous count)', () => {
@@ -108,7 +108,7 @@ describe('buildShareText', () => {
       today: TODAY,
     })
     expect(text).toContain('Coop: 4 items')
-    expect(text).toContain('(1 × Supercard)')
+    expect(text).toContain('(1 × Supercard members only)')
   })
 
   it('carries a not-yet-started item into the shared text', () => {
