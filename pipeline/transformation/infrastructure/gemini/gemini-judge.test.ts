@@ -188,6 +188,64 @@ describe('the default network paths are bounded', () => {
     expect(v.verdict).toBe('correct')
   })
 
+  // WP-P8 (RCA item 5): "the only max_tokens in the codebase was the unused
+  // probe's 5" — the JUDGE, the one call that actually spends money, had
+  // none at all. Asserting the request BODY, not just that a value was
+  // passed somewhere.
+  it('sends max_tokens on every judge call', async () => {
+    let seenBody: string | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seenBody = init.body as string
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
+    })
+
+    await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, gate: createNoopGate(), maxOutputTokens: 1_234 }).judge(
+      req,
+      { category: 'dairy', subCategory: 'dairy' },
+    )
+
+    const parsed = JSON.parse(seenBody ?? '{}')
+    expect(parsed.max_tokens).toBe(1_234)
+  })
+
+  it('falls back to DEFAULT_JUDGE_MAX_OUTPUT_TOKENS when the caller supplies none', async () => {
+    let seenBody: string | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seenBody = init.body as string
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
+    })
+
+    await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, gate: createNoopGate() }).judge(req, {
+      category: 'dairy',
+      subCategory: 'dairy',
+    })
+
+    expect(JSON.parse(seenBody ?? '{}').max_tokens).toBe(2_000)
+  })
+
+  it('sends reasoning.effort only when the caller opts in — unset by default so AP-11 stays undecided by this WP', async () => {
+    let seenBody: string | undefined
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seenBody = init.body as string
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
+    })
+
+    await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, gate: createNoopGate() }).judge(req, {
+      category: 'dairy',
+      subCategory: 'dairy',
+    })
+    expect(JSON.parse(seenBody ?? '{}').reasoning).toBeUndefined()
+
+    await createOpenRouterJudge({
+      apiKey: 'k',
+      model: 'openai/gpt-5-nano',
+      taxonomy: TAXONOMY,
+      gate: createNoopGate(),
+      reasoningEffort: 'low',
+    }).judge(req, { category: 'dairy', subCategory: 'dairy' })
+    expect(JSON.parse(seenBody ?? '{}').reasoning).toEqual({ effort: 'low' })
+  })
+
   it('the Gemini reflector sends an abort signal', async () => {
     let seen: AbortSignal | null | undefined
     vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
