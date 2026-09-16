@@ -44,10 +44,29 @@ type DealRow = {
   attributes: Record<string, unknown> | null
   is_active: boolean
   updated_at: string
+  /**
+   * Added by supabase/migrations/20260916_quantity_requirement.sql (WP-C4,
+   * D2, TP-7a). Optional in the type, not because a row can lack it once
+   * selected, but because `mapRow` is also exercised by tests against a
+   * fixture written before this column existed (map-row.test.ts) — the same
+   * defensive shape every other post-launch column on this type already has.
+   */
+  min_quantity?: number | null
 }
 
+// ⚠️ DEPLOY-ORDERING CONSTRAINT (WP-W4, carried from the WP-C4 ADR's own
+// "DEPLOY GATE"): `min_quantity` MUST already exist on `deals` in the
+// database before this code is deployed. Naming a column PostgREST cannot
+// find fails the WHOLE select (error 42703, "column does not exist") — not
+// just the new field — and `getWeeklySnapshot` falls back to its existing
+// empty-snapshot path below, taking every deal off the site, not only
+// Migros's. Tolerating an absent `min_quantity` therefore means: the
+// migration is applied first (additive-only, safe to run at any time), THIS
+// deploy follows it. Once applied, an old row simply reads `min_quantity:
+// null` — the ordinary, ALDI-rule-style "no condition was printed" case
+// mapRow already handles below.
 const SELECT_COLUMNS =
-  'id,store,product_name,category,category_slug,sub_category,sale_price,original_price,discount_percent,price_per_unit,canonical_unit,format,image_url,valid_from,valid_to,source_url,product_id,taxonomy_confidence,is_uncertain,storage,price_basis,loyalty_programme,page_image_url,crop_x,crop_y,crop_w,crop_h,attributes,is_active,updated_at'
+  'id,store,product_name,category,category_slug,sub_category,sale_price,original_price,discount_percent,price_per_unit,canonical_unit,format,image_url,valid_from,valid_to,source_url,product_id,taxonomy_confidence,is_uncertain,storage,price_basis,loyalty_programme,page_image_url,crop_x,crop_y,crop_w,crop_h,attributes,is_active,updated_at,min_quantity'
 
 // Pipeline (basketch/pipeline/categorize.ts) writes DB-side category labels that
 // don't match the spec's identifiers. Normalise here at the read boundary so
@@ -117,6 +136,7 @@ export function mapRow(row: DealRow): Deal | null {
     storage: parseStorageState(row.storage),
     priceBasis: priceBasis.value,
     crop: toCropRegion(row),
+    minQuantity: row.min_quantity ?? null,
     attributes: row.attributes ?? {},
     isActive: row.is_active,
     updatedAt: row.updated_at,

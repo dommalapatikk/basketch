@@ -1,6 +1,7 @@
 import { programmeOf } from '@/lib/domain/price-basis'
+import { isMultiBuy } from '@/lib/domain/quantity-requirement'
 import { startsAfterToday, todayInZurich } from '@/lib/domain/validity'
-import { formatMemberPriceLabel } from '@/lib/format'
+import { formatMemberPriceLabel, formatMinQuantityLabel } from '@/lib/format'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
 import type { ListItem } from '@/stores/list-store'
 
@@ -27,30 +28,40 @@ const formatCHF = (value: number, locale = 'de-CH') =>
   }).format(value)
 
 /**
- * "(1 × Lidl Plus members only)" / "(2 not started yet)" appended to a store's line — the
- * recipient of a shared WhatsApp/email message never opens basketch, so a
- * price shown there without this note is exactly the unlabelled member price
- * Art. 3(1)(e) UWG and CLAUDE.md forbid. CLAUDE.md names the requirement
- * precisely — "always label member-only prices (Lidl Plus, Supercard,
- * Cumulus)" — so the programme is named, not just counted; an earlier
- * version of this wrote "(1 member price)" and named nobody, the exact
- * fallback `formatMemberPriceLabel`'s own doc comment warns against.
+ * "(1 × Lidl Plus members only)" / "(1 × From 2 items)" / "(2 not started
+ * yet)" appended to a store's line — the recipient of a shared WhatsApp/email
+ * message never opens basketch, so a price shown there without this note is
+ * exactly the unlabelled conditional price Art. 3(1)(e) UWG and CLAUDE.md
+ * forbid — the same rule for a member-only price and a "from N items" price
+ * (WP-C4, D2, TP-7a): CLAUDE.md names the requirement precisely — "always
+ * label member-only prices" — so the programme (or the quantity) is named,
+ * not just counted; an earlier version of this wrote "(1 member price)" and
+ * named nobody, the exact fallback `formatMemberPriceLabel`'s own doc
+ * comment warns against.
  *
  * The count matters as much as the name (code review NEW-1): a version that
  * named the programme but dropped the count read "Coop: 4 items · CHF 12.00
  * (Supercard members only)" as if all four items needed Supercard, when only
  * one did. "N × programme" keeps the same shape as "N not started yet" —
  * both say exactly how many of the group's items the note is about, never
- * implying it is all of them.
+ * implying it is all of them. The quantity condition is grouped BY its
+ * actual N, the same way member prices are grouped by programme rather than
+ * flattened into one count — "from 2 items" and "from 3 items" are different
+ * claims, not two instances of one fact.
  *
- * Says nothing when every item in the group is open-priced and already in
- * effect — the common case stays as short as it always was.
+ * Says nothing when every item in the group is open-priced, single-item and
+ * already in effect — the common case stays as short as it always was.
  */
 function groupNote(items: ListItem[], locale: string, today: string): string | null {
   const programmeCounts = new Map<string, number>()
+  const quantityCounts = new Map<number, number>()
   for (const it of items) {
     const programme = programmeOf(it.priceBasis)
     if (programme) programmeCounts.set(programme, (programmeCounts.get(programme) ?? 0) + 1)
+    if (isMultiBuy(it.minQuantity)) {
+      const n = it.minQuantity as number
+      quantityCounts.set(n, (quantityCounts.get(n) ?? 0) + 1)
+    }
   }
   const notStarted = items.filter((it) => startsAfterToday(it, today)).length
 
@@ -62,6 +73,12 @@ function groupNote(items: ListItem[], locale: string, today: string): string | n
     // formatMemberPriceLabel stays the single place that wording lives.
     const label = formatMemberPriceLabel({ kind: 'member-only', programme }, locale)
     parts.push(`${count} × ${label}`)
+  }
+  for (const [n, count] of quantityCounts) {
+    // formatMinQuantityLabel stays the single place THIS wording lives —
+    // never returns null here, isMultiBuy already guarantees n >= 2.
+    const label = formatMinQuantityLabel(n, locale)
+    if (label) parts.push(`${count} × ${label}`)
   }
   if (notStarted > 0) {
     parts.push(

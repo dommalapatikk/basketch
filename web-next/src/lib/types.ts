@@ -60,6 +60,24 @@ export type Deal = {
   priceBasis: PriceBasis
   /** Set for flyer-sourced deals (Spar, Aldi, Migros) instead of imageUrl. */
   crop: CropRegion | null
+  /**
+   * How many items must be bought for `salePrice` to apply — Migros's
+   * "ab N Stück" (WP-C4, Tech Lead ruling D2, PM decision TP-7a).
+   *
+   * `null` is the ordinary single-item price, the ordinary case. A value of
+   * 2 or more must ALWAYS be shown with its "from N items" label
+   * (`lib/format.ts` `formatMinQuantityLabel`) — never bare — and never
+   * votes in the category verdict or wears the "Cheapest" tag
+   * (`lib/domain/votes-in-verdict.ts`).
+   *
+   * Optional, not required: `mapRow` (`server/data/supabase-provider.ts`)
+   * reads a row with no `min_quantity` key at all as `null` — see that
+   * file's own comment on `SELECT_COLUMNS` for the deploy-ordering
+   * constraint this depends on
+   * (`supabase/migrations/20260916_quantity_requirement.sql` must be
+   * applied before this code is deployed, not merely before it is read).
+   */
+  minQuantity?: number | null
   /** Per-category metadata: milk fat %, butter salted, wine vintage. */
   attributes: Record<string, unknown>
   isActive: boolean

@@ -152,6 +152,45 @@ describe('the not-yet-started label (RCA #10)', () => {
   })
 })
 
+describe('the min-quantity label (WP-C4/WP-W4, D2, TP-7a)', () => {
+  // Migros prints "ab N Stück" on about a third of its flyer's anchors — the
+  // sale price does not apply to a single item. TP-7a: publish it, but never
+  // bare. Named after the exact mandated defect: "a multi-buy price always
+  // shows 'from 2 items' — never a bare conditional price".
+  it('a multi-buy price always shows "from 2 items" — never a bare conditional price', () => {
+    renderCard({ minQuantityLabel: 'From 2 items' })
+    expect(screen.getByText('From 2 items')).toBeTruthy()
+  })
+
+  it('shows the label on the compact card too', () => {
+    renderCard({ variant: 'compact', minQuantityLabel: 'From 2 items' })
+    expect(screen.getByText('From 2 items')).toBeTruthy()
+  })
+
+  it('says nothing for the ordinary single-item price', () => {
+    renderCard({ minQuantityLabel: null })
+    expect(screen.queryByText(/items$/)).toBeNull()
+  })
+
+  it('carries the label as text, not as a colour', () => {
+    renderCard({ minQuantityLabel: 'From 2 items' })
+    const label = screen.getByText('From 2 items')
+    expect(label.textContent?.trim()).toBe('From 2 items')
+  })
+
+  it('shows all three notes together — member price, quantity and not-yet-started are independent facts', () => {
+    const { container } = renderCard({
+      memberPriceLabel: 'Lidl Plus members only',
+      minQuantityLabel: 'From 2 items',
+      notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
+    })
+    expect(screen.getByText('Lidl Plus members only')).toBeTruthy()
+    expect(screen.getByText('From 2 items')).toBeTruthy()
+    expect(container.textContent).toContain('From Thu 17.9.')
+  })
+})
+
 describe('the flyer crop (Art. 2 Abs. 3bis URG)', () => {
   const crop = unwrap(
     createCropRegion({

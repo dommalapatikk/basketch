@@ -120,7 +120,8 @@
     "category_unverified": "Categoria non verificata",
     "only_store_note": "Nessun altro negozio che monitoriamo ha offerte {category} in questo momento.",
     "only_store_badge": "Solo da {store}",
-    "from_date": "Da {date}"
+    "from_date": "Da {date}",
+    "from_n_items": "Da {count} articoli"
   },
   "filters": {
     "storage": "Conservazione",

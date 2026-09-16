@@ -208,3 +208,18 @@ describe('a Lidl Plus member price does not vote', () => {
     expect(verdict.winner).toBeNull()
   })
 })
+
+describe('a multi-buy price does not vote (D2, TP-7a)', () => {
+  it('excludes a minimum-quantity deal from its store score, even at a huge discount', () => {
+    const deals = [
+      ...repeat('coop', 'fresh', 15, 6),
+      ...Array.from({ length: 5 }, () => ({
+        ...make('migros', 'fresh', 80),
+        minQuantity: 2,
+      })),
+    ]
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
+    expect(verdict.state).toBe('single-store')
+    expect(verdict.winner).toBeNull()
+  })
+})

@@ -153,6 +153,38 @@ describe('list-store persistence — a list saved before WP-W2 still opens', () 
     expect(useListStore.getState().items).toEqual([])
   })
 
+  it('a list saved before WP-W4 still opens — an item with no minQuantity key rehydrates fine', async () => {
+    // No STORAGE_VERSION bump was needed for WP-W4: minQuantity is optional,
+    // exactly like validFrom/priceBasis were for WP-W2, so a pre-existing v2
+    // item (which already has validFrom/priceBasis but predates
+    // minQuantity) must rehydrate without the key at all — not null.
+    const preW4Item = {
+      id: 'd4',
+      store: 'migros',
+      productName: 'Rindsplätzli',
+      category: 'fresh',
+      salePrice: 3.02,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-01',
+      priceBasis: { kind: 'everyone' },
+      // No minQuantity — the exact pre-WP-W4 v2 shape.
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { items: [preW4Item] }, version: 2 }),
+    )
+
+    const { useListStore } = await freshStore()
+    await useListStore.persist.rehydrate()
+
+    const items = useListStore.getState().items
+    expect(items).toHaveLength(1)
+    expect(items[0]?.id).toBe('d4')
+    expect(items[0]?.minQuantity).toBeUndefined()
+    expect(items[0]?.validFrom).toBe('2026-09-01')
+  })
+
   it('keeps a well-formed v2 item exactly as stored', async () => {
     const item = {
       id: 'd2',
@@ -164,6 +196,30 @@ describe('list-store persistence — a list saved before WP-W2 still opens', () 
       sourceUrl: null,
       validFrom: '2026-09-01',
       priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { items: [item] }, version: 2 }),
+    )
+
+    const { useListStore } = await freshStore()
+    await useListStore.persist.rehydrate()
+
+    expect(useListStore.getState().items).toEqual([item])
+  })
+
+  it('keeps a well-formed item with minQuantity exactly as stored (WP-W4)', async () => {
+    const item = {
+      id: 'd5',
+      store: 'migros',
+      productName: 'Rindsplätzli',
+      category: 'fresh',
+      salePrice: 3.02,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-01',
+      priceBasis: { kind: 'everyone' },
+      minQuantity: 2,
     }
     window.localStorage.setItem(
       STORAGE_KEY,

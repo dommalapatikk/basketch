@@ -81,7 +81,8 @@
     "category_unverified": "Category unverified",
     "only_store_note": "No other store we track has a {category} deal right now.",
     "only_store_badge": "Only at {store}",
-    "from_date": "From {date}"
+    "from_date": "From {date}",
+    "from_n_items": "From {count} items"
   },
   "filters": {
     "title": "Filters",

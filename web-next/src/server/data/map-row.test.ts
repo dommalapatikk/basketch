@@ -140,6 +140,25 @@ describe('mapRow — crops it will not render', () => {
   })
 })
 
+describe('mapRow — quantity requirement (WP-C4/WP-W4, D2, TP-7a)', () => {
+  it('reads a genuine multi-buy minimum', () => {
+    expect(map({ min_quantity: 2 })?.minQuantity).toBe(2)
+  })
+
+  it('reads the ordinary single-item price as null', () => {
+    expect(map({ min_quantity: null })?.minQuantity).toBeNull()
+  })
+
+  it('reads a row with no min_quantity key at all as null — the migration has not landed yet', () => {
+    // The base `row()` fixture deliberately has no `min_quantity` key, the
+    // same shape a row has before supabase/migrations/20260916_quantity_
+    // requirement.sql runs. See supabase-provider.ts's own comment on
+    // SELECT_COLUMNS for why the SELECT itself, not this line, is the real
+    // risk if this code deploys first.
+    expect(map()?.minQuantity).toBeNull()
+  })
+})
+
 describe('mapRow — rows written before the 2026-09-11 migration', () => {
   it('reads a row with none of the new columns', () => {
     const deal = map({

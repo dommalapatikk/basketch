@@ -36,6 +36,24 @@ export type ListItem = {
    */
   validFrom?: string
   priceBasis?: PriceBasis
+  /**
+   * WP-W4 (D2, TP-7a). Snapshotted at add-time for the same reason
+   * `validFrom`/`priceBasis` are: so ListDrawer and the shared text can
+   * still show "From 2 items" days later, in whatever locale the list is
+   * viewed in.
+   *
+   * OPTIONAL, deliberately — same reasoning as `validFrom`/`priceBasis`
+   * above, not a new one: this store persists to localStorage across
+   * deploys, and an item added before this field existed rehydrates with
+   * the key simply absent. No STORAGE_VERSION bump was needed for this —
+   * `sanitizeItems` only checks the base fields a `ListItem` has always had
+   * (`isWellFormedItem`), so an extra optional field passes through
+   * unexamined whether it is present or not, exactly like `validFrom` and
+   * `priceBasis` already do. `isMultiBuy`/`formatMinQuantityLabel` read
+   * "absent" as "no condition was printed" (lib/domain/quantity-
+   * requirement.ts) — never a crash.
+   */
+  minQuantity?: number | null
 }
 
 type ListState = {
