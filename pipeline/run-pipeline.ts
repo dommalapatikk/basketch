@@ -22,23 +22,17 @@
 // (`transformation/domain/resilience.ts`); this file only threads the clock
 // and the deadline through, and decides what to DO with the result.
 
-import fs from 'node:fs'
-import path from 'node:path'
-
 import type { Deal, Store, UnifiedDeal } from '../shared/types'
-import { ALL_STORES, aktionisSlugToStore, normalizeProductName } from '../shared/types'
+import { normalizeProductName } from '../shared/types'
 
 import type { CollectOffersOutcome } from './collection/application/collect-offers'
 import { collectOffers } from './collection/application/collect-offers'
-import type { CollectionMode } from './collection/application/collection-mode'
-import { compareCollection, formatComparison, legacyCounts, safeToCutOver } from './collection/application/collection-mode'
 import type { Offer } from './collection/domain/offer'
 import type { IsoWeek, OfferSource } from './collection/domain/offer-source'
 import { filterGrocery } from './grocery-filter'
 import { extractProductMetadata } from './product-metadata'
 import type { AliasMap, UnknownTag } from './resolve-taxonomy'
 import { collectUnknownTags, resolveTaxonomy } from './resolve-taxonomy'
-import { isValidDealEntry } from './validate'
 import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/application/classify-deals'
 import { ClassificationCacheUnreadableError, classifyDeals } from './transformation/application/classify-deals'
 import type { Alert, RunSnapshot } from './transformation/domain/alerts'
@@ -205,66 +199,7 @@ export type CollectOutcome = {
 }
 
 export type RunCollectOptions = {
-  readonly cwd: string
   readonly now: Date
-  readonly collectionMode: CollectionMode
-}
-
-function readDealsFile(cwd: string, filename: string): UnifiedDeal[] {
-  const filePath = path.resolve(cwd, filename)
-  try {
-    const raw = fs.readFileSync(filePath, 'utf-8')
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) {
-      console.error(`[pipeline] [ERROR] ${filename} is not an array`)
-      return []
-    }
-
-    const valid: UnifiedDeal[] = []
-    let skipped = 0
-    for (const entry of parsed) {
-      if (isValidDealEntry(entry)) {
-        valid.push(entry)
-      } else {
-        skipped++
-      }
-    }
-
-    if (skipped > 0) {
-      console.warn(`[pipeline] [WARN] Skipped ${skipped} invalid entries in ${filename}`)
-    }
-
-    return valid
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.warn(`[pipeline] [WARN] Could not read ${filename}: ${message}`)
-    return []
-  }
-}
-
-function readLegacyDealFiles(cwd: string): { storeDealsMap: Map<Store, UnifiedDeal[]>; storeStatusMap: Map<Store, StoreStatus> } {
-  const storeStatusMap = new Map<Store, StoreStatus>()
-  const storeDealsMap = new Map<Store, UnifiedDeal[]>()
-  const allFiles = fs.readdirSync(cwd)
-  const dealFiles = allFiles.filter((f) => /^[a-z][\w-]*-deals\.json$/.test(f))
-
-  for (const file of dealFiles) {
-    const slug = file.replace('-deals.json', '')
-    const storeName = aktionisSlugToStore(slug) ?? (ALL_STORES.includes(slug as Store) ? (slug as Store) : null)
-    if (!storeName) {
-      console.warn(`[pipeline] [WARN] Unknown store in filename: ${file} — skipping`)
-      continue
-    }
-    const deals = readDealsFile(cwd, file)
-    const existing = storeDealsMap.get(storeName) ?? []
-    storeDealsMap.set(storeName, [...existing, ...deals])
-    const prev = storeStatusMap.get(storeName)
-    storeStatusMap.set(storeName, {
-      status: existing.length + deals.length > 0 ? 'success' : (prev?.status ?? 'failed'),
-      count: (prev?.count ?? 0) + deals.length,
-    })
-  }
-  return { storeDealsMap, storeStatusMap }
 }
 
 function logCollectionTrace(outcome: CollectOffersOutcome): void {
@@ -278,66 +213,52 @@ function logCollectionTrace(outcome: CollectOffersOutcome): void {
   }
 }
 
-function applyLiveOffers(offers: readonly Offer[], legacy: CollectOutcome): void {
-  legacy.storeDealsMap.clear()
-  legacy.storeStatusMap.clear()
+/**
+ * The collection module's `Offer[]` is the only source of collected deals —
+ * WP-P4 (RCA 2026-09-15, AP-3) retired the legacy aktionis matrix job that
+ * used to write `*-deals.json` for `off`/`shadow` mode to read or compare
+ * against. This function builds `CollectOutcome` straight from what was
+ * fetched, with no merge and no fallback to a file that no longer exists.
+ */
+function buildCollectOutcome(offers: readonly Offer[]): CollectOutcome {
+  const storeDealsMap = new Map<Store, UnifiedDeal[]>()
+  const storeStatusMap = new Map<Store, StoreStatus>()
+  const pendingEnrichment = new Map<string, DealEnrichment>()
+
   for (const offer of offers) {
     const store = offer.retailer as Store
-    const list = legacy.storeDealsMap.get(store) ?? []
+    const list = storeDealsMap.get(store) ?? []
     list.push(offerToUnifiedDeal(offer))
-    legacy.storeDealsMap.set(store, list)
+    storeDealsMap.set(store, list)
   }
-  for (const [store, list] of legacy.storeDealsMap) {
-    legacy.storeStatusMap.set(store, { status: list.length > 0 ? 'success' : 'failed', count: list.length })
+  for (const [store, list] of storeDealsMap) {
+    storeStatusMap.set(store, { status: list.length > 0 ? 'success' : 'failed', count: list.length })
   }
   for (const offer of offers) {
     const enrichment = dealStoreEnrichment(offer)
-    if (enrichment) legacy.pendingEnrichment.set(enrichment.key, enrichment)
+    if (enrichment) pendingEnrichment.set(enrichment.key, enrichment)
   }
-  console.log(`[pipeline] [INFO] ${legacy.pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
+  console.log(`[pipeline] [INFO] ${pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
+
+  return { storeDealsMap, storeStatusMap, pendingEnrichment }
 }
 
-// ── Collection cutover ──────────────────────────────────────────────────────
-// off    the legacy *-deals.json files, as today
-// shadow BOTH run; the new module writes nothing and reports what it WOULD
-//        have stored. One cycle of this turns predictions into facts.
-// live   the new module supplies the offers; the legacy files are ignored.
-async function runCollectionModule(deps: PipelineDeps, now: Date, mode: CollectionMode, legacy: CollectOutcome): Promise<void> {
-  console.log(`[pipeline] [INFO] collection module: ${mode.toUpperCase()}`)
+async function runCollectionModule(deps: PipelineDeps, now: Date): Promise<CollectOutcome> {
+  console.log('[pipeline] [INFO] collection module: LIVE')
   const weekParts = isoWeekOf(now)
   const week: IsoWeek = `${weekParts.year}-W${String(weekParts.kw).padStart(2, '0')}`
 
   const outcome = await collectOffers(deps.sources(weekParts), week, { timeoutMs: 600_000 })
   logCollectionTrace(outcome)
 
-  const comparison = compareCollection(legacyCounts(legacy.storeDealsMap), outcome.offers)
-  console.log(`\n${formatComparison(comparison)}\n`)
-
-  if (mode === 'shadow') {
-    // Deliberately changes nothing. The point is the table above.
-    console.log('[pipeline] [INFO] SHADOW — nothing written from the collection module')
-    return
-  }
-  if (!safeToCutOver(comparison)) {
-    // Better a stale week from the legacy path than a week of missing prices.
-    console.error('[pipeline] [ERROR] LIVE requested but a retailer collected nothing — falling back to the legacy files')
-    return
-  }
-
-  console.log('[pipeline] [INFO] LIVE — collection module supplies this run')
-  applyLiveOffers(outcome.offers, legacy)
+  return buildCollectOutcome(outcome.offers)
 }
 
 export async function runCollect(deps: PipelineDeps, options: RunCollectOptions): Promise<CollectOutcome> {
-  const { storeDealsMap, storeStatusMap } = readLegacyDealFiles(options.cwd)
-  const collected: CollectOutcome = { storeDealsMap, storeStatusMap, pendingEnrichment: new Map() }
-
-  if (options.collectionMode !== 'off') {
-    await runCollectionModule(deps, options.now, options.collectionMode, collected)
-  }
+  const collected = await runCollectionModule(deps, options.now)
 
   for (const [store, result] of collected.storeStatusMap) {
-    console.log(`[pipeline] [INFO] Read ${result.count} ${store} deals`)
+    console.log(`[pipeline] [INFO] Collected ${result.count} ${store} deals`)
   }
 
   return collected
@@ -800,10 +721,8 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
 // ============================================================
 
 export type RunPipelineOptions = {
-  readonly cwd: string
   readonly now: Date
   readonly runId: string
-  readonly collectionMode: CollectionMode
   /** See `RunTransformOptions.isFinalAttempt`. */
   readonly isFinalAttempt: boolean
   /** See `RunTransformOptions.clock`. */
@@ -815,7 +734,7 @@ export async function runPipeline(deps: PipelineDeps, options: RunPipelineOption
   const startTime = clock()
   console.log(`[pipeline] [INFO] Starting pipeline run ${options.runId}`)
 
-  const collected = await runCollect(deps, { cwd: options.cwd, now: options.now, collectionMode: options.collectionMode })
+  const collected = await runCollect(deps, { now: options.now })
 
   const allRaw = flattenStoreDeals(collected.storeDealsMap)
   if (allRaw.length === 0) {

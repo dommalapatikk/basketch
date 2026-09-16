@@ -8,24 +8,14 @@ on:
     - cron: '0 5 * * 2'
     # Thursday 05:00 UTC (07:00 Swiss) — Migros, Coop, Lidl, Denner, Aldi Thu, Volg fresh
     - cron: '0 5 * * 4'
-  # ⚠️ Runs every store regardless of its day-of-week schedule — a full
-  # re-collection, not a targeted retry. The 2026-09-15 RCA's working rule
-  # ("no dispatch-driven debugging" until WP-J3's fetch ledger lands) exists
+  # ⚠️ A dispatched run collects the same seven retailers as a scheduled one —
+  # there is no day-of-week gate any more (WP-P4 retired the legacy matrix
+  # job that used to have one). The 2026-09-15 RCA's working rule ("no
+  # dispatch-driven debugging" until WP-J3's fetch ledger lands) exists
   # because dispatch runs caused 15 of the 25 full collections between 11 and
   # 14 September. Prefer re-reading a failed run's log over dispatching a new
   # one while that rule stands.
   workflow_dispatch:
-    inputs:
-      collection_mode:
-        description: 'Collection mode for THIS run only (blank = use the COLLECTION_MODE repo variable)'
-        required: false
-        default: ''
-        type: choice
-        options:
-          - ''
-          - 'off'
-          - 'shadow'
-          - 'live'
 
 # WP-P3: never let two runs of this workflow write concurrently — a second
 # scheduled or dispatched run while one is still in flight queues behind it
@@ -39,115 +29,11 @@ concurrency:
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-  # THE CUTOVER SWITCH. off | shadow | live — see
-  # pipeline/collection/application/collection-mode.ts.
-  #
-  # ⚠️ This line is why setting the repo variable does anything at all. Until
-  # 2026-09-11 the variable existed in the code and was never passed to the
-  # process, so readCollectionMode() saw undefined, defaulted to 'off', and a
-  # run with COLLECTION_MODE=live set would have reported a clean success while
-  # collecting from none of the seven retailers.
-  #
-  # A workflow_dispatch input overrides the variable for one run, so a shadow
-  # run can be taken without changing repo settings and without leaving the
-  # switch flipped afterwards.
-  COLLECTION_MODE: ${{ inputs.collection_mode || vars.COLLECTION_MODE || 'off' }}
 
 jobs:
-  fetch-deals:
-    name: Fetch ${{ matrix.label }} Deals
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - slug: coop
-            store: coop
-            label: Coop
-            # Thu launch (Thu–Wed). Also try Mon/Tue in case aktionis catches stragglers.
-            days: '1,2,4'
-          - slug: coop-megastore
-            store: coop
-            label: Coop Megastore
-            days: '1,2,4'
-          - slug: migros
-            store: migros
-            label: Migros
-            # Thu launch (Thu–Wed)
-            days: '4'
-          - slug: lidl
-            store: lidl
-            label: LIDL
-            # Thu launch (Thu–Wed)
-            days: '4'
-          - slug: aldi-suisse
-            store: aldi
-            label: ALDI
-            # Mon + Thu dual cycle
-            days: '1,4'
-          - slug: denner
-            store: denner
-            label: Denner
-            # Thu launch (Thu–Wed)
-            days: '4'
-          - slug: spar
-            store: spar
-            label: SPAR
-            # Tue launch (Tue–Mon)
-            days: '2'
-          - slug: volg
-            store: volg
-            label: Volg
-            # Mon (general) + Thu (fresh)
-            days: '1,4'
-    steps:
-      - name: Check if store runs today
-        id: should-run
-        run: |
-          DOW=$(date -u +%u)
-          DAYS="${{ matrix.days }}"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || echo "$DAYS" | grep -q "$DOW"; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping ${{ matrix.label }} — not scheduled for day $DOW"
-          fi
-
-      - uses: actions/checkout@v4
-        if: steps.should-run.outputs.run == 'true'
-
-      - uses: actions/setup-python@v5
-        if: steps.should-run.outputs.run == 'true'
-        with:
-          python-version: '3.13'
-
-      - name: Install dependencies
-        if: steps.should-run.outputs.run == 'true'
-        run: pip install -r pipeline/aktionis/requirements.txt
-
-      - name: Fetch ${{ matrix.label }} deals (with retry)
-        if: steps.should-run.outputs.run == 'true'
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 300
-          command: cd pipeline/aktionis && python3 main.py ${{ matrix.slug }} ${{ matrix.store }} ${{ matrix.slug }}-deals.json
-
-      - name: Upload deals artifact
-        if: always() && steps.should-run.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.slug }}-deals
-          path: pipeline/aktionis/${{ matrix.slug }}-deals.json
-          retention-days: 7
-          if-no-files-found: ignore
-
   process-and-store:
     name: Categorize & Store Deals
     runs-on: ubuntu-latest
-    needs: [fetch-deals]
-    if: always() && !cancelled()
     steps:
       - uses: actions/checkout@v4
 
@@ -186,15 +72,6 @@ jobs:
 
       - name: Verify the OCR runtime imports
         run: python3 -c "import rapidocr_onnxruntime, PIL, numpy; print('OCR runtime ok')"
-
-      - name: Download all deal artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: pipeline/
-          merge-multiple: true
-
-      - name: List downloaded artifacts
-        run: ls -la pipeline/*-deals.json 2>/dev/null || echo "No deal files found"
 
       - name: Categorize and store (with retry)
         uses: nick-fields/retry@v3

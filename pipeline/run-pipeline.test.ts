@@ -18,7 +18,7 @@
 // with the mock — the same pattern store.test.ts already uses for
 // infrastructure-layer tests.
 
-import { tmpdir } from 'node:os'
+import fs from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createOffer } from './collection/domain/offer'
@@ -154,10 +154,8 @@ const dennerOfferSource = (productName: string): OfferSource => ({
 })
 
 const baseOptions = {
-  cwd: tmpdir(), // no *-deals.json files here — the legacy path collects nothing
   now: new Date('2026-09-08T00:00:00Z'),
   runId: 'test-run',
-  collectionMode: 'live' as const,
   // Most tests here are single, non-retried runs — WP-P3's deadline tests
   // override this explicitly.
   isFinalAttempt: true,
@@ -205,6 +203,26 @@ describe('a full run through the composition root stores what the fake sources r
 
     expect(outcome.status).toBe('no-data')
     expect(deps.storage.calls).toEqual([])
+  })
+})
+
+// WP-P4 (RCA 2026-09-15, AP-3): the legacy aktionis matrix job — 8 slugs, 3
+// attempts, 300s waits, run 124 times since 2026-09-11 — is retired. It used
+// to write `*-deals.json`, which `off`/`shadow` mode read via
+// `readLegacyDealFiles`. Live mode now supplies collection unconditionally;
+// nothing in this module touches the filesystem any more.
+describe('a live run reads no *-deals.json — the legacy artifact read is retired (WP-P4)', () => {
+  it('never calls fs.readdirSync while collecting — that is the call readLegacyDealFiles used to make', async () => {
+    const readdirSpy = vi.spyOn(fs, 'readdirSync')
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
+
+    try {
+      const outcome = await runPipeline(deps, baseOptions)
+      expect(outcome.status).toBe('ok')
+      expect(readdirSpy).not.toHaveBeenCalled()
+    } finally {
+      readdirSpy.mockRestore()
+    }
   })
 })
 
