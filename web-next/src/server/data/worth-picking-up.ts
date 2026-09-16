@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { unstable_cacheLife as cacheLife } from 'next/cache'
+import { cacheLife } from 'next/cache'
 
 import { isInEffect } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
@@ -66,7 +66,7 @@ export async function getWorthPickingUpCandidates(args: {
 
   // 1. Cold-start path — used until user has 5+ interest rows (PM Q11 locked).
   if (!args.userEmail) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   const { count: interestCount } = await sb
@@ -76,7 +76,7 @@ export async function getWorthPickingUpCandidates(args: {
     .is('dismissed_at', null)
 
   if (!interestCount || interestCount < 5) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   // 2. Personal path — read from MV.
@@ -90,7 +90,7 @@ export async function getWorthPickingUpCandidates(args: {
     .limit(10)
 
   if (error || !data || data.length === 0) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   // Re-apply isInEffect: the MV's own filter is only as fresh as its last
@@ -98,7 +98,7 @@ export async function getWorthPickingUpCandidates(args: {
   // an empty MV read — the personal path has nothing honest to show today.
   const inEffect = inEffectCandidateRows(data as PersonalCandidateRow[], args.today)
   if (inEffect.length === 0) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   // Hydrate concept names + image (latest deal image as a proxy).
@@ -134,35 +134,65 @@ export async function getWorthPickingUpCandidates(args: {
   }
 }
 
-// WP-W3 FINDING, NOT FIXED HERE (see the work package report): this query has
-// no `valid_to`/`valid_from` filter at all — not even the CLAUDE.md safety
-// net every other deal query in this codebase carries. It is a distinct,
-// pre-existing defect (never applied a date filter) from the one this WP
-// fixes (a materialised view's filter going stale between refreshes) and is
-// out of WP-W3's named scope. Reported for the PM to schedule its own fix.
-async function coldStartCandidates(
+/**
+ * One row of `deals`, the columns `coldStartCandidates` reads. `valid_from`/
+ * `valid_to` exist for the same reason as `PersonalCandidateRow` above.
+ */
+type ColdStartRow = {
+  id: string
+  store: string
+  product_name: string
+  sale_price: number
+  original_price: number | null
+  discount_percent: number
+  image_url: string | null
+  sub_category: string | null
+  category_slug: string | null
+  valid_from: string
+  valid_to: string
+}
+
+/**
+ * Cold-start reads `deals` directly, not a materialised view — but the same
+ * "listed but has not started, or has expired" gap applies, and until this
+ * fix it had NEITHER half of the rule: no `.gte('valid_to', …)` safety net
+ * (CLAUDE.md — every other deal query in this codebase carries one) and no
+ * `isInEffect` re-check. Both are applied here, for the two different
+ * failure modes each one alone cannot cover: `.gte('valid_to', today)` is
+ * the source-level filter Postgres applies once; `inEffectCandidateRows` is
+ * the request-time re-check that also excludes a not-yet-started deal
+ * (`.gte('valid_to', …)` cannot express `valid_from`) and defends against a
+ * query-level filter that, for whatever reason, let a row through.
+ */
+export async function coldStartCandidates(
   sb: ReturnType<typeof createAnonClient>,
+  today: string,
 ): Promise<WorthPickingUpCandidate[]> {
   const { data } = await sb
     .from('deals')
-    .select('id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug')
+    .select(
+      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to',
+    )
     .eq('is_active', true)
+    .gte('valid_to', today)
     .gte('discount_percent', 30)
     .order('discount_percent', { ascending: false })
     .limit(10)
 
-  return (data ?? []).map((d) => {
+  const inEffect = inEffectCandidateRows((data ?? []) as ColdStartRow[], today)
+
+  return inEffect.map((d) => {
     const meta = STORE_META[d.store as Store]
     return {
-      conceptId: d.id,  // best-effort — uses deal id since cold-start has no concept link yet
-      conceptName: d.product_name as string,
-      imageUrl: d.image_url as string | null,
-      storeSlug: d.store as string,
-      storeLabel: meta?.label ?? (d.store as string),
-      dealPrice: d.sale_price as number,
-      regularPrice: (d.original_price as number | null) ?? (d.sale_price as number),
-      discountPercent: d.discount_percent as number,
-      contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').toString().replace(/-/g, ' ')} this week`,
+      conceptId: d.id, // best-effort — uses deal id since cold-start has no concept link yet
+      conceptName: d.product_name,
+      imageUrl: d.image_url,
+      storeSlug: d.store,
+      storeLabel: meta?.label ?? d.store,
+      dealPrice: d.sale_price,
+      regularPrice: d.original_price ?? d.sale_price,
+      discountPercent: d.discount_percent,
+      contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').replace(/-/g, ' ')} this week`,
     }
   })
 }

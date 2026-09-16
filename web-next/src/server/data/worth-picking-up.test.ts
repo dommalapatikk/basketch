@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { inEffectCandidateRows } from './worth-picking-up'
+import { coldStartCandidates, inEffectCandidateRows } from './worth-picking-up'
 
 /**
  * The defect this guards against (#10, WP-W3;
@@ -115,5 +115,142 @@ describe('mutation coverage — removing the filter is a defect', () => {
       row({ deal_id: 'not-started', valid_from: '2026-10-01', valid_to: '2026-10-10' }),
     ]
     expect(inEffectCandidateRows(rows, '2026-09-15').map((r) => r.deal_id)).toEqual(['in'])
+  })
+})
+
+/**
+ * `coldStartCandidates` reads `deals` directly — not a materialised view —
+ * but had until this follow-up NEITHER half of the "in effect" rule: no
+ * `.gte('valid_to', …)` query-level safety net at all (CLAUDE.md; every
+ * other deal query in this codebase carries one) and no `isInEffect`
+ * re-check. Both halves are tested independently below, because each one
+ * must be able to fail on its own (mutation-tested by hand, see the WP-W3
+ * follow-up report):
+ *
+ *   - the QUERY test is a spy: it asserts `.gte('valid_to', today)` was
+ *     actually sent, since this fake does not implement real SQL filtering
+ *     and a black-box "final result" assertion alone could not tell the
+ *     query-level filter and the read-time filter apart — either one
+ *     filtering correctly produces the same visible result.
+ *   - the READ-TIME tests use rows that model the query filter having, for
+ *     whatever reason, let an invalid row through — the fake does not filter
+ *     by any chained call, so these only pass because `coldStartCandidates`
+ *     calls `inEffectCandidateRows` itself.
+ */
+
+type DealRow = {
+  id: string
+  store: string
+  product_name: string
+  sale_price: number
+  original_price: number | null
+  discount_percent: number
+  image_url: string | null
+  sub_category: string | null
+  category_slug: string | null
+  valid_from: string
+  valid_to: string
+}
+
+const dealRow = (over: Partial<DealRow> = {}): DealRow => ({
+  id: 'd1',
+  store: 'aldi',
+  product_name: 'Rimuss Traubensaft 1L',
+  sale_price: 1.95,
+  original_price: 2.95,
+  discount_percent: 34,
+  image_url: null,
+  sub_category: 'drinks',
+  category_slug: 'drinks',
+  valid_from: '2026-09-10',
+  valid_to: '2026-09-16',
+  ...over,
+})
+
+/**
+ * A chainable fake standing in for the Supabase query builder.
+ *
+ * Records every chained call (a spy) and, when awaited, resolves with
+ * whatever rows it was seeded with — it does NOT filter by any chained
+ * `.eq`/`.gte` call. That is deliberate: a fake this dumb is what makes the
+ * read-time tests below prove `coldStartCandidates` itself does the
+ * filtering, not an accident of the test double being smarter than the code
+ * under test.
+ */
+function fakeDealsClient(rows: DealRow[]) {
+  const calls: { method: string; args: unknown[] }[] = []
+  const chain = {
+    from(...args: unknown[]) {
+      calls.push({ method: 'from', args })
+      return chain
+    },
+    select(...args: unknown[]) {
+      calls.push({ method: 'select', args })
+      return chain
+    },
+    eq(...args: unknown[]) {
+      calls.push({ method: 'eq', args })
+      return chain
+    },
+    gte(...args: unknown[]) {
+      calls.push({ method: 'gte', args })
+      return chain
+    },
+    order(...args: unknown[]) {
+      calls.push({ method: 'order', args })
+      return chain
+    },
+    limit(...args: unknown[]) {
+      calls.push({ method: 'limit', args })
+      return chain
+    },
+    // Makes `chain` awaitable — `coldStartCandidates` does
+    // `await sb.from(...)...` — without a real network round trip. This is
+    // an intentional thenable, mirroring how the real Supabase query builder
+    // itself is awaitable, not an accidental `.then` on a plain object.
+    // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake, see comment above
+    then(resolve: (value: { data: DealRow[]; error: null }) => void) {
+      resolve({ data: rows, error: null })
+    },
+  }
+  return { chain, calls }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: fakeDealsClient stands in for the Supabase client type, not a domain type
+const asSupabaseClient = (chain: unknown) => chain as any
+
+describe('cold-start suggestions never include a deal outside its validity window', () => {
+  it('the query carries the valid_to safety net — the defect was NO date filter at all', async () => {
+    const { chain, calls } = fakeDealsClient([])
+
+    await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(calls).toContainEqual({ method: 'gte', args: ['valid_to', '2026-09-15'] })
+  })
+
+  it('excludes an expired row even if the query filter let it through', async () => {
+    const rows = [
+      dealRow({ id: 'expired', valid_from: '2026-09-01', valid_to: '2026-09-10' }),
+      dealRow({ id: 'ok', valid_from: '2026-09-01', valid_to: '2026-09-20' }),
+    ]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result.map((c) => c.conceptId)).toEqual(['ok'])
+  })
+
+  it('excludes a not-yet-started row even if the query filter let it through', async () => {
+    // .gte('valid_to', today) alone cannot express this half — valid_to
+    // being in the future says nothing about whether valid_from already is.
+    const rows = [
+      dealRow({ id: 'not-started', valid_from: '2026-09-20', valid_to: '2026-09-25' }),
+      dealRow({ id: 'ok', valid_from: '2026-09-01', valid_to: '2026-09-20' }),
+    ]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result.map((c) => c.conceptId)).toEqual(['ok'])
   })
 })

@@ -47,7 +47,10 @@
 -- anon key, that both `SELECT * FROM concept_cheapest_now LIMIT 1` and
 -- `SELECT * FROM worth_picking_up_candidates LIMIT 1` still succeed — a
 -- DROP + CREATE cycle can in principle lose a privilege that was granted by
--- hand rather than by a tracked migration.
+-- hand rather than by a tracked migration. If either SELECT is rejected for
+-- the anon role, run this (as an admin/service-role connection) to restore
+-- it — the same shape Supabase's own default schema privilege grants:
+--   GRANT SELECT ON concept_cheapest_now, worth_picking_up_candidates TO anon, authenticated;
 
 -- ============================================================
 -- 1. Drop both views, dependant first.
