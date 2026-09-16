@@ -460,6 +460,15 @@ the Swiss day boundary in summer.
 - **Mutation:** tallest-price sort → red. Remove the right bound → red. Flyer-wide validity → red.
 - **Depends on:** none. **Parallel with:** P1–P9, W.
 
+**Known residuals from WP-C1** (code review 0bc55e0, accepted as non-blocking — both would
+*withhold* a valid offer rather than publish a wrong one, and both surface in the Migros funnel
+counts, so a second real flyer will show whether they bite):
+- The sale-price height ratio of 1.8× could drop a genuine offer printed in a smaller secondary
+  price block; it appears as `noDisplayPrice`. Consider 1.5× **and logging the nearest rejected
+  candidate**, once a second flyer's funnel says whether it happens at all.
+- The multi-buy label's 12%-of-height search band could withhold a valid offer on a denser row
+  layout; nearest-anchor-wins would tighten it.
+
 **WP-C2: Discount consistency in rappen, per-retailer grid (D6)**
 - **Files:** `collection/domain/discount.ts`, `collection/domain/offer.ts` (consistency call), the
   `printedDiscount` call sites in all seven adapters (each declares `priceStepRappen`).
