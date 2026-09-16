@@ -273,6 +273,77 @@ describe('caching uncertain outcomes (WP-P6a)', () => {
   })
 })
 
+/**
+ * F2 (code review round 2, WP-P6a).
+ *
+ * The in-chunk enrichment gate and the backfill gate used to disagree. In
+ * chunk: `status === 'classified'`. Backfill (`owedEnrichment`):
+ * `!hit.isUncertain`. `status === 'classified'` is not the same thing as
+ * "certain" — `createClassification` sets `isUncertain` from self-reported
+ * confidence ALONE, with no judge involved: no judge configured, sampled out
+ * on a cold start, or the escalation budget spent before this product's turn
+ * all leave the outcome at `status: 'classified'` while its OWN confidence
+ * already reads below the visibility threshold. Such a product could be
+ * enriched in-chunk under the old code but never backfilled if that attempt
+ * missed it — a permanent loss of the storage facet (ADR-001). Chose: gate
+ * BOTH on the classification's `isUncertain` (Tech Lead's reading —
+ * "uncertain ⇒ no enrichment").
+ */
+describe('the enrichment gate matches the backfill gate (F2)', () => {
+  it('a classified product with self-reported low confidence never reaches enrichment — in-chunk or backfill — same as a judge-disputed one', async () => {
+    const cache = createInMemoryCache()
+    const seed = Array.from({ length: 12 }, (_, i) => deal(`Vorrat ${i} Produkt`))
+    await run(seed, { cache })
+
+    // No judge dispute at all — status ends up 'classified' — but the
+    // classifier's OWN confidence (0.4) is below LABEL_VISIBLE_ABOVE (0.7),
+    // so classification.isUncertain is already true.
+    const lowConfidence: Classifier = {
+      name: 'unsure',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        return ok(
+          batch.map((request): ClassificationOutcome => ({
+            ok: true,
+            request,
+            classification: cls('dairy', 'dairy', 0.4),
+          })),
+        )
+      },
+    }
+
+    const seenNames: string[] = []
+    const enricher = {
+      async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
+        const attributes = new Map<string, Record<string, unknown>>()
+        for (const i of items) {
+          seenNames.push(i.request.productName)
+          attributes.set(i.request.productName, { fatPercent: 3.5 })
+        }
+        return { attributes, tokens: 0 }
+      },
+    }
+
+    // Run 1: freshly classified, status 'classified', but self-reported
+    // uncertain. Must not reach in-chunk enrichment.
+    const first = await run([...seed, deal('Emmi Milch')], {
+      cache,
+      tier1: lowConfidence,
+      judge: null,
+      enricher: enricher as never,
+    })
+    expect(first.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
+
+    // Run 2: now a cache hit, still warm, enrichment still affordable. Must
+    // not be queued for backfill either — the same rule, the same product.
+    const second = await run([...seed, deal('Emmi Milch')], { cache, enricher: enricher as never })
+    expect(second.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
+  })
+})
+
 describe('enriched attributes reach the deal', () => {
   // They were computed, cached, and then dropped before the write — the
   // attributes column stayed '{}' on every row in the table.

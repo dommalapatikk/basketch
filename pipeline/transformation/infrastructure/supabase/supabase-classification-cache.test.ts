@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { describe, expect, it } from 'vitest'
 import { isOk, unwrap } from '../../../collection/domain/result'
-import { createClassification, createConfidence } from '../../domain/classification'
+import { createClassification, createConfidence, markUncertain } from '../../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, normaliseForCache } from '../../domain/classification-cache'
 import {
   chunkByEncodedSize,
@@ -203,7 +203,7 @@ describe('a cached uncertain row rehydrates as uncertain, not as classified', ()
         model: 'test',
       }),
     )
-    const uncertain = { ...disputed, isUncertain: true }
+    const uncertain = markUncertain(disputed)
 
     await cache.save([
       { cacheKey: 'emmi milch|t3|p1|s1', normalisedName: 'emmi milch', classification: uncertain, attributes: {}, runId: 'run-1' },

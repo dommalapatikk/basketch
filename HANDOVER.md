@@ -223,6 +223,9 @@ composition root, not only the unit.
   link.** Never `href="#"`; `no-dead-links.test.ts` enforces this repo-wide.
 - **Never assign `href` inside a click handler** — middle-click, ⌘-click and
   "Copy link address" don't fire `onClick`.
+- **An uncertain classification cache row is now permanent** (WP-P6a) — no run
+  will ever re-open it. The only remedy for a wrong one is
+  `DELETE FROM product_classification_cache WHERE cache_key = …`.
 
 ---
 
