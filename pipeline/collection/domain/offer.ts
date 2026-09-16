@@ -13,6 +13,7 @@ import type { ProductImage } from './product-image'
 import { type Result, err, ok } from './result'
 import { EMPTY_SOURCE_ATTRIBUTES, type SourceAttributes } from './source-attributes'
 import type { ValidityPeriod } from './validity-period'
+import { isDisplayTruncated, normalizeProductName } from '../../../shared/types'
 
 export const RETAILERS = ['migros', 'coop', 'lidl', 'aldi', 'denner', 'spar', 'volg'] as const
 export type Retailer = (typeof RETAILERS)[number]
@@ -136,11 +137,26 @@ export function createOffer(input: OfferInput): Result<Offer> {
  *
  * Deliberately excludes image and sourceUrl: the same offer appearing twice
  * with different artwork is still one offer.
+ *
+ * EXCEPT when the name is display-truncated (WP-C3 / HANDOVER item 8). A
+ * truncated name has already lost the vintage, shade or volume that made two
+ * products distinct — aktionis' own "...Soave Classico...6x 75cl..." is the
+ * 2024 vintage AND the 2025 vintage. Collapsing them a second time here, on
+ * top of the source's own truncation, would silently drop a real offer. So a
+ * truncated name also keys on sourceUrl: two offers that still look identical
+ * after truncation are only the same offer if they link to the same place.
+ *
+ * Name identity uses `normalizeProductName` — the SAME normalisation storage
+ * uses to match a row by name (HANDOVER §5: one definition, in the shared
+ * kernel). Two definitions of "same name" is how 48 collided rows were once
+ * reported as failed writes instead of collapses.
  */
 export function offerKey(o: Offer): string {
-  const name = o.productName.toLowerCase().replace(/\s+/g, ' ').trim()
+  const name = normalizeProductName(o.productName)
   const basis = o.priceBasis.kind === 'everyone' ? 'all' : o.priceBasis.programme
-  return [o.retailer, name, o.salePrice.rappen, o.validity.from, o.validity.to, basis].join('|')
+  const parts = [o.retailer, name, o.salePrice.rappen, o.validity.from, o.validity.to, basis]
+  if (isDisplayTruncated(o.productName)) parts.push(o.sourceUrl ?? '')
+  return parts.join('|')
 }
 
 /** Keeps the first occurrence of each key, preserving source order. */

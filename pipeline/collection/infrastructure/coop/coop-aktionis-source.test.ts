@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { dedupeOffers } from '../../domain/offer'
+import { isDisplayTruncated } from '../../../../shared/types'
+import { collectOffers } from '../../application/collect-offers'
+import { dedupeOffers, offerKey } from '../../domain/offer'
 import {
   createCoopAktionisSource,
   mapCardToOffer,
@@ -14,6 +16,11 @@ import {
 } from './coop-aktionis-source'
 
 const FIXTURE = readFileSync(join(__dirname, '__fixtures__/vendors-coop-page1.html'), 'utf8')
+// The full 51-card April capture, copied from pipeline/aktionis/fixtures/coop-page-1.html
+// before WP-P4 deletes that legacy folder — this is the only copy of it in
+// the repo. 18 of its 51 cards are truncated by aktionis, including two real
+// Soave vintages and four real L'Oréal shades (HANDOVER item 8).
+const APRIL_FIXTURE = readFileSync(join(__dirname, '__fixtures__/coop-page-1-april-51cards.html'), 'utf8')
 
 describe('parsePrice', () => {
   it('reads aktionis prices', () => {
@@ -105,9 +112,23 @@ describe('parsePage — against the real captured page', () => {
     expect(offers.every((o) => o.sourceCategory === null)).toBe(true)
   })
 
-  it('de-duplicates the repeated cards aktionis actually serves', () => {
-    // The fixture contains the duplicate "Soave Classico" rows from the live page.
-    expect(dedupeOffers(offers).length).toBeLessThan(offers.length)
+  it('keeps both Soave Classico vintages (2024, 2025) — aktionis truncates them to one title', () => {
+    // REPLACES the old "de-duplicates the repeated cards aktionis actually
+    // serves" test, which asserted the defect: it called two real vintages
+    // (aktionis ids 1566602 and 1566601) "duplicate rows" because aktionis
+    // truncates both h3s to the identical
+    // "Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl...". They are
+    // not duplicates — losing the vintage must not also lose the offer.
+    const soave = offers.filter((o) => o.productName.startsWith('Soave Classico'))
+    expect(soave).toHaveLength(2)
+    expect(new Set(soave.map((o) => o.productName))).toEqual(
+      new Set([
+        'Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl (2025)',
+        'Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl (2024)',
+      ]),
+    )
+    expect(soave.every((o) => !isDisplayTruncated(o.productName))).toBe(true)
+    expect(dedupeOffers(offers)).toHaveLength(offers.length)
   })
 
   it('every printed discount is consistent with its prices', () => {
@@ -115,6 +136,106 @@ describe('parsePage — against the real captured page', () => {
       if (!o.originalPrice || !o.discount) continue
       const actual = ((o.originalPrice.rappen - o.salePrice.rappen) / o.originalPrice.rappen) * 100
       expect(Math.abs(actual - o.discount.percent)).toBeLessThanOrEqual(1.5)
+    }
+  })
+})
+
+describe('parsePage — against the April 51-card capture (WP-C3 / HANDOVER item 8)', () => {
+  // Copied from pipeline/aktionis/fixtures/coop-page-1.html before WP-P4
+  // deletes that legacy folder. 18 of its 51 cards are truncated by aktionis.
+  const { offers, warnings } = parsePage(APRIL_FIXTURE)
+
+  it('finds truncated cards to test against — guards against a silently empty fixture', () => {
+    // If this ever drops to 0, the fixture (or the h3 regex) has changed and
+    // every test below would pass vacuously.
+    const truncatedCards = parseCards(APRIL_FIXTURE).filter((c) => {
+      const m = c.match(/class="card-title[^"]*"[^>]*>([\s\S]*?)<\/h3>/)
+      return m?.[1] ? isDisplayTruncated(m[1].replace(/\s+/g, ' ').trim()) : false
+    })
+    expect(truncatedCards.length).toBe(18)
+  })
+
+  it("four L'Oréal shades stay four offers", () => {
+    const lipsticks = offers.filter((o) => o.productName.startsWith("L'Oréal Paris Lippenstift"))
+    expect(lipsticks).toHaveLength(4)
+    expect(new Set(lipsticks.map((o) => o.productName))).toEqual(
+      new Set([
+        "L'Oréal Paris Lippenstift Brilliant Signature Plump-in-Gloss 400 I Maximize",
+        "L'Oréal Paris Lippenstift Brilliant Signature Plump-in-Gloss 404 I Assert",
+        "L'Oréal Paris Lippenstift Brilliant Signature Plump-in-Gloss 408 I Accentuate",
+        "L'Oréal Paris Lippenstift Brilliant Signature Plump-in-Gloss 412 I Heighten",
+      ]),
+    )
+    expect(lipsticks.every((o) => !isDisplayTruncated(o.productName))).toBe(true)
+    expect(new Set(lipsticks.map((o) => offerKey(o))).size).toBe(4)
+  })
+
+  it('the aktionis appended descriptor never reaches the name, the descriptor, or the classifier (TP-8)', () => {
+    // aktionis appends " – <type>, <country> (<volume>)" to every wine's
+    // title. TP-8: identity only — the vintage stays, the descriptor is
+    // dropped, never stored, never displayed, never handed to the classifier.
+    const wines = offers.filter((o) => /\(20\d\d\)$/.test(o.productName))
+    expect(wines.length).toBeGreaterThan(0)
+    for (const o of wines) {
+      expect(o.productName).not.toContain(' – ')
+      expect(o.productName).not.toMatch(/Weisswein|Rotwein|Roséwein|Schaumwein/)
+      // The only place a retailer's own free-text line can travel forward —
+      // and aktionis' descriptor is not Coop's own, so it must never land here.
+      expect(o.sourceAttributes.descriptor).toBeNull()
+    }
+    // The vintage — real product identity — survives.
+    expect(offers.some((o) => o.productName.endsWith('(2024)'))).toBe(true)
+    expect(offers.some((o) => o.productName.endsWith('(2023)'))).toBe(true)
+  })
+
+  it('resolves every truncated card via the title cross-check — none falls back to the h3 on real data', () => {
+    // If aktionis' markup ever changes, this is where it would show up: a
+    // "does not extend" warning appearing on real, uncorrupted data.
+    const fallbackWarnings = warnings.filter((w) => w.message.includes('does not extend'))
+    expect(fallbackWarnings).toEqual([])
+  })
+
+  it('no offer emitted from the April fixture carries a display-truncated name', () => {
+    expect(offers.filter((o) => isDisplayTruncated(o.productName))).toEqual([])
+  })
+})
+
+describe('resolving the full name — the title cross-check (WP-C3 / HANDOVER item 8)', () => {
+  it('falls back to the h3 with a warning when the title attribute does not extend it', () => {
+    // A synthetic mutated card: aktionis truncates the h3 as usual, but the
+    // title attribute has been rewritten to something that does NOT start
+    // with the truncated prefix — simulating aktionis changing its markup.
+    const card =
+      '<div data-upox-id="1">' +
+      '<a href="/deals/mystery" title="Mehr Infos über Ein völlig anderer Name">' +
+      '<h3 class="card-title">Langer Produktname der abgeschnitten wird...</h3>' +
+      '</a>' +
+      '<span class="card-date">07.09.2026 - 09.09.2026</span>' +
+      '<span class="price-new">1.00</span>' +
+      '</div>'
+    const r = mapCardToOffer(card)
+    expect('offer' in r).toBe(true)
+    if ('offer' in r) {
+      expect(r.offer.productName).toBe('Langer Produktname der abgeschnitten wird...')
+      expect(isDisplayTruncated(r.offer.productName)).toBe(true)
+      expect(r.warning).toContain('does not extend')
+    }
+  })
+
+  it('uses the title when it genuinely extends the truncated h3', () => {
+    const card =
+      '<div data-upox-id="1">' +
+      '<a href="/deals/real" title="Mehr Infos über Langer Produktname der abgeschnitten wird komplett">' +
+      '<h3 class="card-title">Langer Produktname der abgeschnitten wird...</h3>' +
+      '</a>' +
+      '<span class="card-date">07.09.2026 - 09.09.2026</span>' +
+      '<span class="price-new">1.00</span>' +
+      '</div>'
+    const r = mapCardToOffer(card)
+    expect('offer' in r).toBe(true)
+    if ('offer' in r) {
+      expect(r.offer.productName).toBe('Langer Produktname der abgeschnitten wird komplett')
+      expect(r.warning).toBeUndefined()
     }
   })
 })
@@ -129,6 +250,29 @@ describe('mapCardToOffer — defensive', () => {
     const r = mapCardToOffer(card)
     expect('warning' in r).toBe(true)
     if ('warning' in r) expect(r.warning).toContain('validity')
+  })
+})
+
+describe('createCoopAktionisSource + collectOffers — the composition-level check', () => {
+  // Deliberately uses createCoopAktionisSource directly (the exact function
+  // live-sources.ts's createLiveSources wires for Coop) together with
+  // collectOffers (the exact application-layer function run.ts calls),
+  // rather than the full seven-retailer createLiveSources factory: the
+  // other six retailers' transport plumbing is irrelevant to this defect,
+  // and createLiveSources hard-codes Coop's real 300-offer yield floor,
+  // which the 6-card fixture could never clear.
+  it('createLiveSources’ Coop wiring + collectOffers over the Coop fixture keeps 6 of 6 cards', async () => {
+    const source = createCoopAktionisSource({
+      fetchPage: async (p) => (p === 1 ? FIXTURE : ''),
+      expectedMinimumOffers: 1,
+    })
+    const outcome = await collectOffers([source], '2026-W37')
+    expect(outcome.offers).toHaveLength(parseCards(FIXTURE).length)
+    expect(outcome.offers).toHaveLength(6)
+    // The pre-WP-C3 defect, end to end: the two Soave vintages must both
+    // survive collection, not just the adapter's own parsePage.
+    const soave = outcome.offers.filter((o) => o.productName.startsWith('Soave Classico'))
+    expect(soave).toHaveLength(2)
   })
 })
 

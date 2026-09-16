@@ -6,6 +6,7 @@ import {
   TIE_THRESHOLD,
   MIN_DEALS_FOR_VERDICT,
   dealToRow,
+  isDisplayTruncated,
   isStorageState,
   topCategoryFor,
 } from './types'
@@ -321,5 +322,33 @@ describe('dealToRow rounds discount_percent for its INTEGER column', () => {
       const value = dealToRow({ ...base, discountPercent: pct }).discount_percent
       expect(Number.isInteger(value)).toBe(true)
     }
+  })
+})
+
+describe('isDisplayTruncated', () => {
+  it('flags a name aktionis cut off mid-word', () => {
+    // The real defect: aktionis truncates its h3 server-side at ~42-59 chars
+    // with a literal "...". WP-C3 / HANDOVER item 8.
+    expect(isDisplayTruncated('Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl...')).toBe(true)
+  })
+
+  it('flags the single-character ellipsis too', () => {
+    expect(isDisplayTruncated('Lindt Matcha Strawberry Tokyo Style…')).toBe(true)
+  })
+
+  it('does not flag a name that only happens to contain three dots', () => {
+    expect(isDisplayTruncated('Product...on Sale This Week')).toBe(false)
+  })
+
+  it('does not flag an ordinary, complete name', () => {
+    expect(isDisplayTruncated('Lindt Matcha Strawberry Tokyo Style')).toBe(false)
+  })
+
+  it('ignores trailing whitespace after the marker', () => {
+    expect(isDisplayTruncated('Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl...  ')).toBe(true)
+  })
+
+  it('does not flag the empty string', () => {
+    expect(isDisplayTruncated('')).toBe(false)
   })
 })

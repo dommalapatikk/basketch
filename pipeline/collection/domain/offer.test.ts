@@ -189,4 +189,61 @@ describe('Offer — de-duplication', () => {
     const c = unwrap(createOffer({ ...activia, productName: 'Emmi Caffè Latte' }))
     expect(dedupeOffers([a, c, a]).map((o) => o.productName)).toEqual(['Danone Activia Joghurt', 'Emmi Caffè Latte'])
   })
+
+  it('offerKey uses normalizeProductName — one definition of name identity shared with storage', () => {
+    // normalizeProductName also standardises units ('500gr' -> '500g'), which
+    // offerKey's own ad-hoc lowercase-and-collapse never did.
+    const a = unwrap(createOffer({ ...activia, productName: 'Rivella 500gr' }))
+    const b = unwrap(createOffer({ ...activia, productName: 'Rivella 500g' }))
+    expect(offerKey(a)).toBe(offerKey(b))
+  })
+})
+
+describe('Offer — de-duplication of display-truncated names (WP-C3 / HANDOVER item 8)', () => {
+  const truncated = {
+    retailer: 'coop' as const,
+    productName: 'Soave Classico DOC Rocca Alata Cantina di Soave 6x 75cl...',
+    salePrice: chf(15.9),
+    originalPrice: chf(35.7),
+    validity: WEEK,
+  }
+
+  it('never merges two truncated names that link to different offers', () => {
+    // This is the exact defect: aktionis truncates the 2024 and 2025 vintage
+    // to the identical title. Losing the vintage must not also lose the row.
+    const vintage2025 = unwrap(
+      createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2025' }),
+    )
+    const vintage2024 = unwrap(
+      createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2024' }),
+    )
+    expect(offerKey(vintage2025)).not.toBe(offerKey(vintage2024))
+    expect(dedupeOffers([vintage2025, vintage2024])).toHaveLength(2)
+  })
+
+  it('still collapses a genuinely repeated truncated card (same sourceUrl)', () => {
+    const a = unwrap(createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2025' }))
+    const b = unwrap(createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2025' }))
+    expect(offerKey(a)).toBe(offerKey(b))
+    expect(dedupeOffers([a, b])).toHaveLength(1)
+  })
+
+  it('a truncated name with no sourceUrl at all still keys distinctly from one that has one', () => {
+    const withUrl = unwrap(createOffer({ ...truncated, sourceUrl: 'https://www.aktionis.ch/deals/soave-2025' }))
+    const withoutUrl = unwrap(createOffer({ ...truncated, sourceUrl: null }))
+    expect(offerKey(withUrl)).not.toBe(offerKey(withoutUrl))
+  })
+
+  it('untruncated names keep ignoring sourceUrl, as before', () => {
+    const untruncated = {
+      retailer: 'denner' as const,
+      productName: 'Danone Activia Joghurt',
+      salePrice: chf(5.2),
+      originalPrice: chf(7.5),
+      validity: WEEK,
+    }
+    const a = unwrap(createOffer({ ...untruncated, sourceUrl: 'https://a.test' }))
+    const b = unwrap(createOffer({ ...untruncated, sourceUrl: 'https://b.test' }))
+    expect(offerKey(a)).toBe(offerKey(b))
+  })
 })
