@@ -1,6 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { coldStartCandidates, inEffectCandidateRows } from './worth-picking-up'
+// Both mocked file-wide. Neither affects the `coldStartCandidates` /
+// `inEffectCandidateRows` tests below — those call the exported functions
+// directly with an explicit `sb`, never through `createAnonClient()`. Only
+// `getWorthPickingUpCandidates` (bottom of this file) calls `createAnonClient()`
+// and `cacheLife`/`cacheTag` internally, so only its tests need these.
+vi.mock('next/cache', () => ({
+  cacheLife: () => {},
+  cacheTag: () => {},
+}))
+vi.mock('@/lib/supabase/anon-server', () => ({
+  createAnonClient: vi.fn(),
+}))
+
+import { createAnonClient } from '@/lib/supabase/anon-server'
+import {
+  coldStartCandidates,
+  getWorthPickingUpCandidates,
+  inEffectCandidateRows,
+} from './worth-picking-up'
 
 /**
  * The defect this guards against (#10, WP-W3;
@@ -252,5 +270,99 @@ describe('cold-start suggestions never include a deal outside its validity windo
     const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
 
     expect(result.map((c) => c.conceptId)).toEqual(['ok'])
+  })
+})
+
+/**
+ * F4 (code review of 4e6211a): "the guard that ships is the one nothing
+ * tests." Every test above exercises `inEffectCandidateRows` and
+ * `coldStartCandidates` directly — neither proves `getWorthPickingUpCandidates`
+ * itself actually calls them on the personal (MV) path. The reviewer
+ * confirmed that mutating `worth-picking-up.ts` to `const inEffect = data as
+ * PersonalCandidateRow[]` (deleting the read-time re-check) left all tests
+ * green before this block existed. This describe block is the end-to-end
+ * test that closes that gap — see the wiring counterpart in
+ * `src/app/[locale]/page.test.tsx`, which closes the matching gap for
+ * `page.tsx` forwarding `snapshot.today`.
+ */
+
+type TableResponse = {
+  data?: unknown[] | null
+  error?: { message: string } | null
+  count?: number | null
+}
+
+/**
+ * A fake spanning multiple tables — the personal path queries
+ * `user_interest`, `worth_picking_up_candidates`, `concept` and `deals` in
+ * sequence. Same "dumb, does not filter by any chained call" design as
+ * `fakeDealsClient` above: keyed by table name, resolves with whatever it
+ * was seeded for that table regardless of `.eq`/`.gte`/etc.
+ */
+function fakeMultiTableClient(responses: Record<string, TableResponse>) {
+  function chainFor(table: string) {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      is: () => chain,
+      gte: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      in: () => chain,
+      // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake, see fakeDealsClient above
+      then(resolve: (v: TableResponse) => void) {
+        resolve(responses[table] ?? { data: [], error: null })
+      },
+    }
+    return chain
+  }
+  return { from: (table: string) => chainFor(table) }
+}
+
+describe('getWorthPickingUpCandidates — the personal path re-applies isInEffect end-to-end', () => {
+  it('an expired MV row never reaches the user — falls back to cold-start', async () => {
+    const client = fakeMultiTableClient({
+      user_interest: { count: 5 },
+      worth_picking_up_candidates: {
+        data: [row({ deal_id: 'expired', valid_from: '2026-09-01', valid_to: '2026-09-10' })],
+        error: null,
+      },
+      deals: { data: [], error: null },
+    })
+    vi.mocked(createAnonClient).mockReturnValue(asSupabaseClient(client))
+
+    const result = await getWorthPickingUpCandidates({
+      userEmail: 'shopper@example.ch',
+      locale: 'en',
+      today: '2026-09-15',
+    })
+
+    expect(result.mode).toBe('cold-start')
+    expect(result.candidates.some((c) => c.conceptId === 'c1')).toBe(false)
+  })
+
+  it('an in-effect MV row does reach the user, in personal mode', async () => {
+    // Sanity check the fake and the happy path aren't what's making the
+    // test above pass — a fake that always fell back to cold-start would
+    // make the expired-row test above pass for the wrong reason.
+    const client = fakeMultiTableClient({
+      user_interest: { count: 5 },
+      worth_picking_up_candidates: {
+        data: [row({ deal_id: 'still-running', valid_from: '2026-09-01', valid_to: '2026-09-20' })],
+        error: null,
+      },
+      concept: { data: [{ id: 'c1', display_name: 'Rimuss Traubensaft' }], error: null },
+      deals: { data: [], error: null },
+    })
+    vi.mocked(createAnonClient).mockReturnValue(asSupabaseClient(client))
+
+    const result = await getWorthPickingUpCandidates({
+      userEmail: 'shopper@example.ch',
+      locale: 'en',
+      today: '2026-09-15',
+    })
+
+    expect(result.mode).toBe('personal')
+    expect(result.candidates.map((c) => c.conceptId)).toEqual(['c1'])
   })
 })

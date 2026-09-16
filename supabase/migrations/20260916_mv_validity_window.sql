@@ -37,20 +37,74 @@
 -- `sku` / `deals` / `user_interest`. Dropping and recreating them loses only
 -- the cached `computed_at` snapshot, which the next scheduled REFRESH
 -- (already run at the end of every pipeline run) replaces regardless.
--- Idempotent: safe to re-run (DROP ... IF EXISTS, CREATE ... IF NOT EXISTS).
+-- Idempotent: safe to re-run — every statement is `DROP ... IF EXISTS`
+-- (the `CREATE` statements' idempotency comes entirely from that; see the
+-- `IF NOT EXISTS` note above the CREATE statements below).
 --
--- REVIEWER: this migration is NOT applied by this change — see the PM
--- instructions in the work package report. Materialised views have no RLS
--- (Postgres does not support RLS on matviews); access to both has always
--- relied on the anon role's default SELECT privilege on the public schema,
--- which is not tracked in any migration. Confirm after applying, with the
--- anon key, that both `SELECT * FROM concept_cheapest_now LIMIT 1` and
--- `SELECT * FROM worth_picking_up_candidates LIMIT 1` still succeed — a
--- DROP + CREATE cycle can in principle lose a privilege that was granted by
--- hand rather than by a tracked migration. If either SELECT is rejected for
--- the anon role, run this (as an admin/service-role connection) to restore
--- it — the same shape Supabase's own default schema privilege grants:
---   GRANT SELECT ON concept_cheapest_now, worth_picking_up_candidates TO anon, authenticated;
+-- WHY BEGIN/COMMIT
+-- Running this file statement-by-statement in the Supabase SQL editor
+-- auto-commits each one individually — there is no single implicit
+-- transaction wrapping the whole file the way there is in `psql -f` or the
+-- Supabase CLI's migration runner. Without an explicit transaction, a
+-- failure between the two DROPs and the two CREATEs (a typo, a lock
+-- timeout) would leave the database with NEITHER view — Surface 2 and
+-- Surface 3 both down — until someone reruns the rest by hand. Wrapping the
+-- whole file in one transaction means either both views end up recreated,
+-- correctly, or neither DROP takes effect at all.
+--
+-- REVIEWER / PM — checks to run AFTER applying (this migration is NOT
+-- applied by this change; see the PM instructions in the work package
+-- report):
+--
+-- 1. GRANTS, THROUGH POSTGREST, NOT JUST PSQL. Materialised views have no
+--    RLS (Postgres does not support RLS on matviews); access to both has
+--    always relied on the anon role's default SELECT privilege on the
+--    public schema, which is not tracked in any migration. A DROP + CREATE
+--    cycle can in principle lose a privilege that was granted by hand. Do
+--    not only check with `psql` (a superuser/service-role connection can
+--    read past a missing anon grant without noticing) — check with the
+--    ANON key, through PostgREST, the same way the app does:
+--      curl "$SUPABASE_URL/rest/v1/concept_cheapest_now?limit=1" -H "apikey: $ANON_KEY"
+--      curl "$SUPABASE_URL/rest/v1/worth_picking_up_candidates?limit=1" -H "apikey: $ANON_KEY"
+--    A 400/404 here can mean either a missing grant OR a stale PostgREST
+--    schema cache (PostgREST caches the schema and does not always notice a
+--    DROP + CREATE cycle on its own). Try the schema reload FIRST, since
+--    it is non-destructive and free, before assuming a grant is missing:
+--      NOTIFY pgrst, 'reload schema';
+--    If the REST call still 400s after that, the grant itself is missing —
+--    restore it (as an admin/service-role connection), the same shape
+--    Supabase's own default schema privilege grants:
+--      GRANT SELECT ON concept_cheapest_now, worth_picking_up_candidates TO anon, authenticated;
+--
+-- 2. THE INDEX SURVIVED. `\d concept_cheapest_now_pk` (or
+--    `SELECT indexname FROM pg_indexes WHERE tablename = 'concept_cheapest_now';`)
+--    — confirm the unique index this migration recreates actually exists;
+--    a typo in the CREATE UNIQUE INDEX statement would not fail loudly
+--    (`worth_picking_up_candidates` does not depend on it), it would just
+--    silently leave `concept_cheapest_now` without the index Surface 2's
+--    query planner expects.
+--
+-- 3. ROW CONTENTS CHANGE, NOT JUST ROW COUNTS. Comparing row counts
+--    before/after is not enough — for a concept where the previous
+--    (wrong) filter let a not-yet-started deal win the `DISTINCT ON`
+--    cheapest-price tiebreak, the total row count for that concept does
+--    not change (still exactly one row per concept/region), but WHICH
+--    deal that row now points to does. Spot-check a concept you know had a
+--    future-dated deal live before this migration and confirm
+--    `concept_cheapest_now.deal_id` now names a different, currently
+--    in-effect deal — not just that the row count matches.
+--
+-- 4. A ZERO ROW COUNT MAY BE CORRECT, NOT A REGRESSION. If the pipeline is
+--    mid-incident and only future-dated flyers exist for a store right now
+--    (the exact RCA #10 scenario this WP exists to fix — see
+--    docs/rca/2026-09-15-final-plan.md §1.3, "ALDI 0 of 127 ... in effect"),
+--    `concept_cheapest_now` correctly having zero rows for that store's
+--    concepts is the fix working as intended, not a bug in this migration.
+--    Cross-check against `SELECT store, count(*) FROM deals WHERE is_active
+--    AND valid_from <= CURRENT_DATE AND valid_to >= CURRENT_DATE GROUP BY
+--    store;` before concluding the view is wrong.
+
+BEGIN;
 
 -- ============================================================
 -- 1. Drop both views, dependant first.
@@ -61,9 +115,14 @@ DROP MATERIALIZED VIEW IF EXISTS concept_cheapest_now;
 
 -- ============================================================
 -- 2. concept_cheapest_now — exposes valid_from; filters on the full window.
+--    No `IF NOT EXISTS` here: the unconditional DROP above already
+--    guarantees the view does not exist at this point, so `IF NOT EXISTS`
+--    on the CREATE would be a dead clause that can never trigger — and,
+--    worse, reads as if IT were what makes this migration idempotent, when
+--    that is entirely the DROP ... IF EXISTS's job (see SAFETY above).
 -- ============================================================
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS concept_cheapest_now AS
+CREATE MATERIALIZED VIEW concept_cheapest_now AS
 SELECT DISTINCT ON (s.concept_id, s.region_slug)
   s.concept_id,
   s.region_slug,
@@ -83,16 +142,19 @@ WHERE d.valid_from <= CURRENT_DATE
   AND d.is_active = true
 ORDER BY s.concept_id, s.region_slug, d.sale_price ASC;
 
-CREATE UNIQUE INDEX IF NOT EXISTS concept_cheapest_now_pk
+-- No `IF NOT EXISTS`: dropping the view above drops its indexes with it —
+-- same reasoning as the CREATE MATERIALIZED VIEW statements.
+CREATE UNIQUE INDEX concept_cheapest_now_pk
   ON concept_cheapest_now (concept_id, region_slug);
 
 -- ============================================================
 -- 3. worth_picking_up_candidates — same selection/scoring logic as before;
 --    now also carries valid_from/valid_to through from concept_cheapest_now
---    so the web read path can re-apply isInEffect.
+--    so the web read path can re-apply isInEffect. No `IF NOT EXISTS` —
+--    same reasoning as concept_cheapest_now above.
 -- ============================================================
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS worth_picking_up_candidates AS
+CREATE MATERIALIZED VIEW worth_picking_up_candidates AS
 SELECT
   ui.user_email,
   ui.concept_id,
@@ -115,7 +177,8 @@ WHERE ui.dismissed_at IS NULL
   AND ccn.discount_percent >= 30
 ORDER BY ui.user_email, score DESC;
 
-CREATE INDEX IF NOT EXISTS worth_picking_up_user_score_idx
+-- No `IF NOT EXISTS`: same reasoning as concept_cheapest_now_pk above.
+CREATE INDEX worth_picking_up_user_score_idx
   ON worth_picking_up_candidates (user_email, score DESC);
 
 -- ============================================================
@@ -126,3 +189,5 @@ COMMENT ON MATERIALIZED VIEW concept_cheapest_now IS
   'Per (concept, region), the cheapest deal IN EFFECT (valid_from <= today <= valid_to). Refreshed at end of every pipeline_run; a materialised view freezes CURRENT_DATE at refresh time, so web read paths must still re-apply isInEffect for staleness between refreshes.';
 COMMENT ON MATERIALIZED VIEW worth_picking_up_candidates IS
   'Per-user pre-scored Surface 3 candidates. discount >= 30% AND interest_weight (90d exp decay) AND not dismissed. Carries valid_from/valid_to through from concept_cheapest_now so the web read path can re-check isInEffect.';
+
+COMMIT;

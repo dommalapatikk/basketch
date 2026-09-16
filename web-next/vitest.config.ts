@@ -5,10 +5,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      // 'server-only' is a Next.js build-time alias, not a real package — see
-      // src/test/server-only-stub.ts for why this is needed to import any
-      // server-data module from a test.
-      'server-only': resolve(__dirname, 'src/test/server-only-stub.ts'),
+      // 'server-only' is not a real npm package — its `exports` map only
+      // resolves to a file under the `react-server` condition, which is a
+      // Next.js build-time alias vitest's plain Node resolution never sets.
+      // Aliasing straight to Next's own compiled file for that condition
+      // (verified present, and genuinely empty — `import 'server-only'` is a
+      // side-effect-only import) means server-data modules that correctly
+      // guard themselves with it can be imported from a test at all, without
+      // maintaining a second, hand-written stand-in for a file Next already
+      // ships.
+      'server-only': resolve(__dirname, 'node_modules/next/dist/compiled/server-only/empty.js'),
     },
   },
   test: {

@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { cacheLife } from 'next/cache'
+import { cacheLife, cacheTag } from 'next/cache'
 
 import { isInEffect } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
@@ -27,7 +27,8 @@ type PersonalCandidateRow = {
   deal_regular_price: number | null
   discount_percent: number
   valid_from: string
-  valid_to: string
+  /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
+  valid_to: string | null
   interest_signal: string
   interest_added_at: string
 }
@@ -46,12 +47,26 @@ type PersonalCandidateRow = {
  * the exact reason `WeeklySnapshot.today` is threaded into `buildSections`
  * instead of trusting a query filter alone (WP-W2) — the same predicate,
  * reused, not reimplemented, here.
+ *
+ * `valid_to: string | null` matches `deals.valid_to`'s real nullability
+ * (baseline.sql:96) rather than the `string` the row types here previously,
+ * dishonestly, claimed. A null `valid_to` is treated as NOT in effect —
+ * "expire aggressively" (CLAUDE.md) means an end date this module cannot
+ * confirm is one it does not vouch for. In practice this branch should never
+ * fire: both queries that feed this function already carry
+ * `.gte('valid_to', today)` (`coldStartCandidates`) or are built from a view
+ * whose own WHERE clause excludes a null `valid_to` (Postgres: `NULL >=
+ * CURRENT_DATE` is neither true nor false, so the row is dropped) — but the
+ * type is honest about the column regardless of how reliably today's callers
+ * happen to pre-filter it.
  */
-export function inEffectCandidateRows<T extends { valid_from: string; valid_to: string }>(
+export function inEffectCandidateRows<T extends { valid_from: string; valid_to: string | null }>(
   rows: T[],
   today: string,
 ): T[] {
-  return rows.filter((row) => isInEffect({ validFrom: row.valid_from, validTo: row.valid_to }, today))
+  return rows.filter(
+    (row) => row.valid_to !== null && isInEffect({ validFrom: row.valid_from, validTo: row.valid_to }, today),
+  )
 }
 
 export async function getWorthPickingUpCandidates(args: {
@@ -62,6 +77,11 @@ export async function getWorthPickingUpCandidates(args: {
 }): Promise<{ mode: 'personal' | 'cold-start'; candidates: WorthPickingUpCandidate[] }> {
   'use cache'
   cacheLife('hours')
+  // Same tag `snapshot.ts` uses — without it, the pipeline's /api/revalidate
+  // call (which invalidates by tag, not by function) cannot reach this
+  // cache, and cold-start suggestions can lag a pipeline run by up to a day
+  // (the `expire` bound cacheLife('hours') carries).
+  cacheTag('deals')
   const sb = createAnonClient()
 
   // 1. Cold-start path — used until user has 5+ interest rows (PM Q11 locked).
@@ -89,6 +109,18 @@ export async function getWorthPickingUpCandidates(args: {
     .order('score', { ascending: false })
     .limit(10)
 
+  if (error) {
+    // Distinct from "no rows" below — an actual query failure. The most
+    // likely cause right now is the exact staleness window this WP closes:
+    // `valid_from`/`valid_to` do not exist on `worth_picking_up_candidates`
+    // until the migration is applied (PostgREST 400), or PostgREST's schema
+    // cache has not picked up the applied migration yet (stale schema
+    // cache — `NOTIFY pgrst, 'reload schema';` fixes that specifically).
+    // Without this log every affected user silently degrades to cold-start
+    // with zero telemetry of why.
+    console.error('[wpu] personal path failed', { error: error.message, userEmail: args.userEmail })
+  }
+
   if (error || !data || data.length === 0) {
     return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
@@ -101,18 +133,17 @@ export async function getWorthPickingUpCandidates(args: {
     return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
-  // Hydrate concept names + image (latest deal image as a proxy).
+  // Hydrate concept names + image (latest deal image as a proxy). The two
+  // reads are independent — same store, same pipeline snapshot, no ordering
+  // dependency between them — so they run in parallel rather than paying two
+  // sequential round trips (CLAUDE.md: parallelise independent requests).
   const conceptIds = inEffect.map((r) => r.concept_id)
-  const { data: concepts } = await sb
-    .from('concept')
-    .select('id, display_name')
-    .in('id', conceptIds)
+  const dealIds = inEffect.map((r) => r.deal_id)
+  const [{ data: concepts }, { data: dealImages }] = await Promise.all([
+    sb.from('concept').select('id, display_name').in('id', conceptIds),
+    sb.from('deals').select('id, image_url').in('id', dealIds),
+  ])
   const nameById = new Map((concepts ?? []).map((c) => [c.id, c.display_name as string]))
-
-  const { data: dealImages } = await sb
-    .from('deals')
-    .select('id, image_url')
-    .in('id', inEffect.map((r) => r.deal_id))
   const imageByDealId = new Map((dealImages ?? []).map((d) => [d.id, d.image_url as string | null]))
 
   return {
@@ -149,7 +180,8 @@ type ColdStartRow = {
   sub_category: string | null
   category_slug: string | null
   valid_from: string
-  valid_to: string
+  /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
+  valid_to: string | null
 }
 
 /**
