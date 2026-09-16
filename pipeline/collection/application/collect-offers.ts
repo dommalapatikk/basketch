@@ -68,6 +68,7 @@ async function runOne(
             offerCount: result.offers.length,
             warningCount: result.warnings.length,
             warnings: result.warnings.map((w) => (w.item ? `${w.item}: ${w.message}` : w.message)),
+            degraded: result.degraded,
           }
         : {
             retailer: result.retailer,
@@ -78,6 +79,7 @@ async function runOne(
             failureReason: result.reason,
             detail: result.detail,
             warnings: [],
+            degraded: false,
           }
     return { result, span }
   }
@@ -131,7 +133,13 @@ export async function collectOffers(
   const offers = dedupeOffers(collected)
 
   const okCount = spans.filter((s) => s.status === 'ok').length
-  const status: RunTrace['status'] = okCount === spans.length ? 'ok' : okCount === 0 ? 'failed' : 'degraded'
+  // An ok-but-degraded source (WP-C3 / HANDOVER item 8: a source serving too
+  // many display-truncated names) must surface here too — otherwise the
+  // exact scenario the guard exists for (aktionis changes its markup, ~30%
+  // of cards fall back) sets the flag and nothing downstream ever reads it.
+  const anyDegraded = spans.some((s) => s.status === 'ok' && s.degraded)
+  const status: RunTrace['status'] =
+    okCount === 0 ? 'failed' : okCount === spans.length && !anyDegraded ? 'ok' : 'degraded'
 
   const trace: RunTrace = {
     runId,

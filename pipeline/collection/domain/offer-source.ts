@@ -8,6 +8,7 @@
 // This module must never import an HTTP client, a PDF library or Supabase.
 
 import type { Offer, Retailer } from './offer'
+import { isDisplayTruncated } from '../../../shared/types'
 
 /** ISO week identifier, e.g. '2026-W37'. */
 export type IsoWeek = string
@@ -30,7 +31,11 @@ export type CollectionFailureReason =
 
 export type CollectionWarning = {
   readonly message: string
-  /** Item that was dropped, where one can be identified. */
+  /**
+   * The item the warning is about, where one can be identified. NOT always a
+   * dropped item: a Coop card that falls back to its truncated h3 (WP-C3)
+   * carries a warning here while its offer is still published.
+   */
   readonly item?: string
 }
 
@@ -39,8 +44,23 @@ export type CollectionResult =
       readonly ok: true
       readonly retailer: Retailer
       readonly offers: readonly Offer[]
-      /** Items dropped during parsing. An empty array means a clean run. */
+      /**
+       * Per-item notices raised during parsing. NOT all dropped items: since
+       * WP-C3 a warning can accompany an offer that was still published (a
+       * Coop card whose title attribute didn't extend its truncated h3, and
+       * so fell back to that h3, with a warning — the offer is kept). An
+       * empty array means nothing needed a note, not that nothing happened.
+       */
       readonly warnings: readonly CollectionWarning[]
+      /**
+       * True when more than `DISPLAY_TRUNCATED_NAME_DEGRADED_SHARE` of the
+       * offers carry a display-truncated name (WP-C3 / HANDOVER item 8). A
+       * real-world-unit guard, per HANDOVER §5: expressed as a share of
+       * offers, not an internal artefact. Set by `collected()`, so every
+       * source that goes through it — not only Coop — is covered if its
+       * markup ever starts truncating too.
+       */
+      readonly degraded: boolean
     }
   | {
       readonly ok: false
@@ -59,12 +79,27 @@ export type OfferSource = {
   fetchOffers(week: IsoWeek): Promise<CollectionResult>
 }
 
+/** More than this share of display-truncated names makes a source degraded. */
+export const DISPLAY_TRUNCATED_NAME_DEGRADED_SHARE = 0.05
+
+function truncatedNameShare(offers: readonly Offer[]): number {
+  if (offers.length === 0) return 0
+  const truncated = offers.filter((o) => isDisplayTruncated(o.productName)).length
+  return truncated / offers.length
+}
+
 export function collected(
   retailer: Retailer,
   offers: readonly Offer[],
   warnings: readonly CollectionWarning[] = [],
 ): CollectionResult {
-  return { ok: true, retailer, offers, warnings }
+  return {
+    ok: true,
+    retailer,
+    offers,
+    warnings,
+    degraded: truncatedNameShare(offers) > DISPLAY_TRUNCATED_NAME_DEGRADED_SHARE,
+  }
 }
 
 export function collectionFailed(

@@ -40,6 +40,7 @@ import {
 import { sourceUrlImage } from '../../domain/product-image'
 import { isOk } from '../../domain/result'
 import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity-period'
+import { isDisplayTruncated } from '../../../../shared/types'
 
 const SITE = 'https://www.aktionis.ch'
 const VENDOR_PATH = '/vendors/coop'
@@ -108,11 +109,107 @@ export function parseCardDate(text: string | null): ValidityPeriod | null {
   return isOk(v) ? v.value : null
 }
 
+// ── the h3 truncation guard ──────────────────────────────────────────────────
+//
+// aktionis truncates <h3 class="card-title"> server-side at ~42–59 characters
+// with a literal "...". On the live site 274 of 923 Coop deals (29.7%) ended
+// in it — two Soave vintages and four L'Oréal shades each collapsing into one
+// row, because the vintage/shade is exactly what a mid-word cut removes
+// (HANDOVER item 8, WP-C3).
+//
+// The full name is on the SAME card, in the link's
+// title="Mehr Infos über …" — zero extra requests, so the one-fetch rule
+// holds. It is accepted only if it starts with the h3 text minus "..." — a
+// cross-check against aktionis ever changing its wording without telling us.
+// If the check fails, the truncated h3 is kept, with a warning, rather than
+// silently publishing a stray title string as a product name.
+
+/**
+ * The SHAPE aktionis' own appended descriptor always takes: " – <type>,
+ * <country> (<volume>)" — e.g. " – Weisswein, Italien (0.75l)". Verified
+ * against all 17 dash-bearing titles across both committed fixtures.
+ *
+ * Deliberately a shape check, not "does it contain ' – ' at all": a product's
+ * OWN name can contain an en dash, or a hyphen an editor typed as one — e.g.
+ * a hypothetical "Bio Rüebli – Schweiz". Stripping on `indexOf(' – ')` alone
+ * would cut that to "Bio Rüebli" permanently, with no warning — the exact
+ * defect this file exists to fix, by a different route (code review finding
+ * F1, WP-C3 round 2).
+ */
+// Both dash characters, because only the en dash was observed and a silent
+// miss on an em dash would be the same defect wearing a different character
+// (code review N1). The separator is captured once here so the search and the
+// shape check can never disagree about what a separator is.
+const AKTIONIS_DESCRIPTOR_SEPARATOR = /[ ][–—][ ]/
+const AKTIONIS_DESCRIPTOR_SHAPE = /^ [–—] [^–—,]+, [^–—(]+\(\d+(?:[.,]\d+)?\s*[a-zA-Zäöü]+\)$/
+
+/**
+ * aktionis appends its own descriptor after every wine's full name, separated
+ * by an en dash: "Chardonnay California Round Hill (2023) – Weisswein, USA
+ * (0.75l)". TP-8 (PM decision, 2026-09-15): identity only. The vintage stays
+ * — it is part of the name, before the dash — but the type/country/volume
+ * aktionis adds is aktionis' OWN labelling of Coop's product, not Coop's own
+ * (the same provenance reason `sourceCategory` stays null below). It is
+ * dropped here: never stored, never displayed, never handed to the
+ * classifier — there is nowhere downstream that could pick it up again,
+ * because this adapter never puts it in `sourceAttributes.descriptor` either.
+ *
+ * A " – " that does NOT match the descriptor shape is left untouched, with a
+ * warning rather than silence — so an aktionis format change is visible in
+ * the run log instead of quietly cutting a real product name.
+ */
+function stripAktionisDescriptor(fullName: string): { name: string; warning?: string } {
+  const dashIndex = fullName.search(AKTIONIS_DESCRIPTOR_SEPARATOR)
+  if (dashIndex === -1) return { name: fullName }
+
+  const tail = fullName.slice(dashIndex)
+  if (!AKTIONIS_DESCRIPTOR_SHAPE.test(tail)) {
+    return {
+      name: fullName,
+      warning: `${fullName}: a descriptor separator is present but its tail does not match aktionis' descriptor shape — kept in full`,
+    }
+  }
+
+  return { name: fullName.slice(0, dashIndex).trim() }
+}
+
+function withoutTruncationMarker(name: string): string {
+  return name.replace(/(\.\.\.|…)\s*$/, '').trim()
+}
+
+/**
+ * Resolves the full product name for a card.
+ *
+ * - h3 not truncated: use it (after stripping aktionis' own appended text,
+ *   in case a future untruncated card ever carries it too).
+ * - h3 truncated, and the title attribute extends it: use the title, minus
+ *   the appended descriptor. The vintage/shade/volume before it survives.
+ * - h3 truncated, and the title attribute does NOT extend it: fall back to
+ *   the truncated h3, with a warning — never publish an unrelated string.
+ */
+function resolveFullName(h3Name: string, rawTitle: string | null): { name: string; warning?: string } {
+  if (!isDisplayTruncated(h3Name)) return stripAktionisDescriptor(h3Name)
+
+  const h3Prefix = withoutTruncationMarker(h3Name)
+  if (rawTitle && rawTitle.startsWith(h3Prefix)) {
+    return stripAktionisDescriptor(rawTitle)
+  }
+
+  return {
+    name: h3Name,
+    warning: `${h3Name}: the title attribute does not extend the truncated h3 — falling back to it`,
+  }
+}
+
 // ── card → Offer ─────────────────────────────────────────────────────────────
 
-export function mapCardToOffer(card: string): { offer: Offer } | { warning: string } {
-  const name = firstGroup(card, /class="card-title[^"]*"[^>]*>([\s\S]*?)<\/h3>/)
-  if (!name) return { warning: 'card has no title' }
+export function mapCardToOffer(card: string): { offer: Offer; warning?: string } | { warning: string } {
+  const h3Name = firstGroup(card, /class="card-title[^"]*"[^>]*>([\s\S]*?)<\/h3>/)
+  if (!h3Name) return { warning: 'card has no title' }
+
+  const rawTitle = firstGroup(card, /<a[^>]+title="Mehr Infos über ([^"]*)"/)
+  const resolved = resolveFullName(h3Name, rawTitle)
+  const name = resolved.name
 
   const validity = parseCardDate(firstGroup(card, /class="card-date"[^>]*>([\s\S]*?)<\/span>/))
   if (!validity) return { warning: `${name}: no validity window on the card` }
@@ -165,7 +262,8 @@ export function mapCardToOffer(card: string): { offer: Offer } | { warning: stri
     sourceUrl,
   })
 
-  return isOk(offer) ? { offer: offer.value } : { warning: `${name}: ${offer.error}` }
+  if (!isOk(offer)) return { warning: `${name}: ${offer.error}` }
+  return resolved.warning ? { offer: offer.value, warning: resolved.warning } : { offer: offer.value }
 }
 
 export function parseCards(html: string): string[] {
@@ -179,8 +277,12 @@ export function parsePage(html: string): { offers: Offer[]; warnings: Collection
   const warnings: CollectionWarning[] = []
   for (const card of parseCards(html)) {
     const mapped = mapCardToOffer(card)
-    if ('offer' in mapped) offers.push(mapped.offer)
-    else warnings.push({ message: mapped.warning })
+    if ('offer' in mapped) {
+      offers.push(mapped.offer)
+      if (mapped.warning) warnings.push({ message: mapped.warning, item: mapped.offer.productName })
+    } else {
+      warnings.push({ message: mapped.warning })
+    }
   }
   return { offers, warnings }
 }

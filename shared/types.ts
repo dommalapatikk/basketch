@@ -1040,3 +1040,23 @@ export function normalizeProductName(name: string): string {
   }
   return result.trim()
 }
+
+/**
+ * True when a name ends in a display-truncation marker — a literal "..." or
+ * the single-character ellipsis "…" — rather than a real word.
+ *
+ * WHY it lives here, next to `normalizeProductName`: both are "is this string
+ * a name, or something that only looks like one" questions, and both are used
+ * across module boundaries — this one by a collection adapter's identity
+ * guard AND by every adapter's port-contract test. One definition.
+ *
+ * aktionis (Coop's source) truncates its `<h3 class="card-title">` server-side
+ * at ~42–59 characters with a literal "...". On the live site 274 of 923 Coop
+ * deals (29.7%) ended in it, collapsing distinct vintages and shades into one
+ * row (HANDOVER item 8 / WP-C3). This predicate is what lets a source-level
+ * guard and a dedupe rule both recognise the same shape, instead of each
+ * re-inventing "does this look cut off".
+ */
+export function isDisplayTruncated(name: string): boolean {
+  return /(\.\.\.|…)\s*$/.test(name.trim())
+}

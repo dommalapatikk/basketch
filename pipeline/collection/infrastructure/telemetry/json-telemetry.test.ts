@@ -11,7 +11,15 @@ const trace: RunTrace = {
   totalOffers: 431,
   status: 'degraded',
   sources: [
-    { retailer: 'denner', durationMs: 2100, status: 'ok', offerCount: 246, warningCount: 0, warnings: [] },
+    {
+      retailer: 'denner',
+      durationMs: 2100,
+      status: 'ok',
+      offerCount: 246,
+      warningCount: 0,
+      warnings: [],
+      degraded: false,
+    },
     {
       retailer: 'coop',
       durationMs: 6300,
@@ -21,8 +29,19 @@ const trace: RunTrace = {
       failureReason: 'below-expected-yield',
       detail: 'parsed 3 offers, expected at least 100',
       warnings: [],
+      degraded: false,
     },
   ],
+}
+
+const degradedSpan: RunTrace['sources'][number] = {
+  retailer: 'coop',
+  durationMs: 5000,
+  status: 'ok',
+  offerCount: 920,
+  warningCount: 270,
+  warnings: [],
+  degraded: true,
 }
 
 function capture() {
@@ -79,10 +98,32 @@ describe('JSON telemetry', () => {
       offerCount: 5,
       warningCount: 100,
       warnings: Array.from({ length: 100 }, (_, i) => `dropped item ${i}`),
+      degraded: false,
     })
     const e = JSON.parse(lines[0]!)
     expect(e.warningCount).toBe(100)
     expect(e.warnings).toHaveLength(20)
+  })
+
+  it('a degraded source is visible in the source event — WP-C3 code review F2 (was written and read by nothing)', () => {
+    const { lines, sink } = capture()
+    createJsonTelemetry(sink).sourceFinished('run_test', degradedSpan)
+    const e = JSON.parse(lines[0]!)
+    expect(e.degraded).toBe(true)
+  })
+
+  it('omits the degraded field entirely on a healthy source, not degraded: false', () => {
+    const { lines, sink } = capture()
+    createJsonTelemetry(sink).sourceFinished('run_test', trace.sources[0]!)
+    const e = JSON.parse(lines[0]!)
+    expect(e).not.toHaveProperty('degraded')
+  })
+
+  it('a degraded source is visible in the run-finished event too', () => {
+    const { lines, sink } = capture()
+    createJsonTelemetry(sink).runFinished({ ...trace, sources: [degradedSpan] })
+    const e = JSON.parse(lines[0]!)
+    expect(e.sources[0].degraded).toBe(true)
   })
 })
 
@@ -116,5 +157,18 @@ describe('GitHub Actions run summary', () => {
     const md = formatRunSummary(clean)
     expect(md).toContain('✅ Collection ok')
     expect(md).not.toContain('### Failures')
+  })
+
+  it('marks a degraded-but-ok source in its row and lists it separately — WP-C3 code review F2', () => {
+    const withDegraded: RunTrace = { ...trace, sources: [...trace.sources, degradedSpan] }
+    const md = formatRunSummary(withDegraded)
+    expect(md).toContain('| coop | ⚠️ ok (degraded) | 920 |')
+    expect(md).toContain('### Degraded')
+    expect(md).toContain('**coop** — more than 5% of its offers have a display-truncated name')
+  })
+
+  it('omits the degraded section on a run with no degraded source', () => {
+    const md = formatRunSummary(trace)
+    expect(md).not.toContain('### Degraded')
   })
 })
