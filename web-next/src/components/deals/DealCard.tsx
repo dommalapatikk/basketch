@@ -79,7 +79,7 @@ type CommonProps = {
    * product is only at Coop", which is not what the data supports.
    */
   onlyStoreBadge?: string | null
-  /** Localised "No other store we track has a Dairy deal this week." */
+  /** Localised "No other store we track has a Dairy deal right now." */
   onlyStoreNote?: string | null
   /** Up to three facts the retailer actually stated. Never inferred. */
   attributes?: DealAttribute[]

@@ -198,7 +198,7 @@ describe('the only-at-store claim', () => {
   it('shows the badge only alongside the note that states its scope', () => {
     renderCard({
       onlyStoreBadge: 'Only at Coop',
-      onlyStoreNote: 'No other store we track has a Dairy deal this week.',
+      onlyStoreNote: 'No other store we track has a Dairy deal right now.',
     })
     expect(screen.getByText('Only at Coop')).toBeTruthy()
     expect(screen.getByText(/No other store we track has a Dairy deal/)).toBeTruthy()

@@ -195,7 +195,7 @@ export function subCategoryCounts(
  * Sub-categories where exactly one tracked store has anything on offer.
  *
  * ⚠️ READ THE SCOPE BEFORE CHANGING THE COPY THAT USES THIS. The claim this
- * supports is "no other store we track has a DAIRY deal this week" — about the
+ * supports is "no other store we track has a DAIRY deal right now" — about the
  * sub-category, not about the product.
  *
  * The per-product claim is the one we actually want, and it cannot be made

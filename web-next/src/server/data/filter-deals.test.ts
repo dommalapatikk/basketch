@@ -416,7 +416,7 @@ describe('onlyStoreSubCategories', () => {
 
   it('a not-yet-started deal does not count toward an "only at" claim', () => {
     // Otherwise a flyer fetched early for one store could manufacture a false
-    // "no other store has a Dairy deal this week" the moment it lands, before
+    // "no other store has a Dairy deal right now" the moment it lands, before
     // it is even on sale.
     const deals = [
       D({
