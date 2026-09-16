@@ -17,6 +17,8 @@ type Props = {
   sourceUrl?: string | null
   validFrom: string
   priceBasis: PriceBasis
+  /** WP-W4 (D2, TP-7a) — snapshotted into the list item, same as validFrom/priceBasis. */
+  minQuantity?: number | null
   size?: 'sm' | 'md'
 }
 
@@ -32,6 +34,7 @@ export function AddToListButton({
   sourceUrl,
   validFrom,
   priceBasis,
+  minQuantity,
   size = 'md',
 }: Props) {
   const t = useTranslations('deals')
@@ -53,6 +56,7 @@ export function AddToListButton({
         sourceUrl: sourceUrl ?? null,
         validFrom,
         priceBasis,
+        minQuantity: minQuantity ?? null,
       })
     }
   }

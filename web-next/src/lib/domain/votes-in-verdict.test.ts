@@ -35,4 +35,14 @@ describe('votesInVerdict — the single "listed but does not vote" rule (D2)', (
     const deal = votable({ validFrom: '2026-04-01', validTo: '2026-04-10' })
     expect(votesInVerdict(deal, TODAY)).toBe(false)
   })
+
+  it('does not vote when the price requires buying 2 or more items (D2, TP-7a)', () => {
+    const deal = votable({ minQuantity: 2 })
+    expect(votesInVerdict(deal, TODAY)).toBe(false)
+  })
+
+  it('votes normally when minQuantity is absent — a Votable built before WP-W4', () => {
+    const deal = votable({ minQuantity: undefined })
+    expect(votesInVerdict(deal, TODAY)).toBe(true)
+  })
 })

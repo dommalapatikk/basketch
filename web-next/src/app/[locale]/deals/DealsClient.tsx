@@ -9,7 +9,12 @@ import { usePathname } from '@/i18n/navigation'
 import { visibleAttributes } from '@/lib/deal-attributes'
 import { startsAfterToday } from '@/lib/domain/validity'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
-import { formatMemberPriceLabel, formatShortDate, formatValidFromShort } from '@/lib/format'
+import {
+  formatMemberPriceLabel,
+  formatMinQuantityLabel,
+  formatShortDate,
+  formatValidFromShort,
+} from '@/lib/format'
 import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { Deal, WeeklySnapshot } from '@/lib/types'
@@ -380,10 +385,12 @@ function SubCategorySection({
           isUncertain={primary.isUncertain}
           unverifiedLabel={unverifiedLabel}
           memberPriceLabel={formatMemberPriceLabel(primary.priceBasis, locale)}
+          minQuantityLabel={formatMinQuantityLabel(primary.minQuantity, locale)}
           notYetStartedLabel={notYetStartedLabel(primary)}
           notYetStartedDate={notYetStartedDate(primary)}
           validFrom={primary.validFrom}
           priceBasis={primary.priceBasis}
+          minQuantity={primary.minQuantity}
           onlyStoreBadge={onlyStoreBadge}
           onlyStoreNote={onlyStoreNote}
           attributes={visibleAttributes(primary.attributes, locale)}
@@ -480,10 +487,12 @@ function OtherStoresBlock({
               isUncertain={d.isUncertain}
               unverifiedLabel={unverifiedLabel}
               memberPriceLabel={formatMemberPriceLabel(d.priceBasis, locale)}
+              minQuantityLabel={formatMinQuantityLabel(d.minQuantity, locale)}
               notYetStartedLabel={notYetStartedLabel(d)}
               notYetStartedDate={notYetStartedDate(d)}
               validFrom={d.validFrom}
               priceBasis={d.priceBasis}
+              minQuantity={d.minQuantity}
             />
           ))}
         </div>

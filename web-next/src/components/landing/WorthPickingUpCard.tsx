@@ -2,9 +2,11 @@
 
 import { MoreHorizontal } from 'lucide-react'
 import Image from 'next/image'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useState } from 'react'
 
+import type { PriceBasis } from '@/lib/domain/price-basis'
+import { formatMemberPriceLabel, formatMinQuantityLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 // Card for one Worth-Picking-Up candidate (per design spec §3.3).
@@ -23,6 +25,23 @@ export type WorthPickingUpCandidate = {
   regularPrice: number
   discountPercent: number
   contextLine: string  // pre-rendered "You added these 6 weeks ago"
+  /**
+   * Who can pay this price — CLAUDE.md requires a member-only price to be
+   * labelled wherever it is shown, and this card shows the price again,
+   * the same reasoning DealCard's own `priceBasis` prop already documents.
+   */
+  priceBasis: PriceBasis
+  /**
+   * How many items must be bought for `dealPrice` to apply (WP-C4, D2,
+   * TP-7a). `null` is the ordinary single-item price. Code review of
+   * 422bd51: this section had the IDENTICAL unlabelled-price gap
+   * `priceBasis` above was fixed for — a Migros "ab N Stück" price could
+   * win a spot here and render bare. Labelled here, not excluded: this
+   * section is a personalised suggestion list, not a comparison claim, so
+   * there is no "Cheapest" tag or category verdict for a multi-buy price to
+   * unfairly win the way D2 guards against on the deals page.
+   */
+  minQuantity: number | null
 }
 
 type Props = {
@@ -34,6 +53,9 @@ type Props = {
 
 export function WorthPickingUpCard({ candidate, onAdd, onNotNow, onDontSuggestAgain }: Props) {
   const t = useTranslations('worth_picking_up')
+  const locale = useLocale()
+  const memberPriceLabel = formatMemberPriceLabel(candidate.priceBasis, locale)
+  const minQuantityLabel = formatMinQuantityLabel(candidate.minQuantity, locale)
   const [confirming, setConfirming] = useState(false)
   const [overflowOpen, setOverflowOpen] = useState(false)
 
@@ -94,6 +116,8 @@ export function WorthPickingUpCard({ candidate, onAdd, onNotNow, onDontSuggestAg
               {candidate.regularPrice.toFixed(2)}
             </span>
           </div>
+          {memberPriceLabel ? <PriceConditionNote label={memberPriceLabel} /> : null}
+          {minQuantityLabel ? <PriceConditionNote label={minQuantityLabel} /> : null}
           <p className="mt-2 text-xs text-[var(--color-ink-3)]">{candidate.contextLine}</p>
         </div>
       </div>
@@ -173,6 +197,37 @@ export function WorthPickingUpCard({ candidate, onAdd, onNotNow, onDontSuggestAg
         </div>
       </div>
     </article>
+  )
+}
+
+/**
+ * Names a condition attached to this price — who may pay it (member-only)
+ * or how many must be bought (multi-buy). Both are the same class of fact
+ * (Art. 3(1)(e) UWG requires a price comparison to be objectively correct;
+ * showing either condition's price as though it applies unconditionally is
+ * that failure), so one component renders both, called once per fact that
+ * applies — they can co-occur. TEXT, never a colour or icon alone (WCAG
+ * 2.1 AA).
+ *
+ * The same component shape as `components/deals/DealCard.tsx`'s own
+ * `MemberPriceNote`/`MinQuantityNote`, not shared as an import: the two
+ * live in different route bundles with no existing cross-import between
+ * `landing/` and `deals/` components, and this component is six lines —
+ * sharing it would cost more in indirection than it saves (Sandi Metz:
+ * duplication over the wrong abstraction). Generalised to ONE component
+ * inside THIS file, though, once it had two call sites here — the
+ * within-file case Metz's own "third occurrence" reasoning does not excuse,
+ * since there is no file boundary to justify tolerating it.
+ */
+function PriceConditionNote({ label }: { label: string }) {
+  return (
+    <p className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-ink-2)]">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-signal)]"
+      />
+      {label}
+    </p>
   )
 }
 

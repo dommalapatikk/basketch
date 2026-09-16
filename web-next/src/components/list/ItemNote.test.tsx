@@ -75,6 +75,41 @@ describe('ItemNote', () => {
     expect(text).toContain('From')
   })
 
+  it('shows the quantity condition for a multi-buy item (WP-C4/WP-W4, D2, TP-7a)', () => {
+    renderNote({ item: item({ minQuantity: 2 }) })
+    expect(screen.getByText('From 2 items')).toBeTruthy()
+  })
+
+  it('shows all three notes together — member price, quantity and not-yet-started are independent facts', () => {
+    renderNote({
+      item: item({
+        validFrom: '2026-09-17',
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+        minQuantity: 2,
+      }),
+    })
+    const text = screen.getByText(/Lidl Plus/).textContent
+    expect(text).toContain('Lidl Plus members only')
+    expect(text).toContain('From 2 items')
+    expect(text).toContain('From')
+  })
+
+  it('a list saved before WP-W4 still opens — renders fine with no minQuantity key', () => {
+    const preW4Item = {
+      id: 'pre-w4',
+      store: 'migros' as const,
+      productName: 'Rindsplätzli',
+      category: 'fresh' as const,
+      salePrice: 3.02,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-01',
+      priceBasis: { kind: 'everyone' as const },
+      // No minQuantity.
+    }
+    expect(() => renderNote({ item: preW4Item })).not.toThrow()
+  })
+
   it('renders nothing for an open, already-started item', () => {
     const { container } = renderNote({ item: item() })
     expect(container.textContent).toBe('')

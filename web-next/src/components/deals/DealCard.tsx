@@ -58,6 +58,17 @@ type CommonProps = {
    */
   memberPriceLabel?: string | null
   /**
+   * "From 2 items" / "Ab 2 Stück" — set only when the price requires a
+   * minimum purchase quantity (WP-C4, Tech Lead ruling D2, PM decision
+   * TP-7a). Migros prints "ab N Stück" on about a third of its flyer's
+   * anchors; the sale price does not apply to a single item. Art. 3(1)(e)
+   * UWG treats an unlabelled conditional price the same way it treats an
+   * unlabelled member price — TEXT, never a colour or an icon alone, and it
+   * never wears the "Cheapest" tag (isCheapest is already false when this is
+   * set, via lib/domain/votes-in-verdict.ts).
+   */
+  minQuantityLabel?: string | null
+  /**
    * "From Thu 17.9." — set only when the deal has not started yet
    * (server/data/filter-deals.ts votesInVerdict via lib/domain/validity.ts
    * startsAfterToday). RCA #10: retailers' own flyers publish 1-2 weeks
@@ -73,13 +84,15 @@ type CommonProps = {
    */
   notYetStartedDate?: string | null
   /**
-   * The deal's own validity start and price basis, snapshotted into the
-   * shopping list at add-time (stores/list-store.ts) so ListDrawer and the
-   * share text can render the same labels later, in whatever locale the list
-   * is viewed in.
+   * The deal's own validity start, price basis and quantity requirement,
+   * snapshotted into the shopping list at add-time (stores/list-store.ts) so
+   * ListDrawer and the share text can render the same labels later, in
+   * whatever locale the list is viewed in.
    */
   validFrom: string
   priceBasis: PriceBasis
+  /** WP-W4 (D2, TP-7a) — the raw value forwarded to AddToListButton; `minQuantityLabel` above is what actually renders on this card. */
+  minQuantity?: number | null
   /**
    * Localised "Only at Coop" — shown ONLY together with onlyStoreNote, which
    * states the scope of the claim. The badge on its own would read as "this
@@ -127,10 +140,12 @@ function Primary({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  minQuantityLabel,
   notYetStartedLabel,
   notYetStartedDate,
   validFrom,
   priceBasis,
+  minQuantity,
   onlyStoreBadge,
   onlyStoreNote,
   attributes,
@@ -204,6 +219,7 @@ function Primary({
         <AttributeLine attributes={attributes} />
 
         {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
+        {minQuantityLabel ? <MinQuantityNote label={minQuantityLabel} /> : null}
         {notYetStartedLabel ? (
           <NotYetStartedNote
             label={notYetStartedLabel}
@@ -234,6 +250,7 @@ function Primary({
             sourceUrl={href}
             validFrom={validFrom}
             priceBasis={priceBasis}
+            minQuantity={minQuantity}
           />
         </div>
       </div>
@@ -256,10 +273,12 @@ function Compact({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  minQuantityLabel,
   notYetStartedLabel,
   notYetStartedDate,
   validFrom,
   priceBasis,
+  minQuantity,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
   const titleId = titleIdFor(id)
@@ -329,6 +348,13 @@ function Compact({
             {memberPriceLabel}
           </p>
         ) : null}
+        {minQuantityLabel ? (
+          // Same requirement as the member price note above: a conditional
+          // price must never render bare, on any card size.
+          <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-signal)]">
+            {minQuantityLabel}
+          </p>
+        ) : null}
         {notYetStartedLabel ? (
           <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
             <DatedLabel label={notYetStartedLabel} date={notYetStartedDate} validFrom={validFrom} />
@@ -356,6 +382,7 @@ function Compact({
           sourceUrl={href}
           validFrom={validFrom}
           priceBasis={priceBasis}
+          minQuantity={minQuantity}
           size="sm"
         />
       </div>
@@ -399,6 +426,29 @@ function AttributeLine({ attributes }: { attributes?: DealAttribute[] }) {
  * colour alone, and "the yellow one is the Lidl price" is exactly that.
  */
 function MemberPriceNote({ label }: { label: string }) {
+  return (
+    <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-signal)]"
+      />
+      {label}
+    </p>
+  )
+}
+
+/**
+ * "From 2 items" / "Ab 2 Stück" — names the purchase quantity a conditional
+ * price requires.
+ *
+ * Art. 3(1)(e) UWG requires a price comparison to be objectively correct;
+ * showing this price as though it applies to one item is exactly that
+ * failure (WP-C4, D2, TP-7a). Signal-coloured, like the member price note
+ * above, because both are the same class of fact — a condition attached to
+ * the price itself, not merely a timing note — and both are TEXT, never a
+ * colour or icon alone (WCAG 2.1 AA).
+ */
+function MinQuantityNote({ label }: { label: string }) {
   return (
     <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
       <span

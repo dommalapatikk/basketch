@@ -111,6 +111,69 @@ describe('buildShareText', () => {
     expect(text).toContain('(1 × Supercard members only)')
   })
 
+  it('carries the quantity condition into the shared text (WP-C4/WP-W4, D2, TP-7a)', () => {
+    const text = buildShareText({
+      items: [item({ store: 'migros', minQuantity: 2 })],
+      shareUrl: 'https://basketch.app/list',
+      locale: 'en',
+      today: TODAY,
+    })
+    expect(text).toMatch(/Migros:.*\(1 × From 2 items\)/)
+  })
+
+  it('groups the quantity note by its own N, the same way member prices group by programme', () => {
+    const text = buildShareText({
+      items: [
+        item({ store: 'migros', minQuantity: 2 }),
+        item({ store: 'migros', minQuantity: 3 }),
+        item({ store: 'migros', minQuantity: 3 }),
+      ],
+      shareUrl: 'https://basketch.app/list',
+      locale: 'en',
+      today: TODAY,
+    })
+    expect(text).toContain('1 × From 2 items')
+    expect(text).toContain('2 × From 3 items')
+  })
+
+  it('does not imply every item needs the same quantity when only some do (same NEW-1 rule as member prices)', () => {
+    const text = buildShareText({
+      items: [
+        item({ store: 'migros', minQuantity: 2 }),
+        item({ store: 'migros' }),
+        item({ store: 'migros' }),
+      ],
+      shareUrl: 'https://basketch.app/list',
+      locale: 'en',
+      today: TODAY,
+    })
+    expect(text).toContain('Migros: 3 items')
+    expect(text).toContain('(1 × From 2 items)')
+  })
+
+  it('does not throw for a list item saved before WP-W4 (no minQuantity)', () => {
+    const preW4Item = {
+      id: 'legacy-2',
+      store: 'migros' as const,
+      productName: 'Rindsplätzli',
+      category: 'fresh' as const,
+      salePrice: 3.02,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-01',
+      priceBasis: { kind: 'everyone' as const },
+      // No minQuantity.
+    }
+    expect(() =>
+      buildShareText({
+        items: [preW4Item],
+        shareUrl: 'https://basketch.app/list',
+        locale: 'en',
+        today: TODAY,
+      }),
+    ).not.toThrow()
+  })
+
   it('carries a not-yet-started item into the shared text', () => {
     const text = buildShareText({
       items: [item({ store: 'aldi', validFrom: '2026-09-17' })],

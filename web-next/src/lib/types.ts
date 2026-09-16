@@ -60,6 +60,24 @@ export type Deal = {
   priceBasis: PriceBasis
   /** Set for flyer-sourced deals (Spar, Aldi, Migros) instead of imageUrl. */
   crop: CropRegion | null
+  /**
+   * How many items must be bought for `salePrice` to apply — Migros's
+   * "ab N Stück" (WP-C4, Tech Lead ruling D2, PM decision TP-7a).
+   *
+   * `null` is the ordinary single-item price, the ordinary case. A value of
+   * 2 or more must ALWAYS be shown with its "from N items" label
+   * (`lib/format.ts` `formatMinQuantityLabel`) — never bare — and never
+   * votes in the category verdict or wears the "Cheapest" tag
+   * (`lib/domain/votes-in-verdict.ts`).
+   *
+   * Optional, not required: `mapRow` (`server/data/supabase-provider.ts`)
+   * reads a row with no `min_quantity` key at all as `null` — see that
+   * file's own comment on `SELECT_COLUMNS` for the deploy-ordering
+   * constraint this depends on
+   * (`supabase/migrations/20260916_quantity_requirement.sql` must be
+   * applied before this code is deployed, not merely before it is read).
+   */
+  minQuantity?: number | null
   /** Per-category metadata: milk fat %, butter salted, wine vintage. */
   attributes: Record<string, unknown>
   isActive: boolean
@@ -102,6 +120,28 @@ export type WeeklySnapshot = {
    * itself may be served from up to an hour-old cache.
    */
   today: string
+  /**
+   * True only for the fail-soft empty snapshot `SupabaseDealsProvider`
+   * returns when the deals query itself errors (server/data/supabase-
+   * provider.ts) — NOT "zero deals matched the filters", a real and
+   * unremarkable state `totalDeals === 0` already covers on its own.
+   *
+   * Code review of 422bd51/F1: that fail-soft branch used to set
+   * `updatedAt: new Date().toISOString()` — a snapshot that failed
+   * completely read as "0 deals, updated just now", which made
+   * `StaleBanner`'s own `isStale(updatedAt)` check pass (not stale) over a
+   * page that could not load any data at all. A Playwright run against this
+   * exact outage reported green because of it. `isDegraded` is the explicit
+   * signal `StaleBanner` now also checks, independent of `updatedAt`'s age
+   * — an outage a moment old is still an outage, not "fresh".
+   *
+   * Optional, defaulting to "not degraded" when absent: every existing
+   * fixture that builds a `WeeklySnapshot` by hand (tests) describes a
+   * successful snapshot and should not have to say so explicitly, the same
+   * "claims less" reasoning `Deal.minQuantity` and `PriceBasis` already use
+   * for an absent field.
+   */
+  isDegraded?: boolean
 }
 
 export type SnapshotInput = {

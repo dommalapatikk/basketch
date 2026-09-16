@@ -1,6 +1,17 @@
 -- Migration: concept_cheapest_now and worth_picking_up_candidates honour the
 -- FULL validity window, not just its end bound (#10, WP-W3).
 --
+-- ⚠️ SUPERSEDED by 20260917_mv_price_basis.sql — DO NOT APPLY THIS FILE
+-- AFTER THAT ONE. 20260917_mv_price_basis.sql is a strict superset of this
+-- migration (same WHERE clause, same columns, same two indexes) plus
+-- price_basis/loyalty_programme/min_quantity. If both are unapplied,
+-- 20260917_mv_price_basis.sql already covers everything below — apply it
+-- directly and skip this file. If this file was already applied and
+-- 20260917_mv_price_basis.sql has not been yet, apply 20260917 next, never
+-- this file again: re-running THIS migration after that one would DROP +
+-- recreate both views WITHOUT the newer columns, silently reintroducing an
+-- unlabelled member-only/multi-buy price on the home page.
+--
 -- BACKGROUND
 -- docs/rca/2026-09-15-final-plan.md §1.3: concept_cheapest_now filtered only
 -- on `d.valid_to >= CURRENT_DATE`, so a deal whose validity window had not

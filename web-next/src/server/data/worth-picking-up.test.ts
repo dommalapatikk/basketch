@@ -48,6 +48,9 @@ type FixtureRow = {
   // Nullable, like the column itself (baseline.sql:96) — the fixture type has
   // to be able to express a row the database can actually hold.
   valid_to: string | null
+  price_basis: string | null
+  loyalty_programme: string | null
+  min_quantity: number | null
   interest_signal: string
   interest_added_at: string
 }
@@ -61,6 +64,9 @@ const row = (over: Partial<FixtureRow> = {}): FixtureRow => ({
   discount_percent: 25,
   valid_from: '2026-09-10',
   valid_to: '2026-09-16',
+  price_basis: 'everyone',
+  loyalty_programme: null,
+  min_quantity: null,
   interest_signal: 'added',
   interest_added_at: '2026-09-01T00:00:00Z',
   ...over,
@@ -188,6 +194,9 @@ type DealRow = {
   category_slug: string | null
   valid_from: string
   valid_to: string
+  price_basis: string | null
+  loyalty_programme: string | null
+  min_quantity: number | null
 }
 
 const dealRow = (over: Partial<DealRow> = {}): DealRow => ({
@@ -202,6 +211,9 @@ const dealRow = (over: Partial<DealRow> = {}): DealRow => ({
   category_slug: 'drinks',
   valid_from: '2026-09-10',
   valid_to: '2026-09-16',
+  price_basis: 'everyone',
+  loyalty_programme: null,
+  min_quantity: null,
   ...over,
 })
 
@@ -290,6 +302,79 @@ describe('cold-start suggestions never include a deal outside its validity windo
     const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
 
     expect(result.map((c) => c.conceptId)).toEqual(['ok'])
+  })
+})
+
+/**
+ * Architect audit, 2026-09-16: `coldStartCandidates` never selected
+ * `price_basis`/`loyalty_programme`, so a member-only price reaching cold
+ * start (any store's >= 30% discount, not just Coop's) would render with no
+ * label — the exact CLAUDE.md rule the main deals list already enforces via
+ * supabase-provider.ts's `mapRow`, one surface over. QA's own finding: the
+ * live cold-start set is 100% Coop open-price today, so this was not yet
+ * visible — these tests prove the wiring exists BEFORE the first real
+ * member-only candidate qualifies, not after.
+ */
+describe('the home page never shows a member price without naming the programme (cold-start)', () => {
+  it('carries a member-only price through as a labelled PriceBasis', async () => {
+    const rows = [
+      dealRow({ id: 'lidl-1', price_basis: 'member-only', loyalty_programme: 'Lidl Plus' }),
+    ]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.priceBasis).toEqual({ kind: 'member-only', programme: 'Lidl Plus' })
+  })
+
+  it('reads an open price as everyone, never guessing a restriction', async () => {
+    const { chain } = fakeDealsClient([dealRow()])
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+    expect(result[0]?.priceBasis).toEqual({ kind: 'everyone' })
+  })
+
+  it('drops a row whose member price names no programme, rather than showing it unlabelled', async () => {
+    // The CHECK constraint on `deals` should make this unreachable — refused
+    // outright here for the same reason mapRow refuses it on the main list:
+    // showing it as an open price is worse than dropping it.
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const rows = [
+      dealRow({ id: 'bad', price_basis: 'member-only', loyalty_programme: null }),
+      dealRow({ id: 'ok' }),
+    ]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result.map((c) => c.conceptId)).toEqual(['ok'])
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+})
+
+/**
+ * Code review of 422bd51 found the IDENTICAL gap for `min_quantity` that
+ * the block above closes for `price_basis`: `coldStartCandidates` never
+ * selected the column, so a Migros "ab N Stück" price could win a
+ * cold-start spot and render bare on the home page the first week WP-C4's
+ * pipeline lands — the same Art. 3(1)(e) UWG failure, one field over.
+ */
+describe('the home page never shows a multi-buy price without its condition (cold-start)', () => {
+  it('carries a multi-buy minimum through unchanged', async () => {
+    const rows = [dealRow({ id: 'migros-1', store: 'migros', min_quantity: 2 })]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.minQuantity).toBe(2)
+  })
+
+  it('reads the ordinary single-item price as null', async () => {
+    const { chain } = fakeDealsClient([dealRow()])
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+    expect(result[0]?.minQuantity).toBeNull()
   })
 })
 
@@ -384,5 +469,72 @@ describe('getWorthPickingUpCandidates — the personal path re-applies isInEffec
 
     expect(result.mode).toBe('personal')
     expect(result.candidates.map((c) => c.conceptId)).toEqual(['c1'])
+  })
+
+  it('the home page never shows a member price without naming the programme (personal path)', async () => {
+    const client = fakeMultiTableClient({
+      user_interest: { count: 5 },
+      worth_picking_up_candidates: {
+        data: [
+          row({
+            deal_id: 'lidl-1',
+            deal_store: 'lidl',
+            valid_from: '2026-09-01',
+            valid_to: '2026-09-20',
+            price_basis: 'member-only',
+            loyalty_programme: 'Lidl Plus',
+          }),
+        ],
+        error: null,
+      },
+      concept: { data: [{ id: 'c1', display_name: 'Alpine milk 1L' }], error: null },
+      deals: { data: [], error: null },
+    })
+    vi.mocked(createAnonClient).mockReturnValue(asSupabaseClient(client))
+
+    const result = await getWorthPickingUpCandidates({
+      userEmail: 'shopper@example.ch',
+      locale: 'en',
+      today: '2026-09-15',
+    })
+
+    expect(result.mode).toBe('personal')
+    expect(result.candidates[0]?.priceBasis).toEqual({
+      kind: 'member-only',
+      programme: 'Lidl Plus',
+    })
+  })
+
+  it('the home page never shows a multi-buy price without its condition (personal path)', async () => {
+    // Code review of 422bd51: the personal path takes the minimum sale_price
+    // per concept from concept_cheapest_now with no multi-buy exclusion or
+    // label — the identical gap the test above closes for price_basis.
+    const client = fakeMultiTableClient({
+      user_interest: { count: 5 },
+      worth_picking_up_candidates: {
+        data: [
+          row({
+            deal_id: 'migros-1',
+            deal_store: 'migros',
+            valid_from: '2026-09-01',
+            valid_to: '2026-09-20',
+            min_quantity: 2,
+          }),
+        ],
+        error: null,
+      },
+      concept: { data: [{ id: 'c1', display_name: 'Rindsplätzli' }], error: null },
+      deals: { data: [], error: null },
+    })
+    vi.mocked(createAnonClient).mockReturnValue(asSupabaseClient(client))
+
+    const result = await getWorthPickingUpCandidates({
+      userEmail: 'shopper@example.ch',
+      locale: 'en',
+      today: '2026-09-15',
+    })
+
+    expect(result.mode).toBe('personal')
+    expect(result.candidates[0]?.minQuantity).toBe(2)
   })
 })

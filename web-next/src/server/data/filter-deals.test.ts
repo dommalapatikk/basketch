@@ -291,6 +291,23 @@ describe('buildSections', () => {
     expect(sections[0].others.map((d) => d.id)).toEqual(['2'])
   })
 
+  it('a multi-buy price is never labelled Cheapest either — same rule as future-dated and member-only (D2, TP-7a)', () => {
+    const deals = [
+      D({ id: '1', subCategory: 'Dairy', discountPercent: 20 }),
+      D({
+        id: '2',
+        subCategory: 'Dairy',
+        discountPercent: 90,
+        store: 'migros',
+        minQuantity: 2,
+      }),
+    ]
+    const sections = buildSections(deals, TODAY)
+    expect(sections[0].primary.id).toBe('1')
+    expect(sections[0].primaryIsCheapest).toBe(true)
+    expect(sections[0].others.map((d) => d.id)).toEqual(['2'])
+  })
+
   it('shows no Cheapest tag when nothing in the group is in effect yet', () => {
     const deals = [
       D({

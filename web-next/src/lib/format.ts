@@ -1,4 +1,5 @@
 import { isMemberOnly, type PriceBasis, programmeOf } from './domain/price-basis'
+import { isMultiBuy } from './domain/quantity-requirement'
 
 /**
  * "Nur mit Lidl Plus" / "Lidl Plus members only" — the one place this legally
@@ -18,6 +19,46 @@ export function formatMemberPriceLabel(
   // build a member-only PriceBasis without one (the LIDL rule).
   const programme = programmeOf(priceBasis)
   return locale === 'de' ? `Nur mit ${programme}` : `${programme} members only`
+}
+
+// "Ab 2 Stück" / "From 2 items" — Migros's own printed wording, translated
+// (WP-C4, D2, TP-7a). Kept here, not in messages/*.json, for the identical
+// reason formatMemberPriceLabel is: it must read correctly from THREE call
+// sites, only two of which are React components with access to next-intl's
+// t() — lib/share.ts's groupNote (the shared WhatsApp/email text) is plain
+// code, not a component. The same wording is ALSO carried in
+// messages/*.json's deals.from_n_items — not imported from here, because a
+// module reached from 'use client' components (DealCard's callers) would
+// then ship all four locales' strings to every visitor regardless of which
+// one they use (CLAUDE.md: JS is the most expensive resource byte-for-byte).
+// format.test.ts pins the two copies together so a drift fails a test rather
+// than surfacing as a wrong label in production.
+const MIN_QUANTITY_TEMPLATE: Record<string, string> = {
+  en: 'From {count} items',
+  de: 'Ab {count} Stück',
+  fr: 'Dès {count} articles',
+  it: 'Da {count} articoli',
+}
+
+/**
+ * The single wording source for the "from N items" label, beside
+ * `formatMemberPriceLabel` — the same "one place this is worded" reasoning,
+ * for the same legal requirement (Art. 3(1)(e) UWG: a conditional price must
+ * never be shown without stating its condition).
+ *
+ * Returns null for the ordinary single-item price (`isMultiBuy` is false for
+ * both `null` — no condition printed — and `undefined` — a `ListItem` saved
+ * before this field existed). Never returns a label for a count below 2:
+ * "ab 1 Stück" is not a real printed form, it is a mis-parse (the WP-C4 ADR),
+ * so there is nothing to claim less about — there is simply nothing to say.
+ */
+export function formatMinQuantityLabel(
+  minQuantity: number | null | undefined,
+  locale: string,
+): string | null {
+  if (!isMultiBuy(minQuantity)) return null
+  const template = MIN_QUANTITY_TEMPLATE[locale] ?? MIN_QUANTITY_TEMPLATE.en
+  return template.replace('{count}', String(minQuantity))
 }
 
 // Locale-aware short date used in the landing kicker and stale banner.
