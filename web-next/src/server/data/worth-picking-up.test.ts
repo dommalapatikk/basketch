@@ -45,7 +45,9 @@ type FixtureRow = {
   deal_regular_price: number
   discount_percent: number
   valid_from: string
-  valid_to: string
+  // Nullable, like the column itself (baseline.sql:96) — the fixture type has
+  // to be able to express a row the database can actually hold.
+  valid_to: string | null
   interest_signal: string
   interest_added_at: string
 }
@@ -91,6 +93,24 @@ describe('"Worth picking up" never shows a deal that expired since the last refr
   it('is inclusive of the last valid day', () => {
     const rows = [row({ deal_id: 'spar-1', valid_from: '2026-09-01', valid_to: '2026-09-15' })]
     expect(inEffectCandidateRows(rows, '2026-09-15')).toHaveLength(1)
+  })
+
+  // `deals.valid_to` is nullable (baseline.sql:96). Both callers' queries
+  // already exclude NULLs (`NULL >= CURRENT_DATE` is NULL in Postgres), so
+  // reaching this at all would take a schema or query change.
+  //
+  // Honest note on what this test does and does not prove (code review of
+  // d9fd44e asked for it as a guard test): removing the explicit
+  // `row.valid_to !== null &&` guard leaves it GREEN, because `isInEffect`
+  // already rejects a null end date anyway — `'2026-09-15' <= null` coerces
+  // to a NaN comparison, which is false. So the guard is belt-and-braces,
+  // not load-bearing, and this test pins the OUTCOME rather than the line:
+  // it fails if either layer ever starts treating "no end date" as
+  // open-ended. An end date we do not know is not one we can honour —
+  // CLAUDE.md says expire aggressively.
+  it('treats a row with no end date as not in effect — an unknown end is not an open-ended one', () => {
+    const rows = [row({ deal_id: 'coop-1', valid_from: '2026-09-01', valid_to: null })]
+    expect(inEffectCandidateRows(rows, '2026-09-15')).toEqual([])
   })
 })
 
