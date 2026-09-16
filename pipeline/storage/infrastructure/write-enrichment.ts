@@ -12,6 +12,39 @@
 // to gain a crop rectangle.
 //
 // It is also idempotent: re-running updates the same rows by natural key.
+//
+// ⚠️ WP-C4 (QuantityRequirement) — two findings recorded here, not fixed here.
+//
+// 1. `minQuantity` does NOT travel through this pass. It is a plain nullable
+//    number (like `quantity` on UnifiedDeal already), so it fits the MAIN
+//    write directly — see `offerToUnifiedDeal`'s own comment for why routing
+//    it through here specifically would be the wrong call.
+//
+// 2. The natural key THIS FILE already uses — `store|productName|validFrom`,
+//    the same three columns as the database's `unique_deal` constraint — has
+//    no room for a quantity requirement at all. `collection/domain/offer.ts`
+//    (`offerKey`) was changed to keep a multi-buy offer and its single-item
+//    sibling apart IN MEMORY for exactly this reason (WP-C4). This file was
+//    NOT changed to match, and — more importantly — NEITHER WAS THE DATABASE
+//    CONSTRAINT ITSELF (`supabase/migrations/20260916_quantity_requirement.sql` adds
+//    only the column, deliberately, see that file's own note on why widening
+//    the constraint is a coordinated, cross-lane change, not a one-file fix).
+//    So a real week where the SAME product carries both an everyone-price
+//    AND an "ab N Stück" price collapses to ONE row two separate ways before
+//    either could reach this file:
+//      - `pendingEnrichment.set(enrichment.key, enrichment)` in
+//        `run-pipeline.ts` (a `Map`, keyed on this same natural key) silently
+//        keeps only the LAST offer processed for that key — the same
+//        "a `Map` absorbed a real collision" shape as HANDOVER §4's
+//        `createInMemoryCache` defect.
+//      - `store.ts`'s own upsert-batch dedupe collapses the two long before
+//        either reaches this file, keeping whichever has the higher
+//        `discount_percent` — usually the multi-buy row, silently.
+//    Neither failure throws, logs or is visible in the funnel. It does not
+//    happen on the KW36 fixture (none of the five multi-buy product names
+//    collide with any single-item one), so nothing here is red — this is a
+//    known, currently-open gap for the next real week that prints both forms
+//    for one product, not a regression this WP introduces.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { normalizeProductName } from '../../../shared/types'

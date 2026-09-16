@@ -5,6 +5,7 @@ import { createMoney } from './money'
 import { createOffer, dedupeOffers, offerKey } from './offer'
 import { PRICE_FOR_EVERYONE, memberOnly } from './price-basis'
 import { sourceUrlImage } from './product-image'
+import { minimumQuantity } from './quantity-requirement'
 import { isOk, unwrap } from './result'
 import { createValidityPeriod } from './validity-period'
 
@@ -131,6 +132,28 @@ describe('Offer — printed badge consistency', () => {
   })
 })
 
+describe('Offer — QuantityRequirement (WP-C4, TP-7a): a minimum below 2 cannot be constructed', () => {
+  it('defaults to the single-item price when omitted', () => {
+    expect(unwrap(createOffer(base)).quantityRequirement).toEqual({ kind: 'single' })
+  })
+
+  it('carries a "from 2 items" requirement built through the factory', () => {
+    const o = unwrap(createOffer({ ...base, quantityRequirement: unwrap(minimumQuantity(2)) }))
+    expect(o.quantityRequirement).toEqual({ kind: 'minimum', count: 2 })
+  })
+
+  it('re-enforces the invariant even when a caller bypasses the factory', () => {
+    // QuantityRequirement is a plain union, so nothing stops a caller from
+    // writing the literal object directly — the same shape of gap the LIDL
+    // rule re-check above exists for.
+    const r = createOffer({
+      ...base,
+      quantityRequirement: { kind: 'minimum', count: 1 },
+    })
+    expect(isOk(r)).toBe(false)
+  })
+})
+
 describe('Offer — optional fields', () => {
   it('normalises a blank source category to null', () => {
     expect(unwrap(createOffer({ ...base, sourceCategory: '   ' })).sourceCategory).toBeNull()
@@ -176,6 +199,30 @@ describe('Offer — de-duplication', () => {
       createOffer({ ...activia, retailer: 'lidl', priceBasis: unwrap(memberOnly('Lidl Plus')) }),
     )
     expect(dedupeOffers([publicPrice, memberPrice])).toHaveLength(2)
+  })
+
+  it('a multi-buy price never dedupes against the single-item price (WP-C4)', () => {
+    // Same product, same store, same dates, same sale price even — the ONLY
+    // difference is the quantity requirement. A shopper choosing between
+    // "pay 5.20 for one" and "pay 5.20 each from 2" is choosing between two
+    // real, different offers, not seeing the same one twice.
+    const singleItem = unwrap(createOffer(activia))
+    const multiBuy = unwrap(createOffer({ ...activia, quantityRequirement: unwrap(minimumQuantity(2)) }))
+    expect(offerKey(singleItem)).not.toBe(offerKey(multiBuy))
+    expect(dedupeOffers([singleItem, multiBuy])).toHaveLength(2)
+  })
+
+  it('two multi-buy offers with the same stated minimum still collapse as duplicates', () => {
+    const a = unwrap(createOffer({ ...activia, quantityRequirement: unwrap(minimumQuantity(2)) }))
+    const b = unwrap(createOffer({ ...activia, quantityRequirement: unwrap(minimumQuantity(2)) }))
+    expect(offerKey(a)).toBe(offerKey(b))
+    expect(dedupeOffers([a, b])).toHaveLength(1)
+  })
+
+  it('a "from 2" and a "from 3" requirement for the same product are kept apart', () => {
+    const min2 = unwrap(createOffer({ ...activia, quantityRequirement: unwrap(minimumQuantity(2)) }))
+    const min3 = unwrap(createOffer({ ...activia, quantityRequirement: unwrap(minimumQuantity(3)) }))
+    expect(offerKey(min2)).not.toBe(offerKey(min3))
   })
 
   it('ignores whitespace and casing differences in the name', () => {

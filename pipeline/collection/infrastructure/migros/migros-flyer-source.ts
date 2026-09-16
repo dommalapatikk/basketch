@@ -65,14 +65,31 @@
 // run-together "Schweins-Nierstuck-steaksmariniert").
 //
 // Two price FORMS were also unmodelled: whole-franc ("statt 14.--") and the
-// "ab 2 Stück" multi-buy form. Multi-buy is detected two ways — an inline
-// "2.88statt4.30" token with no separate display numeral, AND an "ab 2
+// "ab N Stück" multi-buy form. Multi-buy is detected two ways — an inline
+// "2.88statt4.30" token with no separate display numeral, AND an "ab N
 // Stück" label printed above the badge in the same tile, because OCR
 // sometimes splits the inline form into two tokens ("2.88" and "statt 4.30"
 // separately), which would otherwise slip through as an ordinary,
-// UNLABELLED price. Either signal is parsed and counted — so it is never
-// silently lost — but never published: PriceBasis has no way to say "from 2
-// items" honestly yet (needs QuantityRequirement, WP-C4; PM decision TP-7a).
+// UNLABELLED price.
+//
+// ── Publishing multi-buy prices (2026-09-16, WP-C4, PM decision TP-7a) ─────
+//
+// A multi-buy price is now PUBLISHED — with a `QuantityRequirement.minimum(n)`
+// so it renders "from n items", never bare — the moment `n` can be read
+// honestly from a nearby "ab N Stück" label. `n` is PARSED from the label,
+// never hardcoded: on the committed fixture every one of the five real
+// multi-buy anchors reads "ab 2 Stück", but the parser reads whatever digit
+// is actually printed. An anchor whose price is structurally conditional
+// (an inline token, or a label found) but whose label could not be read —
+// garbled OCR, or no label found near an inline-only anchor — is still
+// WITHHELD: Art. 3(1)(e) UWG requires an honest comparison, and "probably 2,
+// because that is what every other one said this week" is a guess, not a
+// reading. See `multiBuyUnquantified` in `MigrosFunnel`.
+//
+// The inline form has no separate display numeral, so its own sale price is
+// read directly off the statt line's own text — there is no separate
+// `saleBox` to search for. The NAME search for this form is also different
+// from the ordinary anchor's: see `findMultiBuyNameLine`.
 
 import { type Discount, discountConsistencyReason, printedDiscount } from '../../domain/discount'
 import { type Money, createMoney } from '../../domain/money'
@@ -87,15 +104,17 @@ import {
   collectionFailed,
 } from '../../domain/offer-source'
 import { type ProductImage, cropRegionImage } from '../../domain/product-image'
-import { isOk } from '../../domain/result'
+import { SINGLE_ITEM, type QuantityRequirement, isMinimumQuantity, minimumQuantity } from '../../domain/quantity-requirement'
+import { type Result, isOk, ok } from '../../domain/result'
 import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity-period'
 
 export const MIGROS_EXPECTED_MINIMUM = 10
 
 /**
- * Below this share of PUBLISHABLE anchors (anchors minus the ones policy
- * withholds as multi-buy) turned into offers, the run is a failure, not a
- * quiet slow week. See `migrosYieldReason`.
+ * Below this share of PUBLISHABLE anchors (anchors minus the ones that
+ * cannot be honestly published at all — WP-C4: a multi-buy-shaped anchor
+ * whose quantity could not be read) turned into offers, the run is a
+ * failure, not a quiet slow week. See `migrosYieldReason`.
  */
 export const MIGROS_MIN_ANCHOR_CONVERSION = 0.5
 
@@ -145,8 +164,25 @@ const STATT = new RegExp(String.raw`statt\s*(${PRICE_TOKEN_SRC})`, 'i')
  */
 const INLINE_STATT = new RegExp(String.raw`(${PRICE_TOKEN_SRC})\s*statt\s*(${PRICE_TOKEN_SRC})`, 'i')
 const PERCENT = /^(\d{1,2})\s*%$/
-/** The "ab 2 Stück" multi-buy label, printed above the badge in the tile. */
-const AB_STUECK = /ab\s*\d+\s*St(ü|u)ck/i
+/**
+ * The "ab N Stück" multi-buy label, printed above the badge in the tile.
+ * Captures the digit so the quantity is PARSED, not assumed — every label on
+ * the committed fixture reads "2", but nothing here hardcodes that.
+ */
+const AB_STUECK = /ab\s*(\d+)\s*St(?:ü|u)ck/i
+
+/**
+ * Reads N from an "ab N Stück" label. Returns null when the label cannot be
+ * read as a whole number of at least 2 — garbled OCR must withhold the
+ * offer, never guess a number (TP-7a, the same "listed with its own label,
+ * never bare" rule CLAUDE.md applies to every conditional price).
+ */
+export function parseMultiBuyQuantity(label: string): number | null {
+  const m = label.match(AB_STUECK)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isInteger(n) && n >= 2 ? n : null
+}
 /**
  * A "gültig"/"gultig" mention that ALSO carries a date shape (D.D.) somewhere
  * after it. Two things this must get right at once (re-reviewed 2026-09-16):
@@ -171,8 +207,15 @@ const PER_OFFER_VALIDITY = /g(ü|u)ltig\D*\d{1,2}\.\d{1,2}\./i
  * cooperative's own name, quality-programme badges and various boilerplate in
  * the same size as product titles, so OCR alone cannot tell them apart.
  */
+// ⚠️ `^BIO$` (WP-C4), not `\bBIO\b`: the standalone quality badge Migros
+// prints as its OWN line ("BIO", nothing else — real fixture item at
+// (1430,1852)-(1471,1889)) is a descriptor. An UNANCHORED `\bBIO\b` also
+// matched inside a genuine product name that happens to contain the word —
+// "Migros Bio Bohnen" — which silently discarded that offer's own name as
+// "not a product name" (`noName`). Anchoring to the whole line keeps
+// catching the badge without catching a name that merely mentions it.
 const DESCRIPTOR =
-  /per\s*\d|in\s+Selbstbedienung|Genossenschaft|solange\s+Vorrat|Angebote\s+gelten|g(ü|u)ltig|^\d+\s*(g|kg|ml|l|St(ü|u)ck)\b|^\(|Dazu\s+passt|SPAREN|\bca\.|Sonderpackung|erh(ä|a)ltlich|Zucht\s+aus|Wildfang|z\.\s*B\.|in\s+gr(ö|o)sseren\s+Filialen|IP-SUISSE\+?|\bBIO\b|Aus\s*der\s*Region|Beutel\s*,?\s*\d/i
+  /per\s*\d|in\s+Selbstbedienung|Genossenschaft|solange\s+Vorrat|Angebote\s+gelten|g(ü|u)ltig|^\d+\s*(g|kg|ml|l|St(ü|u)ck)\b|^\(|Dazu\s+passt|SPAREN|\bca\.|Sonderpackung|erh(ä|a)ltlich|Zucht\s+aus|Wildfang|z\.\s*B\.|in\s+gr(ö|o)sseren\s+Filialen|IP-SUISSE\+?|^\s*BIO\s*$|Aus\s*der\s*Region|Beutel\s*,?\s*\d/i
 
 export function issuuDocUrl(kw: number, year: number, region = 'zh', lang = 'd'): string {
   return `https://issuu.com/m-magazin/docs/migros-wochenflyer-${kw}-${year}-${lang}-${region}`
@@ -275,7 +318,22 @@ export type MigrosFunnel = {
    * summary line.
    */
   readonly gridAccepted: number
+  /**
+   * Of `accepted`, how many carry a `QuantityRequirement.minimum(n)` (WP-C4,
+   * TP-7a) — published as "from n items", never bare. NOT a withheld count
+   * any more: a multi-buy price whose quantity can be read is a normal,
+   * published offer, the same status `gridAccepted` already has relative to
+   * `accepted`.
+   */
   readonly multiBuy: number
+  /**
+   * A multi-buy-SHAPED anchor (an inline "X statt Y" token and/or a nearby
+   * "ab N Stück" label) where no whole number of at least 2 could be read
+   * from a label. TP-7a requires an honest "from N items" label — never a
+   * guessed one — so this anchor is withheld, and is the ONLY multi-buy
+   * outcome still excluded from `migrosYieldReason`'s denominator.
+   */
+  readonly multiBuyUnquantified: number
   readonly unreadablePrice: number
   readonly noDisplayPrice: number
   readonly noName: number
@@ -288,6 +346,7 @@ const EMPTY_FUNNEL: MigrosFunnel = {
   accepted: 0,
   gridAccepted: 0,
   multiBuy: 0,
+  multiBuyUnquantified: 0,
   unreadablePrice: 0,
   noDisplayPrice: 0,
   noName: 0,
@@ -301,6 +360,7 @@ function addFunnel(a: MigrosFunnel, b: MigrosFunnel): MigrosFunnel {
     accepted: a.accepted + b.accepted,
     gridAccepted: a.gridAccepted + b.gridAccepted,
     multiBuy: a.multiBuy + b.multiBuy,
+    multiBuyUnquantified: a.multiBuyUnquantified + b.multiBuyUnquantified,
     unreadablePrice: a.unreadablePrice + b.unreadablePrice,
     noDisplayPrice: a.noDisplayPrice + b.noDisplayPrice,
     noName: a.noName + b.noName,
@@ -311,8 +371,8 @@ function addFunnel(a: MigrosFunnel, b: MigrosFunnel): MigrosFunnel {
 
 export function formatFunnel(f: MigrosFunnel): string {
   return (
-    `funnel: ${f.anchors} anchors -> ${f.accepted} accepted (${f.gridAccepted} via the rappen grid), ` +
-    `${f.multiBuy} multi-buy (not published), ` +
+    `funnel: ${f.anchors} anchors -> ${f.accepted} accepted (${f.gridAccepted} via the rappen grid, ${f.multiBuy} multi-buy "from N items"), ` +
+    `${f.multiBuyUnquantified} multi-buy unquantified (withheld), ` +
     `${f.unreadablePrice} unreadable statt, ${f.noDisplayPrice} no display price, ` +
     `${f.noName} no name, ${f.invalidValidity} invalid validity, ${f.invariantRejected} discount-inconsistent`
   )
@@ -322,13 +382,16 @@ export function formatFunnel(f: MigrosFunnel): string {
  * Below `MIGROS_MIN_ANCHOR_CONVERSION` of PUBLISHABLE anchors converted to
  * offers, the run is a failure regardless of the absolute floor.
  *
- * The denominator excludes multi-buy anchors: policy (TP-7a), not parsing,
- * withholds those, and a week that is genuinely 30-40% multi-buy must not be
- * read as a parsing failure. `anchors - multiBuy` is the count this parser
- * actually attempted to turn into an offer.
+ * WP-C4: a multi-buy anchor is now published whenever its quantity can be
+ * read, so it counts toward `acceptedCount` like any other offer — the
+ * denominator no longer excludes it. The ONLY anchors still excluded are the
+ * ones that are structurally impossible to publish honestly:
+ * `multiBuyUnquantified` — a conditional price with no readable "from N
+ * items" label. A week that is genuinely 30-40% multi-buy is not read as a
+ * parsing failure; a week where the LABELS cannot be read still is.
  */
-export function migrosYieldReason(acceptedCount: number, anchorCount: number, multiBuyCount: number): CollectionFailureReason | null {
-  const publishable = anchorCount - multiBuyCount
+export function migrosYieldReason(acceptedCount: number, anchorCount: number, multiBuyUnquantifiedCount: number): CollectionFailureReason | null {
+  const publishable = anchorCount - multiBuyUnquantifiedCount
   if (publishable <= 0) return null
   if (acceptedCount < publishable * MIGROS_MIN_ANCHOR_CONVERSION) return 'below-expected-yield'
   return null
@@ -397,6 +460,37 @@ function findMultiBuyLabel(page: OcrPage, tile: Tile, stattBox: Box, pageHeight:
     const gap = stattBox.y0 - b.y1
     return gap >= 0 && gap <= pageHeight * MULTI_BUY_LABEL_MAX_GAP_FRACTION
   })
+}
+
+const MULTI_BUY_NAME_MAX_GAP_FRACTION = 0.04
+
+/**
+ * The name for an INLINE multi-buy anchor ("3.02statt4.50" — no separate
+ * display numeral, so there is no `saleBox` to search from). Real fixture
+ * evidence (WP-C4): a multi-buy tile reads top to bottom as [name] ->
+ * [zero or more descriptor/origin lines] -> [the inline-price line], for
+ * example "Trauben weiss und gemischt,kernlos" -> "Schale,500g,z.B.weiss," ->
+ * "Italien/Spanien/Griechenland," -> "1.17statt1.75,...". The origin line
+ * sits CLOSER to the price (3px) than the real name does (76px) and is not
+ * (yet) in DESCRIPTOR, so "nearest wins" — the ordinary anchor's rule,
+ * correct there because its own price sits at the SAME height as its name —
+ * would pick the wrong line here. A multi-buy tile has no such same-height
+ * anchor, so this picks the TOPMOST non-price, non-descriptor, non-label
+ * candidate within the gap instead: the name is always read first, whatever
+ * descriptor text follows it before the price.
+ */
+function findMultiBuyNameLine(page: OcrPage, tile: Tile, stattBox: Box, pageHeight: number): OcrItem | undefined {
+  return page.items
+    .filter((i) => {
+      const b = boxOf(i)
+      if (!withinTile(b, tile)) return false
+      const gap = stattBox.y0 - b.y1
+      return gap >= -5 && gap <= pageHeight * MULTI_BUY_NAME_MAX_GAP_FRACTION
+    })
+    .filter((i) => !PRICE.test(i.text.trim()) && !PERCENT.test(i.text.trim()) && !STATT_WORD.test(i.text) && !AB_STUECK.test(i.text))
+    .filter((i) => !DESCRIPTOR.test(i.text))
+    .filter((i) => i.text.trim().length > 3)
+    .sort((a, b) => boxOf(a).y0 - boxOf(b).y0)[0]
 }
 
 /** Lines Migros wraps onto a second row: a hyphenated break, or its own bare brand word. */
@@ -476,8 +570,24 @@ export function joinNameParts(primaryText: string, continuationFirstSegment: str
   return `${primaryText} ${continuationFirstSegment}`
 }
 
-function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, pageHeight: number): { text: string; box: Box } | undefined {
-  const primary = findPrimaryNameLine(page, tile, saleBox, stattBox, pageHeight)
+/**
+ * `wideNameSearch` selects `findMultiBuyNameLine` over the ordinary
+ * `findPrimaryNameLine` — true exactly when the anchor's price came from the
+ * INLINE multi-buy form, where there is no separate `saleBox` at the same
+ * height as the name (see `findMultiBuyNameLine`'s own header for why the
+ * ordinary "nearest wins" rule picks the wrong line there).
+ */
+function findOfferName(
+  page: OcrPage,
+  tile: Tile,
+  saleBox: Box,
+  stattBox: Box,
+  pageHeight: number,
+  wideNameSearch: boolean,
+): { text: string; box: Box } | undefined {
+  const primary = wideNameSearch
+    ? findMultiBuyNameLine(page, tile, stattBox, pageHeight)
+    : findPrimaryNameLine(page, tile, saleBox, stattBox, pageHeight)
   if (!primary) return undefined
 
   const primaryText = primary.text.trim()
@@ -573,20 +683,31 @@ function findPrintedDiscount(page: OcrPage, stattBox: Box, tile: Tile): Discount
   return isOk(d) ? d.value : null
 }
 
-type MultiBuyOutcome = { kind: 'multi-buy'; warning: CollectionWarning }
+/** Local mirror of `QuantityRequirement`'s two shapes — kept anchor-parsing-only until built into the real domain value in `buildOfferFromDetails`. */
+type QuantityOutcome = { kind: 'single' } | { kind: 'minimum'; count: number }
+const SINGLE_QUANTITY: QuantityOutcome = { kind: 'single' }
+
+type MultiBuyUnquantifiedOutcome = { kind: 'multi-buy-unquantified'; warning: CollectionWarning }
 type RejectedOutcome = {
   kind: 'rejected'
   warning: CollectionWarning
   funnelField: keyof Omit<MigrosFunnel, 'anchors' | 'accepted'>
 }
-type AnchorOutcome = { kind: 'offer'; offer: Offer } | MultiBuyOutcome | RejectedOutcome
-type PriceOutcome = MultiBuyOutcome | RejectedOutcome | { kind: 'prices'; sale: Money; original: Money; saleItem: OcrItem }
-type PriceFormOutcome = MultiBuyOutcome | RejectedOutcome | { kind: 'priced'; originalFrancs: number }
+type AnchorOutcome = { kind: 'offer'; offer: Offer } | MultiBuyUnquantifiedOutcome | RejectedOutcome
+type PriceOutcome =
+  | MultiBuyUnquantifiedOutcome
+  | RejectedOutcome
+  | { kind: 'prices'; sale: Money; original: Money; saleBox: Box; quantity: QuantityOutcome; usedInlinePrice: boolean }
+type PriceFormOutcome =
+  | MultiBuyUnquantifiedOutcome
+  | RejectedOutcome
+  | { kind: 'priced'; originalFrancs: number; quantity: QuantityOutcome; inlineSaleFrancs: number | null }
 
 /**
- * Reads the anchor's own statt price and tells apart the three shapes it may
- * take: unreadable, multi-buy (inline token OR "ab N Stück" label), or an
- * ordinary priced anchor ready to be paired with a display price.
+ * Reads the anchor's own statt price and tells apart the shapes it may take:
+ * unreadable, multi-buy with no readable quantity (withheld — TP-7a), or a
+ * priced anchor ready to be paired with a display price (ordinary, or
+ * multi-buy WITH a readable quantity, WP-C4).
  */
 function classifyAnchorPriceForm(stattItem: OcrItem, page: OcrPage, tile: Tile, stattBox: Box, pageRef: string): PriceFormOutcome {
   const originalFrancs = toFrancs(stattItem.text.match(STATT)?.[1] ?? '')
@@ -600,31 +721,64 @@ function classifyAnchorPriceForm(stattItem: OcrItem, page: OcrPage, tile: Tile, 
 
   const inlineMatch = stattItem.text.match(INLINE_STATT)
   const multiBuyLabel = findMultiBuyLabel(page, tile, stattBox, page.height)
-  if (inlineMatch || multiBuyLabel) {
-    // "ab 2 Stück": the sale price is printed inline, with no separate
-    // display numeral — or split by OCR into two tokens, caught by the label
-    // instead. Parsed so the funnel counts it honestly instead of reporting
-    // "no readable display price" — but not published: it needs
-    // QuantityRequirement (WP-C4) to say "from 2 items" instead of
-    // rendering as an unconditional price, which TP-7a has not cleared yet.
+  if (!inlineMatch && !multiBuyLabel) {
+    return { kind: 'priced', originalFrancs, quantity: SINGLE_QUANTITY, inlineSaleFrancs: null }
+  }
+
+  // Multi-buy SHAPE detected — an inline "X statt Y" token, a nearby "ab N
+  // Stück" label, or both. TP-7a: publish it labelled "from N items" the
+  // moment N can be read; the label is the only source of N, so an
+  // inline-only anchor with no locatable label is still withheld.
+  const quantityCount = multiBuyLabel ? parseMultiBuyQuantity(multiBuyLabel.text) : null
+  if (quantityCount === null) {
     const inlineSale = inlineMatch ? toFrancs(inlineMatch[1]!) : null
     return {
-      kind: 'multi-buy',
+      kind: 'multi-buy-unquantified',
       warning: {
         message:
-          `multi-buy: "${stattItem.text.trim()}"${multiBuyLabel ? ` near "${multiBuyLabel.text.trim()}"` : ''} is an ab-2-Stück price ` +
-          `(${inlineSale === null ? 'unread' : inlineSale.toFixed(2)} statt ${originalFrancs.toFixed(2)}) — ` +
-          'parsed but withheld until QuantityRequirement lands (WP-C4)',
+          `multi-buy: "${stattItem.text.trim()}"${multiBuyLabel ? ` near "${multiBuyLabel.text.trim()}"` : ''} is a conditional price ` +
+          `(${inlineSale === null ? 'unread' : inlineSale.toFixed(2)} statt ${originalFrancs.toFixed(2)}) with no readable "ab N Stück" quantity — ` +
+          'withheld, never published without an honest label',
         item: pageRef,
       },
     }
   }
 
-  return { kind: 'priced', originalFrancs }
+  return {
+    kind: 'priced',
+    originalFrancs,
+    quantity: { kind: 'minimum', count: quantityCount },
+    inlineSaleFrancs: inlineMatch ? toFrancs(inlineMatch[1]!) : null,
+  }
 }
 
-/** Pairs an already-classified, ordinary statt price with its display price. */
-function pairSalePrice(page: OcrPage, tile: Tile, stattBox: Box, originalFrancs: number, pageRef: string): PriceOutcome {
+/**
+ * Pairs an already-classified statt price with its display price.
+ *
+ * The INLINE multi-buy form (`inlineSaleFrancs !== null`) has no separate
+ * display numeral at all — the sale price is read straight off the statt
+ * line's own text, and `saleBox` is the statt line's own box (there is
+ * nothing else to point at for the name search or the crop region). Every
+ * other form — ordinary, or multi-buy where OCR split the price into its own
+ * token — searches for the nearest plausible display price above, exactly as
+ * before.
+ */
+function pairSalePrice(
+  page: OcrPage,
+  tile: Tile,
+  stattBox: Box,
+  form: { originalFrancs: number; quantity: QuantityOutcome; inlineSaleFrancs: number | null },
+  pageRef: string,
+): PriceOutcome {
+  if (form.inlineSaleFrancs !== null) {
+    const sale = createMoney(form.inlineSaleFrancs)
+    const original = createMoney(form.originalFrancs)
+    if (!isOk(sale) || !isOk(original)) {
+      return { kind: 'rejected', warning: { message: 'bad inline price pair', item: pageRef }, funnelField: 'unreadablePrice' }
+    }
+    return { kind: 'prices', sale: sale.value, original: original.value, saleBox: stattBox, quantity: form.quantity, usedInlinePrice: true }
+  }
+
   const saleItem = findNearestSaleAbove(page, stattBox, tile)
   if (!saleItem) {
     // OCR mangles or drops the big display numeral often enough to matter.
@@ -633,7 +787,7 @@ function pairSalePrice(page: OcrPage, tile: Tile, stattBox: Box, originalFrancs:
     return {
       kind: 'rejected',
       warning: {
-        message: `no readable display price above "statt ${originalFrancs.toFixed(2)}" — offer dropped rather than derived`,
+        message: `no readable display price above "statt ${form.originalFrancs.toFixed(2)}" — offer dropped rather than derived`,
         item: pageRef,
       },
       funnelField: 'noDisplayPrice',
@@ -646,18 +800,18 @@ function pairSalePrice(page: OcrPage, tile: Tile, stattBox: Box, originalFrancs:
   }
 
   const sale = createMoney(saleFrancs)
-  const original = createMoney(originalFrancs)
+  const original = createMoney(form.originalFrancs)
   if (!isOk(sale) || !isOk(original)) {
     return { kind: 'rejected', warning: { message: 'bad price pair', item: pageRef }, funnelField: 'unreadablePrice' }
   }
 
-  return { kind: 'prices', sale: sale.value, original: original.value, saleItem }
+  return { kind: 'prices', sale: sale.value, original: original.value, saleBox: boxOf(saleItem), quantity: form.quantity, usedInlinePrice: false }
 }
 
 function readAnchorPrices(stattItem: OcrItem, page: OcrPage, tile: Tile, stattBox: Box, pageRef: string): PriceOutcome {
   const form = classifyAnchorPriceForm(stattItem, page, tile, stattBox, pageRef)
   if (form.kind !== 'priced') return form
-  return pairSalePrice(page, tile, stattBox, form.originalFrancs, pageRef)
+  return pairSalePrice(page, tile, stattBox, form, pageRef)
 }
 
 type DetailsOutcome =
@@ -670,12 +824,13 @@ function resolveOfferDetails(
   tile: Tile,
   stattBox: Box,
   saleBox: Box,
+  wideNameSearch: boolean,
   flyerValidity: ValidityPeriod,
   reference: Date,
   pageImageUrl: string | null,
   pageRef: string,
 ): DetailsOutcome {
-  const nameResult = findOfferName(page, tile, saleBox, stattBox, page.height)
+  const nameResult = findOfferName(page, tile, saleBox, stattBox, page.height, wideNameSearch)
   if (!nameResult) {
     return { kind: 'rejected', warning: { message: 'no product name near statt line', item: pageRef }, funnelField: 'noName' }
   }
@@ -697,10 +852,29 @@ function resolveOfferDetails(
 }
 
 type OfferDetails = { name: string; discount: Discount | null; validity: ValidityPeriod; image: ProductImage | null }
-type PricedAnchor = { sale: Money; original: Money }
+type PricedAnchor = { sale: Money; original: Money; quantity: QuantityOutcome }
+
+/**
+ * Builds a domain `QuantityRequirement` from the parsed outcome, through the
+ * SAME factory `Offer`'s own invariant re-check backstops (WP-C4) — never a
+ * raw literal, matching how `findPrintedDiscount` builds `Discount` through
+ * `printedDiscount` rather than assembling the object by hand.
+ */
+function buildQuantityRequirement(quantity: QuantityOutcome): Result<QuantityRequirement> {
+  return quantity.kind === 'single' ? ok(SINGLE_ITEM) : minimumQuantity(quantity.count)
+}
 
 /** Builds the domain `Offer` from an already-priced, already-detailed anchor. */
 function buildOfferFromDetails(priced: PricedAnchor, details: OfferDetails, flyerUrl: string | null, pageRef: string): AnchorOutcome {
+  const quantityRequirement = buildQuantityRequirement(priced.quantity)
+  if (!isOk(quantityRequirement)) {
+    return {
+      kind: 'rejected',
+      warning: { message: `${details.name}: ${quantityRequirement.error}`, item: pageRef },
+      funnelField: 'invariantRejected',
+    }
+  }
+
   const offer = createOffer({
     retailer: 'migros',
     productName: details.name,
@@ -708,6 +882,7 @@ function buildOfferFromDetails(priced: PricedAnchor, details: OfferDetails, flye
     originalPrice: priced.original,
     discount: details.discount,
     validity: details.validity,
+    quantityRequirement: quantityRequirement.value,
     image: details.image,
     // Migros DOES print category headings ("Brot & Backwaren") — the only
     // retailer that does. Associating them to products needs heading
@@ -726,7 +901,7 @@ function buildOfferFromDetails(priced: PricedAnchor, details: OfferDetails, flye
   }
 }
 
-/** Resolves one "statt" anchor into an offer, a multi-buy skip, or a rejection. */
+/** Resolves one "statt" anchor into an offer, a withheld multi-buy, or a rejection. */
 function resolveAnchor(
   stattItem: OcrItem,
   page: OcrPage,
@@ -742,8 +917,7 @@ function resolveAnchor(
   const priced = readAnchorPrices(stattItem, page, tile, stattBox, pageRef)
   if (priced.kind !== 'prices') return priced
 
-  const saleBox = boxOf(priced.saleItem)
-  const details = resolveOfferDetails(page, tile, stattBox, saleBox, validity, reference, pageImageUrl, pageRef)
+  const details = resolveOfferDetails(page, tile, stattBox, priced.saleBox, priced.usedInlinePrice, validity, reference, pageImageUrl, pageRef)
   if (details.kind !== 'details') return details
 
   return buildOfferFromDetails(priced, details, flyerUrl, pageRef)
@@ -780,10 +954,15 @@ export function parsePage(
 
     if (outcome.kind === 'offer') {
       offers.push(outcome.offer)
-      funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, accepted: 1, gridAccepted: usedRappenGrid(outcome.offer) ? 1 : 0 })
-    } else if (outcome.kind === 'multi-buy') {
+      funnel = addFunnel(funnel, {
+        ...EMPTY_FUNNEL,
+        accepted: 1,
+        gridAccepted: usedRappenGrid(outcome.offer) ? 1 : 0,
+        multiBuy: isMinimumQuantity(outcome.offer.quantityRequirement) ? 1 : 0,
+      })
+    } else if (outcome.kind === 'multi-buy-unquantified') {
       warnings.push(outcome.warning)
-      funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, multiBuy: 1 })
+      funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, multiBuyUnquantified: 1 })
     } else {
       warnings.push(outcome.warning)
       funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, [outcome.funnelField]: 1 })
@@ -858,7 +1037,7 @@ export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
         deps.flyerUrl,
       )
 
-      const yieldReason = migrosYieldReason(offers.length, funnel.anchors, funnel.multiBuy)
+      const yieldReason = migrosYieldReason(offers.length, funnel.anchors, funnel.multiBuyUnquantified)
       if (yieldReason) {
         return collectionFailed(
           'migros',

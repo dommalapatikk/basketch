@@ -4,6 +4,7 @@ import { type Offer, createOffer } from '../../collection/domain/offer'
 import { printedDiscount } from '../../collection/domain/discount'
 import { cropRegionImage, sourceUrlImage } from '../../collection/domain/product-image'
 import { unwrap } from '../../collection/domain/result'
+import { minimumQuantity } from '../../collection/domain/quantity-requirement'
 import { createValidityPeriod } from '../../collection/domain/validity-period'
 import { offerToRow, topCategoryFor } from './deal-row'
 import type { Classified } from './deal-row'
@@ -78,6 +79,19 @@ describe('the LIDL rule, persisted', () => {
     const row = offerToRow(offer(), classified(), 'run-1')
     expect(row.price_basis).toBe('everyone')
     expect(row.loyalty_programme).toBeNull()
+  })
+})
+
+describe('the quantity requirement, persisted (WP-C4)', () => {
+  it('records the stated minimum for a multi-buy price', () => {
+    const o = offer({ quantityRequirement: unwrap(minimumQuantity(2)) })
+    const row = offerToRow(o, classified(), 'run-1')
+    expect(row.min_quantity).toBe(2)
+  })
+
+  it('leaves min_quantity NULL for the ordinary single-item price', () => {
+    const row = offerToRow(offer(), classified(), 'run-1')
+    expect(row.min_quantity).toBeNull()
   })
 })
 

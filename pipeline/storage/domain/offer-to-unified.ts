@@ -20,6 +20,7 @@ import type { UnifiedDeal } from '../../../shared/types'
 import { toFrancs } from '../../collection/domain/money'
 import type { Offer } from '../../collection/domain/offer'
 import { isMemberOnly } from '../../collection/domain/price-basis'
+import { isMinimumQuantity } from '../../collection/domain/quantity-requirement'
 
 /** The natural key `deals` already enforces: unique_deal (store, product_name, valid_from). */
 export function naturalKey(store: string, productName: string, validFrom: string): string {
@@ -43,6 +44,18 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     imageUrl: image?.kind === 'source-url' ? image.url : null,
     sourceCategory: offer.sourceCategory,
     sourceUrl: offer.sourceUrl,
+    // Unlike priceBasis/CropRegion/rappen, `minQuantity` (WP-C4) travels
+    // through the MAIN write, not the enrichment pass: it is a plain
+    // nullable number — the same shape as `quantity` above — so it fits
+    // UnifiedDeal's flat shape with no loss. Routing it through the second
+    // write instead would put it on the same natural key
+    // (`store|productName|validFrom`) as every OTHER field the enrichment
+    // pass carries, which is exactly the identity that does NOT distinguish
+    // a multi-buy offer from its single-item sibling (see `offerKey` in
+    // `collection/domain/offer.ts`) — a second, later-processed offer for
+    // the same key would silently overwrite the first's enrichment in
+    // memory, before either ever reaches the database.
+    minQuantity: isMinimumQuantity(offer.quantityRequirement) ? offer.quantityRequirement.count : null,
   } as UnifiedDeal
 }
 
