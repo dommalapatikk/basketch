@@ -331,7 +331,7 @@ export function checkChunkDuration(chunkMs: number): string | null {
   return (
     `chunk took ${(chunkMs / 1000).toFixed(1)}s — longer than MAX_CHUNK_MS ` +
     `(${(MAX_CHUNK_MS / 1000).toFixed(1)}s, set from the max of four chunks on ${RUN_34833209176}). ` +
-    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant.'
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant in transformation/domain/resilience.ts.'
   )
 }
 
@@ -341,7 +341,7 @@ export function checkWriteTailDuration(writeTailMs: number): string | null {
   return (
     `write tail took ${(writeTailMs / 1000).toFixed(1)}s — longer than WRITE_TAIL_MS ` +
     `(${(WRITE_TAIL_MS / 1000).toFixed(1)}s, set from ${RUN_34833209176}, attempt 2, at ~1,500 deals). ` +
-    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant.'
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant in transformation/domain/resilience.ts.'
   )
 }
 
