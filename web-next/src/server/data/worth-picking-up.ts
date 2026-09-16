@@ -2,10 +2,36 @@ import 'server-only'
 
 import { cacheLife, cacheTag } from 'next/cache'
 
+import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingUpCard'
+import { createPriceBasis, type PriceBasis } from '@/lib/domain/price-basis'
+import { isOk } from '@/lib/domain/result'
 import { isInEffect } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
 import { STORE_META, type Store } from '@/lib/v3-types'
-import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingUpCard'
+
+/**
+ * Reads the two loyalty columns as one value object, the same rule
+ * server/data/supabase-provider.ts's `mapRow` already applies to the main
+ * deals list: a member price we cannot label is the one row we refuse
+ * outright, rather than show as an open price (Art. 3(1)(e) UWG).
+ *
+ * `context` is only for the log line — this module has two different row
+ * shapes (personal MV rows keyed by `deal_id`, cold-start rows keyed by
+ * `id`), and a caller-supplied identifier is simpler than a second
+ * overload per shape.
+ */
+function toPriceBasisOrNull(
+  priceBasis: string | null,
+  loyaltyProgramme: string | null,
+  context: string,
+): PriceBasis | null {
+  const result = createPriceBasis(priceBasis, loyaltyProgramme)
+  if (!isOk(result)) {
+    console.error(`[wpu] dropping candidate ${context}: ${result.error}`)
+    return null
+  }
+  return result.value
+}
 
 // Server fetch for Surface 3 candidates.
 // Cold-start (no email or <5 user_interest rows): top discounted active deals.
@@ -29,6 +55,16 @@ type PersonalCandidateRow = {
   valid_from: string
   /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
   valid_to: string | null
+  /**
+   * Carried through from `deals` via `concept_cheapest_now`
+   * (supabase/migrations/20260917_mv_price_basis.sql). `deals.price_basis`
+   * is `NOT NULL DEFAULT 'everyone'` at the source, but this column is
+   * typed nullable here regardless — see that migration's own comment on
+   * why the view does not assert a default a schema drift could silently
+   * hide.
+   */
+  price_basis: string | null
+  loyalty_programme: string | null
   interest_signal: string
   interest_added_at: string
 }
@@ -103,7 +139,7 @@ export async function getWorthPickingUpCandidates(args: {
   const { data, error } = await sb
     .from('worth_picking_up_candidates')
     .select(
-      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, interest_signal, interest_added_at',
+      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, price_basis, loyalty_programme, interest_signal, interest_added_at',
     )
     .eq('user_email', args.userEmail)
     .order('score', { ascending: false })
@@ -148,19 +184,30 @@ export async function getWorthPickingUpCandidates(args: {
 
   return {
     mode: 'personal',
-    candidates: inEffect.map((r) => {
+    // flatMap, not map: a row whose loyalty columns cannot be honestly read
+    // as a PriceBasis is dropped (toPriceBasisOrNull), the same "refuse
+    // rather than mislabel" rule supabase-provider.ts's mapRow applies to
+    // the main deals list — never reachable in practice (the CHECK
+    // constraint on `deals` should make it impossible), but a row this
+    // module cannot label is not one it shows as an open price.
+    candidates: inEffect.flatMap((r) => {
+      const priceBasis = toPriceBasisOrNull(r.price_basis, r.loyalty_programme, r.deal_id)
+      if (!priceBasis) return []
       const meta = STORE_META[r.deal_store as Store]
-      return {
-        conceptId: r.concept_id,
-        conceptName: nameById.get(r.concept_id) ?? '—',
-        imageUrl: imageByDealId.get(r.deal_id) ?? null,
-        storeSlug: r.deal_store,
-        storeLabel: meta?.label ?? r.deal_store,
-        dealPrice: r.deal_price,
-        regularPrice: r.deal_regular_price ?? r.deal_price,
-        discountPercent: r.discount_percent,
-        contextLine: contextLineFromSignal(r.interest_signal, r.interest_added_at),
-      }
+      return [
+        {
+          conceptId: r.concept_id,
+          conceptName: nameById.get(r.concept_id) ?? '—',
+          imageUrl: imageByDealId.get(r.deal_id) ?? null,
+          storeSlug: r.deal_store,
+          storeLabel: meta?.label ?? r.deal_store,
+          dealPrice: r.deal_price,
+          regularPrice: r.deal_regular_price ?? r.deal_price,
+          discountPercent: r.discount_percent,
+          contextLine: contextLineFromSignal(r.interest_signal, r.interest_added_at),
+          priceBasis,
+        },
+      ]
     }),
   }
 }
@@ -182,6 +229,9 @@ type ColdStartRow = {
   valid_from: string
   /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
   valid_to: string | null
+  /** `deals.price_basis`/`deals.loyalty_programme` — read directly, no view in the way. */
+  price_basis: string | null
+  loyalty_programme: string | null
 }
 
 /**
@@ -203,7 +253,7 @@ export async function coldStartCandidates(
   const { data } = await sb
     .from('deals')
     .select(
-      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to',
+      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to, price_basis, loyalty_programme',
     )
     .eq('is_active', true)
     .gte('valid_to', today)
@@ -213,19 +263,26 @@ export async function coldStartCandidates(
 
   const inEffect = inEffectCandidateRows((data ?? []) as ColdStartRow[], today)
 
-  return inEffect.map((d) => {
+  // flatMap, not map — same "refuse rather than mislabel" reasoning as the
+  // personal path above, via the same toPriceBasisOrNull helper.
+  return inEffect.flatMap((d) => {
+    const priceBasis = toPriceBasisOrNull(d.price_basis, d.loyalty_programme, d.id)
+    if (!priceBasis) return []
     const meta = STORE_META[d.store as Store]
-    return {
-      conceptId: d.id, // best-effort — uses deal id since cold-start has no concept link yet
-      conceptName: d.product_name,
-      imageUrl: d.image_url,
-      storeSlug: d.store,
-      storeLabel: meta?.label ?? d.store,
-      dealPrice: d.sale_price,
-      regularPrice: d.original_price ?? d.sale_price,
-      discountPercent: d.discount_percent,
-      contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').replace(/-/g, ' ')} this week`,
-    }
+    return [
+      {
+        conceptId: d.id, // best-effort — uses deal id since cold-start has no concept link yet
+        conceptName: d.product_name,
+        imageUrl: d.image_url,
+        storeSlug: d.store,
+        storeLabel: meta?.label ?? d.store,
+        dealPrice: d.sale_price,
+        regularPrice: d.original_price ?? d.sale_price,
+        discountPercent: d.discount_percent,
+        contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').replace(/-/g, ' ')} this week`,
+        priceBasis,
+      },
+    ]
   })
 }
 
