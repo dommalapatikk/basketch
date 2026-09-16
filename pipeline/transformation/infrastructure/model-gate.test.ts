@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { unwrap } from '../../collection/domain/result'
 import { createModelCallPolicy, type ModelSpec } from '../domain/model-registry'
+import { createModelPrice, usdMicros, usdToMicros } from '../domain/spend'
 import { GOOGLE_429_PER_MINUTE_BODY } from '../__fixtures__/google-429'
 import { ModelHttpError, createModelGate } from './model-gate'
 import { postJson } from './model-http'
@@ -298,5 +299,96 @@ describe('empty and trivial cases', () => {
     const gate = createModelGate(unwrap(createModelCallPolicy(spec())), clock)
     await gate.request(() => ok('ok'))
     expect(clock.sleeps).toHaveLength(0)
+  })
+})
+
+// WP-P8 (RCA item 5): the judge has been paid since 2026-09-10 with no
+// per-call cap and no money measured anywhere. `maxRappen: 500` could never
+// trip because `rappen` was never passed to `recordSpend`. These prove the
+// REPLACEMENT actually gates a call, black-box, through the same `request()`
+// every adapter calls — not just that `spend.ts`'s pure functions are correct
+// in isolation (see `spend.test.ts` for that).
+describe('the spend ledger (WP-P8) — a paid call cannot be made without a reservation', () => {
+  const price = unwrap(createModelPrice({ inputPerMTokMicros: 50_000, outputPerMTokMicros: 400_000 }))
+  // 2,000 output tokens × $0.40/M = 800 micros worst case per call.
+  const paidPolicy = (overrides: Partial<ModelSpec> = {}, retryOverrides = { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 }) =>
+    unwrap(
+      createModelCallPolicy(
+        spec({
+          id: 'openai/gpt-5-nano',
+          provider: 'openrouter',
+          requestsPerMinute: 20,
+          billing: { kind: 'paid', price, maxOutputTokens: 2_000 },
+          ...overrides,
+        }),
+        retryOverrides,
+      ),
+    )
+
+  it('refuses a paid call outright when the ledger cannot cover the worst case — never even reaches the network', async () => {
+    const gate = createModelGate(paidPolicy(), { ...fakeClock(), spendCeilingMicros: unwrap(usdToMicros(0.0005)) }) // 500 micros < 800
+    let attempted = false
+
+    await expect(
+      gate.request(async () => {
+        attempted = true
+        return { ok: true }
+      }),
+    ).rejects.toThrow(/spend-exhausted/)
+
+    expect(attempted).toBe(false)
+  })
+
+  it('settles a failed call at the worst case — the judge recorded 0 tokens on any error', async () => {
+    // Ceiling covers exactly ONE worst-case call.
+    const gate = createModelGate(paidPolicy(), { ...fakeClock(), spendCeilingMicros: unwrap(usdToMicros(0.0008)) })
+
+    await expect(
+      gate.request(async () => {
+        throw new ModelHttpError('HTTP 500', 500, null)
+      }),
+    ).rejects.toThrow()
+
+    // If the failed call had settled at 0 (the old defect), the ceiling would
+    // still have 800 micros free and this second call would go through. It
+    // must be refused instead — proof the first call cost its full worst case.
+    await expect(gate.request(async () => ({ ok: true }))).rejects.toThrow(/spend-exhausted/)
+  })
+
+  it('a successful call settles at its REAL reported cost, freeing room for the next call', async () => {
+    // Ceiling covers 1.25x one worst-case call (1,000 micros vs 800).
+    const gate = createModelGate(paidPolicy(), { ...fakeClock(), spendCeilingMicros: unwrap(usdMicros(1_000)) })
+
+    // First call reports a REAL cost of only 100 micros via usage.cost.
+    await gate.request(async () => ({ usage: { cost: 0.0001 } }))
+
+    // Remaining should now be 900 — enough for a second 800-micro reservation.
+    // Had the gate settled the first call at its 800 worst case instead (the
+    // defect this replaces), only 200 would remain and this would be refused.
+    let secondAttempted = false
+    await gate.request(async () => {
+      secondAttempted = true
+      return { usage: { cost: 0.0001 } }
+    })
+    expect(secondAttempted).toBe(true)
+  })
+
+  it('effective concurrency never lets reservations exceed what remains', async () => {
+    // maxInFlight 2, but the ceiling covers only ONE worst-case call.
+    const gate = createModelGate(paidPolicy({ maxInFlight: 2 }), { ...fakeClock(), spendCeilingMicros: unwrap(usdToMicros(0.0008)) })
+
+    // Reservation happens synchronously, before the in-flight slot is even
+    // requested — so the second call is refused immediately, not queued
+    // behind the first and then double-spent once both are in flight.
+    const first = gate.request(() => new Promise((resolve) => setTimeout(() => resolve({ usage: { cost: 0 } }), 0)))
+    await expect(gate.request(async () => ({ ok: true }))).rejects.toThrow(/spend-exhausted/)
+    await first
+  })
+
+  it('a free-tier policy (no billing) never reserves anything — Gemini calls are unaffected', async () => {
+    const gate = createModelGate(unwrap(createModelCallPolicy(spec())), fakeClock())
+    // No spendCeilingMicros supplied at all, and the call still succeeds —
+    // proof the reservation step is skipped entirely for a free-tier policy.
+    await expect(gate.request(() => ok('free'))).resolves.toBe('free')
   })
 })

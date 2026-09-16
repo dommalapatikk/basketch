@@ -189,6 +189,10 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
   // the file header for why the ceiling defaults to ZERO (fail closed) rather
   // than unlimited when a caller omits it.
   let spendLedger: SpendLedgerState = createSpendLedgerState(deps.spendCeilingMicros ?? ZERO_USD_MICROS)
+  // Captured once so the reserve/settle helpers below never repeat a
+  // `policy.spend!` non-null assertion — `policy` itself never changes after
+  // construction, so this is exactly as stable as `policy.spend` would be.
+  const spendPolicy = policy.spend
 
   // A simple counting semaphore. maxInFlight: 1 keeps today's sequential
   // behaviour true BY CONSTRUCTION — a second caller (say, backfill starting
@@ -209,6 +213,29 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
     if (next) next()
   }
 
+  /**
+   * WP-P8. `null` for a free-tier policy (nothing to reserve). For a paid
+   * policy, reserves the WORST CASE for one logical `request()` call before
+   * any HTTP attempt is made, and THROWS if the ledger cannot cover it — the
+   * same "spend-exhausted" shape every adapter's existing try/catch already
+   * turns into a graceful `'unavailable'` verdict, so no adapter needed to
+   * change to degrade safely.
+   */
+  function reserveForCall(): Reservation | null {
+    if (!spendPolicy) return null
+    const result = reserve(spendLedger, spendPolicy.worstCaseCallCostMicros)
+    if (!result.ok) {
+      throw new Error(`spend-exhausted: ${key}: ${result.reason}`)
+    }
+    spendLedger = result.state
+    return result.reservation
+  }
+
+  /** Settles a reservation exactly once — the caller decides `known` vs `unknown`. */
+  function settleForCall(reservation: Reservation, usage: Parameters<typeof settle>[2]): void {
+    spendLedger = settle(spendLedger, reservation, usage)
+  }
+
   return {
     key,
 
@@ -217,57 +244,74 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
         throw new Error(`circuit-open: ${circuit.reason ?? 'unknown'}`)
       }
 
-      for (let callAttempt = 0; ; ) {
-        // ── pacing ──────────────────────────────────────────────────────────
-        let rateWaits = 0
-        for (;;) {
-          const decision = checkRate({ requestsPerMinute: policy.requestsPerMinute, requestsPerDay: policy.requestsPerDay }, rate, now())
-          if (decision.proceed) {
-            rate = decision.state
-            break
+      const reservation = reserveForCall()
+      let settledAtKnownUsage = false
+
+      try {
+        for (let callAttempt = 0; ; ) {
+          // ── pacing ────────────────────────────────────────────────────────
+          let rateWaits = 0
+          for (;;) {
+            const decision = checkRate({ requestsPerMinute: policy.requestsPerMinute, requestsPerDay: policy.requestsPerDay }, rate, now())
+            if (decision.proceed) {
+              rate = decision.state
+              break
+            }
+            if (decision.waitMs < 0) {
+              circuit = recordFailure(circuit, 'rate-limited-daily')
+              throw new Error(`rate-limited-daily: ${decision.reason}`)
+            }
+            if (++rateWaits > MAX_RATE_WAITS) {
+              throw new Error(`rate-limited: ${decision.reason}, still blocked after ${MAX_RATE_WAITS} waits`)
+            }
+            log(`${key}: ${decision.reason}, waiting ${Math.round(decision.waitMs / 1000)}s`)
+            await sleep(decision.waitMs)
           }
-          if (decision.waitMs < 0) {
-            circuit = recordFailure(circuit, 'rate-limited-daily')
-            throw new Error(`rate-limited-daily: ${decision.reason}`)
+
+          // ── in-flight limit ───────────────────────────────────────────────
+          await acquireSlot()
+
+          try {
+            const result = await attempt()
+            circuit = recordSuccess()
+            if (reservation && spendPolicy) {
+              settleForCall(reservation, usageFromOpenRouterResponse(result, spendPolicy.price))
+              settledAtKnownUsage = true
+            }
+            return result
+          } catch (e) {
+            const { status, retryAfterMs } = statusAndRetryAfter(e)
+            const message = e instanceof Error ? e.message : String(e)
+            const kind = classifyFailure(status, message)
+            const decision = decideRetry(kind, callAttempt, policy.retry, retryAfterMs)
+
+            if (!decision.retry) {
+              const contentFailure = isRequestContentFailure(kind, status)
+              if (!contentFailure) circuit = recordFailure(circuit, kind)
+              log(
+                `${key}: giving up after attempt ${callAttempt + 1} — ${decision.reason}` +
+                  (contentFailure ? ' (content failure — this request only, not counted toward the circuit)' : ''),
+              )
+              // Prefixed with `kind`, same convention resilientClassifier used —
+              // callers (and tests) grep the message for 'rate-limited-daily',
+              // 'circuit-open' and friends without needing the structured fields.
+              throw new ModelHttpError(`${kind}: ${message}`, status, retryAfterMs)
+            }
+
+            log(`${key}: ${kind}, retrying in ${Math.round(decision.delayMs / 1000)}s (attempt ${decision.attempt})`)
+            await sleep(decision.delayMs)
+            callAttempt = decision.attempt
+          } finally {
+            releaseSlot()
           }
-          if (++rateWaits > MAX_RATE_WAITS) {
-            throw new Error(`rate-limited: ${decision.reason}, still blocked after ${MAX_RATE_WAITS} waits`)
-          }
-          log(`${key}: ${decision.reason}, waiting ${Math.round(decision.waitMs / 1000)}s`)
-          await sleep(decision.waitMs)
         }
-
-        // ── in-flight limit ─────────────────────────────────────────────────
-        await acquireSlot()
-
-        try {
-          const result = await attempt()
-          circuit = recordSuccess()
-          return result
-        } catch (e) {
-          const { status, retryAfterMs } = statusAndRetryAfter(e)
-          const message = e instanceof Error ? e.message : String(e)
-          const kind = classifyFailure(status, message)
-          const decision = decideRetry(kind, callAttempt, policy.retry, retryAfterMs)
-
-          if (!decision.retry) {
-            const contentFailure = isRequestContentFailure(kind, status)
-            if (!contentFailure) circuit = recordFailure(circuit, kind)
-            log(
-              `${key}: giving up after attempt ${callAttempt + 1} — ${decision.reason}` +
-                (contentFailure ? ' (content failure — this request only, not counted toward the circuit)' : ''),
-            )
-            // Prefixed with `kind`, same convention resilientClassifier used —
-            // callers (and tests) grep the message for 'rate-limited-daily',
-            // 'circuit-open' and friends without needing the structured fields.
-            throw new ModelHttpError(`${kind}: ${message}`, status, retryAfterMs)
-          }
-
-          log(`${key}: ${kind}, retrying in ${Math.round(decision.delayMs / 1000)}s (attempt ${decision.attempt})`)
-          await sleep(decision.delayMs)
-          callAttempt = decision.attempt
-        } finally {
-          releaseSlot()
+      } finally {
+        // WP-P8: covers EVERY exit that is not a settled success — a thrown
+        // ModelHttpError, retries exhausted, a pacing-loop throw
+        // (rate-limited-daily, MAX_RATE_WAITS). `settle`'s own invariant does
+        // the rest: unknown usage always costs the worst case, never 0.
+        if (reservation && !settledAtKnownUsage) {
+          settleForCall(reservation, { kind: 'unknown' })
         }
       }
     },
