@@ -197,6 +197,39 @@ describe('parsePage never publishes site chrome as a product image', () => {
   })
 })
 
+/**
+ * MUST-FIX 1 (code review of the image guard above): the SAME unbounded slice
+ * that let a wrong IMAGE through can just as easily fabricate a wrong PRICE —
+ * a worse defect, because `statt <price>` becomes `originalPrice`, and a
+ * crossed-out price Volg never printed for that product is exactly the Art.
+ * 3(1)(e) UWG exposure this codebase's own domain rules exist to prevent.
+ *
+ * `title`, `price-main` and `reduction` are all anchored on `c-product__*`
+ * classes, but the "statt" match (`/statt\s*([\d.,–-]+)/`) is a BARE text
+ * search over the whole block with no class anchor at all. Reproduced against
+ * the real fixture: remove "Glade Duftkerze Anti-Tabac"'s own `statt 12.50`
+ * and plant an unrelated `statt 99.90` in the page chrome between the product
+ * grid and `<footer>` — before the fix, the unbounded last-block slice let
+ * that stray text become this product's `originalPrice`.
+ */
+describe('parsePage never fabricates a price from page chrome after the last product', () => {
+  it('a stray "statt 99.90" planted before <footer> never becomes an offer\'s originalPrice', () => {
+    const mutated = FIXTURE.replace('statt 12.50', '').replace('<footer', 'Aktion statt 99.90 sparen<footer')
+
+    const { offers } = parsePage(mutated, REFERENCE)
+    const o = offers.find((x) => x.productName === 'Glade Duftkerze Anti-Tabac')
+
+    expect(o).toBeDefined()
+    // Never the fabricated price — this is the defect this test exists to catch.
+    expect(o?.originalPrice?.rappen).not.toBe(9990)
+    // With its own statt removed and the block correctly bounded before
+    // <footer>, no statt is visible to this product at all — null is the
+    // honest result, matching the ALDI-rule invariant (original null <=> discount null).
+    expect(o?.originalPrice).toBeNull()
+    expect(o?.discount).toBeNull()
+  })
+})
+
 describe('createVolgHtmlSource', () => {
   const source = (fetchPage: () => Promise<string>, min = 10) =>
     createVolgHtmlSource({ fetchPage, reference: REFERENCE, expectedMinimumOffers: min })

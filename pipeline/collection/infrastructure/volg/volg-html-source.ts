@@ -148,12 +148,35 @@ export function splitSections(html: string, reference: Date): Section[] {
   }))
 }
 
+/**
+ * MUST-FIX 1 (code review): the LAST product in a section has no next
+ * "c-product" marker to stop at, so its slice used to run all the way to the
+ * end of `sectionHtml` — which, for the page's last section, is the end of
+ * the entire fetched document: share buttons, scripts, and `<footer>`. A bare
+ * text search anywhere in THAT block (the "statt" price match below has no
+ * class anchor, unlike title/price/reduction) can then pick up chrome content
+ * as if it belonged to the product — a wrong IMAGE (isChromeImagePath) or,
+ * worse, a fabricated PRICE (a crossed-out price Volg never printed, the Art.
+ * 3(1)(e) UWG exposure the regression test below is named after). Bounding
+ * every block before the trailing chrome — the share-buttons `<section>` AND
+ * `<footer>`, see below — closes both at once, at the source.
+ */
 function parseProductBlocks(sectionHtml: string): string[] {
   // Blocks are delimited by the opening tag; slice to the next one.
   const starts: number[] = []
   const re = /<div class="c-product"/g
   for (const m of sectionHtml.matchAll(re)) starts.push(m.index)
-  return starts.map((s, i) => sectionHtml.slice(s, starts[i + 1] ?? sectionHtml.length))
+
+  // On the LAST promo section, sectionHtml runs past the product grid: a
+  // share-buttons `<section>` and scripts sit between the grid and
+  // `<footer>` (verified on the committed fixture). Bounding at `<footer`
+  // alone is not enough — that chrome section itself, not only the footer,
+  // is where the fabricated-price mutation in the regression test lands.
+  // Bounding at whichever of `<section` or `<footer` comes first closes both.
+  const chromeIndexes = [sectionHtml.search(/<section\b/), sectionHtml.search(/<footer\b/)].filter((i) => i >= 0)
+  const end = chromeIndexes.length > 0 ? Math.min(...chromeIndexes) : sectionHtml.length
+
+  return starts.map((s, i) => sectionHtml.slice(s, starts[i + 1] ?? end))
 }
 
 /**
