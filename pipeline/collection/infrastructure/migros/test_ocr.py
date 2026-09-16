@@ -11,6 +11,7 @@ product's photograph, and nothing anywhere reports an error.
 
 import json
 import sys
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -166,26 +167,31 @@ def test_process_entries_keeps_the_manifest_page_number_even_when_that_page_erro
     assert results[1] == {"pageNumber": 4, "error": "truncated JPEG"}
 
 
-def test_process_entries_never_touches_the_network_for_a_local_path():
-    # "Fetch once": the caller already downloaded the bytes. A source that is
-    # NOT an http(s) url must be opened locally — load_image()'s own
-    # startswith("http") branch is what real production relies on; this test
-    # pins the contract at the process_entries level, where a regression would
-    # silently double every week's Issuu bandwidth.
-    seen_sources = []
+def test_process_entries_never_touches_the_network_for_a_local_path(tmp_path, monkeypatch):
+    """Calls the REAL `load_image` (the default, not a stub) with
+    `urlopen` patched to raise. A stubbed `load_image_fn` records what
+    string it received but proves nothing about whether the REAL function
+    would have reached the network — this exercises the actual
+    `source.startswith("http")` branch in ocr.py's own `load_image`, so a
+    regression here fails loudly instead of passing vacuously.
+    """
+    from PIL import Image
 
-    def load_image_fn(source):
-        seen_sources.append(source)
-        return _FakeImage((10, 10))
+    image_path = tmp_path / "page-1.jpg"
+    Image.new("RGB", (4, 4), color="white").save(image_path)
 
-    list(
+    def urlopen_must_not_be_called(*args, **kwargs):
+        raise AssertionError("load_image reached the network for a local path")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen_must_not_be_called)
+
+    results = list(
         process_entries(
-            [(1, "/tmp/basketch-migros/page-1.jpg")],
+            [(1, str(image_path))],
             ocr=lambda arr: ([], None),
             tiled=False,
-            load_image_fn=load_image_fn,
+            # load_image_fn omitted — this is ocr.py's REAL load_image.
         )
     )
 
-    assert seen_sources == ["/tmp/basketch-migros/page-1.jpg"]
-    assert not seen_sources[0].startswith("http")
+    assert results == [{"pageNumber": 1, "width": 4, "height": 4, "items": []}]

@@ -60,9 +60,11 @@ export type Transport = {
   /**
    * Takes the ALREADY-DOWNLOADED page images (real page numbers, real bytes —
    * see the "fetch once" note on ocrPages below), never a list of URLs to
-   * fetch again.
+   * fetch again. `errors` carries ocr.py's own per-page stderr diagnostics
+   * (code review 2026-09-16) — previously discarded even when every page
+   * failed, leaving only a generic "is rapidocr installed?" guess.
    */
-  ocr: (images: readonly FlyerImage[], tiled: boolean) => Promise<OcrPage[]>
+  ocr: (images: readonly FlyerImage[], tiled: boolean) => Promise<{ pages: OcrPage[]; errors: readonly OcrPageError[] }>
   dennerFetchPage: typeof dennerFetchPage
   coopFetchPage: typeof coopFetchPage
   volgFetchPage: typeof volgFetchPage
@@ -89,6 +91,20 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** A source that cannot fetch reports it as a failure, never as zero offers. */
 function unavailable(retailer: string, reason: string): never {
   throw new Error(`${retailer}: ${reason}`)
+}
+
+/**
+ * Builds the "no pages" diagnostic from ocr.py's own stderr, when it has
+ * one. The generic "is rapidocr-onnxruntime installed?" guess is kept as a
+ * fallback ONLY for a total failure with no per-page diagnostics at all
+ * (rapidocr really did fail to import, or the manifest was empty) — code
+ * review 2026-09-16: that guess was shown even when rapidocr ran fine and
+ * every page individually failed for a real, stated reason.
+ */
+export function migrosUnavailableReason(errors: readonly { pageNumber: number; error: string }[]): string {
+  if (errors.length === 0) return 'OCR produced no pages — is rapidocr-onnxruntime installed?'
+  const detail = errors.map((e) => `page ${e.pageNumber}: ${e.error}`).join('; ')
+  return `OCR produced no pages — every page failed: ${detail}`
 }
 
 // ── Migros OCR ───────────────────────────────────────────────────────────────
@@ -126,6 +142,9 @@ export function buildOcrManifest(
 
 type OcrLineResult = { pageNumber: number; width: number; height: number; items?: unknown[]; error?: string }
 
+/** One page ocr.py could not read, with its own diagnostic (from stderr). */
+export type OcrPageError = { readonly pageNumber: number; readonly error: string }
+
 /** Parses ocr.py's line-delimited JSON stdout into OcrPage[]. Pure. */
 export function parseOcrOutput(stdout: string): OcrPage[] {
   const pages: OcrPage[] = []
@@ -148,7 +167,51 @@ export function parseOcrOutput(stdout: string): OcrPage[] {
   return pages
 }
 
-type ExecPython = (python: string, args: readonly string[], opts: { maxBuffer: number }) => Promise<{ stdout: string }>
+/**
+ * Parses ocr.py's line-delimited JSON STDERR into per-page errors. Pure.
+ *
+ * Code review 2026-09-16: this was previously never read at all — a page
+ * that failed left no trace beyond `process_entries`' own stderr write, and
+ * "OCR produced no pages" always blamed a missing rapidocr install, even
+ * when rapidocr ran fine and every page individually errored (a corrupt
+ * download, an unreadable JPEG).
+ */
+export function parseOcrErrors(stderr: string): OcrPageError[] {
+  const errors: OcrPageError[] = []
+  for (const line of stderr.split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const parsed = JSON.parse(line) as OcrLineResult
+      if (parsed.error) errors.push({ pageNumber: parsed.pageNumber, error: parsed.error })
+    } catch {
+      // A non-JSON stderr line (a python traceback, say) is not a per-page
+      // error we can attribute to one page — logged, not parsed.
+      console.warn(`[migros] ocr.py stderr (unparsed): ${line}`)
+    }
+  }
+  return errors
+}
+
+type ExecPython = (
+  python: string,
+  args: readonly string[],
+  opts: { maxBuffer: number },
+) => Promise<{ stdout: string; stderr: string }>
+
+/**
+ * Writes every image's bytes to its manifest path. `Promise.allSettled`, not
+ * `Promise.all` (code review 2026-09-16): `Promise.all` rejects as soon as
+ * ONE write fails while the others are still in flight, and the caller's
+ * `finally` then removes the temp directory concurrently with writes still
+ * running — a second, unrelated ENOENT/EBUSY can mask the real first error.
+ * Waiting for every write to settle first, then surfacing the FIRST failure,
+ * keeps the error message honest and the cleanup race-free.
+ */
+export async function writeManifestFiles(images: readonly FlyerImage[], manifest: readonly OcrManifestEntry[]): Promise<void> {
+  const results = await Promise.allSettled(images.map((image, index) => writeFile(manifest[index]!.source, image.bytes)))
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (failed) throw failed.reason
+}
 
 /**
  * Builds the OCR runner. `exec` is injected so tests can assert what would
@@ -156,20 +219,28 @@ type ExecPython = (python: string, args: readonly string[], opts: { maxBuffer: n
  * page numbers, local paths, never the original urls) without spawning
  * python or touching the network.
  */
-export function createOcrRunner(exec: ExecPython): (images: readonly FlyerImage[], tiled: boolean) => Promise<OcrPage[]> {
+export function createOcrRunner(
+  exec: ExecPython,
+): (images: readonly FlyerImage[], tiled: boolean) => Promise<{ pages: OcrPage[]; errors: readonly OcrPageError[] }> {
   return async (images, tiled) => {
     const python = process.env.MIGROS_OCR_PYTHON ?? 'python3'
     const dir = await mkdtemp(join(tmpdir(), 'migros-ocr-'))
     try {
       const manifest = buildOcrManifest(images, (image, index) => join(dir, `page-${image.pageNumber}-${index}.jpg`))
-      await Promise.all(images.map((image, index) => writeFile(manifest[index]!.source, image.bytes)))
+      await writeManifestFiles(images, manifest)
 
       const manifestPath = join(dir, 'manifest.json')
       await writeFile(manifestPath, JSON.stringify(manifest))
 
       const args = [OCR_SCRIPT, ...(tiled ? ['--tiled'] : []), '--manifest', manifestPath]
-      const { stdout } = await exec(python, args, { maxBuffer: 128 * 1024 * 1024 })
-      return parseOcrOutput(stdout)
+      const { stdout, stderr } = await exec(python, args, { maxBuffer: 128 * 1024 * 1024 })
+      const errors = parseOcrErrors(stderr)
+      for (const e of errors) {
+        // Structured, one line per failed page — not the page's full OCR
+        // payload, and never silently discarded on an otherwise-successful run.
+        console.warn(`[migros] page ${e.pageNumber} unreadable: ${e.error}`)
+      }
+      return { pages: parseOcrOutput(stdout), errors }
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -291,8 +362,8 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
 
       // The already-downloaded images go through, real page numbers and all —
       // never re-derived from a url list. See the "FETCH ONCE" note above.
-      const pages = await net.ocr(images.images, options.migrosTiledOcr ?? false)
-      if (pages.length === 0) unavailable('migros', 'OCR produced no pages — is rapidocr-onnxruntime installed?')
+      const { pages, errors } = await net.ocr(images.images, options.migrosTiledOcr ?? false)
+      if (pages.length === 0) unavailable('migros', migrosUnavailableReason(errors))
       return pages
     },
     fallbackValidity: options.fallbackValidity ?? null,

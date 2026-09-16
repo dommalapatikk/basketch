@@ -26,41 +26,50 @@
 //
 // OCR reads names, "statt" prices, discount badges, unit prices and the
 // validity line reliably. It sometimes fails on the LARGE display sale price,
-// returning a token like "06'6" for 9.90 (the numeral is read rotated).
+// returning a token like "06'6" for 9.90 (the numeral is read rotated), or
+// drops the display price token entirely.
 //
-// Those offers are DROPPED. The sale price could be derived from the statt
-// price and the badge — 14.85 x 0.67 = 9.95 — but the shelf price is 9.90, so
-// a derived figure would be wrong by 5 rappen and published as fact. That is
-// the Art. 3(1)(e) UWG failure mode. An unreadable price means no offer.
+// Those offers are DROPPED, never derived. Deriving 14.85 x (1 - 0.33) = 9.95
+// against a real shelf price of 9.90 would be wrong by 5 rappen and published
+// as fact — the Art. 3(1)(e) UWG failure mode. A candidate is only ever
+// accepted as "the" display price for an anchor when it is PLAUSIBLY that
+// anchor's own price (see `isPlausibleSaleFor` below) — proximity in a wide
+// x-band is not enough on its own, because a mangled or missing display price
+// must never silently borrow a NEIGHBOURING tile's price instead.
 //
-// ── Tile geometry (2026-09-15, WP-C1) ───────────────────────────────────────
+// ── Tile geometry (2026-09-15, WP-C1; hardened 2026-09-16, code review) ─────
 //
 // A Migros flyer page is a two-column grid. Everything a "statt" anchor may
 // legitimately pair with — its own display price, its own name, its own
 // per-offer validity override — sits in the SAME column ("tile") as the
-// anchor, at roughly the same height. Two defects came from ignoring both
-// halves of that rule:
+// anchor, at roughly the same height. The tile bound alone is not sufficient
+// (a whole column can be 1000+ px tall, covering several unrelated rows), so
+// the sale price is additionally required to be:
+//   - horizontally aligned with the statt line (within 5% of the page width),
+//   - close above it vertically (within 3% of the page height), and
+//   - clearly display-sized, not text-sized (at least 1.8x the statt line's
+//     own height — a display price is ~77px, statt text ~30px).
+// A candidate failing any of these is not "the nearest price in the tile" —
+// it is a different row's price, and the offer is dropped as `noDisplayPrice`
+// rather than mis-paired.
 //
-//   1. The sale price was "the tallest price-shaped token above the anchor in
-//      the column", not "the nearest". Every display price on a page is
-//      about the same height, so "tallest" picks whichever tile happens to be
-//      1-2px taller, regardless of row. Fixed: nearest-above wins.
-//   2. The name search had a left bound but no right bound, so a right-column
-//      anchor could pick up a name from a NEIGHBOURING left-column tile three
-//      rows away — "longest line wins" then favours whichever neighbour
-//      happens to have a longer name. Fixed: bounded to the anchor's own
-//      half of the page, and among what remains, the line vertically closest
-//      to the offer's own sale price wins (Migros prints name and price at
-//      the same height; "longest wins" is what let a neighbour's longer name
-//      through).
+// The name search is bounded to the tile (not the whole page) and prefers the
+// line vertically closest to the offer's own sale price — Migros prints name
+// and price at the same height, and a line ending in a hyphen ("Schweins-
+// Nierstuck-") or the bare brand word "Migros" continues on the next
+// x-aligned line, which is joined in.
 //
 // Two price FORMS were also unmodelled: whole-franc ("statt 14.--") and the
-// inline "ab 2 Stück" multi-buy form ("3.02statt 4.50", no separate display
-// numeral). The multi-buy form is parsed — so it is counted, not silently
-// lost — but not published: PriceBasis has no way to say "from 2 items"
-// honestly yet (needs QuantityRequirement, WP-C4; PM decision TP-7a).
+// "ab 2 Stück" multi-buy form. Multi-buy is detected two ways — an inline
+// "2.88statt4.30" token with no separate display numeral, AND an "ab 2
+// Stück" label printed above the badge in the same tile, because OCR
+// sometimes splits the inline form into two tokens ("2.88" and "statt 4.30"
+// separately), which would otherwise slip through as an ordinary,
+// UNLABELLED price. Either signal is parsed and counted — so it is never
+// silently lost — but never published: PriceBasis has no way to say "from 2
+// items" honestly yet (needs QuantityRequirement, WP-C4; PM decision TP-7a).
 
-import { printedDiscount } from '../../domain/discount'
+import { type Discount, printedDiscount } from '../../domain/discount'
 import { type Money, createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
@@ -79,10 +88,9 @@ import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity
 export const MIGROS_EXPECTED_MINIMUM = 10
 
 /**
- * Below this share of detected anchors turned into published offers, the run
- * is a failure, not a quiet 20% week. Calibrated against the RCA fixture: the
- * pre-fix parser converted about 22-39% of anchors; the tile fix converts
- * 61% on the same fixture (see the golden master below).
+ * Below this share of PUBLISHABLE anchors (anchors minus the ones policy
+ * withholds as multi-buy) turned into offers, the run is a failure, not a
+ * quiet slow week. See `migrosYieldReason`.
  */
 export const MIGROS_MIN_ANCHOR_CONVERSION = 0.5
 
@@ -104,16 +112,33 @@ const PRICE_TOKEN_SRC = String.raw`(?:-|\d{1,3})[.,]\d{2}|\d{1,3}\s*\.\s*[-–]{
 
 /** A display price standing on its own — never a whole-franc or inline form. */
 const PRICE = /^\d{1,3}[.,]\d{2}$/
+/**
+ * Anchors on the bare word, not on "statt + a parseable price": an anchor
+ * whose price OCR could not read ("statt 9.", a single dash) is still a real
+ * anchor and must be counted, then rejected as `unreadablePrice` — not
+ * silently excluded from the anchor count altogether, which is what letting
+ * the price-capturing regex double as the anchor detector used to do.
+ */
+const STATT_WORD = /statt/i
 const STATT = new RegExp(String.raw`statt\s*(${PRICE_TOKEN_SRC})`, 'i')
 /**
  * "3.02statt 4.50" — a price immediately before "statt", printed inline with
- * no separate display numeral. This is how Migros prints the "ab 2 Stück"
- * multi-buy form; a standalone "statt 2.10" never matches this.
+ * no separate display numeral. This is ONE of two multi-buy signals (see
+ * `findMultiBuyLabel` for the other) — OCR sometimes splits this into two
+ * tokens, which this alone would miss.
  */
 const INLINE_STATT = new RegExp(String.raw`(${PRICE_TOKEN_SRC})\s*statt\s*(${PRICE_TOKEN_SRC})`, 'i')
 const PERCENT = /^(\d{1,2})\s*%$/
-/** A per-offer validity override: "gültig vom 10.9. bis 13.9.2026". */
-const PER_OFFER_VALIDITY = /g(ü|u)ltig\s+vom/i
+/** The "ab 2 Stück" multi-buy label, printed above the badge in the tile. */
+const AB_STUECK = /ab\s*\d+\s*St(ü|u)ck/i
+/**
+ * Any mention of "gültig"/"gultig" — deliberately not anchored to "…vom…",
+ * because OCR sometimes glues them ("gultigvom…") and because a line that
+ * says "gültig" but fails to parse a window (missing "vom", wrong order) must
+ * still be DETECTED so the anchor can be rejected rather than silently
+ * falling back to the flyer-wide window — see `findValidityOverride`.
+ */
+const PER_OFFER_VALIDITY = /g(ü|u)ltig/i
 
 /**
  * Lines that are never a product name. Migros prints the unit basis, the
@@ -121,7 +146,7 @@ const PER_OFFER_VALIDITY = /g(ü|u)ltig\s+vom/i
  * the same size as product titles, so OCR alone cannot tell them apart.
  */
 const DESCRIPTOR =
-  /per\s*\d|in\s+Selbstbedienung|Genossenschaft|solange\s+Vorrat|Angebote\s+gelten|g(ü|u)ltig|^\d+\s*(g|kg|ml|l|St(ü|u)ck)\b|^\(|Dazu\s+passt|SPAREN|\bca\.|Sonderpackung|erh(ä|a)ltlich|Zucht\s+aus|Wildfang|z\.\s*B\.|in\s+gr(ö|o)sseren\s+Filialen/i
+  /per\s*\d|in\s+Selbstbedienung|Genossenschaft|solange\s+Vorrat|Angebote\s+gelten|g(ü|u)ltig|^\d+\s*(g|kg|ml|l|St(ü|u)ck)\b|^\(|Dazu\s+passt|SPAREN|\bca\.|Sonderpackung|erh(ä|a)ltlich|Zucht\s+aus|Wildfang|z\.\s*B\.|in\s+gr(ö|o)sseren\s+Filialen|IP-SUISSE\+?|\bBIO\b|Aus\s*der\s*Region|Beutel\s*,?\s*\d/i
 
 export function issuuDocUrl(kw: number, year: number, region = 'zh', lang = 'd'): string {
   return `https://issuu.com/m-magazin/docs/migros-wochenflyer-${kw}-${year}-${lang}-${region}`
@@ -167,6 +192,14 @@ export function parseValidityLine(text: string, reference: Date): ValidityPeriod
   return isOk(v) ? v.value : null
 }
 
+/** The overlap of two windows, or null when they do not overlap at all. */
+export function intersectValidity(a: ValidityPeriod, b: ValidityPeriod): ValidityPeriod | null {
+  const from = a.from > b.from ? a.from : b.from
+  const to = a.to < b.to ? a.to : b.to
+  const result = createValidityPeriod(from, to)
+  return isOk(result) ? result.value : null
+}
+
 /**
  * The flyer-wide window. Prefers a line containing "Angebote gelten" over any
  * other "vom … bis …" match, and searches EVERY page for one before falling
@@ -179,15 +212,26 @@ export function parseValidityLine(text: string, reference: Date): ValidityPeriod
  * every product's window.
  */
 export function findValidity(pages: readonly OcrPage[], reference: Date): ValidityPeriod | null {
-  const joined = pages.map((page) => page.items.map((i) => i.text).join(' '))
-
-  for (const text of joined) {
-    if (!/Angebote\s+gelten/i.test(text)) continue
-    const found = parseValidityLine(text, reference)
-    if (found) return found
+  // Pass 1: the "Angebote gelten" sentence is ALWAYS one contiguous OCR item
+  // in real captures (verified on the committed fixture), so this parses
+  // each ITEM'S own text, never the whole page joined together. Joining the
+  // whole page first and THEN testing/parsing is a defect in its own right:
+  // if a per-tile "gültig vom …" override happens to sit earlier in item
+  // order than the flyer's own "Angebote gelten …" footer on the SAME page,
+  // parseValidityLine's un-anchored regex would find the OVERRIDE's dates
+  // first and misreport them as the flyer-wide window.
+  for (const page of pages) {
+    for (const i of page.items) {
+      if (!/Angebote\s+gelten/i.test(i.text)) continue
+      const found = parseValidityLine(i.text, reference)
+      if (found) return found
+    }
   }
-  for (const text of joined) {
-    const found = parseValidityLine(text, reference)
+  // Pass 2 (fallback): any "vom … bis …" match anywhere, whole page joined —
+  // only reached when no page has its own "Angebote gelten" line at all.
+  for (const page of pages) {
+    const joined = page.items.map((i) => i.text).join(' ')
+    const found = parseValidityLine(joined, reference)
     if (found) return found
   }
   return null
@@ -201,6 +245,7 @@ export type MigrosFunnel = {
   readonly unreadablePrice: number
   readonly noDisplayPrice: number
   readonly noName: number
+  readonly invalidValidity: number
   readonly invariantRejected: number
 }
 
@@ -211,6 +256,7 @@ const EMPTY_FUNNEL: MigrosFunnel = {
   unreadablePrice: 0,
   noDisplayPrice: 0,
   noName: 0,
+  invalidValidity: 0,
   invariantRejected: 0,
 }
 
@@ -222,6 +268,7 @@ function addFunnel(a: MigrosFunnel, b: MigrosFunnel): MigrosFunnel {
     unreadablePrice: a.unreadablePrice + b.unreadablePrice,
     noDisplayPrice: a.noDisplayPrice + b.noDisplayPrice,
     noName: a.noName + b.noName,
+    invalidValidity: a.invalidValidity + b.invalidValidity,
     invariantRejected: a.invariantRejected + b.invariantRejected,
   }
 }
@@ -230,20 +277,23 @@ export function formatFunnel(f: MigrosFunnel): string {
   return (
     `funnel: ${f.anchors} anchors -> ${f.accepted} accepted, ${f.multiBuy} multi-buy (not published), ` +
     `${f.unreadablePrice} unreadable statt, ${f.noDisplayPrice} no display price, ` +
-    `${f.noName} no name, ${f.invariantRejected} discount-inconsistent`
+    `${f.noName} no name, ${f.invalidValidity} invalid validity, ${f.invariantRejected} discount-inconsistent`
   )
 }
 
 /**
- * Below `MIGROS_MIN_ANCHOR_CONVERSION` of anchors converted to offers, the run
- * is a failure regardless of the absolute floor. A run that finds 18 anchors
- * and 0 publishes is exactly as much a defect at 4 accepted (22%) as at 0 —
- * the OLD parser's actual measured range — even though 4 clears an absolute
- * floor set low enough not to block a genuinely small flyer week.
+ * Below `MIGROS_MIN_ANCHOR_CONVERSION` of PUBLISHABLE anchors converted to
+ * offers, the run is a failure regardless of the absolute floor.
+ *
+ * The denominator excludes multi-buy anchors: policy (TP-7a), not parsing,
+ * withholds those, and a week that is genuinely 30-40% multi-buy must not be
+ * read as a parsing failure. `anchors - multiBuy` is the count this parser
+ * actually attempted to turn into an offer.
  */
-export function migrosYieldReason(acceptedCount: number, anchorCount: number): CollectionFailureReason | null {
-  if (anchorCount === 0) return null
-  if (acceptedCount < anchorCount * MIGROS_MIN_ANCHOR_CONVERSION) return 'below-expected-yield'
+export function migrosYieldReason(acceptedCount: number, anchorCount: number, multiBuyCount: number): CollectionFailureReason | null {
+  const publishable = anchorCount - multiBuyCount
+  if (publishable <= 0) return null
+  if (acceptedCount < publishable * MIGROS_MIN_ANCHOR_CONVERSION) return 'below-expected-yield'
   return null
 }
 
@@ -261,29 +311,88 @@ function withinTile(b: Box, tile: Tile): boolean {
   return c >= tile.x0 && c < tile.x1
 }
 
+const SALE_X_ALIGN_FRACTION = 0.05
+const SALE_MAX_GAP_FRACTION = 0.03
+const SALE_MIN_HEIGHT_RATIO = 1.8
+
 /**
- * The nearest price-shaped token above the statt line, within the anchor's
- * tile. NOT the tallest — every display price on a Migros page is about the
- * same height, so "tallest" was arbitrary between tiles. Migros Spiesse:
- * statt 4.30 must pair with 2.85 (47px away), not 1.90 (690px away, and 2px
- * taller).
+ * Is `sale` PLAUSIBLY the display price for `statt`? Tile membership alone is
+ * not enough — a column can span several unrelated rows. All three must hold:
+ * horizontally aligned (within 5% of the page width), close above (within 3%
+ * of the page height), and display-sized (at least 1.8x the statt line's own
+ * height — a display price is ~77px tall, statt text ~30px). Reproduced
+ * without this: dropping a genuine display price makes the statt pair with
+ * WHATEVER same-height price is nearest in a wide x-band, in a different row
+ * or even a different tile.
  */
+function isPlausibleSaleFor(sale: Box, statt: Box, page: OcrPage): boolean {
+  if (Math.abs(centreX(sale) - centreX(statt)) > page.width * SALE_X_ALIGN_FRACTION) return false
+  const gap = statt.y0 - sale.y1
+  if (gap < -10 || gap > page.height * SALE_MAX_GAP_FRACTION) return false
+  const stattHeight = statt.y1 - statt.y0
+  const saleHeight = sale.y1 - sale.y0
+  return saleHeight >= stattHeight * SALE_MIN_HEIGHT_RATIO
+}
+
+/** The nearest PLAUSIBLE price above the statt line, within the anchor's tile. */
 function findNearestSaleAbove(page: OcrPage, stattBox: Box, tile: Tile): OcrItem | undefined {
   return page.items
-    .filter((i) => PRICE.test(i.text.trim()) && withinTile(boxOf(i), tile) && boxOf(i).y1 <= stattBox.y1 + 5)
+    .filter((i) => PRICE.test(i.text.trim()) && withinTile(boxOf(i), tile) && isPlausibleSaleFor(boxOf(i), stattBox, page))
     .sort((a, b) => stattBox.y1 - boxOf(a).y1 - (stattBox.y1 - boxOf(b).y1))[0]
+}
+
+const MULTI_BUY_LABEL_MAX_GAP_FRACTION = 0.12
+
+/**
+ * An "ab N Stück" label above the badge in the same tile — the multi-buy
+ * signal that survives even when OCR SPLITS the inline "2.88statt4.30" token
+ * into two ("2.88" and "statt 4.30" separately), which would otherwise be
+ * published as an ordinary, unlabelled everyone-price. Real evidence: this
+ * label sits 210-300px above its own statt line on the committed fixture,
+ * comfortably under the 12%-of-page-height bound used here, while the gap to
+ * an UNRELATED row's statt line is 800px or more.
+ */
+function findMultiBuyLabel(page: OcrPage, tile: Tile, stattBox: Box, pageHeight: number): OcrItem | undefined {
+  return page.items.find((i) => {
+    if (!AB_STUECK.test(i.text)) return false
+    const b = boxOf(i)
+    if (!withinTile(b, tile)) return false
+    const gap = stattBox.y0 - b.y1
+    return gap >= 0 && gap <= pageHeight * MULTI_BUY_LABEL_MAX_GAP_FRACTION
+  })
+}
+
+/** Lines Migros wraps onto a second row: a hyphenated break, or its own bare brand word. */
+const INCOMPLETE_BRAND_WORDS = new Set(['Migros'])
+
+function looksIncomplete(text: string): boolean {
+  return text.endsWith('-') || INCOMPLETE_BRAND_WORDS.has(text)
+}
+
+/**
+ * The x-aligned line immediately below `primaryBox`, if one exists — the
+ * second half of a name Migros wrapped onto two OCR lines.
+ */
+function findContinuationLine(page: OcrPage, tile: Tile, primaryBox: Box, pageHeight: number): OcrItem | undefined {
+  return page.items
+    .filter((i) => {
+      const b = boxOf(i)
+      if (!withinTile(b, tile)) return false
+      if (Math.abs(b.x0 - primaryBox.x0) > 20) return false
+      const gap = b.y0 - primaryBox.y1
+      return gap >= -5 && gap <= pageHeight * 0.01
+    })
+    .filter((i) => !PRICE.test(i.text.trim()) && !PERCENT.test(i.text.trim()) && !STATT_WORD.test(i.text))
+    .sort((a, b) => boxOf(a).y0 - boxOf(b).y0)[0]
 }
 
 /**
  * The non-descriptor line vertically closest to the offer's own sale price,
  * bounded to the anchor's tile. Migros prints the name at the same height as
- * the price; "longest wins" (the old rule, with no right bound at all) is
- * what let "OptigalPouletgeschnetzeltes" — the RIGHT tile's own,
- * correctly-scoped name — get picked for a LEFT tile anchor.
+ * the price; picking the CLOSEST (not "longest") line is what stops a
+ * neighbouring tile's name from being picked when it happens to be longer.
  */
-function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, pageHeight: number): OcrItem | undefined {
-  // Wide enough to reach a two-line name, narrow enough not to reach the row
-  // above or below.
+function findPrimaryNameLine(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, pageHeight: number): OcrItem | undefined {
   const nameBandTop = saleBox.y0 - pageHeight * 0.02
   const nameBandBottom = stattBox.y1 + pageHeight * 0.02
 
@@ -292,35 +401,89 @@ function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, p
       const b = boxOf(i)
       return withinTile(b, tile) && b.y0 >= nameBandTop && b.y1 <= nameBandBottom
     })
-    .filter((i) => !PRICE.test(i.text.trim()) && !PERCENT.test(i.text.trim()) && !STATT.test(i.text))
+    .filter((i) => !PRICE.test(i.text.trim()) && !PERCENT.test(i.text.trim()) && !STATT_WORD.test(i.text))
     .filter((i) => !DESCRIPTOR.test(i.text))
     .filter((i) => i.text.trim().length > 3)
     .sort((a, b) => Math.abs(boxOf(a).y0 - saleBox.y0) - Math.abs(boxOf(b).y0 - saleBox.y0))[0]
 }
 
 /**
- * A "gültig vom … bis …" line inside THIS tile beats the flyer-wide window.
- * Real evidence: a weekend-only item valid 10.9-13.9 was published under the
- * flyer's 3.9-9.9 window and was still live on the site on 15.9 — the
- * Art. 3(1)(e) UWG failure mode.
+ * The offer's name and the box it came from (for the crop region). Joins a
+ * second OCR line when the first looks like a wrapped hyphenated word or a
+ * bare brand prefix ("Migros" alone) — otherwise a genuinely two-line name
+ * ("Migros" / "Kalbsplätzli", "Delikatess-" / "Fleischkäse,IP-SUISSE") is
+ * truncated to its first line, which is itself a naming defect: too generic
+ * to be useful for identity or classification, exactly the class of bug this
+ * WP fixes for cross-tile mis-pairs.
+ */
+function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, pageHeight: number): { text: string; box: Box } | undefined {
+  const primary = findPrimaryNameLine(page, tile, saleBox, stattBox, pageHeight)
+  if (!primary) return undefined
+
+  const primaryText = primary.text.trim()
+  const primaryBox = boxOf(primary)
+  if (!looksIncomplete(primaryText)) return { text: primaryText, box: primaryBox }
+
+  const continuation = findContinuationLine(page, tile, primaryBox, pageHeight)
+  if (!continuation) return { text: primaryText, box: primaryBox }
+
+  const continuationFirstSegment = continuation.text.split(',')[0]!.trim()
+  if (!continuationFirstSegment || DESCRIPTOR.test(continuationFirstSegment)) {
+    return { text: primaryText, box: primaryBox }
+  }
+
+  const continuationBox = boxOf(continuation)
+  const joinedBox: Box = {
+    x0: Math.min(primaryBox.x0, continuationBox.x0),
+    y0: Math.min(primaryBox.y0, continuationBox.y0),
+    x1: Math.max(primaryBox.x1, continuationBox.x1),
+    y1: Math.max(primaryBox.y1, continuationBox.y1),
+  }
+  const sep = primaryText.endsWith('-') ? '' : ' '
+  return { text: primaryText + sep + continuationFirstSegment, box: joinedBox }
+}
+
+type ValidityOverrideResult = { kind: 'none' } | { kind: 'invalid'; raw: string } | { kind: 'override'; period: ValidityPeriod }
+
+/**
+ * A "gültig …" line inside THIS tile beats the flyer-wide window — clipped to
+ * never extend past it (a genuine "gültig vom 3.9. bis 30.9." on a flyer that
+ * only runs to 16.9 must not publish a price as valid two weeks after the
+ * flyer itself has expired). A "gültig" line that is FOUND but fails to parse
+ * (missing "vom", "bis" before "vom", OCR noise) REJECTS the anchor rather
+ * than silently falling back to the flyer-wide window — the exact defect
+ * this WP exists to fix (a weekend-only item was published under the wrong,
+ * wider window and was still live on the site days after it expired).
+ *
+ * The search band starts at the SALE price's own top, mirroring the name
+ * band — anchoring it to the statt line instead (the original bug) missed an
+ * override sitting right after the price, higher up than the statt line by
+ * more than a few percent of the page.
  */
 function findValidityOverride(
   page: OcrPage,
   tile: Tile,
   stattBox: Box,
+  saleBox: Box,
   pageHeight: number,
   reference: Date,
-): ValidityPeriod | null {
+  flyerValidity: ValidityPeriod,
+): ValidityOverrideResult {
+  const bandTop = saleBox.y0 - pageHeight * 0.02
+  const bandBottom = stattBox.y1 + pageHeight * 0.1
   const overrideItem = page.items.find((i) => {
     const b = boxOf(i)
-    return (
-      withinTile(b, tile) &&
-      PER_OFFER_VALIDITY.test(i.text) &&
-      b.y0 >= stattBox.y0 - pageHeight * 0.02 &&
-      b.y0 <= stattBox.y1 + pageHeight * 0.1
-    )
+    return withinTile(b, tile) && PER_OFFER_VALIDITY.test(i.text) && b.y0 >= bandTop && b.y0 <= bandBottom
   })
-  return overrideItem ? parseValidityLine(overrideItem.text, reference) : null
+  if (!overrideItem) return { kind: 'none' }
+
+  const parsed = parseValidityLine(overrideItem.text, reference)
+  if (!parsed) return { kind: 'invalid', raw: overrideItem.text }
+
+  const intersected = intersectValidity(parsed, flyerValidity)
+  if (!intersected) return { kind: 'invalid', raw: overrideItem.text }
+
+  return { kind: 'override', period: intersected }
 }
 
 /** Spans the price block down to the name, in page fractions. */
@@ -339,14 +502,11 @@ function buildOfferCropRegion(page: OcrPage, pageImageUrl: string, saleBox: Box,
   return isOk(built) ? built.value : null
 }
 
-/** Reads the printed discount badge near the statt line, if one is present. */
-function findPrintedDiscount(page: OcrPage, stattBox: Box) {
-  // The narrow x-proximity band the discount badge search already used.
-  // Left unchanged: every badge in this flyer prints "33%", so a mis-scoped
-  // pick is numerically invisible, and narrowing it is a separate concern
-  // from the name/price tile fix this WP is scoped to.
-  const near = page.items.filter((i) => Math.abs(centreX(boxOf(i)) - centreX(stattBox)) < page.width * 0.18)
-  const pctItem = near.find((i) => PERCENT.test(i.text.trim()))
+/** The nearest printed discount badge above the statt line, within the anchor's tile. */
+function findPrintedDiscount(page: OcrPage, stattBox: Box, tile: Tile): Discount | null {
+  const pctItem = page.items
+    .filter((i) => PERCENT.test(i.text.trim()) && withinTile(boxOf(i), tile) && boxOf(i).y1 <= stattBox.y1 + 5)
+    .sort((a, b) => stattBox.y1 - boxOf(a).y1 - (stattBox.y1 - boxOf(b).y1))[0]
   if (!pctItem) return null
   const d = printedDiscount(Number(pctItem.text.trim().replace('%', '')))
   return isOk(d) ? d.value : null
@@ -359,18 +519,15 @@ type RejectedOutcome = {
   funnelField: keyof Omit<MigrosFunnel, 'anchors' | 'accepted'>
 }
 type AnchorOutcome = { kind: 'offer'; offer: Offer } | MultiBuyOutcome | RejectedOutcome
-
 type PriceOutcome = MultiBuyOutcome | RejectedOutcome | { kind: 'prices'; sale: Money; original: Money; saleItem: OcrItem }
+type PriceFormOutcome = MultiBuyOutcome | RejectedOutcome | { kind: 'priced'; originalFrancs: number }
 
 /**
- * Reads the anchor's own statt price and pairs it with the nearest sale price
- * above it in its tile. Separated from name/offer resolution because this is
- * where the two REAL price forms are told apart: an inline "ab 2 Stück" price
- * (no separate display numeral, parsed but withheld) versus an ordinary
- * standalone statt line (paired against a display price).
+ * Reads the anchor's own statt price and tells apart the three shapes it may
+ * take: unreadable, multi-buy (inline token OR "ab N Stück" label), or an
+ * ordinary priced anchor ready to be paired with a display price.
  */
-function readAnchorPrices(stattItem: OcrItem, page: OcrPage, tile: Tile, pageRef: string): PriceOutcome {
-  const stattBox = boxOf(stattItem)
+function classifyAnchorPriceForm(stattItem: OcrItem, page: OcrPage, tile: Tile, stattBox: Box, pageRef: string): PriceFormOutcome {
   const originalFrancs = toFrancs(stattItem.text.match(STATT)?.[1] ?? '')
   if (originalFrancs === null) {
     return {
@@ -381,30 +538,37 @@ function readAnchorPrices(stattItem: OcrItem, page: OcrPage, tile: Tile, pageRef
   }
 
   const inlineMatch = stattItem.text.match(INLINE_STATT)
-  if (inlineMatch) {
+  const multiBuyLabel = findMultiBuyLabel(page, tile, stattBox, page.height)
+  if (inlineMatch || multiBuyLabel) {
     // "ab 2 Stück": the sale price is printed inline, with no separate
-    // display numeral. Parsed so the funnel counts it honestly instead of
-    // reporting "no readable display price" — but not published: it needs
+    // display numeral — or split by OCR into two tokens, caught by the label
+    // instead. Parsed so the funnel counts it honestly instead of reporting
+    // "no readable display price" — but not published: it needs
     // QuantityRequirement (WP-C4) to say "from 2 items" instead of
     // rendering as an unconditional price, which TP-7a has not cleared yet.
-    const inlineSale = toFrancs(inlineMatch[1]!)
+    const inlineSale = inlineMatch ? toFrancs(inlineMatch[1]!) : null
     return {
       kind: 'multi-buy',
       warning: {
         message:
-          `multi-buy: "${stattItem.text.trim()}" is an ab-2-Stück price ` +
-          `(${inlineSale === null ? '?' : inlineSale.toFixed(2)} statt ${originalFrancs.toFixed(2)}) — ` +
+          `multi-buy: "${stattItem.text.trim()}"${multiBuyLabel ? ` near "${multiBuyLabel.text.trim()}"` : ''} is an ab-2-Stück price ` +
+          `(${inlineSale === null ? 'unread' : inlineSale.toFixed(2)} statt ${originalFrancs.toFixed(2)}) — ` +
           'parsed but withheld until QuantityRequirement lands (WP-C4)',
         item: pageRef,
       },
     }
   }
 
+  return { kind: 'priced', originalFrancs }
+}
+
+/** Pairs an already-classified, ordinary statt price with its display price. */
+function pairSalePrice(page: OcrPage, tile: Tile, stattBox: Box, originalFrancs: number, pageRef: string): PriceOutcome {
   const saleItem = findNearestSaleAbove(page, stattBox, tile)
   if (!saleItem) {
-    // OCR mangles the big display numeral often enough to matter. Deriving it
-    // from statt x (1 - discount) would be wrong by rappen and published as
-    // fact, so the offer is dropped instead.
+    // OCR mangles or drops the big display numeral often enough to matter.
+    // Deriving it from statt x (1 - discount) would be wrong by rappen and
+    // published as fact, so the offer is dropped instead.
     return {
       kind: 'rejected',
       warning: {
@@ -429,6 +593,78 @@ function readAnchorPrices(stattItem: OcrItem, page: OcrPage, tile: Tile, pageRef
   return { kind: 'prices', sale: sale.value, original: original.value, saleItem }
 }
 
+function readAnchorPrices(stattItem: OcrItem, page: OcrPage, tile: Tile, stattBox: Box, pageRef: string): PriceOutcome {
+  const form = classifyAnchorPriceForm(stattItem, page, tile, stattBox, pageRef)
+  if (form.kind !== 'priced') return form
+  return pairSalePrice(page, tile, stattBox, form.originalFrancs, pageRef)
+}
+
+type DetailsOutcome =
+  | RejectedOutcome
+  | { kind: 'details'; name: string; discount: Discount | null; validity: ValidityPeriod; image: ProductImage | null }
+
+/** Resolves the name, discount badge, per-offer validity and crop region for an already-priced anchor. */
+function resolveOfferDetails(
+  page: OcrPage,
+  tile: Tile,
+  stattBox: Box,
+  saleBox: Box,
+  flyerValidity: ValidityPeriod,
+  reference: Date,
+  pageImageUrl: string | null,
+  pageRef: string,
+): DetailsOutcome {
+  const nameResult = findOfferName(page, tile, saleBox, stattBox, page.height)
+  if (!nameResult) {
+    return { kind: 'rejected', warning: { message: 'no product name near statt line', item: pageRef }, funnelField: 'noName' }
+  }
+
+  const validityResult = findValidityOverride(page, tile, stattBox, saleBox, page.height, reference, flyerValidity)
+  if (validityResult.kind === 'invalid') {
+    return {
+      kind: 'rejected',
+      warning: { message: `per-offer validity line could not be parsed: "${validityResult.raw}"`, item: pageRef },
+      funnelField: 'invalidValidity',
+    }
+  }
+
+  const discount = findPrintedDiscount(page, stattBox, tile)
+  const validity = validityResult.kind === 'override' ? validityResult.period : flyerValidity
+  const image = pageImageUrl ? buildOfferCropRegion(page, pageImageUrl, saleBox, nameResult.box) : null
+
+  return { kind: 'details', name: nameResult.text, discount, validity, image }
+}
+
+type OfferDetails = { name: string; discount: Discount | null; validity: ValidityPeriod; image: ProductImage | null }
+type PricedAnchor = { sale: Money; original: Money }
+
+/** Builds the domain `Offer` from an already-priced, already-detailed anchor. */
+function buildOfferFromDetails(priced: PricedAnchor, details: OfferDetails, flyerUrl: string | null, pageRef: string): AnchorOutcome {
+  const offer = createOffer({
+    retailer: 'migros',
+    productName: details.name,
+    salePrice: priced.sale,
+    originalPrice: priced.original,
+    discount: details.discount,
+    validity: details.validity,
+    image: details.image,
+    // Migros DOES print category headings ("Brot & Backwaren") — the only
+    // retailer that does. Associating them to products needs heading
+    // detection that is not built yet, so this stays null for now.
+    sourceCategory: null,
+    // Migros has no per-product page. Point at the issuu flyer this offer
+    // was read from — the provenance of the price, and checkable.
+    sourceUrl: flyerUrl,
+  })
+
+  if (isOk(offer)) return { kind: 'offer', offer: offer.value }
+  return {
+    kind: 'rejected',
+    warning: { message: `${details.name}: ${offer.error}`, item: pageRef },
+    funnelField: 'invariantRejected',
+  }
+}
+
 /** Resolves one "statt" anchor into an offer, a multi-buy skip, or a rejection. */
 function resolveAnchor(
   stattItem: OcrItem,
@@ -442,43 +678,14 @@ function resolveAnchor(
   const stattBox = boxOf(stattItem)
   const tile = tileFor(stattBox, page.width)
 
-  const priced = readAnchorPrices(stattItem, page, tile, pageRef)
+  const priced = readAnchorPrices(stattItem, page, tile, stattBox, pageRef)
   if (priced.kind !== 'prices') return priced
 
   const saleBox = boxOf(priced.saleItem)
-  const nameItem = findOfferName(page, tile, saleBox, stattBox, page.height)
-  const name = nameItem?.text.trim()
-  if (!nameItem || !name) {
-    return { kind: 'rejected', warning: { message: 'no product name near statt line', item: pageRef }, funnelField: 'noName' }
-  }
+  const details = resolveOfferDetails(page, tile, stattBox, saleBox, validity, reference, pageImageUrl, pageRef)
+  if (details.kind !== 'details') return details
 
-  const discount = findPrintedDiscount(page, stattBox)
-  const overrideValidity = findValidityOverride(page, tile, stattBox, page.height, reference)
-  const image = pageImageUrl ? buildOfferCropRegion(page, pageImageUrl, saleBox, boxOf(nameItem)) : null
-
-  const offer = createOffer({
-    retailer: 'migros',
-    productName: name,
-    salePrice: priced.sale,
-    originalPrice: priced.original,
-    discount,
-    validity: overrideValidity ?? validity,
-    image,
-    // Migros DOES print category headings ("Brot & Backwaren") — the only
-    // retailer that does. Associating them to products needs heading
-    // detection that is not built yet, so this stays null for now.
-    sourceCategory: null,
-    // Migros has no per-product page. Point at the issuu flyer this offer
-    // was read from — the provenance of the price, and checkable.
-    sourceUrl: flyerUrl,
-  })
-
-  if (isOk(offer)) return { kind: 'offer', offer: offer.value }
-  return {
-    kind: 'rejected',
-    warning: { message: `${name}: ${offer.error}`, item: pageRef },
-    funnelField: 'invariantRejected',
-  }
+  return buildOfferFromDetails(priced, details, flyerUrl, pageRef)
 }
 
 /**
@@ -498,7 +705,7 @@ export function parsePage(
   const warnings: CollectionWarning[] = []
   let funnel = EMPTY_FUNNEL
 
-  const stattItems = page.items.filter((i) => STATT.test(i.text))
+  const stattItems = page.items.filter((i) => STATT_WORD.test(i.text))
 
   for (const stattItem of stattItems) {
     funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, anchors: 1 })
@@ -584,12 +791,12 @@ export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
         deps.flyerUrl,
       )
 
-      const yieldReason = migrosYieldReason(offers.length, funnel.anchors)
+      const yieldReason = migrosYieldReason(offers.length, funnel.anchors, funnel.multiBuy)
       if (yieldReason) {
         return collectionFailed(
           'migros',
           yieldReason,
-          `${formatFunnel(funnel)} — below the ${Math.round(MIGROS_MIN_ANCHOR_CONVERSION * 100)}% anchor conversion floor`,
+          `${formatFunnel(funnel)} — below the ${Math.round(MIGROS_MIN_ANCHOR_CONVERSION * 100)}% publishable-anchor conversion floor`,
         )
       }
 
