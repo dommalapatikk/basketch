@@ -8,18 +8,15 @@ import { dealToRow } from '../shared/types'
 
 import type { StoreSweepPlan, WrittenRow } from './storage/domain/stale-sweep'
 import { writtenCountsByWindow } from './storage/domain/stale-sweep'
+import { productLookupKey } from './storage/domain/product-key'
 import { supabase } from './supabase-client'
 
 const BATCH_SIZE = 100
 
-/**
- * Build a composite key for product ID lookups: "store|productName".
- * Used by storeDeals (this file) and run.ts when merging resolved product IDs.
- * Keep these two usages in sync.
- */
-export function productLookupKey(store: string, productName: string): string {
-  return `${store}|${productName}`
-}
+// Moved to storage/domain/product-key.ts (code review of WP-P2): pure, so the
+// application layer can import it without constructing this file's Supabase
+// client. Re-exported here so existing callers are unaffected.
+export { productLookupKey }
 
 // ============================================================
 // Product name normalisation

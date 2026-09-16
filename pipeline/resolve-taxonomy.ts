@@ -73,7 +73,7 @@ export type UnknownTag = {
  * the alias map has no match. The product_name is one example deal —
  * helpful when the operator triages the unknown tag in the dashboard.
  */
-export function collectUnknownTags(deals: Deal[], aliases: AliasMap): UnknownTag[] {
+export function collectUnknownTags(deals: readonly Deal[], aliases: AliasMap): UnknownTag[] {
   const seen = new Set<string>()
   const out: UnknownTag[] = []
   for (const d of deals) {
