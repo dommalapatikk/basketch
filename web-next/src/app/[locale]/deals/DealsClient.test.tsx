@@ -78,15 +78,24 @@ async function renderDealsClient(deals: Deal[]) {
 
 describe('DealsClient threads the "from" label to DealCard', () => {
   it('shows a "From" date on a card for a deal that has not started yet', async () => {
-    await renderDealsClient([deal({ id: 'future', validFrom: '2026-09-17', discountPercent: 40 })])
-    expect(await screen.findByText(/^From /)).toBeTruthy()
+    const { container } = await renderDealsClient([
+      deal({ id: 'future', validFrom: '2026-09-17', discountPercent: 40 }),
+    ])
+    // The sentence is split across nodes so that only the date sits inside
+    // <time dateTime> (code review NEW-4), hence textContent rather than a
+    // single text node. The <time> itself proves the date half was threaded.
+    expect(await screen.findByText('Milk 1L')).toBeTruthy()
+    expect(container.textContent).toContain('From Thu 17.9.')
+    expect(container.querySelector('time')?.getAttribute('dateTime')).toBe('2026-09-17')
   })
 
   it('shows no "From" date for a deal that is already in effect', async () => {
     await renderDealsClient([deal({ id: 'live', discountPercent: 40 })])
     // The product renders (proves the section did render at all — a false
     // negative here would make the first assertion meaningless).
+    const body = document.body.textContent ?? ''
     expect(await screen.findByText('Milk 1L')).toBeTruthy()
-    expect(screen.queryByText(/^From /)).toBeNull()
+    expect(body).not.toContain('From ')
+    expect(document.querySelector('time')).toBeNull()
   })
 })

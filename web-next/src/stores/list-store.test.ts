@@ -126,6 +126,33 @@ describe('list-store persistence — a list saved before WP-W2 still opens', () 
     expect(useListStore.getState().items).toEqual([])
   })
 
+  it('a list item with an unknown store is dropped, not rendered', async () => {
+    // NEW-2, code review of 463f27f: isWellFormedItem checked `store` as
+    // `typeof === 'string'` but never against STORE_KEYS, so a corrupted
+    // store value survived sanitisation and later threw at
+    // STORE_BRAND[g.store].label in buildShareText/ListDrawer — the same
+    // crash class as the original BLOCKER, inside the function that is
+    // supposed to be the single validation point.
+    const itemWithBadStore = {
+      id: 'd3',
+      store: 'not-a-real-store',
+      productName: 'Butter',
+      category: 'fresh',
+      salePrice: 2.5,
+      imageUrl: null,
+      sourceUrl: null,
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { items: [itemWithBadStore] }, version: 2 }),
+    )
+
+    const { useListStore } = await freshStore()
+    await useListStore.persist.rehydrate()
+
+    expect(useListStore.getState().items).toEqual([])
+  })
+
   it('keeps a well-formed v2 item exactly as stored', async () => {
     const item = {
       id: 'd2',

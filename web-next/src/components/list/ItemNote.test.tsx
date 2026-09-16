@@ -50,14 +50,17 @@ describe('ItemNote', () => {
   })
 
   it('shows the "from" date for an item that has not started yet', () => {
-    renderNote({ item: item({ validFrom: '2026-09-17' }) })
-    expect(screen.getByText(/^From /)).toBeTruthy()
+    const { container } = renderNote({ item: item({ validFrom: '2026-09-17' }) })
+    expect(container.textContent).toContain('From Thu 17.9.')
   })
 
-  it('wraps the date in a machine-readable <time dateTime> (a11y)', () => {
+  // Code review NEW-4: only the date goes inside <time>, not the whole
+  // sentence — same rule as DealCard, so drawer and card agree.
+  it('wraps ONLY the date in a machine-readable <time dateTime> (a11y)', () => {
     renderNote({ item: item({ validFrom: '2026-09-17' }) })
-    const time = screen.getByText(/^From /).closest('time')
+    const time = screen.getByText('Thu 17.9.').closest('time')
     expect(time?.getAttribute('dateTime')).toBe('2026-09-17')
+    expect(time?.textContent).toBe('Thu 17.9.')
   })
 
   it('shows both facts together when both apply', () => {

@@ -148,6 +148,11 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
       ? t('from_date', { date: formatValidFromShort(deal.validFrom, locale) })
       : null
 
+  // The date on its own, so DealCard can put only it inside <time dateTime>
+  // rather than the whole sentence (code review NEW-4).
+  const notYetStartedDate = (deal: Deal): string | null =>
+    startsAfterToday(deal, snapshot.today) ? formatValidFromShort(deal.validFrom, locale) : null
+
   const noStores = filters.stores.length === 0
   const noResults = !noStores && filtered.length === 0
 
@@ -261,6 +266,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
                           : null
                       }
                       notYetStartedLabel={notYetStartedLabel}
+                      notYetStartedDate={notYetStartedDate}
                       locale={locale}
                     />
                   </div>
@@ -313,6 +319,7 @@ function SubCategorySection({
   onlyStoreBadge,
   onlyStoreNote,
   notYetStartedLabel,
+  notYetStartedDate,
   locale,
 }: {
   subCategoryKey: string
@@ -326,6 +333,7 @@ function SubCategorySection({
   onlyStoreBadge: string | null
   onlyStoreNote: string | null
   notYetStartedLabel: (deal: Deal) => string | null
+  notYetStartedDate: (deal: Deal) => string | null
   locale: string
 }) {
   const subline = `${others.length + 1} ${others.length === 0 ? (locale === 'de' ? 'Aktion' : 'deal') : locale === 'de' ? 'Aktionen' : 'deals'}`
@@ -373,6 +381,7 @@ function SubCategorySection({
           unverifiedLabel={unverifiedLabel}
           memberPriceLabel={formatMemberPriceLabel(primary.priceBasis, locale)}
           notYetStartedLabel={notYetStartedLabel(primary)}
+          notYetStartedDate={notYetStartedDate(primary)}
           validFrom={primary.validFrom}
           priceBasis={primary.priceBasis}
           onlyStoreBadge={onlyStoreBadge}
@@ -387,6 +396,7 @@ function SubCategorySection({
           othersLabel={othersLabel}
           unverifiedLabel={unverifiedLabel}
           notYetStartedLabel={notYetStartedLabel}
+          notYetStartedDate={notYetStartedDate}
           locale={locale}
         />
       ) : null}
@@ -403,12 +413,14 @@ function OtherStoresBlock({
   othersLabel,
   unverifiedLabel,
   notYetStartedLabel,
+  notYetStartedDate,
   locale,
 }: {
   others: ReturnType<typeof buildSections>[number]['others']
   othersLabel: string
   unverifiedLabel: string
   notYetStartedLabel: (deal: Deal) => string | null
+  notYetStartedDate: (deal: Deal) => string | null
   locale: string
 }) {
   const COLLAPSE_THRESHOLD = 5
@@ -469,6 +481,7 @@ function OtherStoresBlock({
               unverifiedLabel={unverifiedLabel}
               memberPriceLabel={formatMemberPriceLabel(d.priceBasis, locale)}
               notYetStartedLabel={notYetStartedLabel(d)}
+              notYetStartedDate={notYetStartedDate(d)}
               validFrom={d.validFrom}
               priceBasis={d.priceBasis}
             />

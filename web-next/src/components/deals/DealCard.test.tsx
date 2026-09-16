@@ -87,13 +87,20 @@ describe('the not-yet-started label (RCA #10)', () => {
   // would be its own inaccuracy — but it must say so, in text, the same way
   // the member price note does.
   it('shows the "from" date on the primary card', () => {
-    renderCard({ notYetStartedLabel: 'From Thu 17.9.' })
-    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
+    const { container } = renderCard({
+      notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
+    })
+    expect(container.textContent).toContain('From Thu 17.9.')
   })
 
   it('shows the "from" date on the compact card too', () => {
-    renderCard({ variant: 'compact', notYetStartedLabel: 'From Thu 17.9.' })
-    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
+    const { container } = renderCard({
+      variant: 'compact',
+      notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
+    })
+    expect(container.textContent).toContain('From Thu 17.9.')
   })
 
   it('says nothing for a deal that is already in effect', () => {
@@ -102,18 +109,46 @@ describe('the not-yet-started label (RCA #10)', () => {
   })
 
   it('can appear alongside the member price note — the two facts are independent', () => {
-    renderCard({
+    const { container } = renderCard({
       memberPriceLabel: 'Lidl Plus members only',
       notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
     })
     expect(screen.getByText('Lidl Plus members only')).toBeTruthy()
-    expect(screen.getByText('From Thu 17.9.')).toBeTruthy()
+    expect(container.textContent).toContain('From Thu 17.9.')
   })
 
-  it('wraps the date in a machine-readable <time dateTime> (a11y)', () => {
-    renderCard({ notYetStartedLabel: 'From Thu 17.9.', validFrom: '2026-09-17' })
-    const time = screen.getByText('From Thu 17.9.').closest('time')
+  // Code review NEW-4: <time> names a date, so only the date belongs inside
+  // it — "From" is the sentence around it and stays out. The visible text is
+  // unchanged either way, which is what the two tests below check.
+  it('wraps ONLY the date in a machine-readable <time dateTime> (a11y)', () => {
+    renderCard({
+      notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
+      validFrom: '2026-09-17',
+    })
+    const time = screen.getByText('Thu 17.9.').closest('time')
     expect(time?.getAttribute('dateTime')).toBe('2026-09-17')
+    expect(time?.textContent).toBe('Thu 17.9.')
+  })
+
+  it('still reads as one sentence with the date split out', () => {
+    const { container } = renderCard({
+      notYetStartedLabel: 'From Thu 17.9.',
+      notYetStartedDate: 'Thu 17.9.',
+      validFrom: '2026-09-17',
+    })
+    expect(container.textContent).toContain('From Thu 17.9.')
+  })
+
+  it('renders the label plain when the date is not found in it — never loses the text', () => {
+    const { container } = renderCard({
+      notYetStartedLabel: 'From Thursday',
+      notYetStartedDate: 'Thu 17.9.',
+      validFrom: '2026-09-17',
+    })
+    expect(container.textContent).toContain('From Thursday')
+    expect(container.querySelector('time')).toBeNull()
   })
 })
 

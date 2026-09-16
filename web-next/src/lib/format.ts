@@ -59,6 +59,27 @@ export function formatValidFromShort(iso: string, locale: string): string {
   }
 }
 
+/**
+ * Split an already-translated "From {date}" sentence around the date inside
+ * it, so only the date goes in `<time dateTime>` (code review NEW-4 — the
+ * element used to wrap "From Thu 17.9." whole, naming more than the date).
+ *
+ * It splits the RENDERED sentence rather than assuming a position, so each
+ * locale keeps its own word order and a translation may put the date first,
+ * last or in the middle. Returns null when the date does not appear verbatim
+ * — a translator could reformat it — and the caller then renders the label
+ * plain rather than losing it.
+ */
+export function splitAroundDate(
+  label: string,
+  date: string,
+): { before: string; after: string } | null {
+  if (date === '') return null
+  const at = label.indexOf(date)
+  if (at === -1) return null
+  return { before: label.slice(0, at), after: label.slice(at + date.length) }
+}
+
 // True when the snapshot is older than the weekly cadence + a small buffer.
 // Pipeline runs Mon/Tue/Thu — anything older than 9 days is definitely stale.
 export function isStale(updatedAtIso: string, now: Date = new Date()): boolean {

@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 
-import type { StoreKey } from '@/lib/store-tokens'
+import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import type { DealCategory, PriceBasis } from '@/lib/types'
 
 // What the user "added" to their shopping list. We snapshot the relevant deal
@@ -56,17 +56,26 @@ type ListState = {
 const STORAGE_VERSION = 2
 const STORAGE_KEY = 'basketch-list'
 
+const isStoreKey = (value: unknown): value is StoreKey =>
+  typeof value === 'string' && (STORE_KEYS as readonly string[]).includes(value)
+
 /**
  * The base shape a `ListItem` has always had, checked defensively.
  * `validFrom`/`priceBasis` are deliberately NOT required here — a
  * well-formed v1 item lacks them and must still pass.
+ *
+ * `store` is checked against `STORE_KEYS`, not merely `typeof === 'string'`
+ * (code review NEW-2): a `typeof` check alone let a corrupted store value
+ * survive sanitisation and throw later at `STORE_BRAND[g.store].label` in
+ * `buildShareText`/`ListDrawer` — the same crash class as the BLOCKER this
+ * function exists to prevent, just one field over.
  */
 function isWellFormedItem(value: unknown): value is ListItem {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return (
     typeof v.id === 'string' &&
-    typeof v.store === 'string' &&
+    isStoreKey(v.store) &&
     typeof v.productName === 'string' &&
     typeof v.category === 'string' &&
     typeof v.salePrice === 'number'
@@ -105,6 +114,13 @@ export const useListStore = create<ListState>()(
       // Only persist the items, not the action functions.
       partialize: (state) => ({ items: state.items }),
       migrate: (persistedState) => ({ items: sanitizeItems(persistedState) }),
+      // NEW-3, code review of 463f27f: this replaces currentState.items
+      // wholesale with the sanitised persisted value — safe today because
+      // sync storage hydrates once, at store creation, before anything can
+      // have been added to `currentState`. If `useListStore.persist.
+      // rehydrate()` is ever called explicitly later (e.g. multi-tab sync),
+      // this would silently drop any item added to `currentState` since
+      // that last persist — worth a merge-by-id if that need ever arrives.
       merge: (persistedState, currentState) => ({
         ...currentState,
         items: sanitizeItems(persistedState),

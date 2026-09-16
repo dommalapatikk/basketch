@@ -48,7 +48,7 @@ describe('buildShareText', () => {
     expect(text).toContain('https://basketch.app/list')
   })
 
-  it('names the programme for a member-only price (code review MEDIUM: "1 member price" named nobody)', () => {
+  it('names the programme WITH its count for a member-only price (code review MEDIUM: "1 member price" named nobody)', () => {
     // CLAUDE.md: "always label member-only prices (Lidl Plus, Supercard,
     // Cumulus)" — naming the programme, not just flagging that one exists. A
     // recipient who never opens basketch must still learn WHICH membership
@@ -65,10 +65,10 @@ describe('buildShareText', () => {
       locale: 'en',
       today: TODAY,
     })
-    expect(text).toMatch(/LIDL:.*\(Lidl Plus members only\)/)
+    expect(text).toMatch(/LIDL:.*\(1 × Lidl Plus\)/)
   })
 
-  it('names every distinct programme when a store group mixes them', () => {
+  it('names every distinct programme WITH its own count when a store group mixes them', () => {
     const text = buildShareText({
       items: [
         item({
@@ -79,13 +79,36 @@ describe('buildShareText', () => {
           store: 'coop',
           priceBasis: { kind: 'member-only', programme: 'Cumulus' },
         }),
+        item({
+          store: 'coop',
+          priceBasis: { kind: 'member-only', programme: 'Cumulus' },
+        }),
       ],
       shareUrl: 'https://basketch.app/list',
       locale: 'en',
       today: TODAY,
     })
-    expect(text).toContain('Supercard')
-    expect(text).toContain('Cumulus')
+    expect(text).toContain('1 × Supercard')
+    expect(text).toContain('2 × Cumulus')
+  })
+
+  it('does not imply every item in the group is a member price when only some are (code review NEW-1: ambiguous count)', () => {
+    // "Coop: 4 items ... (Supercard members only)" reads as if all four
+    // items need Supercard, when only one does. The note's own count must
+    // say "1", distinct from the store line's "4 items".
+    const text = buildShareText({
+      items: [
+        item({ store: 'coop', priceBasis: { kind: 'member-only', programme: 'Supercard' } }),
+        item({ store: 'coop' }),
+        item({ store: 'coop' }),
+        item({ store: 'coop' }),
+      ],
+      shareUrl: 'https://basketch.app/list',
+      locale: 'en',
+      today: TODAY,
+    })
+    expect(text).toContain('Coop: 4 items')
+    expect(text).toContain('(1 × Supercard)')
   })
 
   it('carries a not-yet-started item into the shared text', () => {

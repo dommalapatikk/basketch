@@ -26,29 +26,36 @@ const formatCHF = (value: number, locale = 'de-CH') =>
   }).format(value)
 
 /**
- * "(Lidl Plus members only)" / "(1 not started yet)" appended to a store's
- * line — the recipient of a shared WhatsApp/email message never opens
- * basketch, so a price shown there without this note is exactly the
- * unlabelled member price Art. 3(1)(e) UWG and CLAUDE.md forbid. CLAUDE.md
- * names the requirement precisely — "always label member-only prices (Lidl
- * Plus, Supercard, Cumulus)" — so the programme is named, not just counted;
- * an earlier version of this wrote "(1 member price)" and named nobody, the
- * exact fallback `formatMemberPriceLabel`'s own doc comment warns against.
+ * "(1 × Lidl Plus)" / "(2 not started yet)" appended to a store's line — the
+ * recipient of a shared WhatsApp/email message never opens basketch, so a
+ * price shown there without this note is exactly the unlabelled member price
+ * Art. 3(1)(e) UWG and CLAUDE.md forbid. CLAUDE.md names the requirement
+ * precisely — "always label member-only prices (Lidl Plus, Supercard,
+ * Cumulus)" — so the programme is named, not just counted; an earlier
+ * version of this wrote "(1 member price)" and named nobody, the exact
+ * fallback `formatMemberPriceLabel`'s own doc comment warns against.
+ *
+ * The count matters as much as the name (code review NEW-1): a version that
+ * named the programme but dropped the count read "Coop: 4 items · CHF 12.00
+ * (Supercard members only)" as if all four items needed Supercard, when only
+ * one did. "N × programme" keeps the same shape as "N not started yet" —
+ * both say exactly how many of the group's items the note is about, never
+ * implying it is all of them.
+ *
  * Says nothing when every item in the group is open-priced and already in
  * effect — the common case stays as short as it always was.
  */
 function groupNote(items: ListItem[], locale: string, today: string): string | null {
-  const programmes = new Set<string>()
+  const programmeCounts = new Map<string, number>()
   for (const it of items) {
     const programme = programmeOf(it.priceBasis)
-    if (programme) programmes.add(programme)
+    if (programme) programmeCounts.set(programme, (programmeCounts.get(programme) ?? 0) + 1)
   }
   const notStarted = items.filter((it) => startsAfterToday(it, today)).length
 
   const parts: string[] = []
-  if (programmes.size > 0) {
-    const names = Array.from(programmes).join(', ')
-    parts.push(locale === 'de' ? `nur mit ${names}` : `${names} members only`)
+  for (const [programme, count] of programmeCounts) {
+    parts.push(`${count} × ${programme}`)
   }
   if (notStarted > 0) {
     parts.push(locale === 'de' ? `${notStarted} noch nicht gestartet` : `${notStarted} not started yet`)

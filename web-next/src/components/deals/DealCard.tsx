@@ -5,6 +5,7 @@ import { PriceBlock } from '@/components/ui/price-block'
 import { ProductImage } from '@/components/ui/product-image'
 import { Tag } from '@/components/ui/tag'
 import { type DealAttribute, isStandaloneAttribute } from '@/lib/deal-attributes'
+import { splitAroundDate } from '@/lib/format'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
 import type { CropRegion, DealCategory, PriceBasis } from '@/lib/types'
 
@@ -66,6 +67,12 @@ type CommonProps = {
    */
   notYetStartedLabel?: string | null
   /**
+   * The formatted date inside `notYetStartedLabel` ("Thu 17.9."), so only it
+   * goes inside `<time dateTime>` and not the whole sentence (code review
+   * NEW-4). Optional: without it the label still renders, just unsplit.
+   */
+  notYetStartedDate?: string | null
+  /**
    * The deal's own validity start and price basis, snapshotted into the
    * shopping list at add-time (stores/list-store.ts) so ListDrawer and the
    * share text can render the same labels later, in whatever locale the list
@@ -121,6 +128,7 @@ function Primary({
   unverifiedLabel,
   memberPriceLabel,
   notYetStartedLabel,
+  notYetStartedDate,
   validFrom,
   priceBasis,
   onlyStoreBadge,
@@ -197,7 +205,11 @@ function Primary({
 
         {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
         {notYetStartedLabel ? (
-          <NotYetStartedNote label={notYetStartedLabel} validFrom={validFrom} />
+          <NotYetStartedNote
+            label={notYetStartedLabel}
+            date={notYetStartedDate}
+            validFrom={validFrom}
+          />
         ) : null}
 
         {onlyStoreNote ? (
@@ -245,6 +257,7 @@ function Compact({
   unverifiedLabel,
   memberPriceLabel,
   notYetStartedLabel,
+  notYetStartedDate,
   validFrom,
   priceBasis,
 }: CommonProps) {
@@ -318,7 +331,7 @@ function Compact({
         ) : null}
         {notYetStartedLabel ? (
           <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
-            <time dateTime={validFrom}>{notYetStartedLabel}</time>
+            <DatedLabel label={notYetStartedLabel} date={notYetStartedDate} validFrom={validFrom} />
           </p>
         ) : null}
       </div>
@@ -408,15 +421,50 @@ function MemberPriceNote({ label }: { label: string }) {
  * free: no parsing, no guessing, just naming what the visible text already
  * says in a form assistive tech and browsers can act on.
  */
-function NotYetStartedNote({ label, validFrom }: { label: string; validFrom: string }) {
+function NotYetStartedNote({
+  label,
+  date,
+  validFrom,
+}: {
+  label: string
+  date?: string | null
+  validFrom: string
+}) {
   return (
     <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
       <span
         aria-hidden
         className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-ink-3)]"
       />
-      <time dateTime={validFrom}>{label}</time>
+      <DatedLabel label={label} date={date} validFrom={validFrom} />
     </p>
+  )
+}
+
+/**
+ * "From <time dateTime="2026-09-17">Thu 17.9.</time>" — only the date sits
+ * inside the `<time>` element (code review NEW-4); the surrounding words of
+ * the translated sentence stay outside it. Without a `date` to find, or when
+ * a translation reformats it, the whole label renders plain: naming the date
+ * is an enhancement, and losing the visible text would not be.
+ */
+function DatedLabel({
+  label,
+  date,
+  validFrom,
+}: {
+  label: string
+  date?: string | null
+  validFrom: string
+}) {
+  const split = date ? splitAroundDate(label, date) : null
+  if (!split) return <>{label}</>
+  return (
+    <>
+      {split.before}
+      <time dateTime={validFrom}>{date}</time>
+      {split.after}
+    </>
   )
 }
 
