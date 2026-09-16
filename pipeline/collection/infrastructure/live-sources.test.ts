@@ -1,10 +1,22 @@
 import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RETAILERS } from '../domain/offer'
 import { unwrap } from '../domain/result'
 import { createValidityPeriod } from '../domain/validity-period'
-import { type Transport, createLiveSources } from './live-sources'
+import type { FlyerImage } from './migros/issuu-fetcher'
+import {
+  type Transport,
+  buildOcrManifest,
+  createLiveSources,
+  createOcrRunner,
+  migrosUnavailableReason,
+  parseOcrErrors,
+  parseOcrOutput,
+  writeManifestFiles,
+} from './live-sources'
 import type { OcrPage } from './migros/migros-flyer-source'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-10', '2026-09-16'))
@@ -29,7 +41,7 @@ function recordingTransport(over: Partial<Transport> = {}) {
       urls.push(u)
       return { ok: false, reason: 'stub' }
     },
-    ocr: async () => [],
+    ocr: async () => ({ pages: [], errors: [] }),
     dennerFetchPage: async (_id, page) => {
       urls.push(`denner:page${page}`)
       return {}
@@ -130,10 +142,11 @@ describe('a source that cannot fetch FAILS — it never returns zero offers', ()
         location: { revision: 'rev-1', pageCount: 2 },
         images: [{ pageNumber: 1, url: 'https://image.isu.pub/rev-1/jpg/page_1.jpg', bytes: new Uint8Array(1) }],
       }),
-      ocr: async () => [],
+      ocr: async () => ({ pages: [], errors: [] }),
     })
     const r = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
     expect(r?.ok).toBe(false)
+    // No per-page diagnostics at all falls back to the generic hint.
     if (r && !r.ok) expect(r.detail).toContain('rapidocr')
   })
 
@@ -187,7 +200,7 @@ describe('Migros CropRegion urls point at a real image', () => {
       }),
       ocr: async () => {
         captured = 'ocr-ran'
-        return [ocrPage(1)]
+        return { pages: [ocrPage(1)], errors: [] }
       },
     })
     await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
@@ -248,10 +261,10 @@ describe('offers carry the flyer they were read from as sourceUrl', () => {
         ],
       }),
       // Twice, so the run clears MIGROS_EXPECTED_MINIMUM (10) — the captured
-      // fixture is 4 pages yielding 7 offers, and a below-yield run returns a
-      // failure carrying no offers at all, which would make the assertions
-      // below pass vacuously.
-      ocr: async () => [...MIGROS_OCR, ...MIGROS_OCR],
+      // fixture is 4 pages yielding 11 offers (WP-C1 golden master), and a
+      // below-yield run returns a failure carrying no offers at all, which
+      // would make the assertions below pass vacuously.
+      ocr: async () => ({ pages: [...MIGROS_OCR, ...MIGROS_OCR], errors: [] }),
     })
 
     const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
@@ -275,7 +288,7 @@ describe('offers carry the flyer they were read from as sourceUrl', () => {
         location: { revision: 'rev', pageCount: 4 },
         images: [{ pageNumber: 1, url: 'https://image.isu.pub/rev/jpg/page_1.jpg', bytes: new Uint8Array(1) }],
       }),
-      ocr: async () => [...MIGROS_OCR, ...MIGROS_OCR],
+      ocr: async () => ({ pages: [...MIGROS_OCR, ...MIGROS_OCR], errors: [] }),
     })
     const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
     const offers = result && 'offers' in result ? result.offers : []
@@ -283,5 +296,254 @@ describe('offers carry the flyer they were read from as sourceUrl', () => {
     // false, so without this the test passes when collection fails entirely.
     expect(offers.length).toBeGreaterThan(0)
     expect(offers.some((o) => o.sourceUrl === null)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Migros OCR wiring — fetch once, and carry real page numbers through
+// (WP-C1, 2026-09-15).
+//
+// THE OLD BUGS:
+//   1. ocrPages was handed image URLS and passed them straight to ocr.py,
+//      which re-downloaded every one — doubling Issuu bandwidth for nothing,
+//      since fetchFlyerImages had already downloaded the bytes.
+//   2. ocr.py numbered pages by ARGV POSITION. If fetchFlyerImages skipped a
+//      page, every later page silently shifted onto the wrong page number,
+//      and every CropRegion on it pointed at the wrong photograph.
+// ---------------------------------------------------------------------------
+
+const flyerImage = (pageNumber: number, url: string): FlyerImage => ({
+  pageNumber,
+  url,
+  bytes: new Uint8Array([pageNumber]),
+})
+
+describe('buildOcrManifest', () => {
+  it("pairs each image with a local path, keyed on the image's OWN page number", () => {
+    // Page 3 was never downloaded (skipped upstream) — only 1, 2 and 4 arrived.
+    const images = [
+      flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg'),
+      flyerImage(2, 'https://image.isu.pub/rev/jpg/page_2.jpg'),
+      flyerImage(4, 'https://image.isu.pub/rev/jpg/page_4.jpg'),
+    ]
+
+    const manifest = buildOcrManifest(images, (image, index) => `/tmp/page-${image.pageNumber}-${index}.jpg`)
+
+    // MUTATION this catches: pairing `index + 1` instead of `image.pageNumber`
+    // would produce pageNumber 1, 2, 3 here instead of 1, 2, 4.
+    expect(manifest.map((m) => m.pageNumber)).toEqual([1, 2, 4])
+  })
+
+  // A "never puts the https:// url in the manifest" test does NOT belong
+  // here (code review 2026-09-16): `buildOcrManifest` is a pure pairing
+  // function that faithfully returns whatever `pathFor` gives it — a test
+  // that supplies its OWN local-path stub and then asserts the result is a
+  // local path is vacuous, it cannot fail regardless of the real
+  // implementation. The actual "fetch once" guarantee lives in
+  // `createOcrRunner`, which decides `pathFor` for real — see
+  // "sends ocr.py a --manifest file whose entries are local paths..." below,
+  // which reads the REAL manifest file `createOcrRunner` writes to disk.
+})
+
+describe('parseOcrOutput', () => {
+  it('parses one JSON object per line, keeping the pageNumber ocr.py reported', () => {
+    const stdout = [
+      JSON.stringify({ pageNumber: 4, width: 2199, height: 2997, items: [] }),
+      JSON.stringify({ pageNumber: 7, width: 2199, height: 2997, items: [{ text: '1.00', box: [] }] }),
+    ].join('\n')
+
+    const pages = parseOcrOutput(stdout)
+
+    expect(pages.map((p) => p.pageNumber)).toEqual([4, 7])
+  })
+
+  it('skips an errored page rather than losing the whole flyer', () => {
+    const stdout = [
+      JSON.stringify({ pageNumber: 1, error: 'truncated JPEG' }),
+      JSON.stringify({ pageNumber: 2, width: 2199, height: 2997, items: [] }),
+    ].join('\n')
+
+    expect(parseOcrOutput(stdout).map((p) => p.pageNumber)).toEqual([2])
+  })
+
+  it('ignores blank lines and malformed JSON without throwing', () => {
+    const stdout = ['', '   ', 'not json at all', JSON.stringify({ pageNumber: 1, width: 1, height: 1, items: [] })].join(
+      '\n',
+    )
+    expect(() => parseOcrOutput(stdout)).not.toThrow()
+    expect(parseOcrOutput(stdout)).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// stderr diagnostics — findings 8 and 9 from code review 2026-09-16.
+//
+// OLD: every per-page stderr error was written by ocr.py and then thrown
+// away entirely. When every page failed, "OCR produced no pages — is
+// rapidocr-onnxruntime installed?" was shown REGARDLESS of the real cause —
+// even when rapidocr ran fine and the images themselves were unreadable.
+// ---------------------------------------------------------------------------
+
+describe('parseOcrErrors', () => {
+  it('parses one error per failed page from stderr', () => {
+    const stderr = [
+      JSON.stringify({ pageNumber: 3, error: 'truncated JPEG' }),
+      JSON.stringify({ pageNumber: 7, error: 'cannot identify image file' }),
+    ].join('\n')
+
+    expect(parseOcrErrors(stderr)).toEqual([
+      { pageNumber: 3, error: 'truncated JPEG' },
+      { pageNumber: 7, error: 'cannot identify image file' },
+    ])
+  })
+
+  it('ignores blank lines and does not throw on a non-JSON line', () => {
+    expect(() => parseOcrErrors(['', '  ', 'Traceback (most recent call last):'].join('\n'))).not.toThrow()
+    expect(parseOcrErrors('')).toEqual([])
+  })
+})
+
+describe('migrosUnavailableReason', () => {
+  it('falls back to the generic hint only when there are NO per-page diagnostics', () => {
+    expect(migrosUnavailableReason([])).toContain('rapidocr-onnxruntime')
+  })
+
+  it('reports the REAL per-page reasons instead of guessing about the install, when there are any', () => {
+    const reason = migrosUnavailableReason([
+      { pageNumber: 3, error: 'truncated JPEG' },
+      { pageNumber: 7, error: 'cannot identify image file' },
+    ])
+    expect(reason).not.toContain('is rapidocr-onnxruntime installed')
+    expect(reason).toContain('page 3: truncated JPEG')
+    expect(reason).toContain('page 7: cannot identify image file')
+  })
+})
+
+describe('the composition root surfaces ocr.py\'s real per-page errors, not a generic guess', () => {
+  it('when every page fails with a stated reason, source-unavailable carries that reason', async () => {
+    const { sources } = build({
+      fetchFlyerImages: async () => ({
+        ok: true,
+        location: { revision: 'rev-1', pageCount: 1 },
+        images: [{ pageNumber: 1, url: 'https://image.isu.pub/rev-1/jpg/page_1.jpg', bytes: new Uint8Array(1) }],
+      }),
+      ocr: async () => ({ pages: [], errors: [{ pageNumber: 1, error: 'truncated JPEG' }] }),
+    })
+    const r = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    expect(r?.ok).toBe(false)
+    if (r && !r.ok) {
+      expect(r.detail).toContain('truncated JPEG')
+      expect(r.detail).not.toContain('is rapidocr-onnxruntime installed')
+    }
+  })
+})
+
+describe('writeManifestFiles — Promise.allSettled, not Promise.all', () => {
+  it('still writes every OTHER image even when one path fails, and surfaces the real failure', async () => {
+    // Promise.all would reject as soon as the bad write rejects, leaving the
+    // good write's outcome unobserved by the caller. allSettled waits for
+    // both, so the good file is provably written before the function ever
+    // throws — proving the fix, not just asserting a message.
+    const dir = await mkdtemp(join(tmpdir(), 'migros-write-test-'))
+    const goodPath = join(dir, 'good.jpg')
+    const badPath = join(dir, 'does-not-exist', 'bad.jpg') // parent dir missing -> ENOENT
+
+    const images: FlyerImage[] = [
+      { pageNumber: 1, url: 'https://x/1.jpg', bytes: new Uint8Array([1, 2, 3]) },
+      { pageNumber: 2, url: 'https://x/2.jpg', bytes: new Uint8Array([4, 5, 6]) },
+    ]
+    const manifest = [
+      { pageNumber: 1, source: goodPath },
+      { pageNumber: 2, source: badPath },
+    ]
+
+    await expect(writeManifestFiles(images, manifest)).rejects.toThrow()
+
+    const written = await readFile(goodPath)
+    expect(Array.from(written)).toEqual([1, 2, 3])
+  })
+})
+
+describe('createOcrRunner — fetch once, real page numbers, through the actual manifest file', () => {
+  it('sends ocr.py a --manifest file whose entries are local paths with the real page numbers', async () => {
+    const images = [
+      flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg'),
+      flyerImage(4, 'https://image.isu.pub/rev/jpg/page_4.jpg'), // page 2-3 skipped upstream
+    ]
+
+    let capturedManifest: { pageNumber: number; source: string }[] | null = null
+    const fakeExec = async (_python: string, args: readonly string[]) => {
+      const manifestPath = args[args.indexOf('--manifest') + 1]!
+      const { readFileSync } = await import('node:fs')
+      capturedManifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      return { stdout: '', stderr: '' }
+    }
+
+    const runner = createOcrRunner(fakeExec)
+    await runner(images, false)
+
+    expect(capturedManifest).not.toBeNull()
+    const manifest = capturedManifest as unknown as { pageNumber: number; source: string }[]
+    // The real page numbers survive the gap — not [1, 2].
+    expect(manifest.map((m) => m.pageNumber)).toEqual([1, 4])
+    // Local temp paths only — never the original url ocr.py would re-fetch.
+    expect(manifest.every((m) => !m.source.startsWith('http'))).toBe(true)
+  })
+
+  it('writes each image\'s bytes to disk exactly once — never asks ocr.py to fetch a url', async () => {
+    const images = [flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg')]
+    let manifestSources: string[] = []
+
+    const fakeExec = async (_python: string, args: readonly string[]) => {
+      const manifestPath = args[args.indexOf('--manifest') + 1]!
+      const { readFileSync } = await import('node:fs')
+      const entries = JSON.parse(readFileSync(manifestPath, 'utf8')) as { source: string }[]
+      manifestSources = entries.map((e) => e.source)
+      // Confirm the bytes were actually written to that path before exec ran.
+      const written = readFileSync(entries[0]!.source)
+      expect(Array.from(written)).toEqual(Array.from(images[0]!.bytes))
+      return { stdout: '', stderr: '' }
+    }
+
+    await createOcrRunner(fakeExec)(images, false)
+
+    expect(manifestSources).toHaveLength(1)
+    expect(manifestSources[0]).not.toContain('image.isu.pub')
+  })
+
+  it('cleans up its temp directory when ocr.py throws', async () => {
+    const images = [flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg')]
+    let tempDir: string | null = null
+
+    const fakeExec = async (_python: string, args: readonly string[]) => {
+      const manifestPath = args[args.indexOf('--manifest') + 1]!
+      tempDir = manifestPath.slice(0, manifestPath.lastIndexOf('/'))
+      throw new Error('ocr.py crashed')
+    }
+
+    await expect(createOcrRunner(fakeExec)(images, false)).rejects.toThrow('ocr.py crashed')
+
+    const { existsSync } = await import('node:fs')
+    expect(tempDir).not.toBeNull()
+    expect(existsSync(tempDir as unknown as string)).toBe(false)
+  })
+
+  it('cleans up its temp directory when ocr.py succeeds', async () => {
+    // The throw-path test above does not prove anything about the success
+    // path — a `finally` that only fired conditionally would still pass it.
+    const images = [flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg')]
+    let tempDir: string | null = null
+
+    const fakeExec = async (_python: string, args: readonly string[]) => {
+      const manifestPath = args[args.indexOf('--manifest') + 1]!
+      tempDir = manifestPath.slice(0, manifestPath.lastIndexOf('/'))
+      return { stdout: '', stderr: '' }
+    }
+
+    await createOcrRunner(fakeExec)(images, false)
+
+    const { existsSync } = await import('node:fs')
+    expect(tempDir).not.toBeNull()
+    expect(existsSync(tempDir as unknown as string)).toBe(false)
   })
 })
