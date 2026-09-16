@@ -32,12 +32,28 @@
 // judge model in `model-registry.ts`. Nothing else changes — the semaphore
 // below already admits up to `policy.maxInFlight` concurrent attempts.
 //
-// SEAM FOR WP-P8 (spend): add a `settle`/`authorise` step around `attempt()`
-// inside `request()`, using the same acquire → attempt → release shape the
-// rate and in-flight checks already use. The `ModelHttpError` thrown by a
-// failed attempt already carries `status`, which P8's spend policy needs to
-// distinguish "no charge" (network failure) from "charged, refused" (a paid
-// call that still consumed budget).
+// WP-P8 (spend, RCA item 5): landed. A reservation is minted ONCE per LOGICAL
+// `request()` call — wrapping the whole retry loop, not each individual HTTP
+// attempt inside it — and released exactly once, in a `finally` that covers
+// every exit path (success, a thrown ModelHttpError, a pacing-loop throw). It
+// bounds what ONE judge verdict may cost, regardless of how many times this
+// gate itself retries the underlying HTTP call; reserving per HTTP attempt
+// would let a flaky provider drain the monthly allowance N× faster than real
+// spend for a single logical call, which is not what "the worst case a call
+// could cost" means to a caller asking for one verdict.
+//
+// The gate SETTLES from the raw response body via `usageFromOpenRouterResponse`
+// on success. This is a narrow, deliberate exception to the transport/quota
+// boundary above (spelled out at that function's definition in `spend.ts`) —
+// it does not influence any retry or circuit decision, it only runs after a
+// call has already succeeded, and the ONLY provider this project pays is
+// OpenRouter (CLAUDE.md: "the only paid dependency is OpenRouter").
+//
+// Any exit that is NOT a settled success (a thrown error, a pacing-loop
+// throw, retries exhausted) settles the SAME reservation at its own worst
+// case in the outer `finally` — the domain invariant `spend.ts`'s `settle`
+// enforces: "a call whose usage is unknown (error or timeout) settles at the
+// worst case, never at 0".
 
 import type { ModelCallPolicy } from '../domain/model-registry'
 import {
@@ -52,6 +68,16 @@ import {
   recordFailure,
   recordSuccess,
 } from '../domain/resilience'
+import {
+  type Reservation,
+  type SpendLedgerState,
+  type UsdMicros,
+  ZERO_USD_MICROS,
+  createSpendLedgerState,
+  reserve,
+  settle,
+  usageFromOpenRouterResponse,
+} from '../domain/spend'
 
 /**
  * Carries what the domain needs to CLASSIFY a failed model call — the HTTP
@@ -92,6 +118,15 @@ export type ModelGateDeps = {
   readonly sleep?: (ms: number) => Promise<void>
   readonly now?: () => number
   readonly log?: (message: string) => void
+  /**
+   * WP-P8. What remains of this billing period's allowance, as read from the
+   * provider (`openrouter-spend-account.ts`) at run start. Only meaningful
+   * when `policy.spend` is set (a paid model) — ignored otherwise. Defaults to
+   * `ZERO_USD_MICROS` when a paid policy is built without one: fail CLOSED, so
+   * a caller that forgets to wire the ceiling gets "every reservation refused"
+   * rather than "every reservation silently unbounded".
+   */
+  readonly spendCeilingMicros?: UsdMicros
 }
 
 /** Bounded so a frozen or misbehaving clock cannot spin forever on a per-minute wait. */
@@ -150,6 +185,10 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
   let circuit: CircuitState = CIRCUIT_CLOSED
   let inFlight = 0
   const waiters: (() => void)[] = []
+  // WP-P8. Only ever touched when `policy.spend` is set (a paid model) — see
+  // the file header for why the ceiling defaults to ZERO (fail closed) rather
+  // than unlimited when a caller omits it.
+  let spendLedger: SpendLedgerState = createSpendLedgerState(deps.spendCeilingMicros ?? ZERO_USD_MICROS)
 
   // A simple counting semaphore. maxInFlight: 1 keeps today's sequential
   // behaviour true BY CONSTRUCTION — a second caller (say, backfill starting

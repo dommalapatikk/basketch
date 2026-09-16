@@ -15,8 +15,32 @@
 //      rather than after 40 minutes of retries
 
 import type { Result } from '../../collection/domain/result'
-import { err, ok } from '../../collection/domain/result'
+import { err, ok, unwrap } from '../../collection/domain/result'
 import { DEFAULT_RETRY, type RetryPolicy } from './resilience'
+import { type ModelPrice, type SpendPolicy, createModelPrice, createSpendPolicy } from './spend'
+
+/**
+ * `unwrap` is safe here for the same reason `createModelCallPolicy` already
+ * treats a `ModelSpec` as trusted: these two prices are our own literal data,
+ * verified against openrouter.ai on 2026-09-16, never untrusted input. A
+ * malformed literal is a defect in THIS file, caught at module load — not 40
+ * minutes into a run.
+ */
+function unsafePrice(input: { inputPerMTokMicros: number; outputPerMTokMicros: number }): ModelPrice {
+  return unwrap(createModelPrice(input))
+}
+
+/**
+ * WP-P8 (RCA item 5). `openai/gpt-5-nano` has been a PAID OpenRouter model
+ * since 2026-09-10 and nothing in the registry knew its price — `Budget`'s
+ * money field had no producer. `billing` makes that unrepresentable for the
+ * NEXT paid model too: `createModelCallPolicy` below refuses to build a
+ * policy for any OpenRouter model whose id does not end in `:free` unless it
+ * declares `paid` billing with both a price and a positive `maxOutputTokens`.
+ */
+export type ModelBilling =
+  | { readonly kind: 'free-tier' }
+  | { readonly kind: 'paid'; readonly price: ModelPrice; readonly maxOutputTokens: number }
 
 export type ModelSpec = {
   readonly id: string
@@ -47,6 +71,14 @@ export type ModelSpec = {
    */
   readonly maxInFlight: number
   readonly note?: string
+  /**
+   * WP-P8. Optional so every existing free-tier Gemini entry (and every test
+   * fixture built before this WP) is untouched — `createModelCallPolicy` only
+   * demands it for an OpenRouter model that is not `:free`. Absent means
+   * "free-tier" for any model where that is actually true; it is NEVER
+   * inferred for a non-`:free` OpenRouter id.
+   */
+  readonly billing?: ModelBilling
 }
 
 /**
@@ -86,6 +118,19 @@ export const TIER1_CHAIN: readonly ModelSpec[] = [
   },
 ]
 
+/**
+ * WP-P8. Both prices verified 2026-09-16 against openrouter.ai's own pricing
+ * pages (per-model `/pricing`) — the same $0.05/$0.40 for gpt-5-nano already
+ * cited in `component-2-agent-design.md:923` and OpenAI's own docs.
+ * `maxOutputTokens` is a conservative PRE-benchmark default (~2-2.5x the
+ * realistic ~0.3-1.5k output tokens this WP measured uncapped) — AP-11's
+ * 291-row re-benchmark, which requires a real paid call this WP could not
+ * make, must confirm it before it is trusted at full production traffic. See
+ * `docs/decisions/<this-WP's-ADR>.md`.
+ */
+const GPT_5_NANO_PRICE = { inputPerMTokMicros: 50_000, outputPerMTokMicros: 400_000 }
+const QWEN_3_7_FLASH_PRICE = { inputPerMTokMicros: 30_000, outputPerMTokMicros: 130_000 }
+
 /** Judge chain. The judge never sets a category, so a weaker model is fine. */
 export const JUDGE_CHAIN: readonly ModelSpec[] = [
   {
@@ -99,6 +144,7 @@ export const JUDGE_CHAIN: readonly ModelSpec[] = [
     // Sequential-by-construction until then — the seam P6 edits, nothing else.
     maxInFlight: 1,
     note: 'as JUDGE: caught 25% of errors with a 0% false-alarm rate',
+    billing: { kind: 'paid', price: unsafePrice(GPT_5_NANO_PRICE), maxOutputTokens: 2_000 },
   },
   {
     id: 'qwen/qwen3.7-flash',
@@ -109,6 +155,7 @@ export const JUDGE_CHAIN: readonly ModelSpec[] = [
     requestsPerMinute: 20,
     maxInFlight: 1,
     note: 'higher classification score, but failed to answer 3 of 5 in single-item mode',
+    billing: { kind: 'paid', price: unsafePrice(QWEN_3_7_FLASH_PRICE), maxOutputTokens: 2_000 },
   },
 ]
 
@@ -182,6 +229,18 @@ export type ModelCallPolicy = {
   readonly requestsPerDay: number | null
   readonly maxInFlight: number
   readonly retry: RetryPolicy
+  /**
+   * WP-P8. Present only for a PAID model — `undefined` for free-tier Gemini.
+   * `model-gate.ts` reserves `spend.worstCaseCallCostMicros` before every call
+   * through this policy's gate and refuses the call outright if the ledger
+   * cannot cover it. See `spend.ts`.
+   */
+  readonly spend?: SpendPolicy
+}
+
+/** An OpenRouter model id ending in `:free` carries no billing — the suffix IS the contract. */
+function isFreeOpenRouterId(id: string): boolean {
+  return id.endsWith(':free')
 }
 
 /**
@@ -191,6 +250,12 @@ export type ModelCallPolicy = {
  * or a fallback literal) — never untrusted input — so a failure here is a
  * defect in this file, caught at composition-root startup rather than 40
  * minutes into a run.
+ *
+ * WP-P8: an OpenRouter model whose id does not end in `:free` MUST declare
+ * `billing: { kind: 'paid', price, maxOutputTokens }` — refusing to build a
+ * policy without one is the invariant that closes RCA item 5: "the judge has
+ * been paid since 2026-09-10 and nothing knew its price". A `:free` id, or a
+ * Google model, needs no billing at all.
  */
 export function createModelCallPolicy(spec: ModelSpec, retry: RetryPolicy = DEFAULT_RETRY): Result<ModelCallPolicy> {
   if (spec.requestsPerMinute <= 0) {
@@ -203,6 +268,22 @@ export function createModelCallPolicy(spec: ModelSpec, retry: RetryPolicy = DEFA
     return err(`${spec.id}: requestsPerDay must be > 0 or null, got ${spec.requestsPerDay}`)
   }
 
+  const mustBePaid = spec.provider === 'openrouter' && !isFreeOpenRouterId(spec.id)
+  if (mustBePaid && spec.billing?.kind !== 'paid') {
+    return err(
+      `${spec.id}: a paid OpenRouter model must declare billing (a price and maxOutputTokens) — refusing to ` +
+        `build a call policy without one. The judge has been paid since 2026-09-10 and nothing knew its price ` +
+        `until this WP; see model-registry.ts's ModelBilling.`,
+    )
+  }
+
+  let spend: SpendPolicy | undefined
+  if (spec.billing?.kind === 'paid') {
+    const spendResult = createSpendPolicy({ price: spec.billing.price, maxOutputTokens: spec.billing.maxOutputTokens })
+    if (!spendResult.ok) return err(`${spec.id}: ${spendResult.error}`)
+    spend = spendResult.value
+  }
+
   return ok({
     modelId: spec.id,
     provider: spec.provider,
@@ -210,5 +291,6 @@ export function createModelCallPolicy(spec: ModelSpec, retry: RetryPolicy = DEFA
     requestsPerDay: spec.requestsPerDay,
     maxInFlight: spec.maxInFlight,
     retry,
+    spend,
   })
 }
