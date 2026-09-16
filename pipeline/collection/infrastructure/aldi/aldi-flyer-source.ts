@@ -44,6 +44,18 @@ import { type Tile, clusterIntoTiles, tileToCropRegion, tileWordsInOrder } from 
 
 export const ALDI_EXPECTED_MINIMUM = 60
 
+/**
+ * ALDI is NOT on a 5-rappen grid either. Confirmed on the committed fixture
+ * (`__fixtures__/catalog-kw37-pages3-6.xml`): prices like 1.49, 1.59, 1.68,
+ * 1.69, 1.79, 1.89, 2.19, 2.45, 2.64, 2.69, 2.79 are not multiples of 5. Not
+ * wired into a `printedDiscount()` call today — the ALDI rule (module
+ * header, point 1) means `discount` stays null unconditionally, since only
+ * a handful of pages carry a reference price to badge-check against at all
+ * — but declared here so the value is not rediscovered the day ALDI prints
+ * a verifiable badge (WP-C2).
+ */
+export const ALDI_PRICE_STEP_RAPPEN = 1
+
 const PRICE = /^\d{1,3}[.,]\d{2}$/
 const PRICE_MIN_HEIGHT = 30
 const NAME_MIN_HEIGHT = 14

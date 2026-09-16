@@ -74,7 +74,7 @@
 // silently lost — but never published: PriceBasis has no way to say "from 2
 // items" honestly yet (needs QuantityRequirement, WP-C4; PM decision TP-7a).
 
-import { type Discount, printedDiscount } from '../../domain/discount'
+import { type Discount, discountConsistencyReason, printedDiscount } from '../../domain/discount'
 import { type Money, createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
@@ -267,6 +267,14 @@ export function findValidity(pages: readonly OcrPage[], reference: Date): Validi
 export type MigrosFunnel = {
   readonly anchors: number
   readonly accepted: number
+  /**
+   * Of `accepted`, how many needed WP-C2's rappen grid to pass — the pp rule
+   * alone was not enough (F6). Not a rejection count: these offers ARE
+   * published. Visible here so a future flyer that starts mis-pairing on
+   * cheap items shows up as a rising share of `accepted`, not an identical
+   * summary line.
+   */
+  readonly gridAccepted: number
   readonly multiBuy: number
   readonly unreadablePrice: number
   readonly noDisplayPrice: number
@@ -278,6 +286,7 @@ export type MigrosFunnel = {
 const EMPTY_FUNNEL: MigrosFunnel = {
   anchors: 0,
   accepted: 0,
+  gridAccepted: 0,
   multiBuy: 0,
   unreadablePrice: 0,
   noDisplayPrice: 0,
@@ -290,6 +299,7 @@ function addFunnel(a: MigrosFunnel, b: MigrosFunnel): MigrosFunnel {
   return {
     anchors: a.anchors + b.anchors,
     accepted: a.accepted + b.accepted,
+    gridAccepted: a.gridAccepted + b.gridAccepted,
     multiBuy: a.multiBuy + b.multiBuy,
     unreadablePrice: a.unreadablePrice + b.unreadablePrice,
     noDisplayPrice: a.noDisplayPrice + b.noDisplayPrice,
@@ -301,7 +311,8 @@ function addFunnel(a: MigrosFunnel, b: MigrosFunnel): MigrosFunnel {
 
 export function formatFunnel(f: MigrosFunnel): string {
   return (
-    `funnel: ${f.anchors} anchors -> ${f.accepted} accepted, ${f.multiBuy} multi-buy (not published), ` +
+    `funnel: ${f.anchors} anchors -> ${f.accepted} accepted (${f.gridAccepted} via the rappen grid), ` +
+    `${f.multiBuy} multi-buy (not published), ` +
     `${f.unreadablePrice} unreadable statt, ${f.noDisplayPrice} no display price, ` +
     `${f.noName} no name, ${f.invalidValidity} invalid validity, ${f.invariantRejected} discount-inconsistent`
   )
@@ -738,6 +749,12 @@ function resolveAnchor(
   return buildOfferFromDetails(priced, details, flyerUrl, pageRef)
 }
 
+/** F6: did this offer's printed badge need the rappen grid, not just the pp rule, to pass? */
+function usedRappenGrid(offer: Offer): boolean {
+  if (!offer.discount || !offer.originalPrice) return false
+  return discountConsistencyReason(offer.discount, offer.originalPrice, offer.salePrice) === 'grid'
+}
+
 /**
  * Groups a page's OCR regions into products.
  *
@@ -763,7 +780,7 @@ export function parsePage(
 
     if (outcome.kind === 'offer') {
       offers.push(outcome.offer)
-      funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, accepted: 1 })
+      funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, accepted: 1, gridAccepted: usedRappenGrid(outcome.offer) ? 1 : 0 })
     } else if (outcome.kind === 'multi-buy') {
       warnings.push(outcome.warning)
       funnel = addFunnel(funnel, { ...EMPTY_FUNNEL, multiBuy: 1 })

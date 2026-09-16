@@ -50,7 +50,7 @@ const CONSTRAINTS = 'itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weeken
  * assumption would be wrong here, unlike Migros/Coop/Volg/Spar. WP-C2
  * backstop — see collection/domain/discount.ts.
  */
-const DENNER_PRICE_STEP_RAPPEN = 1
+export const DENNER_PRICE_STEP_RAPPEN = 1
 
 // ── Denner's wire shape. Referenced nowhere outside this file. ───────────────
 

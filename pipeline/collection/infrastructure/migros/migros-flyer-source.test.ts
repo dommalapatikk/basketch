@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { PRINTED_DISCOUNT_TOLERANCE_PP } from '../../domain/discount'
 import { createValidityPeriod } from '../../domain/validity-period'
 import {
   type OcrItem,
@@ -729,6 +728,9 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(funnel.anchors).toBe(18)
     expect(funnel.accepted).toBe(12)
+    // F6: exactly one of those 12 needed the rappen grid, not the pp rule —
+    // "Schweins-Geschnetzeltes," (1.20 statt 1.85, printed 33%, true 35.1%).
+    expect(funnel.gridAccepted).toBe(1)
     expect(funnel.multiBuy).toBe(5)
     expect(funnel.noDisplayPrice).toBe(1) // Eierschwämme, "06'6" for 9.90
     // "1.20 statt 1.85", printed 33% (true 35.1%), is now ACCEPTED — WP-C2's
@@ -751,9 +753,47 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
   it('formats a one-line summary that a run log can carry', () => {
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(formatFunnel(funnel)).toBe(
-      'funnel: 18 anchors -> 12 accepted, 5 multi-buy (not published), 0 unreadable statt, ' +
-        '1 no display price, 0 no name, 0 invalid validity, 0 discount-inconsistent',
+      'funnel: 18 anchors -> 12 accepted (1 via the rappen grid), 5 multi-buy (not published), ' +
+        '0 unreadable statt, 1 no display price, 0 no name, 0 invalid validity, 0 discount-inconsistent',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// F2 (code review of WP-C2): the committed fixture no longer exercises
+// invariantRejected at all — the one real case it used to catch ("1.20
+// statt 1.85") is now correctly accepted, which is progress, but it also
+// meant `funnel.invariantRejected === 0` was proven by NOTHING: the
+// reviewer changed `funnelField: 'invariantRejected'` to `'noName'` at
+// :714 and all 1,156 tests still passed. This synthetic tile restores that
+// coverage directly, named after the WP-C1 mis-pair shape it prevents.
+// ---------------------------------------------------------------------------
+describe('a badge-inconsistent tile is rejected, not silently published (the WP-C1 mis-pair shape)', () => {
+  it('statt 4.30, sale 1.90, printed 33% (really 55.8%) — geometrically plausible, badge is wrong', () => {
+    // Same tile geometry as a genuinely accepted offer (x-aligned, close
+    // above, display-sized) — the display price IS this anchor's own price,
+    // by position. Only the printed badge is wrong: 98 rappen off Migros's
+    // 5-rappen grid, 22.8pp off the pp rule. That is exactly what
+    // invariantRejected exists to catch, distinct from noDisplayPrice
+    // (wrong geometry) or noName (no name found).
+    const page: OcrPage = {
+      pageNumber: 1,
+      width: 2199,
+      height: 2997,
+      items: [
+        item('1.90', 112, 500, 290, 577),
+        item('WrongBadgeProduct', 362, 497, 700, 531),
+        item('statt 4.30', 143, 591, 292, 621),
+        item('33%', 700, 560, 850, 590),
+      ],
+    }
+    const { offers, funnel, warnings } = parseFlyer([page], REFERENCE, FLYER_WEEK_LITERAL)
+    expect(offers).toHaveLength(0)
+    expect(funnel.anchors).toBe(1)
+    expect(funnel.invariantRejected).toBe(1)
+    expect(funnel.noDisplayPrice).toBe(0)
+    expect(funnel.noName).toBe(0)
+    expect(warnings.some((w) => w.message.includes('WrongBadgeProduct'))).toBe(true)
   })
 })
 
@@ -897,18 +937,25 @@ describe('parseFlyer — against real captured OCR', () => {
     expect(offers.every((o) => o.validity.from === '2026-09-03' && o.validity.to === '2026-09-09')).toBe(true)
   })
 
-  it('keeps printed discounts consistent with the price pair — within the pp rule, or WP-C2s 5-rappen grid', () => {
-    // "Schweins-Geschnetzeltes,": 1.20 statt 1.85, printed 33% (true 35.1%,
-    // 2.14pp off) is the WP-C2 case — outside the pp rule, inside the grid.
+  it('keeps printed discounts within a bounded deviation of the price pair — a data assertion, not a re-implementation', () => {
+    // Reads the printed-vs-actual gap straight off the fixture data rather
+    // than re-deriving isConsistentWithPrices' own pp-OR-grid logic (which
+    // could only ever agree with itself). Every accepted offer's printed
+    // badge must stay within 4 rappen of round(original * (1 - pct/100))
+    // AND within 2.2pp of the true percentage — bounds observed on this
+    // fixture (worst case "Schweins-Geschnetzeltes,": 4 rappen / 2.14pp,
+    // the WP-C2 case) with headroom, so the assertion moves if the data
+    // does, rather than only failing when `createOffer` stops being called.
+    const MAX_OBSERVED_RAPPEN_DEVIATION = 4
+    const MAX_OBSERVED_PP_DEVIATION = 2.2
     for (const o of offers) {
       if (!o.discount || !o.originalPrice) continue
       const actualPct = ((o.originalPrice.rappen - o.salePrice.rappen) / o.originalPrice.rappen) * 100
-      const ppOk = Math.abs(actualPct - o.discount.percent) <= PRINTED_DISCOUNT_TOLERANCE_PP
+      const ppDeviation = Math.abs(actualPct - o.discount.percent)
       const expectedSaleRappen = Math.round(o.originalPrice.rappen * (1 - o.discount.percent / 100))
-      const gridOk =
-        o.discount.priceStepRappen !== null &&
-        Math.abs(expectedSaleRappen - o.salePrice.rappen) <= o.discount.priceStepRappen
-      expect(ppOk || gridOk).toBe(true)
+      const rappenDeviation = Math.abs(expectedSaleRappen - o.salePrice.rappen)
+      expect(rappenDeviation).toBeLessThanOrEqual(MAX_OBSERVED_RAPPEN_DEVIATION)
+      expect(ppDeviation).toBeLessThanOrEqual(MAX_OBSERVED_PP_DEVIATION)
     }
   })
 

@@ -55,6 +55,20 @@ import { isOk } from '../../domain/result'
 import { type ValidityPeriod, createValidityPeriod } from '../../domain/validity-period'
 
 export const LIDL_EXPECTED_MINIMUM = 40
+
+/**
+ * LIDL is NOT on a 5-rappen grid. CLAUDE.md's own example: red grapes at
+ * 1.39 / 1.49. Confirmed on the committed fixture (`__fixtures__/
+ * flyer-kw37.json`): prices like 0.69, 1.49, 1.69, 1.79, 1.89, 2.19, 2.29,
+ * 2.39, 2.59, 2.95, 3.29, 3.79 are not multiples of 5. Not wired into a
+ * `printedDiscount()` call today — the flyer JSON carries no reference
+ * price at all, so `discount` stays null (see `parseFlyer` below) — but
+ * declared here so the value doesn't have to be rediscovered the day LIDL
+ * starts printing one (WP-C2). See `collection/domain/discount.test.ts`
+ * for the domain-level regression this value is exercised against.
+ */
+export const LIDL_PRICE_STEP_RAPPEN = 1
+
 const LOYALTY_MARKER = 'lidlplus'
 
 // ── LIDL's wire shape. Referenced nowhere outside this file. ────────────────
