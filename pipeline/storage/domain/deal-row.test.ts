@@ -126,7 +126,8 @@ describe('money keeps its integer form', () => {
     const o = offer({
       salePrice: unwrap(createMoney(1.67)),
       originalPrice: unwrap(createMoney(2.25)),
-      discount: unwrap(printedDiscount(25)),
+      // Denner's real grid (WP-C2): fixture-verified 1.67 is not a multiple of 5.
+      discount: unwrap(printedDiscount(25, { priceStepRappen: 1 })),
     })
     const row = offerToRow(o, classified(), 'run-1')
     expect(row.sale_price_rappen).toBe(167)

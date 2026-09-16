@@ -47,6 +47,14 @@ const VENDOR_PATH = '/vendors/coop'
 /** aktionis carried ~1006 Coop deals when measured; a healthy run clears 300. */
 export const COOP_EXPECTED_MINIMUM = 300
 
+/**
+ * Coop rounds shelf prices to 5 rappen. Confirmed on the committed fixture:
+ * every observed price-new/price-old pair (4.45/9.95, 15.90/35.70,
+ * 45.60/101.70, 24.95/53.20) is a multiple of 5. WP-C2 backstop — see
+ * collection/domain/discount.ts.
+ */
+export const COOP_PRICE_STEP_RAPPEN = 5
+
 /** Safety stop — measured at ~20 pages of 51. */
 const MAX_PAGES = 40
 
@@ -126,7 +134,7 @@ export function mapCardToOffer(card: string): { offer: Offer } | { warning: stri
   if (original !== null) {
     const pct = parseDiscountPercent(firstGroup(card, /class="price-discount"[^>]*>([\s\S]*?)<\/span>/))
     if (pct !== null) {
-      const d = printedDiscount(pct)
+      const d = printedDiscount(pct, { priceStepRappen: COOP_PRICE_STEP_RAPPEN })
       if (isOk(d)) discount = d.value
     }
   }

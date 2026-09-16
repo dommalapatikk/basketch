@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { PRINTED_DISCOUNT_TOLERANCE_PP } from '../../domain/discount'
 import { createValidityPeriod } from '../../domain/validity-period'
 import {
   type OcrItem,
@@ -384,6 +385,10 @@ type GoldenTriple = { name: string; sale: number; statt: number }
 const GOLDEN_MASTER: GoldenTriple[] = [
   // page 2 — the one non-multi-buy anchor on the page.
   { name: 'Kartoffeln Patatli', sale: 1.4, statt: 2.1 },
+  // page 3 — WP-C2: "1.20 statt 1.85" printed 33% (true 35.1%) is 4 rappen off
+  // Migros's own 5-rappen shelf-price grid (round(185*0.67)=124, sale=120),
+  // and was wrongly rejected as a mis-pair before the rappen-grid fix.
+  { name: 'Schweins-Geschnetzeltes,', sale: 1.2, statt: 1.85 },
   // page 4
   { name: 'Schweins-Nierstuck steaksmariniert', sale: 1.9, statt: 2.85 }, // OCR reads "ü" as "u"; lowercase continuation -> hyphen dropped, see header
   { name: 'MigrosSpiesse', sale: 2.85, statt: 4.3 },
@@ -401,7 +406,7 @@ const GOLDEN_MASTER: GoldenTriple[] = [
 describe('golden master — KW36 pp. 2-5 yield exactly these (name, sale, statt) triples', () => {
   const { offers } = parseFlyer(PAGES, REFERENCE, null)
 
-  it('accepts exactly the 11 hand-verified offers, nothing more, nothing fewer', () => {
+  it('accepts exactly the 12 hand-verified offers, nothing more, nothing fewer', () => {
     const actual = offers
       .map((o) => ({ name: o.productName, sale: o.salePrice.rappen / 100, statt: (o.originalPrice?.rappen ?? 0) / 100 }))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -723,10 +728,12 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
   it('accounts for all 18 anchors on the committed fixture', () => {
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(funnel.anchors).toBe(18)
-    expect(funnel.accepted).toBe(11)
+    expect(funnel.accepted).toBe(12)
     expect(funnel.multiBuy).toBe(5)
     expect(funnel.noDisplayPrice).toBe(1) // Eierschwämme, "06'6" for 9.90
-    expect(funnel.invariantRejected).toBe(1) // "1.20 statt 1.85", printed 33%, true 35.1% (WP-C2 territory)
+    // "1.20 statt 1.85", printed 33% (true 35.1%), is now ACCEPTED — WP-C2's
+    // rappen-grid rule recognises Migros's own 5-rappen shelf-price rounding.
+    expect(funnel.invariantRejected).toBe(0)
     expect(funnel.unreadablePrice).toBe(0)
     expect(funnel.noName).toBe(0)
     expect(funnel.invalidValidity).toBe(0)
@@ -744,8 +751,8 @@ describe('funnel counts — anchors, accepted, and every rejection reason', () =
   it('formats a one-line summary that a run log can carry', () => {
     const { funnel } = parseFlyer(PAGES, REFERENCE, null)
     expect(formatFunnel(funnel)).toBe(
-      'funnel: 18 anchors -> 11 accepted, 5 multi-buy (not published), 0 unreadable statt, ' +
-        '1 no display price, 0 no name, 0 invalid validity, 1 discount-inconsistent',
+      'funnel: 18 anchors -> 12 accepted, 5 multi-buy (not published), 0 unreadable statt, ' +
+        '1 no display price, 0 no name, 0 invalid validity, 0 discount-inconsistent',
     )
   })
 })
@@ -791,24 +798,66 @@ describe('migrosYieldReason', () => {
 })
 
 describe('createMigrosFlyerSource — the ratio guard fires through the port', () => {
+  // Built synthetically (WP-C2) rather than off pages 2+3 of the committed
+  // fixture: that combination's only rejection used to be the "1.20 statt
+  // 1.85" printed-33% offer, which the rappen-grid fix now correctly
+  // accepts, so it no longer demonstrates the ratio guard. 1 accepted, 2
+  // withheld as multi-buy, 2 rejected (a text-sized candidate mistaken for
+  // nothing, per the existing "text-sized token" pattern) — publishable =
+  // 5 - 2 = 3, accepted = 1, so 1/3 (~33%) is below the 50% floor, even
+  // though 1 accepted offer clears an expectedMinimumOffers of 1. Removing
+  // the ratio guard and keeping only the absolute floor would make this
+  // PASS — that is exactly the mutation this test exists to catch.
+  const RATIO_GUARD_PAGE: OcrPage = {
+    pageNumber: 1,
+    width: 2199,
+    height: 9000,
+    items: [
+      // Accepted: statt 4.30 -> 2.85, printed 33% (true 33.72%, trivially consistent).
+      item('2.85', 112, 500, 290, 577),
+      item('AcceptedProduct', 362, 497, 700, 531),
+      item('statt 4.30', 143, 591, 292, 621),
+      item('33%', 700, 560, 850, 590),
+      // Multi-buy #1 — "ab 2 Stück" label withholds it, unlabelled.
+      item('ab 2 Stuck', 150, 2000, 290, 2030),
+      item('2.88', 112, 2130, 324, 2205),
+      item('MultiBuyProduct1', 362, 2130, 700, 2165),
+      item('statt 4.30', 143, 2220, 292, 2250),
+      // Multi-buy #2 — same shape, shifted well clear of every other group.
+      item('ab 2 Stuck', 150, 3500, 290, 3530),
+      item('2.88', 112, 3630, 324, 3705),
+      item('MultiBuyProduct2', 362, 3630, 700, 3665),
+      item('statt 4.30', 143, 3720, 292, 3750),
+      // Rejected #1 — a text-sized ("0.58") token is not the display price.
+      item('statt5.70', 143, 5040, 292, 5070),
+      item('RejectedProduct1', 362, 4946, 700, 4980),
+      item('0.58', 150, 4995, 280, 5020),
+      // Rejected #2 — same shape, shifted well clear.
+      item('statt5.70', 143, 6540, 292, 6570),
+      item('RejectedProduct2', 362, 6446, 700, 6480),
+      item('0.58', 150, 6495, 280, 6520),
+    ],
+  }
+
   it('fails below-expected-yield even though the absolute floor is cleared', () => {
-    // Pages 2+3: 8 anchors, 5 multi-buy (page 2) — publishable = 8 - 5 = 3.
-    // Only 1 (page 2's Kartoffeln Patatli) is accepted, so 1/3 (~33%) is
-    // below the 50% floor, even though 1 accepted offer clears an
-    // expectedMinimumOffers of 1. Removing the ratio guard and keeping only
-    // the absolute floor would make this PASS — that is exactly the
-    // mutation this test exists to catch. Page 3 carries "Angebote gelten…",
-    // so no fallbackValidity is needed.
-    const [page2, page3] = PAGES
     const source = createMigrosFlyerSource({
-      loadPages: async () => [page2!, page3!],
+      loadPages: async () => [RATIO_GUARD_PAGE],
       reference: REFERENCE,
+      fallbackValidity: FLYER_WEEK_LITERAL,
       expectedMinimumOffers: 1,
     })
     return source.fetchOffers('2026-W36').then((r) => {
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.reason).toBe('below-expected-yield')
     })
+  })
+
+  it('sanity-checks the synthetic page: 5 anchors, 2 multi-buy, 1 accepted', () => {
+    const { funnel } = parseFlyer([RATIO_GUARD_PAGE], REFERENCE, FLYER_WEEK_LITERAL)
+    expect(funnel.anchors).toBe(5)
+    expect(funnel.multiBuy).toBe(2)
+    expect(funnel.accepted).toBe(1)
+    expect(funnel.noDisplayPrice).toBe(2)
   })
 })
 
@@ -842,17 +891,24 @@ describe('parseFlyer — against real captured OCR', () => {
   it('every accepted real-fixture offer gets the flyer-wide window — none carries its own override', () => {
     // Distinct from the OLD :72-74 test, which asserted this UNCONDITIONALLY
     // (the defect). It happens to still be true for every offer on THIS
-    // fixture because none of the 11 accepted tiles carries a "gültig vom"
+    // fixture because none of the 12 accepted tiles carries a "gültig vom"
     // line of its own — see the synthetic-fixture tests above for the case
     // where that is NOT true.
     expect(offers.every((o) => o.validity.from === '2026-09-03' && o.validity.to === '2026-09-09')).toBe(true)
   })
 
-  it('keeps printed discounts consistent with the price pair', () => {
+  it('keeps printed discounts consistent with the price pair — within the pp rule, or WP-C2s 5-rappen grid', () => {
+    // "Schweins-Geschnetzeltes,": 1.20 statt 1.85, printed 33% (true 35.1%,
+    // 2.14pp off) is the WP-C2 case — outside the pp rule, inside the grid.
     for (const o of offers) {
       if (!o.discount || !o.originalPrice) continue
-      const actual = ((o.originalPrice.rappen - o.salePrice.rappen) / o.originalPrice.rappen) * 100
-      expect(Math.abs(actual - o.discount.percent)).toBeLessThanOrEqual(1.5)
+      const actualPct = ((o.originalPrice.rappen - o.salePrice.rappen) / o.originalPrice.rappen) * 100
+      const ppOk = Math.abs(actualPct - o.discount.percent) <= PRINTED_DISCOUNT_TOLERANCE_PP
+      const expectedSaleRappen = Math.round(o.originalPrice.rappen * (1 - o.discount.percent / 100))
+      const gridOk =
+        o.discount.priceStepRappen !== null &&
+        Math.abs(expectedSaleRappen - o.salePrice.rappen) <= o.discount.priceStepRappen
+      expect(ppOk || gridOk).toBe(true)
     }
   })
 
@@ -894,7 +950,7 @@ describe('createMigrosFlyerSource', () => {
   it('collects from captured OCR', async () => {
     const r = await source().fetchOffers('2026-W36')
     expect(r.ok).toBe(true)
-    if (r.ok) expect(r.offers.length).toBe(11)
+    if (r.ok) expect(r.offers.length).toBe(12)
   })
 
   it('reports source-unavailable when pages cannot be loaded', async () => {

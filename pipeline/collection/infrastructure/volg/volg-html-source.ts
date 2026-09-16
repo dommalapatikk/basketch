@@ -39,6 +39,13 @@ const SITE = 'https://www.volg.ch'
 
 export const VOLG_EXPECTED_MINIMUM = 10
 
+/**
+ * Volg rounds shelf prices to 5 rappen. Confirmed on the committed fixture:
+ * every sale and statt price observed (6.90, 11.95, 2.-, 9.20, 14.95, …) is a
+ * multiple of 5. WP-C2 backstop — see collection/domain/discount.ts.
+ */
+export const VOLG_PRICE_STEP_RAPPEN = 5
+
 // ── small HTML helpers (the markup is regular; no parser dependency needed) ──
 
 function stripTags(s: string): string {
@@ -179,7 +186,7 @@ export function mapBlockToOffer(
     const red = block.match(/c-product__reduction[^>]*>([\s\S]*?)<\/div>/)
     const pct = parseReduction(red ? clean(red[1] ?? '') : null)
     if (pct !== null) {
-      const d = printedDiscount(pct)
+      const d = printedDiscount(pct, { priceStepRappen: VOLG_PRICE_STEP_RAPPEN })
       if (isOk(d)) discount = d.value
     }
   }

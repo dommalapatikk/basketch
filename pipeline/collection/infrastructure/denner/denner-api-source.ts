@@ -44,6 +44,14 @@ const PAGE_ID_CURRENT_WEEK = 12
 /** Constraint string from the API's own page descriptors. */
 const CONSTRAINTS = 'itemType%3APRODUCT_%2F_promo_current_week%3Atrue_%2F_weekend_highlight%3Afalse'
 
+/**
+ * Denner is NOT on a 5-rappen grid. The committed fixture carries a real
+ * price of 1.67 (167 rappen — not a multiple of 5), so a nickel-rounding
+ * assumption would be wrong here, unlike Migros/Coop/Volg/Spar. WP-C2
+ * backstop — see collection/domain/discount.ts.
+ */
+const DENNER_PRICE_STEP_RAPPEN = 1
+
 // ── Denner's wire shape. Referenced nowhere outside this file. ───────────────
 
 type DennerVal = { value?: string; label?: string }
@@ -212,7 +220,7 @@ export function mapItemToOffer(
   if (original !== null) {
     const pct = parseDiscountBadge(attr(item, 'discount_text'))
     if (pct !== null) {
-      const d = printedDiscount(pct)
+      const d = printedDiscount(pct, { priceStepRappen: DENNER_PRICE_STEP_RAPPEN })
       if (isOk(d)) discount = d.value
     }
   }

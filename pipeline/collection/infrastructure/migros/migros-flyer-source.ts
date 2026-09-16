@@ -99,6 +99,17 @@ export const MIGROS_EXPECTED_MINIMUM = 10
  */
 export const MIGROS_MIN_ANCHOR_CONVERSION = 0.5
 
+/**
+ * Migros rounds shelf prices to 5 rappen (Swiss cash rounding — the 1- and
+ * 2-rappen coins are gone). Confirmed on the KW36 fixture: every real display
+ * price is a multiple of 5 (2.85, 4.30, 5.60, 5.25, 9.35, …). WP-C2: without
+ * this, a real offer ("1.20 statt 1.85", printed 33%, true 35.1%) was
+ * rejected, because one Migros rounding step is 2.7pp on a CHF 1.85 item —
+ * more than `PRINTED_DISCOUNT_TOLERANCE_PP`. This is a BACKSTOP behind the
+ * tile-geometry pairing above, not a substitute for it.
+ */
+export const MIGROS_PRICE_STEP_RAPPEN = 5
+
 /** One OCR-detected text region: the text and its quadrilateral in image pixels. */
 export type OcrItem = {
   readonly text: string
@@ -545,7 +556,9 @@ function findPrintedDiscount(page: OcrPage, stattBox: Box, tile: Tile): Discount
     .filter((i) => PERCENT.test(i.text.trim()) && withinTile(boxOf(i), tile) && boxOf(i).y1 <= stattBox.y1 + 5)
     .sort((a, b) => stattBox.y1 - boxOf(a).y1 - (stattBox.y1 - boxOf(b).y1))[0]
   if (!pctItem) return null
-  const d = printedDiscount(Number(pctItem.text.trim().replace('%', '')))
+  const d = printedDiscount(Number(pctItem.text.trim().replace('%', '')), {
+    priceStepRappen: MIGROS_PRICE_STEP_RAPPEN,
+  })
   return isOk(d) ? d.value : null
 }
 
