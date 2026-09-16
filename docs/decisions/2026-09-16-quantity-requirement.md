@@ -139,11 +139,36 @@ no benefit.
 
 ## Open
 
+- **DEPLOY GATE (code review finding, must hold): `min_quantity` reaches nowhere in `web-next/src`
+  today — verified, zero references anywhere in the frontend.** `SELECT_COLUMNS`
+  (`server/data/supabase-provider.ts`) does not name it, so the web layer does not even read the
+  column yet, let alone render a label or exclude the deal from the verdict. Between this package
+  running in production and WP-W4 shipping, a multi-buy offer would reach the site as an
+  indistinguishable EVERYONE price for the price ONLY a 2-or-more purchase actually gets: it renders
+  BARE (no "from N items" label — the exact TP-7a "unlabelled is not an option" case) and it VOTES in
+  the category verdict and can win "Cheapest" (`votesInVerdict` has no quantity check yet — see the
+  companion ADR `2026-09-15-in-effect-vs-upcoming.md`'s own Open section, which named this exact gap
+  ahead of the data existing). That is a live Art. 3(1)(e) UWG exposure, not a cosmetic one.
+  **The pipeline must not run against production data until WP-W4 (the label and the verdict
+  exclusion) is deployed.** This is a release-sequencing gate, not a code defect in this package —
+  recorded here so it is not lost between review and deploy.
 - The storage-layer identity collision (Consequences, above) is the next decision point. It needs a
   Tech Lead ruling on the coordinated fix (constraint shape, both `onConflict` targets, `store.ts`'s
   dedupe key) before the FIRST real week that actually prints both a single-item and a multi-buy
-  price for one product — which the KW36 fixture does not exercise.
+  price for one product — which the KW36 fixture does not exercise. Code review's decisive addition:
+  this collision loses one OFFER (silently, still worth fixing), but it never publishes a wrong or
+  unlabelled price — so it carries no UWG exposure of its own, unlike the deploy-gate item above.
 - WP-W4 (the "from N items" label on the card, and `min_quantity`'s exclusion from the category
   verdict / "Cheapest" tag — the same "listed but does not vote" rule already applied to a
   not-yet-started deal and a member-only price, per D2's own ruling) is NOT built here. It depends on
   this migration being applied.
+- **F5 (code review, carried forward, not fixed):** `findMultiBuyNameLine` picks the topmost
+  candidate in a band that spans half the page width with no x-alignment check and a 4%-of-page-height
+  reach — correct against the KW36 fixture's actual spacing, but structurally looser than the
+  ordinary anchor's x-aligned "nearest wins" search, and a denser flyer layout could let it reach
+  into a neighbouring tile's text. Revisit if a second real Migros flyer's funnel shows it happening.
+- **F6 (code review, carried forward, not fixed):** `RejectedOutcome['funnelField']`'s type
+  (`keyof Omit<MigrosFunnel, 'anchors' | 'accepted'>`) now also admits `multiBuy` and `gridAccepted`
+  — both subset counters, never valid rejection reasons — so a typo at a call site could increment
+  one of them as if it were a rejection and silently break the funnel's own reconciliation total.
+  Narrow the union to only the real rejection reasons in a follow-up.
