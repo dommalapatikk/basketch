@@ -136,7 +136,12 @@ export function parseCardDate(text: string | null): ValidityPeriod | null {
  * defect this file exists to fix, by a different route (code review finding
  * F1, WP-C3 round 2).
  */
-const AKTIONIS_DESCRIPTOR_SHAPE = /^ – [^–,]+, [^–(]+\(\d+(?:[.,]\d+)?\s*[a-zA-Zäöü]+\)$/
+// Both dash characters, because only the en dash was observed and a silent
+// miss on an em dash would be the same defect wearing a different character
+// (code review N1). The separator is captured once here so the search and the
+// shape check can never disagree about what a separator is.
+const AKTIONIS_DESCRIPTOR_SEPARATOR = /[ ][–—][ ]/
+const AKTIONIS_DESCRIPTOR_SHAPE = /^ [–—] [^–—,]+, [^–—(]+\(\d+(?:[.,]\d+)?\s*[a-zA-Zäöü]+\)$/
 
 /**
  * aktionis appends its own descriptor after every wine's full name, separated
@@ -154,14 +159,14 @@ const AKTIONIS_DESCRIPTOR_SHAPE = /^ – [^–,]+, [^–(]+\(\d+(?:[.,]\d+)?\s*[
  * the run log instead of quietly cutting a real product name.
  */
 function stripAktionisDescriptor(fullName: string): { name: string; warning?: string } {
-  const dashIndex = fullName.indexOf(' – ')
+  const dashIndex = fullName.search(AKTIONIS_DESCRIPTOR_SEPARATOR)
   if (dashIndex === -1) return { name: fullName }
 
   const tail = fullName.slice(dashIndex)
   if (!AKTIONIS_DESCRIPTOR_SHAPE.test(tail)) {
     return {
       name: fullName,
-      warning: `${fullName}: a " – " is present but its tail does not match aktionis' descriptor shape — kept in full`,
+      warning: `${fullName}: a descriptor separator is present but its tail does not match aktionis' descriptor shape — kept in full`,
     }
   }
 

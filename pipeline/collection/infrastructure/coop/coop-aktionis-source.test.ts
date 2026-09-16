@@ -260,6 +260,31 @@ describe('resolving the full name — the title cross-check (WP-C3 / HANDOVER it
       expect(r.warning).toContain("does not match aktionis' descriptor shape")
     }
   })
+
+  // Code review N3: every descriptor in both fixtures ends in a litre volume,
+  // so narrowing the unit class to `l` passed all 1,216 tests. These lock the
+  // other units aktionis actually uses, and N1's em dash, so a future tighten
+  // of either has to be deliberate.
+  it.each([
+    ['g', 'Bio Basilikum Pesto – Sauce, Italien (250g)', 'Bio Basilikum Pesto'],
+    ['cl', 'Rioja DOCa Reserva – Rotwein, Spanien (50cl)', 'Rioja DOCa Reserva'],
+    ['an em dash', 'Prosecco DOC Treviso — Schaumwein, Italien (0.75l)', 'Prosecco DOC Treviso'],
+  ])('strips a descriptor ending in %s (code review N1, N3)', (_unit, title, expected) => {
+    const card =
+      '<div data-upox-id="1">' +
+      `<a href="/deals/x" title="Mehr Infos über ${title}">` +
+      `<h3 class="card-title">${title}</h3>` +
+      '</a>' +
+      '<span class="card-date">07.09.2026 - 09.09.2026</span>' +
+      '<span class="price-new">1.00</span>' +
+      '</div>'
+    const r = mapCardToOffer(card)
+    expect('offer' in r).toBe(true)
+    if ('offer' in r) {
+      expect(r.offer.productName).toBe(expected)
+      expect(r.warning).toBeUndefined()
+    }
+  })
 })
 
 describe('mapCardToOffer — defensive', () => {
