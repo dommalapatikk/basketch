@@ -6,9 +6,11 @@ import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
 import { parseBboxXml } from '../pdf/pdf-words'
 import {
+  ALDI_PAGE_IMAGE_WIDTH,
   catalogDataUrl,
   catalogPageUrl,
   createAldiFlyerSource,
+  findPageImageUrls,
   findPdfUrl,
   parseCycleStart,
   parseFlyer,
@@ -37,6 +39,52 @@ describe('findPdfUrl', () => {
   it('returns null when there is none', () => {
     expect(findPdfUrl({ nothing: true })).toBeNull()
     expect(findPdfUrl(null)).toBeNull()
+  })
+})
+
+/**
+ * THE DEFECT (QA 2026-09-16): `AldiSourceDeps.pageImageUrl` was never supplied
+ * at the composition root, so all 127 live ALDI offers carried `image: null`
+ * even though this parser has always supported one. The per-page image path
+ * was sitting unread in the same data.json response `findPdfUrl` already
+ * fetches — see `findPageImageUrls`'s own header for the Publitas doc citation.
+ */
+describe('findPageImageUrls', () => {
+  it('builds a page image url from the Publitas hash path — doc example verbatim', () => {
+    // developers.publitas.com/docs/rest-v1.html's own documented shape:
+    // { "spreads": [{ "pages": ["/1230/10323/pages/<hash>"] }] }
+    const data = {
+      spreads: [{ pages: ['/1230/10323/pages/d02b493028db893d159038587a6ed2c792aa0545'] }],
+    }
+    const urls = findPageImageUrls(data)
+    expect(urls.get(1)).toBe(
+      `https://view.publitas.com/1230/10323/pages/d02b493028db893d159038587a6ed2c792aa0545-at${ALDI_PAGE_IMAGE_WIDTH}.jpg`,
+    )
+  })
+
+  it('numbers pages in the order Publitas lists them, across spreads', () => {
+    const data = {
+      spreads: [
+        { pages: ['/95562/3331426/pages/' + 'a'.repeat(40)] },
+        { pages: ['/95562/3331426/pages/' + 'b'.repeat(40), '/95562/3331426/pages/' + 'c'.repeat(40)] },
+      ],
+    }
+    const urls = findPageImageUrls(data)
+    expect(urls.get(1)).toContain('a'.repeat(40))
+    expect(urls.get(2)).toContain('b'.repeat(40))
+    expect(urls.get(3)).toContain('c'.repeat(40))
+    expect(urls.size).toBe(3)
+  })
+
+  it('degrades to an empty map, never throws, when the shape is unrecognised', () => {
+    expect(findPageImageUrls({ nothing: true }).size).toBe(0)
+    expect(findPageImageUrls(null).size).toBe(0)
+    expect(() => findPageImageUrls(undefined)).not.toThrow()
+  })
+
+  it('does not mistake the PDF href for a page image', () => {
+    const data = { pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf?x=1' }] }
+    expect(findPageImageUrls(data).size).toBe(0)
   })
 })
 

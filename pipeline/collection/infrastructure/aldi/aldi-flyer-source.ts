@@ -276,6 +276,51 @@ export function findPdfUrl(dataJson: unknown): string | null {
   return m?.[1] ? m[1].replace(/\\u0026/g, '&').replace(/\\\//g, '/') : null
 }
 
+/**
+ * Publitas' documented image size tiers (developers.publitas.com/docs/rest-v1.html,
+ * host verified live 2026-09-16 — `view.publitas.com/1/1/pages/{hash}-at800.jpg`
+ * returns `200 image/jpeg`, Publitas' own published example): at1000, at1200,
+ * at1600, at2000, at2400. 1600 is large enough for a useful crop without asking
+ * Publitas for the biggest tier on every card.
+ */
+export const ALDI_PAGE_IMAGE_WIDTH = 1600
+
+/**
+ * Every page shares the same opaque-hash path shape, e.g.
+ * `/95562/3331426/pages/d02b493028db893d159038587a6ed2c792aa0545` — 40 hex
+ * chars, matching Publitas' own documented example verbatim. There is no
+ * page-number url: the hash can only be read out of the catalogue's own
+ * data.json, which is the SAME response `findPdfUrl` already reads — never a
+ * second fetch.
+ */
+const PAGE_IMAGE_PATH = /"(\/\d+\/\d+\/pages\/[0-9a-f]{40})"/g
+
+/**
+ * Pulls every page's Publitas image path out of the SAME data.json response
+ * `findPdfUrl` already reads, in the order Publitas lists them — which is
+ * reading order, so the first path is page 1, the second is page 2, and so on.
+ *
+ * THE DEFECT THIS CLOSES (QA 2026-09-16): `AldiSourceDeps.pageImageUrl` was
+ * never supplied at the composition root, so all 127 live ALDI offers carried
+ * `image: null`. The data the adapter needed was always in the catalogue
+ * response it already fetches — nothing read it out.
+ *
+ * Returns an empty map on anything unexpected (Publitas changed its shape, or
+ * a catalogue with no image data at all) — the caller degrades to no image for
+ * that page, never a wrong one. See `cropRegionFromPoints`: an empty url fails
+ * `isHttpUrl`, so the offer keeps `image: null` exactly as it does today.
+ */
+export function findPageImageUrls(dataJson: unknown): ReadonlyMap<number, string> {
+  const text = JSON.stringify(dataJson ?? null).replace(/\\\//g, '/')
+  const map = new Map<number, string>()
+  let page = 0
+  for (const m of text.matchAll(PAGE_IMAGE_PATH)) {
+    page += 1
+    map.set(page, `https://view.publitas.com${m[1]}-at${ALDI_PAGE_IMAGE_WIDTH}.jpg`)
+  }
+  return map
+}
+
 export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
   const expectedMinimumOffers = deps.expectedMinimumOffers ?? ALDI_EXPECTED_MINIMUM
 

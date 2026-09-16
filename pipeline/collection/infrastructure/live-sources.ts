@@ -27,6 +27,7 @@ import {
   catalogDataUrl,
   catalogPageUrl,
   createAldiFlyerSource,
+  findPageImageUrls,
   findPdfUrl,
 } from './aldi/aldi-flyer-source'
 import { createCoopAktionisSource, httpFetchPage as coopFetchPage } from './coop/coop-aktionis-source'
@@ -290,6 +291,15 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
     createVolgHtmlSource({ fetchPage: net.volgFetchPage }),
 
     // ── Spar: flyer PDF via a 302 to cdn.ipaper.io ──────────────────────────
+    // NO pageImageUrl. QA 2026-09-16 (defect 3): this used to be
+    // `() => sparPdfUrl(year, kw)` — the flyer's PDF DOWNLOAD endpoint, not a
+    // page image, so all 76 live SPAR crops pointed at a 404 `GetPDF.ashx` a
+    // browser `<img>` cannot render even when it resolves. SPAR's real
+    // per-page image scheme is genuinely unknown: the iPaper Enrichments JSON
+    // that would carry it returned 403 to every probe in
+    // docs/research-raw-2026-09-07/report12_line398.md, "contents unknown" —
+    // not evidence to build a URL from. Omitting pageImageUrl leaves `image`
+    // null (an honest empty card) instead of a src that always fails.
     createSparFlyerSource({
       loadPages: async () => {
         const result = await net.fetchPdfPages(sparPdfUrl(year, kw))
@@ -297,23 +307,18 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
         return result.pages
       },
       fallbackValidity,
-      pageImageUrl: () => sparPdfUrl(year, kw),
       flyerUrl: sparPageUrl(year, kw),
     }),
 
-    // ── Aldi: Publitas catalogue JSON carries the PDF url ───────────────────
-    createAldiFlyerSource({
-      loadPages: async () => {
-        const data = await net.fetchJson(catalogDataUrl(year, kw))
-        const pdf = findPdfUrl(data)
-        if (!pdf) unavailable('aldi', 'catalogue carried no PDF url')
-        const result = await net.fetchPdfPages(pdf)
-        if (!result.ok) unavailable('aldi', result.reason)
-        return result.pages
-      },
-      fallbackValidity,
-      flyerUrl: catalogPageUrl(year, kw),
-    }),
+    // ── Aldi: Publitas catalogue JSON carries the PDF url AND, per page, the
+    // hash path of that page's own image (findPageImageUrls) — both read from
+    // the SAME data.json fetched once below, never a second request.
+    //
+    // QA 2026-09-16 (defect 2): this dependency was never supplied at all, so
+    // every one of 127 live ALDI offers carried `image: null` despite the
+    // parser fully supporting a CropRegion. See findPageImageUrls' own header
+    // for the Publitas doc citation the url shape comes from.
+    createAldiSource(options, net),
 
     // ── Lidl: flyer JSON + PDF text for the Lidl Plus cross-check ───────────
     // The PDF is the ONLY signal that a price is a member price; the JSON
@@ -375,5 +380,39 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
       }
       return migrosPageImageUrl(revision, pageNumber)
     },
+  })
+}
+
+/**
+ * ALDI's data.json carries BOTH the PDF url and every page's own image hash
+ * path — one fetch, two uses. The map is built once the response is in hand
+ * and read back by `pageImageUrl`, the same "capture during loadPages, read
+ * back later" shape `createMigrosSource` uses for its revision id.
+ *
+ * A page with no entry in the map (an unmatched hash, or Publitas having
+ * changed shape) gets `''` back, not a thrown error or an invented url — see
+ * `cropRegionFromPoints`: an empty pageImageUrl fails its own `isHttpUrl`
+ * check, so that offer degrades to `image: null`, exactly like before this
+ * fix, rather than one broken page taking the whole retailer down.
+ */
+function createAldiSource(options: LiveSourceOptions, net: Transport): OfferSource {
+  const { kw, year } = options
+  let pageImages: ReadonlyMap<number, string> = new Map()
+
+  return createAldiFlyerSource({
+    loadPages: async () => {
+      const data = await net.fetchJson(catalogDataUrl(year, kw))
+      const pdf = findPdfUrl(data)
+      if (!pdf) unavailable('aldi', 'catalogue carried no PDF url')
+
+      pageImages = findPageImageUrls(data)
+
+      const result = await net.fetchPdfPages(pdf)
+      if (!result.ok) unavailable('aldi', result.reason)
+      return result.pages
+    },
+    fallbackValidity: options.fallbackValidity ?? null,
+    flyerUrl: catalogPageUrl(year, kw),
+    pageImageUrl: (pageNumber) => pageImages.get(pageNumber) ?? '',
   })
 }

@@ -18,6 +18,7 @@ import {
   writeManifestFiles,
 } from './live-sources'
 import type { OcrPage } from './migros/migros-flyer-source'
+import { parseBboxXml } from './pdf/pdf-words'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-10', '2026-09-16'))
 
@@ -205,6 +206,78 @@ describe('Migros CropRegion urls point at a real image', () => {
     })
     await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
     expect(captured).toBe('ocr-ran')
+  })
+})
+
+describe('Aldi CropRegion urls point at a real image (QA 2026-09-16, defect 2)', () => {
+  // Duplicated 4x, same shape as the Migros fixture below: the committed
+  // 4-page slice parses to 19 offers, and ALDI_EXPECTED_MINIMUM (60) would
+  // otherwise make collectedWithYieldCheck return a failure carrying no
+  // offers at all, making the assertions below pass vacuously.
+  const ALDI_PAGES_ONE = parseBboxXml(
+    readFileSync(join(__dirname, 'aldi/__fixtures__/catalog-kw37-pages3-6.xml'), 'utf8'),
+  )
+  const ALDI_PAGES = [...ALDI_PAGES_ONE, ...ALDI_PAGES_ONE, ...ALDI_PAGES_ONE, ...ALDI_PAGES_ONE]
+
+  it('wires a page image url built from the SAME data.json fetched for the PDF url', async () => {
+    // Before this fix, createAldiFlyerSource's pageImageUrl dependency was
+    // never supplied at all, so every ALDI offer carried image: null — the
+    // parser has always supported a CropRegion, nothing wired it up.
+    const { sources } = build({
+      fetchJson: async () => ({
+        // The PDF url findPdfUrl reads...
+        pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf' }],
+        // ...and, in the SAME response, the per-page image hashes findPageImageUrls reads.
+        spreads: [
+          { pages: ['/95562/3331426/pages/' + '1'.repeat(40)] },
+          { pages: ['/95562/3331426/pages/' + '2'.repeat(40)] },
+          { pages: ['/95562/3331426/pages/' + '3'.repeat(40)] },
+          { pages: ['/95562/3331426/pages/' + '4'.repeat(40)] },
+        ],
+      }),
+      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES }),
+    })
+
+    const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+    const offers = result && 'offers' in result ? result.offers : []
+    expect(offers.length).toBeGreaterThan(0)
+
+    const cropped = offers.filter((o) => o.image?.kind === 'crop-region')
+    expect(cropped.length).toBeGreaterThan(0)
+    for (const o of cropped) {
+      if (o.image?.kind !== 'crop-region') continue
+      expect(o.image.region.pageImageUrl).toMatch(/^https:\/\/view\.publitas\.com\/95562\/3331426\/pages\/[0-9]{40}-at1600\.jpg$/)
+    }
+  })
+
+  it('never throws and still returns offers (with image: null) when the catalogue carries no page-image data', async () => {
+    const { sources } = build({
+      fetchJson: async () => ({ pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf' }] }),
+      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES }),
+    })
+    const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+    const offers = result && 'offers' in result ? result.offers : []
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.every((o) => o.image === null)).toBe(true)
+  })
+})
+
+describe('Spar offers carry no image (QA 2026-09-16, defect 3)', () => {
+  // The old bug: pageImageUrl pointed at the flyer's PDF DOWNLOAD endpoint
+  // (GetPDF.ashx), not a page image — a src a browser <img> can never render,
+  // worse than showing nothing. SPAR's real per-page image scheme has no
+  // evidence anywhere in the fixtures or research docs, so the fix is to stop
+  // emitting a broken src rather than invent one.
+  it('every Spar offer has image: null, never a src pointing at the PDF download url', async () => {
+    // Duplicated 2x — the 3-page fixture parses to 17 offers, under
+    // SPAR_EXPECTED_MINIMUM (30).
+    const pagesOnce = parseBboxXml(readFileSync(join(__dirname, 'spar/__fixtures__/flyer-kw37-pages1-3.xml'), 'utf8'))
+    const pages = [...pagesOnce, ...pagesOnce]
+    const { sources } = build({ fetchPdfPages: async () => ({ ok: true, pages }) })
+    const result = await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const offers = result && 'offers' in result ? result.offers : []
+    expect(offers.length).toBeGreaterThan(0)
+    expect(offers.every((o) => o.image === null)).toBe(true)
   })
 })
 
