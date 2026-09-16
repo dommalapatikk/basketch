@@ -1,0 +1,647 @@
+// run-pipeline — the composition-root-shaped orchestration `run.ts` never had.
+//
+// Every defect logged in HANDOVER.md §4 has the same shape: "a correct unit
+// that nothing wires up." The reason is structural — `main()` in run.ts was a
+// 700-line unexported function, so nothing could construct it with a fake
+// source, a fake cache or a fake judge and watch what came out. This module IS
+// that seam.
+//
+// LAYERING: this file is the APPLICATION layer. It defines `PipelineDeps` —
+// the port every real dependency must satisfy — and orchestrates collection
+// and transformation against that port. It imports no fetch, no Supabase
+// client and no Gemini SDK; `composition.ts` (infrastructure) is the only file
+// that builds the real thing.
+//
+// BEHAVIOUR: every log line, every phase order and every exit condition below
+// is moved from `run.ts`, not rewritten. `process.exit` is gone — each
+// function RETURNS an outcome, and `run.ts` (now a thin shell) maps it to an
+// exit code. WP-P3 extends that mapping (exit 75 vs 1); this module does not
+// change it.
+
+import fs from 'node:fs'
+import path from 'node:path'
+
+import type { Deal, Store, UnifiedDeal } from '../shared/types'
+import { ALL_STORES, aktionisSlugToStore } from '../shared/types'
+
+import type { CollectOffersOutcome } from './collection/application/collect-offers'
+import { collectOffers } from './collection/application/collect-offers'
+import type { CollectionMode } from './collection/application/collection-mode'
+import { compareCollection, formatComparison, legacyCounts, safeToCutOver } from './collection/application/collection-mode'
+import type { Offer } from './collection/domain/offer'
+import type { IsoWeek, OfferSource } from './collection/domain/offer-source'
+import { filterGrocery } from './grocery-filter'
+import { extractProductMetadata } from './product-metadata'
+import type { AliasMap, UnknownTag } from './resolve-taxonomy'
+import { collectUnknownTags, resolveTaxonomy } from './resolve-taxonomy'
+import { isValidDealEntry } from './validate'
+import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/application/classify-deals'
+import { classifyDeals } from './transformation/application/classify-deals'
+import type { Alert, RunSnapshot } from './transformation/domain/alerts'
+import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
+import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
+import { normalizeProductName, productLookupKey } from './store'
+import type { DealEnrichment } from './storage/domain/offer-to-unified'
+import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
+import type { StoreSweepPlan } from './storage/domain/stale-sweep'
+import { sweepPlan } from './storage/domain/stale-sweep'
+
+// ============================================================
+// The port — every real dependency composition.ts must build
+// ============================================================
+
+/** What `classifyDeals` needs, minus the per-run fields (`runId`, `log`) `runTransform` supplies itself. */
+export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log'>
+
+export type V3CutoverStats = {
+  readonly concepts_resolved: number
+  readonly skus_upserted: number
+  readonly deals_linked: number
+}
+
+/**
+ * Every Supabase-touching operation `runTransform` needs, bundled into one
+ * port so a test can substitute an in-memory fake for the whole storage layer
+ * — the same reason `OfferSource` exists for collection.
+ */
+export type StorageDeps = {
+  readonly loadAliases: () => Promise<AliasMap>
+  readonly reportUnknownTags: (tags: readonly UnknownTag[]) => Promise<void>
+  readonly resolveProducts: (deals: readonly Deal[], store: Store) => Promise<Map<string, { productId: string }>>
+  readonly activeCountsByWindow: () => Promise<ActiveCountsResult>
+  readonly storeDeals: (deals: Deal[], productIds?: Map<string, string>) => Promise<StoreDealsResult>
+  readonly writeEnrichment: (items: readonly DealEnrichment[]) => Promise<number>
+  readonly populateV3Layer: (deals: Deal[]) => Promise<V3CutoverStats>
+  readonly deactivateStaleForStores: (runStartedAt: Date, plan: Map<string, StoreSweepPlan>) => Promise<number>
+  readonly deactivateExpiredDeals: () => Promise<number>
+  readonly logPipelineRun: (input: PipelineRunInput) => Promise<void>
+}
+
+export type IsoWeekParts = { readonly kw: number; readonly year: number }
+
+/**
+ * The one thing every real dependency (sources, classifier, reflector, judge,
+ * enricher, cache, storage, the revalidate ping) is built from. Composed in
+ * exactly one place — `composition.ts#createProductionDeps` — and never
+ * built inline here.
+ */
+export type PipelineDeps = {
+  readonly sources: (week: IsoWeekParts) => readonly OfferSource[]
+  /**
+   * Deferred rather than eager: selecting the tier-1 model is a network probe
+   * (`model-probe.ts`), and it must fire at the exact point in the log
+   * sequence `run.ts` always fired it — after the grocery filter, before
+   * classification — not at composition time.
+   */
+  readonly createClassificationDeps: (log: (message: string) => void) => Promise<ClassificationDeps>
+  readonly storage: StorageDeps
+  readonly revalidate: () => Promise<void>
+}
+
+// ============================================================
+// Outcomes — replace `process.exit`, never thrown
+// ============================================================
+
+export type TransformOutcome =
+  | { readonly status: 'ok'; readonly storedCount: number }
+  | { readonly status: 'alert-failed' }
+  | { readonly status: 'storage-shortfall' }
+
+export type PipelineOutcome = TransformOutcome | { readonly status: 'no-data' }
+
+const infoLog = (message: string): void => console.log(`[pipeline] [INFO] ${message}`)
+
+/**
+ * ISO week for a date — the number the retailers publish their flyers under.
+ *
+ * Thursday-based, per ISO 8601: the week containing the year's first Thursday
+ * is week 1. Getting this wrong by one fetches last week's flyer, which parses
+ * perfectly and is silently stale.
+ */
+export function isoWeekOf(date: Date): IsoWeekParts {
+  const t = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
+  const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1)
+  const kw = Math.ceil(((t.getTime() - yearStart) / 86_400_000 + 1) / 7)
+  return { kw, year: t.getUTCFullYear() }
+}
+
+/** Correlation id for a run: prefers the GitHub Actions run id so a stored row links back to the job log that produced it. */
+export function computeRunId(env: Record<string, string | undefined>, now: Date): string {
+  return env.GITHUB_RUN_ID ? `gha-${env.GITHUB_RUN_ID}` : `local-${now.toISOString().replace(/[:.]/g, '-')}`
+}
+
+// ============================================================
+// Collection phase
+// ============================================================
+
+export type StoreStatus = { readonly status: 'success' | 'failed' | 'skipped'; readonly count: number }
+
+export type CollectOutcome = {
+  readonly storeDealsMap: Map<Store, UnifiedDeal[]>
+  readonly storeStatusMap: Map<Store, StoreStatus>
+  /** Fields `Offer` carries that `UnifiedDeal` cannot: CropRegion, priceBasis, integer rappen. */
+  readonly pendingEnrichment: Map<string, DealEnrichment>
+}
+
+export type RunCollectOptions = {
+  readonly cwd: string
+  readonly now: Date
+  readonly collectionMode: CollectionMode
+}
+
+function readDealsFile(cwd: string, filename: string): UnifiedDeal[] {
+  const filePath = path.resolve(cwd, filename)
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8')
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      console.error(`[pipeline] [ERROR] ${filename} is not an array`)
+      return []
+    }
+
+    const valid: UnifiedDeal[] = []
+    let skipped = 0
+    for (const entry of parsed) {
+      if (isValidDealEntry(entry)) {
+        valid.push(entry)
+      } else {
+        skipped++
+      }
+    }
+
+    if (skipped > 0) {
+      console.warn(`[pipeline] [WARN] Skipped ${skipped} invalid entries in ${filename}`)
+    }
+
+    return valid
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.warn(`[pipeline] [WARN] Could not read ${filename}: ${message}`)
+    return []
+  }
+}
+
+function readLegacyDealFiles(cwd: string): { storeDealsMap: Map<Store, UnifiedDeal[]>; storeStatusMap: Map<Store, StoreStatus> } {
+  const storeStatusMap = new Map<Store, StoreStatus>()
+  const storeDealsMap = new Map<Store, UnifiedDeal[]>()
+  const allFiles = fs.readdirSync(cwd)
+  const dealFiles = allFiles.filter((f) => /^[a-z][\w-]*-deals\.json$/.test(f))
+
+  for (const file of dealFiles) {
+    const slug = file.replace('-deals.json', '')
+    const storeName = aktionisSlugToStore(slug) ?? (ALL_STORES.includes(slug as Store) ? (slug as Store) : null)
+    if (!storeName) {
+      console.warn(`[pipeline] [WARN] Unknown store in filename: ${file} — skipping`)
+      continue
+    }
+    const deals = readDealsFile(cwd, file)
+    const existing = storeDealsMap.get(storeName) ?? []
+    storeDealsMap.set(storeName, [...existing, ...deals])
+    const prev = storeStatusMap.get(storeName)
+    storeStatusMap.set(storeName, {
+      status: existing.length + deals.length > 0 ? 'success' : (prev?.status ?? 'failed'),
+      count: (prev?.count ?? 0) + deals.length,
+    })
+  }
+  return { storeDealsMap, storeStatusMap }
+}
+
+function logCollectionTrace(outcome: CollectOffersOutcome): void {
+  console.log(`[pipeline] [INFO] collected ${outcome.offers.length} offers · ${outcome.trace.status}`)
+  for (const span of outcome.trace.sources) {
+    const mark = span.status === 'ok' ? 'ok  ' : 'FAIL'
+    console.log(
+      `[pipeline] [INFO]   ${mark} ${span.retailer.padEnd(8)} ${String(span.offerCount).padStart(4)} offers  ${span.warningCount} warnings` +
+        (span.status === 'ok' ? '' : `  ${span.failureReason}: ${(span.detail ?? '').slice(0, 80)}`),
+    )
+  }
+}
+
+function applyLiveOffers(offers: readonly Offer[], legacy: CollectOutcome): void {
+  legacy.storeDealsMap.clear()
+  legacy.storeStatusMap.clear()
+  for (const offer of offers) {
+    const store = offer.retailer as Store
+    const list = legacy.storeDealsMap.get(store) ?? []
+    list.push(offerToUnifiedDeal(offer))
+    legacy.storeDealsMap.set(store, list)
+  }
+  for (const [store, list] of legacy.storeDealsMap) {
+    legacy.storeStatusMap.set(store, { status: list.length > 0 ? 'success' : 'failed', count: list.length })
+  }
+  for (const offer of offers) {
+    const enrichment = dealStoreEnrichment(offer)
+    if (enrichment) legacy.pendingEnrichment.set(enrichment.key, enrichment)
+  }
+  console.log(`[pipeline] [INFO] ${legacy.pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
+}
+
+// ── Collection cutover ──────────────────────────────────────────────────────
+// off    the legacy *-deals.json files, as today
+// shadow BOTH run; the new module writes nothing and reports what it WOULD
+//        have stored. One cycle of this turns predictions into facts.
+// live   the new module supplies the offers; the legacy files are ignored.
+async function runCollectionModule(deps: PipelineDeps, now: Date, mode: CollectionMode, legacy: CollectOutcome): Promise<void> {
+  console.log(`[pipeline] [INFO] collection module: ${mode.toUpperCase()}`)
+  const weekParts = isoWeekOf(now)
+  const week: IsoWeek = `${weekParts.year}-W${String(weekParts.kw).padStart(2, '0')}`
+
+  const outcome = await collectOffers(deps.sources(weekParts), week, { timeoutMs: 600_000 })
+  logCollectionTrace(outcome)
+
+  const comparison = compareCollection(legacyCounts(legacy.storeDealsMap), outcome.offers)
+  console.log(`\n${formatComparison(comparison)}\n`)
+
+  if (mode === 'shadow') {
+    // Deliberately changes nothing. The point is the table above.
+    console.log('[pipeline] [INFO] SHADOW — nothing written from the collection module')
+    return
+  }
+  if (!safeToCutOver(comparison)) {
+    // Better a stale week from the legacy path than a week of missing prices.
+    console.error('[pipeline] [ERROR] LIVE requested but a retailer collected nothing — falling back to the legacy files')
+    return
+  }
+
+  console.log('[pipeline] [INFO] LIVE — collection module supplies this run')
+  applyLiveOffers(outcome.offers, legacy)
+}
+
+export async function runCollect(deps: PipelineDeps, options: RunCollectOptions): Promise<CollectOutcome> {
+  const { storeDealsMap, storeStatusMap } = readLegacyDealFiles(options.cwd)
+  const collected: CollectOutcome = { storeDealsMap, storeStatusMap, pendingEnrichment: new Map() }
+
+  if (options.collectionMode !== 'off') {
+    await runCollectionModule(deps, options.now, options.collectionMode, collected)
+  }
+
+  for (const [store, result] of collected.storeStatusMap) {
+    console.log(`[pipeline] [INFO] Read ${result.count} ${store} deals`)
+  }
+
+  return collected
+}
+
+function flattenStoreDeals(map: ReadonlyMap<Store, readonly UnifiedDeal[]>): UnifiedDeal[] {
+  return Array.from(map.values()).flat()
+}
+
+// ============================================================
+// Transform phase
+// ============================================================
+
+function normalizeProductNames(deals: readonly UnifiedDeal[]): void {
+  for (const deal of deals) {
+    deal.productName = normalizeProductName(deal.productName)
+  }
+  console.log(`[pipeline] [INFO] Normalised ${deals.length} product names`)
+}
+
+/** Rejects non-grocery items at ingest (Parkside, Silvercrest, etc.). See v4 spec §13 and grocery-filter.ts. */
+function filterToGroceryOnly(allRaw: readonly UnifiedDeal[]): UnifiedDeal[] {
+  const groceryOnly: UnifiedDeal[] = []
+  const rejectionReasons = new Map<string, number>()
+  for (const deal of allRaw) {
+    const decision = filterGrocery(deal)
+    if (decision.keep) {
+      groceryOnly.push(deal)
+    } else {
+      const key = `${decision.reason}:${decision.matched ?? ''}`
+      rejectionReasons.set(key, (rejectionReasons.get(key) ?? 0) + 1)
+    }
+  }
+  const rejected = allRaw.length - groceryOnly.length
+  if (rejected > 0) {
+    const breakdown = [...rejectionReasons.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(', ')
+    console.log(`[pipeline] [INFO] Grocery filter rejected ${rejected} non-grocery items (${breakdown})`)
+  }
+  return groceryOnly
+}
+
+/** Brand/quantity/organic extraction is used downstream by the product resolver; logged here for visibility only. */
+function logProductMetadata(groceryOnly: readonly UnifiedDeal[]): void {
+  let organicCount = 0
+  let brandCount = 0
+  let quantityCount = 0
+  for (const deal of groceryOnly) {
+    const meta = extractProductMetadata(deal.productName, deal.sourceCategory)
+    if (meta.isOrganic) organicCount++
+    if (meta.brand) brandCount++
+    if (meta.quantity != null) quantityCount++
+  }
+  console.log(`[pipeline] [INFO] Metadata: ${brandCount} brands, ${quantityCount} quantities, ${organicCount} organic`)
+}
+
+function logClassificationSummary(stats: ClassifyDealsResult['stats']): void {
+  console.log(
+    `[pipeline] [INFO] Categorized ${stats.classified} · cached ${stats.cacheHits} · uncertain ${stats.uncertain} (published, label withheld) · rejected ${stats.rejected} · blocked ${stats.blocked} · held back ${stats.heldBack}`,
+  )
+  // The weekly review queue, and the only number here that should trend to zero.
+  if (stats.uncertain > 0) {
+    console.log(`[pipeline] [INFO] ${stats.uncertain} products need review: WHERE is_uncertain`)
+  }
+  if (stats.deferred > 0) {
+    console.warn(`[pipeline] [WARN] ${stats.deferred} products deferred to the next run (cold start)`)
+  }
+}
+
+async function classifyGroceryDeals(deps: PipelineDeps, groceryOnly: readonly UnifiedDeal[], runId: string): Promise<ClassifyDealsResult> {
+  const classification = await deps.createClassificationDeps(infoLog)
+  const result = await classifyDeals(groceryOnly, { ...classification, runId, log: infoLog })
+  logClassificationSummary(result.stats)
+  return result
+}
+
+async function resolveTaxonomyStep(deps: PipelineDeps, categorized: readonly Deal[]): Promise<Deal[]> {
+  const aliases = await deps.storage.loadAliases()
+  const resolved = categorized.map((d) => resolveTaxonomy(d, aliases))
+  const unknowns = collectUnknownTags(categorized as Deal[], aliases)
+  if (unknowns.length > 0) {
+    console.warn(`[pipeline] [WARN] ${unknowns.length} unmapped sub_category tag(s): ${unknowns.map((u) => u.source_tag).join(', ')}`)
+    await deps.storage.reportUnknownTags(unknowns)
+  }
+  const mappedCount = resolved.filter((d) => d.categorySlug != null).length
+  console.log(`[pipeline] [INFO] Taxonomy alias: ${mappedCount}/${resolved.length} deals got a category_slug`)
+  return resolved
+}
+
+async function resolveProductIds(
+  deps: PipelineDeps,
+  resolved: readonly Deal[],
+  storeStatusMap: ReadonlyMap<Store, StoreStatus>,
+): Promise<Map<string, string>> {
+  const storeNames = Array.from(storeStatusMap.keys())
+  const resolvedMaps = await Promise.all(
+    storeNames.map((store) => deps.storage.resolveProducts(resolved.filter((d) => d.store === store), store)),
+  )
+
+  const productIds = new Map<string, string>()
+  for (let i = 0; i < storeNames.length; i++) {
+    const store = storeNames[i]!
+    const map = resolvedMaps[i]!
+    for (const [name, result] of map) {
+      productIds.set(productLookupKey(store, name), result.productId)
+    }
+  }
+  console.log(`[pipeline] [INFO] Resolved ${productIds.size} products`)
+  return productIds
+}
+
+type WriteOutcome = {
+  readonly writeResult: StoreDealsResult
+  readonly liveByWindowBeforeWrite: Map<string, Map<string, number>> | null
+  readonly liveCountsOk: boolean
+}
+
+/**
+ * F1, carried forward from WP-P1's code review: live counts MUST be read
+ * BEFORE `storeDeals` writes anything, or "before" and "after" are the same
+ * read and the sweep guard measures a run against data it just changed
+ * itself. `run.ts` had no test seam to guard this order until this module
+ * existed — see `run-pipeline.test.ts`, "read counts before writing".
+ */
+async function writeDealsWithSweepGuard(deps: PipelineDeps, resolved: Deal[], productIds: Map<string, string>): Promise<WriteOutcome> {
+  const liveCountsResult = await deps.storage.activeCountsByWindow()
+  if (!liveCountsResult.ok) {
+    console.warn(
+      `[pipeline] [WARN] Live counts unreadable — stale sweep skipped for all stores: ${liveCountsResult.error.message}`,
+      { details: liveCountsResult.error.details, hint: liveCountsResult.error.hint },
+    )
+  }
+  // `null` here — never an empty map — is what tells sweepPlan to sweep
+  // NOTHING, rather than reading "we don't know" as "nothing is live".
+  const liveByWindowBeforeWrite = liveCountsResult.ok ? liveCountsResult.counts : null
+
+  const writeResult = await deps.storage.storeDeals(resolved, productIds)
+
+  return { writeResult, liveByWindowBeforeWrite, liveCountsOk: liveCountsResult.ok }
+}
+
+async function writeEnrichmentStep(deps: PipelineDeps, pendingEnrichment: ReadonlyMap<string, DealEnrichment>): Promise<void> {
+  if (pendingEnrichment.size === 0) return
+  const enriched = await deps.storage.writeEnrichment([...pendingEnrichment.values()])
+  console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with crop/price-basis/rappen`)
+}
+
+async function v3CutoverStep(deps: PipelineDeps, resolved: Deal[]): Promise<void> {
+  try {
+    const v3Stats = await deps.storage.populateV3Layer(resolved)
+    console.log(`[pipeline] [INFO] v3 cutover — concepts:${v3Stats.concepts_resolved}, skus:${v3Stats.skus_upserted}, linked:${v3Stats.deals_linked}`)
+  } catch (err) {
+    // Don't fail the pipeline if v3 cutover hits an issue — legacy columns are
+    // still populated. Log loud so the operator can fix in Supabase Studio.
+    console.error('[pipeline] [ERROR] v3 cutover failed (legacy data still saved):', err)
+  }
+}
+
+// ⚠️ COLLECTING IS NOT REFRESHING. A store that fetched successfully but wrote
+// nothing must not be swept — see item #5 in HANDOVER.md §4.
+async function sweepStep(deps: PipelineDeps, storeStatusMap: ReadonlyMap<Store, StoreStatus>, write: WriteOutcome, startDate: Date): Promise<void> {
+  const collectionSucceeded = [...storeStatusMap.entries()]
+    .filter(([, r]) => r.status === 'success' && r.count > 0)
+    .map(([store]) => store)
+
+  const plan = sweepPlan({
+    collectionSucceeded,
+    writtenByWindow: write.writeResult.writtenByWindow,
+    liveByWindow: write.liveByWindowBeforeWrite,
+  })
+
+  if (write.liveCountsOk) {
+    const skipped = collectionSucceeded.filter((s) => !plan.has(s))
+    if (skipped.length > 0) {
+      console.error(
+        `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
+      )
+    }
+  }
+
+  if (write.writeResult.attempted > 0 && write.writeResult.total === 0) {
+    console.error(
+      `[pipeline] [ERROR] Wrote 0 of ${write.writeResult.attempted} deals — skipping the stale sweep entirely. Every deal currently on the site stays visible.`,
+    )
+  }
+
+  if (write.writeResult.attempted === 0 || write.writeResult.total > 0) {
+    await deps.storage.deactivateStaleForStores(startDate, plan)
+  }
+}
+
+function logStorageShortfall(resolvedLength: number, categorizedLength: number, storedCount: number): boolean {
+  const storageShortfall = resolvedLength - storedCount
+  const storagePartialFailure = storedCount < resolvedLength
+  if (storagePartialFailure) {
+    console.error(`[pipeline] [ERROR] Storage shortfall: stored ${storedCount} of ${categorizedLength} deals (${storageShortfall} failed)`)
+  }
+  return storagePartialFailure
+}
+
+async function deactivateExpiredStep(deps: PipelineDeps): Promise<void> {
+  const deactivatedCount = await deps.storage.deactivateExpiredDeals()
+  if (deactivatedCount > 0) {
+    console.log(`[pipeline] [INFO] Deactivated ${deactivatedCount} expired deals`)
+  }
+}
+
+type LogRunParams = {
+  readonly storeStatusMap: ReadonlyMap<Store, StoreStatus>
+  readonly storedCount: number
+  readonly resolvedLength: number
+  readonly storagePartialFailure: boolean
+  readonly durationMs: number
+}
+
+async function logRunStep(deps: PipelineDeps, params: LogRunParams): Promise<void> {
+  const errors: string[] = []
+  const failedStores = [...params.storeStatusMap.entries()].filter(([, r]) => r.status === 'failed').map(([store]) => store)
+  if (failedStores.length > 0) errors.push(`Sources failed: ${failedStores.join(', ')}`)
+  if (params.storagePartialFailure) {
+    errors.push(`Storage: stored ${params.storedCount}/${params.resolvedLength} (${params.resolvedLength - params.storedCount} failed)`)
+  }
+
+  const storeResults: Record<string, { status: string; count: number }> = {}
+  for (const [store, result] of params.storeStatusMap) {
+    storeResults[store] = { status: result.status, count: result.count }
+  }
+
+  await deps.storage.logPipelineRun({
+    store_results: storeResults,
+    total_stored: params.storedCount,
+    duration_ms: params.durationMs,
+    error_log: errors.length > 0 ? errors.join('; ') : null,
+  })
+}
+
+// The founding failure of this project: pipeline_runs was written every run
+// for months and nobody read it, so a categorisation regression stayed
+// invisible while the pipeline reported success. Emitting data is not
+// observability — something has to LOOK at it.
+function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], durationMs: number): boolean {
+  const snapshot: RunSnapshot = {
+    runId,
+    finishedAtMs: Date.now(),
+    totalProducts: stats.total,
+    classified: stats.classified,
+    uncertain: stats.uncertain,
+    rejected: stats.rejected,
+    invalidCategoryRejected: 0,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.total - stats.cacheHits,
+    tokensUsed: 0,
+    rappenSpent: 0,
+    durationMs,
+    benchmarkMacroF1: null,
+    publishedDataCoverage: {},
+    halted: null,
+  }
+
+  // No previous run to compare against yet — regression detection needs two
+  // points. Passing null is honest; inventing a baseline would not be.
+  const alerts: readonly Alert[] = evaluateAlerts(snapshot, null, Date.now())
+  console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
+  if (shouldFailRun(alerts)) {
+    console.error('[pipeline] [ERROR] a critical alert fired — failing the run so it is visible')
+    return true
+  }
+  return false
+}
+
+const STORAGE_THRESHOLD = 0.8
+
+/** Fails if stored deals fall below 80% of resolved — significant data loss. */
+function storageRatioBelowThreshold(resolvedLength: number, storedCount: number): boolean {
+  const storageRatio = resolvedLength > 0 ? storedCount / resolvedLength : 1
+  if (resolvedLength > 0 && storageRatio < STORAGE_THRESHOLD) {
+    console.error(`[pipeline] [ERROR] Storage ratio ${(storageRatio * 100).toFixed(1)}% is below ${STORAGE_THRESHOLD * 100}% threshold — failing pipeline`)
+    return true
+  }
+  return false
+}
+
+export type RunTransformOptions = {
+  readonly startTime: number
+  readonly startDate: Date
+  readonly runId: string
+}
+
+type FinishRunParams = {
+  readonly runId: string
+  readonly stats: ClassifyDealsResult['stats']
+  readonly resolvedLength: number
+  readonly storedCount: number
+  readonly durationMs: number
+}
+
+/** The exit checks: an alert, then a storage shortfall, then (only then) success — same order `run.ts` used. */
+async function finishRun(deps: PipelineDeps, params: FinishRunParams): Promise<TransformOutcome> {
+  if (evaluateAlertsStep(params.runId, params.stats, params.durationMs)) {
+    return { status: 'alert-failed' }
+  }
+  if (storageRatioBelowThreshold(params.resolvedLength, params.storedCount)) {
+    return { status: 'storage-shortfall' }
+  }
+
+  console.log(`[pipeline] [INFO] Pipeline complete in ${params.durationMs}ms — stored ${params.storedCount} deals`)
+  // Bust the web-next snapshot cache so fresh data shows up immediately
+  // instead of waiting for the cacheLife('hours') safety belt to expire.
+  await deps.revalidate()
+
+  return { status: 'ok', storedCount: params.storedCount }
+}
+
+export async function runTransform(deps: PipelineDeps, collected: CollectOutcome, options: RunTransformOptions): Promise<TransformOutcome> {
+  const allRaw = flattenStoreDeals(collected.storeDealsMap)
+  normalizeProductNames(allRaw)
+  const groceryOnly = filterToGroceryOnly(allRaw)
+  logProductMetadata(groceryOnly)
+
+  const { deals: categorized, stats } = await classifyGroceryDeals(deps, groceryOnly, options.runId)
+  const resolved = await resolveTaxonomyStep(deps, categorized)
+  const productIds = await resolveProductIds(deps, resolved, collected.storeStatusMap)
+
+  const write = await writeDealsWithSweepGuard(deps, resolved, productIds)
+  const storedCount = write.writeResult.total
+
+  await writeEnrichmentStep(deps, collected.pendingEnrichment)
+  await v3CutoverStep(deps, resolved)
+  await sweepStep(deps, collected.storeStatusMap, write, options.startDate)
+
+  const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount)
+  await deactivateExpiredStep(deps)
+
+  const durationMs = Date.now() - options.startTime
+  await logRunStep(deps, { storeStatusMap: collected.storeStatusMap, storedCount, resolvedLength: resolved.length, storagePartialFailure, durationMs })
+
+  return finishRun(deps, { runId: options.runId, stats, resolvedLength: resolved.length, storedCount, durationMs })
+}
+
+// ============================================================
+// The whole run
+// ============================================================
+
+export type RunPipelineOptions = {
+  readonly cwd: string
+  readonly now: Date
+  readonly runId: string
+  readonly collectionMode: CollectionMode
+}
+
+export async function runPipeline(deps: PipelineDeps, options: RunPipelineOptions): Promise<PipelineOutcome> {
+  const startTime = Date.now()
+  console.log(`[pipeline] [INFO] Starting pipeline run ${options.runId}`)
+
+  const collected = await runCollect(deps, { cwd: options.cwd, now: options.now, collectionMode: options.collectionMode })
+
+  const allRaw = flattenStoreDeals(collected.storeDealsMap)
+  if (allRaw.length === 0) {
+    console.error('[pipeline] [ERROR] No deal data available from any source')
+    return { status: 'no-data' }
+  }
+
+  return runTransform(deps, collected, { startTime, startDate: options.now, runId: options.runId })
+}
