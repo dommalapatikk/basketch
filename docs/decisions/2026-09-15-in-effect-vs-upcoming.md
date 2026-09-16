@@ -177,3 +177,9 @@ trusting that "it used to be well-formed" still holds.
 - "From 2 items" (`QuantityRequirement`, TP-7a/D2) is a second, independent "does not vote" fact
   arriving in WP-C4/WP-W4. It slots into the same `votesInVerdict` predicate as a fourth check —
   deliberately not added here, ahead of the data existing.
+- **`expire: 3600` moves a cost from correctness to latency** (code review of 463f27f). Past that
+  hour the next request rebuilds synchronously — two paged Supabase queries — instead of serving
+  stale, so at 10–50 users most first visits of a session pay that TTFB rather than a rare one.
+  Accepted deliberately: a stale `today` is wrong, a slow first paint is merely slow. If it ever
+  hurts, a daily revalidate cron (22:05 and 23:05 UTC, either side of the Zurich day boundary)
+  would let `expire` go back up without reintroducing the staleness this ADR exists to fix.
