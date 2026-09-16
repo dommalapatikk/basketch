@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createVolgHtmlSource,
+  isChromeImagePath,
   parsePage,
   parseReduction,
   parseSectionDates,
@@ -145,6 +146,53 @@ describe('parsePage — against the real page', () => {
     for (const o of offers) {
       const actual = ((o.originalPrice!.rappen - o.salePrice.rappen) / o.originalPrice!.rappen) * 100
       expect(Math.abs(actual - o.discount!.percent)).toBeLessThanOrEqual(1.5)
+    }
+  })
+})
+
+describe('isChromeImagePath', () => {
+  it('rejects the site footer logo — QA 2026-09-16: "volg küchenreiniger spray" was published with the footer logo as its product image', () => {
+    expect(isChromeImagePath('https://www.volg.ch/_assets/9936fbff2fa9683e2f00411c767453f4/Images/logo-footer.svg')).toBe(
+      true,
+    )
+  })
+
+  it('rejects other obvious chrome paths', () => {
+    expect(isChromeImagePath('https://www.volg.ch/favicon.ico')).toBe(true)
+    expect(isChromeImagePath('https://www.volg.ch/_assets/sprite-icons.svg')).toBe(true)
+  })
+
+  it('accepts a real product photo path', () => {
+    expect(isChromeImagePath('https://www.volg.ch/fileadmin/_processed_/5/5/csm_promo_75895_de_156ace7fc2.jpg')).toBe(
+      false,
+    )
+  })
+})
+
+/**
+ * THE DEFECT (QA 2026-09-16), reproduced end-to-end against the committed
+ * fixture rather than a synthetic snippet: `parseProductBlocks` slices the
+ * LAST product in the LAST section all the way to the end of the fetched
+ * HTML (no next "c-product" marker exists), so when that product's own image
+ * div is empty the greedy `<img>` match falls through into `<footer
+ * class="c-footer">` and picks up Volg's own logo. On this fixture that
+ * product is "Glade Duftkerze Anti-Tabac" — a different item than QA's live
+ * "volg küchenreiniger spray", same bug.
+ */
+describe('parsePage never publishes site chrome as a product image', () => {
+  const { offers } = parsePage(FIXTURE, REFERENCE)
+
+  it('the last product on the page — with no image of its own — gets null, not the footer logo', () => {
+    const o = offers.find((x) => x.productName === 'Glade Duftkerze Anti-Tabac')
+    expect(o).toBeDefined()
+    expect(o?.image).toBeNull()
+  })
+
+  it('no offer anywhere on the page carries a chrome path as its image', () => {
+    for (const o of offers) {
+      if (o.image?.kind === 'source-url') {
+        expect(isChromeImagePath(o.image.url), o.image.url).toBe(false)
+      }
     }
   })
 })

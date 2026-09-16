@@ -156,6 +156,30 @@ function parseProductBlocks(sectionHtml: string): string[] {
   return starts.map((s, i) => sectionHtml.slice(s, starts[i + 1] ?? sectionHtml.length))
 }
 
+/**
+ * Rejects an image path that is obviously site chrome, not a product photo.
+ *
+ * THE DEFECT (QA 2026-09-16): "volg küchenreiniger spray" was published with
+ * `image_url = https://www.volg.ch/_assets/.../Images/logo-footer.svg` — the
+ * site's own footer logo. Root cause, traced against the committed fixture:
+ * `parseProductBlocks` slices each product from its own `<div class="c-product">`
+ * to the NEXT one — or, for the LAST product in the LAST section, to the end
+ * of the fetched HTML, because no next marker exists. When that last product's
+ * own `<div class="c-product__image">` is empty (no `<img>` at all — a real,
+ * fairly common shape on this page), the single greedy `<img>` regex below
+ * keeps scanning past the product grid, past the share buttons, into
+ * `<footer class="c-footer">`, and finds the site's own logo — reproduced
+ * verbatim on the committed fixture's last item, "Glade Duftkerze Anti-Tabac".
+ *
+ * A content guard is the fix that holds regardless of which product ends up
+ * last on a future page (restructuring the slice boundary would only move the
+ * failure mode, not remove it): if the matched path names logo/icon/sprite
+ * chrome, it was never a product photo, so no image beats a wrong one.
+ */
+export function isChromeImagePath(url: string): boolean {
+  return /\b(logo|favicon|sprite|icon)\b/i.test(url)
+}
+
 export function mapBlockToOffer(
   block: string,
   validity: ValidityPeriod | null,
@@ -192,7 +216,8 @@ export function mapBlockToOffer(
   }
 
   const imgSrc = block.match(/<img[^>]+src="([^"]+)"/)
-  const imageUrl = imgSrc ? (imgSrc[1]!.startsWith('http') ? imgSrc[1]! : `${SITE}${imgSrc[1]}`) : null
+  const rawImageUrl = imgSrc ? (imgSrc[1]!.startsWith('http') ? imgSrc[1]! : `${SITE}${imgSrc[1]}`) : null
+  const imageUrl = rawImageUrl && !isChromeImagePath(rawImageUrl) ? rawImageUrl : null
   const image = imageUrl ? sourceUrlImage(imageUrl) : null
 
   const offer = createOffer({
