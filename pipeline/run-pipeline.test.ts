@@ -200,10 +200,30 @@ describe('live counts are read BEFORE storeDeals — a post-write count makes th
 // restructuring the shell.
 describe('the PipelineOutcome contract every exit-code mapping depends on', () => {
   it('produces "ok" and calls revalidate — the only status a non-zero exit is not mapped from', async () => {
-    const deps = fakeDeps()
+    const revalidate = spy()
+    const deps = fakeDeps({ revalidate: revalidate.fn })
     const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1 })
 
     expect(outcome).toEqual({ status: 'ok', storedCount: 10 })
+    // Asserted, not assumed (code review N1): without this, deleting the
+    // revalidate call from the success path entirely left all six tests
+    // green — and moving that call is exactly WP-P3's job.
+    expect(revalidate.calls).toBe(1)
+  })
+
+  // Both failure conditions at once (code review N2): a stale clock AND 1 of
+  // 10 stored. Today the alert check runs first, so 'alert-failed' wins. The
+  // fixtures above never make both true, so nothing pinned that precedence —
+  // and WP-P3 reorders this very sequence.
+  it('reports the alert, not the shortfall, when both conditions are true', async () => {
+    const revalidate = spy()
+    const deps = fakeDeps({ revalidate: revalidate.fn })
+    const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
+
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1, now: staleClock })
+
+    expect(outcome).toEqual({ status: 'alert-failed' })
+    expect(revalidate.calls).toBe(0)
   })
 
   it('produces "storage-shortfall" when stored deals fall below 80% of resolved, and does NOT call revalidate', async () => {
