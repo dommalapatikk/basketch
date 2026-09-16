@@ -391,7 +391,18 @@ export async function classifyDeals(
   const outcomes: Outcome[] = []
   const attributesByName = new Map<string, Record<string, unknown>>()
   let deadlineHit = false
-  let classifiedCount = 0
+  // F8 (code review of the first WP-P3 submission): named `classifiedCount`
+  // before, which overstated what it measures. This counts products in a
+  // chunk that was DISPATCHED to the graph and ran to completion — not how
+  // many actually came back with a category. A chunk `final.halted` (the
+  // circuit breaker, or a budget cutoff mid-chunk) still adds its whole
+  // `slice.length` here, because the chunk was genuinely attempted; some of
+  // its outcomes may still be `rejected` or carry no classification. That
+  // distinction already exists per-item in `outcomes` and the final stats
+  // (`rejected`, `heldBack`, …) below — this counter only answers "how far
+  // through `toClassify` did the loop get", which is exactly what `deferred`
+  // needs.
+  let attemptedCount = 0
 
   if (toClassify.length > 0) {
     const graph = buildClassifyGraph({
@@ -430,7 +441,7 @@ export async function classifyDeals(
         deadlineHit = true
         log(
           `[transform] ⚠ run-deferred: in-process deadline reached before chunk ${chunkNo}/${chunkCount} — ` +
-            `${toClassify.length - classifiedCount} of ${toClassify.length} queued products deferred to the next run`,
+            `${toClassify.length - attemptedCount} of ${toClassify.length} queued products deferred to the next run`,
         )
         break
       }
@@ -487,7 +498,7 @@ export async function classifyDeals(
           `total ${((Date.now() - chunkStart) / 1000).toFixed(1)}s`,
       )
 
-      classifiedCount += slice.length
+      attemptedCount += slice.length
 
       if (final.halted) {
         log(`[transform] HALTED: ${final.halted}`)
@@ -499,7 +510,16 @@ export async function classifyDeals(
   // Covers BOTH kinds of deferral in one number: products excluded from
   // `toClassify` by the budget/cold-start limit, and (if `deadlineHit`)
   // products still queued in `toClassify` when the deadline broke the loop.
-  const deferred = misses.length - classifiedCount
+  //
+  // F8: this is NOT the same number as `plan.deferred` (`run-plan.ts`,
+  // `misses - limit`) — that one is a PLANNING-TIME estimate, computed
+  // before the loop runs at all, of how many will never even be attempted
+  // this run. When nothing breaks the loop early (no deadline, no halt),
+  // `attemptedCount === toClassify.length === plan.limit`, so the two agree
+  // exactly. A deadline or a halt only ever makes THIS number bigger than
+  // `plan.deferred`, never smaller — the plan is a floor on what gets
+  // deferred, not a ceiling.
+  const deferred = misses.length - attemptedCount
   if (deferred > 0 && !deadlineHit) log(`[transform] deferring ${deferred} products to the next run`)
 
   const byName = new Map<string, Outcome>()

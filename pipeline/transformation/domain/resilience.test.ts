@@ -190,10 +190,14 @@ describe('the in-process deadline (WP-P3) — a process that exits on purpose is
     expect(atDeadline.withinDeadline).toBe(false)
   })
 
-  it('is well inside the 45-minute step timeout, leaving room for the write pipeline to finish', () => {
-    // If this ever fails, RUN_DEADLINE_MS has drifted past RUN_TIMEOUT_MS — a
-    // deadline that can never be observed inside the process before the
-    // external kill is not a deadline, it is dead code.
+  it('is well inside the step timeout, leaving room for the write pipeline to finish', () => {
+    // A cheap smoke check at the domain-unit level only — trivially true
+    // even at an UNSAFE deadline (F1, code review: 35 < 45 also "passed"
+    // this shape of assertion, and 35 was 6m15s short of the real write
+    // tail). The load-bearing guard is `config.test.ts`'s full inequality
+    // (RUN_DEADLINE_MS + MAX_CHUNK_MS + WRITE_TAIL_MS + SAFETY_MARGIN_MS ≤
+    // RUN_TIMEOUT_MS, read against the real pipeline.yml), which is
+    // mutation-tested to catch exactly what this assertion cannot.
     expect(RUN_DEADLINE_MS).toBeLessThan(RUN_TIMEOUT_MS)
   })
 })

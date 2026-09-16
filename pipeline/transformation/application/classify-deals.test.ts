@@ -4,6 +4,7 @@ import { err, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
+import { statefulClock } from '../../test-support/clock'
 import { classifyDeals } from './classify-deals'
 
 const deal = (productName: string, store = 'denner'): UnifiedDeal =>
@@ -295,12 +296,6 @@ describe('the happy path', () => {
 })
 
 describe('the in-process deadline (WP-P3) — attempt 1 persists what it has, in time to exit 75', () => {
-  /** Returns each value in `values` once, in order, then repeats the last. */
-  const statefulClock = (values: readonly number[]): (() => number) => {
-    let i = 0
-    return () => values[Math.min(i++, values.length - 1)]!
-  }
-
   it('never starts a single chunk once the deadline has already passed', async () => {
     let calls = 0
     const countingClassifier: Classifier = {
@@ -332,7 +327,11 @@ describe('the in-process deadline (WP-P3) — attempt 1 persists what it has, in
     // chunk plus a second, partial one — the clock allows the first, refuses
     // the second.
     const many = Array.from({ length: 150 }, (_, i) => deal(`Produkt ${i} Deadline`))
-    const clock = statefulClock([0, 999_999]) // within deadline once, then past it
+    // F9: named, not positional — one value per deadline check the 150-item,
+    // 2-chunk loop makes, in the order it makes them.
+    const beforeChunk1WithinDeadline = 0
+    const beforeChunk2PastDeadline = 999_999
+    const clock = statefulClock([beforeChunk1WithinDeadline, beforeChunk2PastDeadline])
 
     const r = await run(many, { deadlineAtMs: 1_000, now: clock })
 

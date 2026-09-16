@@ -9,9 +9,19 @@
 // run.
 //
 // healthchecks.io (or any compatible service) inverts that: IT watches for
-// silence. This module's only job is to tell it "the run reached its end" —
-// which is why it is called unconditionally, on every exit code, success or
-// not. Run quality is `alerts.ts`'s job; this is "did the run happen at all".
+// silence. This module's only job is to tell it "the run reached its end,
+// with THIS exit code" — which is why it is called unconditionally, on every
+// exit code, success or not.
+//
+// SEMANTICS (F4, code review of the first WP-P3 submission; written up in
+// `docs/runbooks/healthcheck-ping.md` so nobody reads a green check as
+// healthy): a bare GET is healthchecks.io's SUCCESS signal regardless of how
+// the run actually went, so an exit-1 run pinging the bare URL would have
+// reported itself healthy. Pinging `${url}/${exitCode}` uses healthchecks.io's
+// own convention — `/0` reports success, any other value reports FAILURE —
+// so the dashboard's pass/fail state tracks `run.ts`'s actual exit code, not
+// merely "a process ran". This still only measures "did the run happen at
+// all"; whether the run was GOOD is `alerts.ts`'s job, a separate question.
 //
 // INFRASTRUCTURE: the fetch call and the env lookup live here on purpose —
 // "should a missing secret warn instead of fail" is not a domain decision,
@@ -29,32 +39,48 @@ export type HealthcheckPingDeps = {
 }
 
 /**
- * Pings `HEALTHCHECK_PING_URL` if it is set. NEVER throws and NEVER fails the
- * run — a missing secret, a network error or a non-2xx response are all
- * logged as warnings and nothing more. A dead-man's switch that can fail the
- * thing it is watching defeats its own purpose.
+ * F4: undici's default headers timeout is 300s. A hung ping would add up to
+ * five minutes to a run whose whole problem is running out of time — the
+ * dead-man switch helping to kill the run it watches. Five seconds is
+ * generous for a bare GET against a purpose-built ping endpoint.
+ */
+const PING_TIMEOUT_MS = 5_000
+
+function pingUrlFor(baseUrl: string, exitCode: number): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${exitCode}`
+}
+
+/**
+ * Pings `HEALTHCHECK_PING_URL` (suffixed with the run's exit code) if the
+ * secret is set. NEVER throws and NEVER fails the run — a missing secret, a
+ * timeout, a network error or a non-2xx response are all logged as warnings
+ * and nothing more. A dead-man's switch that can fail the thing it is
+ * watching defeats its own purpose.
  */
 export async function pingHealthcheck(
   env: Readonly<Record<string, string | undefined>>,
+  exitCode: number,
   deps: HealthcheckPingDeps,
 ): Promise<HealthcheckPingResult> {
   const log = deps.log ?? (() => {})
-  const url = env.HEALTHCHECK_PING_URL
+  const baseUrl = env.HEALTHCHECK_PING_URL
 
-  if (!url) {
+  if (!baseUrl) {
     const reason = 'HEALTHCHECK_PING_URL not set — dead-man ping skipped'
     log(`[pipeline] [WARN] ${reason}`)
     return { status: 'skipped', reason }
   }
 
+  const url = pingUrlFor(baseUrl, exitCode)
+
   try {
-    const res = await deps.fetch(url, { method: 'GET' })
+    const res = await deps.fetch(url, { method: 'GET', signal: AbortSignal.timeout(PING_TIMEOUT_MS) })
     if (!res.ok) {
       const reason = `healthcheck ping responded ${res.status} ${res.statusText}`
       log(`[pipeline] [WARN] ${reason}`)
       return { status: 'failed', reason }
     }
-    log('[pipeline] [INFO] healthcheck ping ok')
+    log(`[pipeline] [INFO] healthcheck ping ok (exit ${exitCode})`)
     return { status: 'ok' }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)

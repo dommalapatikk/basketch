@@ -36,12 +36,16 @@ async function shell(): Promise<void> {
     isFinalAttempt: isFinalAttempt(process.env),
   })
 
-  // AP-5: the dead-man ping fires on every exit — success or not, retried or
-  // not. It answers "did the run reach its end", never "was the run good"
-  // (that is `alerts.ts`'s job). Awaited so it cannot race process.exit below.
-  await pingHealthcheck(process.env, { fetch, log: (m) => console.log(m) })
-
   const exitCode = exitCodeFor(outcome)
+
+  // AP-5: the dead-man ping fires on every exit — success or not, retried or
+  // not — carrying the exit code itself (F4: healthchecks.io reads `/0` as
+  // success and any other suffix as failure, so the dashboard's pass/fail
+  // state tracks what actually happened, not merely "a process ran"). It
+  // answers "did the run reach its end", never "was the run good" (that is
+  // `alerts.ts`'s job). Awaited so it cannot race process.exit below.
+  await pingHealthcheck(process.env, exitCode, { fetch, log: (m) => console.log(m) })
+
   if (exitCode !== 0) {
     process.exit(exitCode)
   }

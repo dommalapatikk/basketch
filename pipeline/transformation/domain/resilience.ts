@@ -250,12 +250,50 @@ export const REQUEST_TIMEOUT_MS = 60_000
  * Whole-run ceiling — THE ONE DEFINITION OF THE STEP TIMEOUT.
  *
  * Must equal `timeout_minutes` on the "Categorize and store (with retry)"
- * step in `pipeline.yml`. A second, uncoordinated 45 living only in the
+ * step in `pipeline.yml`. A second, uncoordinated number living only in the
  * workflow file is how a threshold silently drifts from the code that is
- * supposed to stay inside it — see the config test in `config.test.ts`,
- * which reads the workflow file and asserts `RUN_DEADLINE_MS < RUN_TIMEOUT_MS`.
+ * supposed to stay inside it — `alerts.ts`'s `run-slow` warning derives its
+ * own threshold from this constant for the same reason (F6, code review of
+ * the first WP-P3 submission) — see the config test in `config.test.ts`,
+ * which reads the workflow file and asserts the full deadline inequality
+ * below, not merely `RUN_DEADLINE_MS < RUN_TIMEOUT_MS`.
+ *
+ * 60, not 45 (F1 ruling, Tech Lead, 2026-09-16): raised alongside
+ * `RUN_DEADLINE_MS` dropping to 28 — see that constant's comment for why 45
+ * was unsafe. **After WP-P6 (judge concurrency) lands, this deadline must be
+ * RE-DERIVED from the same inequality with re-measured constants — 28 is not
+ * a magic number, it is 60 minus three OTHER measured numbers, and P6 is
+ * expected to shrink `MAX_CHUNK_MS` substantially.**
  */
-export const RUN_TIMEOUT_MS = 45 * 60_000
+export const RUN_TIMEOUT_MS = 60 * 60_000
+
+/**
+ * p99 duration of ONE classification chunk (100 products: tier-1 batches,
+ * judge escalations, enrichment) against the free tier's ~15 req/min pacing.
+ * Measured against run 34833209176, attempt 2, chunk 2.
+ */
+export const MAX_CHUNK_MS = 19.5 * 60_000
+
+/**
+ * The WRITE TAIL: everything AFTER the last classification chunk returns —
+ * taxonomy resolution, product resolution, `storeDeals`, enrichment, v3
+ * cutover, the sweep, expiring old deals, `logRun`. THE PART THE FIRST
+ * WP-P3 SUBMISSION LEFT OUT OF THE ARITHMETIC (code review F1): T1 bounds
+ * the START of a classification chunk, never the process as a whole, so a
+ * deadline placed with only `MAX_CHUNK_MS` of headroom can still let the
+ * process overshoot `RUN_TIMEOUT_MS` by exactly this much.
+ *
+ * Measured against run 34833209176, attempt 2 (last classify chunk logged at
+ * 11:41:38, "Pipeline complete" at 11:50:53 — 9m15s) and cross-checked
+ * against run 34718508157. Logged as its own line every run
+ * (`runTransform`'s "write tail" log) so this number stays measurable from a
+ * normal run instead of rotting into folklore — WP-P7 will feed it into the
+ * stored run metrics.
+ */
+export const WRITE_TAIL_MS = 9.5 * 60_000
+
+/** Headroom against measurement noise in `MAX_CHUNK_MS` and `WRITE_TAIL_MS`. */
+export const SAFETY_MARGIN_MS = 2 * 60_000
 
 /**
  * In-process deadline (WP-P3 / RCA T1): stop starting new classification
@@ -272,13 +310,14 @@ export const RUN_TIMEOUT_MS = 45 * 60_000
  * `process.exit(75)` ourselves, before that line is crossed, is the only way
  * `retry_on_exit_code` ever fires for a slow run.
  *
- * 35 of 45: leaves 10 minutes for the write pipeline (taxonomy, product
- * resolution, `storeDeals`, the sweep, v3 cutover) to run to completion on
- * whatever was classified before the deadline. That work must never be cut
- * off mid-write — the deadline only gates the START of a new classification
- * chunk, never anything downstream of it.
+ * THE INVARIANT (F1 ruling): `RUN_DEADLINE_MS + MAX_CHUNK_MS + WRITE_TAIL_MS +
+ * SAFETY_MARGIN_MS ≤ RUN_TIMEOUT_MS`. Not "leaves N minutes for the write
+ * pipeline" as prose — `config.test.ts` asserts this exact sum, because a
+ * threshold at the kill line can never be observed, and prose that merely
+ * SOUNDS like it leaves room is exactly what let 35 (of the old 45) miss the
+ * write tail entirely: 28 + 19.5 + 9.5 + 2 = 59 ≤ 60.
  */
-export const RUN_DEADLINE_MS = 35 * 60_000
+export const RUN_DEADLINE_MS = 28 * 60_000
 
 export type DeadlineCheck = { readonly withinDeadline: true } | { readonly withinDeadline: false; readonly reason: string }
 

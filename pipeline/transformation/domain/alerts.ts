@@ -15,6 +15,7 @@
 //                                      cries wolf every week
 
 import type { Retailer } from '../../collection/domain/offer'
+import { RUN_TIMEOUT_MS } from './resilience'
 
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 
@@ -64,6 +65,13 @@ export const COVERAGE_COLLAPSE = 0.01
 
 /** GitHub disables scheduled workflows after 60 days idle. 8 days catches it. */
 export const STALE_RUN_MS = 8 * 24 * 60 * 60 * 1000
+
+/**
+ * Warn before the step's own external timeout, not after. Derived from
+ * `RUN_TIMEOUT_MS` (THE one definition, `resilience.ts`) rather than a
+ * second hardcoded number — F6, code review of the first WP-P3 submission.
+ */
+export const RUN_SLOW_THRESHOLD_MS = RUN_TIMEOUT_MS * 0.8
 
 export function evaluateAlerts(
   current: RunSnapshot,
@@ -160,7 +168,11 @@ export function evaluateAlerts(
   }
 
   // ── The run is too slow ───────────────────────────────────────────────────
-  if (current.durationMs > 45 * 60_000) {
+  // F6 (code review of the first WP-P3 submission): was a hardcoded 45 while
+  // `resilience.ts` claimed to be THE ONE DEFINITION of the step timeout.
+  // Derived at 80% of it so this warns before the step's own external
+  // timeout, not after.
+  if (current.durationMs > RUN_SLOW_THRESHOLD_MS) {
     alerts.push({
       severity: 'warning',
       code: 'run-slow',

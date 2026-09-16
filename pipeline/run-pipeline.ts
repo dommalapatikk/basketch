@@ -152,6 +152,16 @@ export function exitCodeFor(outcome: PipelineOutcome): 0 | 75 | 1 {
     case 'deadline-hit':
     case 'cache-unreadable':
       return EX_TEMPFAIL
+    // 'no-data' is 1, not 75: every source returning nothing is a
+    // COLLECTION problem (a fetch refused, a source misconfigured, a
+    // genuine bug), not the transient-infrastructure shape 75 exists for.
+    // Retrying it as-is would re-run collection for all seven retailers,
+    // against CLAUDE.md's "one fetch per publication" rule — a retryable
+    // exit code must never be the default for "something upstream failed
+    // and we don't know why". Before `retry_on_exit_code` existed,
+    // nick-fields/retry's default `retry_on: 'any'` retried EVERY non-zero
+    // exit unconditionally, so 'no-data' WAS implicitly retried by attempt
+    // 2 — this exit-code split deliberately removes that.
     case 'no-data':
     case 'alert-failed':
     case 'storage-shortfall':
@@ -661,25 +671,33 @@ export type FinishRunParams = {
 }
 
 /**
- * The exit checks, in order: the in-process deadline (WP-P3), then an alert,
- * then a storage shortfall, then (only then) success.
+ * The exit checks, in order: revalidate, then the in-process deadline
+ * (WP-P3), then an alert, then a storage shortfall, then (only then) success.
  *
  * Exported so WP-P3's tests, and today's, can drive it directly without
  * running the whole transform phase.
  *
- * REVALIDATE BEFORE ANY NON-ZERO EXIT that reports on THIS attempt's data
- * (alert-failed, storage-shortfall, ok) — `storeDeals` already ran by the
- * time this function is called, so the site's cached snapshot is stale
- * against Supabase regardless of which of those three we return. Fixes
- * today's behaviour, where a storage-ratio failure wrote data and then
- * skipped revalidation entirely.
+ * REVALIDATE UNCONDITIONALLY, FIRST — every status this function can return
+ * reports on an attempt where `storeDeals` has already run, `deadline-hit`
+ * included. Fixes TWO things, not one:
  *
- * `deadline-hit` (non-final attempt) is the one exception: NOT a terminal
- * report on this run — attempt 2 follows within `retry_wait_seconds` and
- * revalidates when IT finishes, so revalidating here would only be a
- * redundant ping against data known to be incomplete.
+ *   1. (The original WP-P3 fix.) A storage-ratio failure or a critical alert
+ *      used to write data and then skip revalidation entirely.
+ *   2. (F3, code review of the first WP-P3 submission.) The first submission
+ *      special-cased `deadline-hit` as "not terminal, attempt 2 revalidates
+ *      when it finishes" — but attempt 2 can itself be killed, throw, or
+ *      return `cache-unreadable` (which never reaches this function at all).
+ *      Any of those leaves attempt 1's already-published rows unrevalidated
+ *      until `cacheLife('hours')` expires. Revalidating is an idempotent
+ *      webhook ping — there is no correctness cost to calling it on a run
+ *      that turns out to need a retry, only a cost to skipping it on one
+ *      that turns out not to get one.
  */
 export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Promise<TransformOutcome> {
+  // Bust the web-next snapshot cache so fresh data shows up immediately
+  // instead of waiting for the cacheLife('hours') safety belt to expire.
+  await deps.revalidate()
+
   if (params.stats.deadlineHit && !params.isFinalAttempt) {
     console.warn(
       `[pipeline] [WARN] run-deferred: attempt hit the in-process deadline — persisted what was classified, exiting 75 to retry`,
@@ -691,10 +709,6 @@ export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Pr
       '[pipeline] [WARN] run-deferred: final attempt hit the in-process deadline — publishing everything classified or cached, deferring the rest',
     )
   }
-
-  // Bust the web-next snapshot cache so fresh data shows up immediately
-  // instead of waiting for the cacheLife('hours') safety belt to expire.
-  await deps.revalidate()
 
   if (evaluateAlertsStep(params.runId, params.stats, params.durationMs, params.now)) {
     return { status: 'alert-failed' }
@@ -731,6 +745,13 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
     throw err
   }
 
+  // F1 ruling, point 3: the write tail — everything from here to `logRun` —
+  // is one of the two measured constants `RUN_DEADLINE_MS` is derived from
+  // (`WRITE_TAIL_MS`, `resilience.ts`). Logged as its own line every run so
+  // it stays measurable instead of rotting into folklore; WP-P7 will feed it
+  // into the stored run metrics.
+  const writeTailStart = clock()
+
   const resolved = await resolveTaxonomyStep(deps, categorized)
   const productIds = await resolveProductIds(deps, resolved, collected.storeStatusMap)
 
@@ -744,8 +765,19 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount)
   await deactivateExpiredStep(deps)
 
-  const durationMs = Date.now() - options.startTime
+  // F7 (code review of the first WP-P3 submission): `Date.now()` here while
+  // `options.startTime` came from the injected clock made a test-pinned
+  // `startTime` produce a nonsensical multi-year `durationMs` — the tests
+  // passing was luck, not design. One clock, used everywhere in this
+  // function, is what makes the deadline tests' `durationMs` a real ~29
+  // minutes (RUN_DEADLINE_MS plus a minute) instead of ~9e10ms.
+  const durationMs = clock() - options.startTime
   await logRunStep(deps, { storeStatusMap: collected.storeStatusMap, storedCount, resolvedLength: resolved.length, storagePartialFailure, durationMs })
+
+  const writeTailMs = clock() - writeTailStart
+  console.log(
+    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → v3 cutover → sweep → deactivate → logRun)`,
+  )
 
   return finishRun(deps, {
     runId: options.runId,

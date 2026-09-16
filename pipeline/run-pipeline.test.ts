@@ -32,6 +32,8 @@ import { createInMemoryCache } from './transformation/domain/classification-cach
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, Classifier } from './transformation/domain/classifier'
 import { RUN_DEADLINE_MS } from './transformation/domain/resilience'
+import type { StoreSweepPlan } from './storage/domain/stale-sweep'
+import { statefulClock } from './test-support/clock'
 import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
 import { exitCodeFor, finishRun, runPipeline } from './run-pipeline'
 import type { Deal } from '../shared/types'
@@ -326,14 +328,44 @@ describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1
     for (const [outcome, expected] of cases) expect(exitCodeFor(outcome)).toBe(expected)
   })
 
+  // F9 (code review of the first WP-P3 submission): the script below is
+  // consumed POSITIONALLY, in the exact order `runPipeline` → `runTransform`
+  // → `classifyDeals` call `clock()`. Every value is named for the call it
+  // stands for, in call order, so a reviewer can check the mapping directly
+  // against the production code instead of counting blindly. If this ever
+  // throws "statefulClock exhausted", a NEW `clock()` call was added upstream
+  // — name it here, do not silently pad the array.
+  function deadlineHitClockScript(t0: number): readonly number[] {
+    const startTimeMs = t0 // 1. runPipeline: `const startTime = clock()`
+    const beforeChunk1WithinDeadline = t0 // 2. classify-deals: deadline check before chunk 1 (100 products) — still inside RUN_DEADLINE_MS
+    const beforeChunk2PastDeadline = t0 + RUN_DEADLINE_MS + 60_000 // 3. classify-deals: deadline check before chunk 2 (the remaining 50) — past it
+    // From here on, the exact wall-clock value no longer matters to what
+    // these tests assert — only that the clock answers this many more
+    // reads. Reusing the past-deadline timestamp keeps `durationMs` (and,
+    // for the final-attempt test, STALE_RUN_MS's delta) at zero rather than
+    // leaving it to chance.
+    const afterDeadline = beforeChunk2PastDeadline
+    return [
+      startTimeMs,
+      beforeChunk1WithinDeadline,
+      beforeChunk2PastDeadline,
+      afterDeadline, // 4. runTransform: `writeTailStart = clock()`
+      afterDeadline, // 5. runTransform: `durationMs = clock() - startTime`
+      afterDeadline, // 6. runTransform: `writeTailMs = clock() - writeTailStart`
+    ]
+  }
+
   it('attempt 1 at its deadline persists what it classified and exits 75 — with retry_on_exit_code set a timeout is never retried (nick-fields index.ts:96-98,116-120,147)', async () => {
-    const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
-    // Call 1: runPipeline's own startTime. Call 2: classify-deals' deadline
-    // check before chunk 1 (100 products) — still inside the deadline. Call
-    // 3: before chunk 2 (the remaining 50) — 40 minutes later, past
-    // RUN_DEADLINE_MS (35). The first chunk must still finish and persist.
+    const revalidate = spy()
+    let loggedDurationMs: number | null = null
+    const storage = fakeStorage({
+      async logPipelineRun(input) {
+        loggedDurationMs = input.duration_ms
+      },
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(150)], revalidate: revalidate.fn }, storage)
     const t0 = 1_700_000_000_000
-    const clock = statefulClock([t0, t0, t0 + RUN_DEADLINE_MS + 60_000])
+    const clock = statefulClock(deadlineHitClockScript(t0))
 
     const outcome = await runPipeline(deps, { ...baseOptions, isFinalAttempt: false, clock })
 
@@ -342,12 +374,28 @@ describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1
     // "Persists what it has": the chunk that finished before the deadline was
     // written, not discarded.
     expect(deps.storage.storedDeals).toHaveLength(100)
+    // F7 (code review of the first WP-P3 submission): `durationMs` must come
+    // from the INJECTED clock, not `Date.now()` — this run's whole scripted
+    // timeline spans well under an hour (RUN_DEADLINE_MS + a few minutes).
+    // `Date.now() - t0` against a fixed 2023 epoch would be billions of ms,
+    // which happened to pass silently before because nothing asserted it.
+    expect(loggedDurationMs).not.toBeNull()
+    expect(loggedDurationMs!).toBeLessThan(2 * 60 * 60_000)
+    // F3 (code review of the first WP-P3 submission): attempt 2 is not
+    // guaranteed to ever revalidate — it can be killed, throw, or come back
+    // `cache-unreadable` (which never reaches `finishRun` at all). The rows
+    // attempt 1 already wrote must not wait on that.
+    expect(revalidate.calls).toBe(1)
   })
 
   it('the final attempt at its deadline publishes what it has and exits 0 with run-deferred', async () => {
-    const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
+    // Two more calls than `deadlineHitClockScript`: `finishRun`, reached this
+    // time because `isFinalAttempt` is true, evaluates alerts — `now()` for
+    // `finishedAtMs`, then again for `evaluateAlerts`'s `nowMs`.
     const t0 = 1_700_000_000_000
-    const clock = statefulClock([t0, t0, t0 + RUN_DEADLINE_MS + 60_000])
+    const script = [...deadlineHitClockScript(t0), t0 + RUN_DEADLINE_MS + 60_000, t0 + RUN_DEADLINE_MS + 60_000]
+    const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
+    const clock = statefulClock(script)
     const warnings: string[] = []
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
       warnings.push(args.map(String).join(' '))
@@ -363,6 +411,37 @@ describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it('a deadline-hit attempt never licenses a sweep it has not earned (F5) — a thin write does not deactivate 900 good rows on the strength of 100 new ones', async () => {
+    // The deadline breaks the loop after chunk 1 (100 of 200 classified and
+    // WRITTEN), exactly as in `deadlineHitClockScript`, but this store
+    // already has 1000 rows live for the SAME window — 100/1000 = 0.10, far
+    // below `MIN_REFRESH_SHARE` (0.5, `stale-sweep.ts`). HANDOVER §4 #5: a
+    // guard fed a count of intent, not outcome, licensed sweeping 168 good
+    // rows off 2 written ones. This pins that the deadline path — a NEW way
+    // to produce a thin write — cannot do the same.
+    let capturedPlan: Map<string, StoreSweepPlan> | null = null
+    const storage = fakeStorage({
+      async activeCountsByWindow() {
+        return { ok: true, counts: new Map([['denner', new Map([['2026-09-03', 1000]])]]) }
+      },
+      async deactivateStaleForStores(_runStartedAt, plan) {
+        capturedPlan = plan
+        return 0
+      },
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(200)] }, storage)
+    const t0 = 1_700_000_000_000
+    // 200 products is 2 chunks (100 each); the same two-call deadline script
+    // as `deadlineHitClockScript` covers it unchanged — only the offer count
+    // (200, not 150) and the live count (1000, via the override above) differ.
+    const clock = statefulClock(deadlineHitClockScript(t0))
+
+    await runPipeline(deps, { ...baseOptions, isFinalAttempt: false, clock })
+
+    expect(storage.storedDeals).toHaveLength(100)
+    expect(capturedPlan!.get('denner')?.windows.has('2026-09-03')).not.toBe(true)
   })
 
   it('an unreadable classification cache exits 75 — nothing was written, so nothing needs revalidating', async () => {
@@ -405,12 +484,6 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     isColdStart: false,
     deadlineHit: false,
   }
-}
-
-/** Returns each value in `values` once, in order, then repeats the last — enough to simulate time passing between two back-to-back `now()` reads. */
-function statefulClock(values: readonly number[]): () => number {
-  let i = 0
-  return () => values[Math.min(i++, values.length - 1)]!
 }
 
 function spy(): { fn: () => Promise<void>; calls: number } {
