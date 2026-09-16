@@ -25,7 +25,8 @@ describe('offerToUnifiedDeal — the shared path', () => {
     const o = offer({
       salePrice: unwrap(createMoney(1.67)),
       originalPrice: unwrap(createMoney(2.25)),
-      discount: unwrap(printedDiscount(25)),
+      // Denner's real grid (WP-C2): fixture-verified 1.67 is not a multiple of 5.
+      discount: unwrap(printedDiscount(25, { priceStepRappen: 1 })),
       sourceCategory: 'Fleisch/Wurst/Fisch',
     })
     const d = offerToUnifiedDeal(o)

@@ -10,6 +10,9 @@ import { createValidityPeriod } from './validity-period'
 
 const chf = (n: number) => unwrap(createMoney(n))
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
+// Denner's real grid (WP-C2) — the offers below use Denner's real 1.67/2.25 pair.
+const DENNER = { priceStepRappen: 1 }
+const MIGROS = { priceStepRappen: 5 }
 
 const base = {
   retailer: 'denner' as const,
@@ -29,7 +32,7 @@ describe('Offer — basics', () => {
   })
 
   it('keeps a printed badge rather than overwriting it', () => {
-    const o = unwrap(createOffer({ ...base, discount: unwrap(printedDiscount(25)) }))
+    const o = unwrap(createOffer({ ...base, discount: unwrap(printedDiscount(25, DENNER)) }))
     expect(o.discount?.percent).toBe(25)
     expect(o.discount?.provenance).toBe('printed')
   })
@@ -66,7 +69,7 @@ describe('Offer — THE ALDI RULE: no original price means no discount', () => {
       ...base,
       retailer: 'aldi',
       originalPrice: null,
-      discount: unwrap(printedDiscount(33)),
+      discount: unwrap(printedDiscount(33, MIGROS)),
     })
     expect(isOk(r)).toBe(false)
   })
@@ -110,7 +113,7 @@ describe('Offer — THE LIDL RULE: member prices must name their programme', () 
 
 describe('Offer — printed badge consistency', () => {
   it('rejects a badge that cannot match the prices — a mis-paired parse', () => {
-    const r = createOffer({ ...base, discount: unwrap(printedDiscount(70)) })
+    const r = createOffer({ ...base, discount: unwrap(printedDiscount(70, DENNER)) })
     expect(isOk(r)).toBe(false)
   })
 
@@ -122,7 +125,7 @@ describe('Offer — printed badge consistency', () => {
       salePrice: chf(9.9),
       originalPrice: chf(14.85),
       validity: WEEK,
-      discount: unwrap(printedDiscount(33)),
+      discount: unwrap(printedDiscount(33, MIGROS)),
     })
     expect(isOk(r)).toBe(true)
   })

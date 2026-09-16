@@ -44,6 +44,13 @@ import { type Tile, clusterIntoTiles, tileText, tileToCropRegion, tileWordsInOrd
 
 export const SPAR_EXPECTED_MINIMUM = 30
 
+/**
+ * SPAR rounds shelf prices to 5 rappen. Confirmed on the KW37 fixture: every
+ * observed price (0.95, 4.45, 4.60, 4.65, 9.95, …) is a multiple of 5. WP-C2
+ * backstop behind tile pairing — see collection/domain/discount.ts.
+ */
+export const SPAR_PRICE_STEP_RAPPEN = 5
+
 const PRICE = /^\d{1,3}[.,]\d{2}$/
 const PERCENT = /^\d{1,2}\s*%$/
 
@@ -128,7 +135,9 @@ export function mapTileToOffer(
   const pctWord = tile.words.find((w) => PERCENT.test(w.text))
   let discount = null
   if (pctWord) {
-    const d = printedDiscount(Number(pctWord.text.replace('%', '').trim()))
+    const d = printedDiscount(Number(pctWord.text.replace('%', '').trim()), {
+      priceStepRappen: SPAR_PRICE_STEP_RAPPEN,
+    })
     if (isOk(d)) discount = d.value
   }
 

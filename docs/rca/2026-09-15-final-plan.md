@@ -480,6 +480,30 @@ counts, so a second real flyer will show whether they bite):
 - **Mutation:** apply the grid to derived discounts → red. A universal 5 for Lidl → red.
 - **Depends on:** C1 (Migros file). **Parallel with:** P, W.
 
+**Known residuals from WP-C2** (code review, accepted as non-blocking — none is a wrong price
+shown to a visitor, but all three are now live on `basketch.vercel.app` via the one offer this WP
+newly accepts, "Schweins-Geschnetzeltes," 1.20 statt 1.85, and are worth tracking rather than
+rediscovering):
+- **A product name with a trailing comma reaches the site verbatim.** `normalizeProductName`
+  (`shared/types.ts:1035-1041`) lowercases, collapses whitespace and maps units, but never strips
+  punctuation, so "Schweins-Geschnetzeltes," (OCR's own comma) is both the stored name and the
+  identity key. Cosmetic today; a future OCR pass reading the same product without the trailing
+  comma would silently create a second, undeduplicated product.
+- **A per-100 g price competes against pack prices in the verdict.** The descriptor line directly
+  below this tile reads "per100 g,in Selbstbedienung" (confirmed in the OCR fixture, same x-column
+  as the name) — 1.20 is a unit price, not a pack price. `PriceBasis` has no per-unit-vs-per-pack
+  distinction, so `server/verdict/algorithm.ts` has no way to know this and will happily compare it
+  against a competitor's whole-pack price as if they were the same purchase. Not new to WP-C2 (ALDI
+  and others print unit prices too), but this WP is what makes the first one of these reachable
+  through the discount-consistency guard.
+- **The published `discount_percent` is honest but not tight.** For this offer the badge shows the
+  flyer's own printed 33, while the two prices compute 35.14% — a 2.14pp gap where the pre-WP-C2
+  invariant guaranteed ≤1.5pp on every published offer. Defensible: basketch reproduces the
+  flyer's own badge and shows both prices, so a visitor can verify it themselves (Art. 3(1)(e)
+  UWG's own remedy), and the badge is Migros's rounding, not basketch's error. Recorded here so it
+  is a documented trade-off, not a surprise the next time someone diffs printed vs. computed
+  percentages across the live set.
+
 **WP-C3: Coop full names + truncation guard (item 8, TP-8, D6)**
 - **Files:**
   - `collection/infrastructure/coop/coop-aktionis-source.ts` (+ test; copy the April 51-card fixture into
