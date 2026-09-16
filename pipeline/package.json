@@ -8,9 +8,7 @@
     "start": "tsx run.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit",
-    "fetch:migros": "tsx migros/fetch.ts",
-    "fetch:coop": "cd coop && python3 fetch.py"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.14",

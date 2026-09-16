@@ -169,6 +169,33 @@ describe('the T1 retry contract in pipeline.yml (F2) — each piece asserted, no
   })
 })
 
+// WP-P4 (RCA 2026-09-15, AP-3): the legacy `fetch-deals` matrix fetched
+// aktionis.ch for 8 slugs on every run — Coop and Coop Megastore twice each,
+// once by this job and once more by `coop-aktionis-source.ts`, the CURRENT
+// Coop collector (HANDOVER.md §2 trap 1: those aktionis links are correct
+// provenance, this WP retires the duplicate FETCH JOB, not the collector).
+// It ran 124 times since 2026-09-11 while live mode used its output for
+// nothing but a comparison table and the `safeToCutOver` fallback.
+describe('the workflow has no aktionis job — it fetched Coop twice per run (124 legacy jobs since 09-11)', () => {
+  it('defines no job that runs pipeline/aktionis/main.py', () => {
+    const yaml = fs.readFileSync(WORKFLOW_PATH, 'utf-8')
+    expect(yaml).not.toMatch(/pipeline\/aktionis\s*&&\s*python3\s+main\.py/)
+    expect(yaml).not.toContain('fetch-deals')
+  })
+
+  it('process-and-store no longer downloads or lists a *-deals.json artifact', () => {
+    const yaml = fs.readFileSync(WORKFLOW_PATH, 'utf-8')
+    expect(yaml).not.toContain('download-artifact')
+    expect(yaml).not.toContain('upload-artifact')
+    expect(yaml).not.toMatch(/ls -la pipeline\/\*-deals\.json/)
+  })
+
+  it('process-and-store no longer needs a fetch job to finish first', () => {
+    const yaml = fs.readFileSync(WORKFLOW_PATH, 'utf-8')
+    expect(yaml).not.toMatch(/needs:\s*\[fetch-deals\]/)
+  })
+})
+
 describe('RUN_DEADLINE_MS < timeout_minutes in pipeline.yml — a threshold at the kill line can never be observed', () => {
   it('leaves the FULL write tail inside the external step timeout, not merely the deadline itself (F1)', () => {
     const timeoutMs = readCategorizeStepTimeoutMinutes() * 60_000

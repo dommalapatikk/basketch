@@ -18,11 +18,11 @@ cd pipeline && npm install && cd ..
 
 echo ""
 echo "2/4  Installing frontend dependencies..."
-cd web && npm install && cd ..
+cd web-next && npm install && cd ..
 
 echo ""
-echo "3/4  Installing Python dependencies..."
-pip3 install -r pipeline/coop/requirements.txt
+echo "3/4  Installing Python dependencies (Migros flyer OCR)..."
+pip3 install -r pipeline/collection/infrastructure/migros/requirements.txt
 
 echo ""
 echo "4/4  Setting up environment file..."
@@ -40,6 +40,6 @@ echo "==============================="
 echo ""
 echo "Next steps:"
 echo "  1. Edit .env with your Supabase credentials"
-echo "  2. cd web && npm run dev    (start frontend)"
+echo "  2. cd web-next && npm run dev    (start frontend)"
 echo "  3. Read CLAUDE.md for the full guide"
 echo ""

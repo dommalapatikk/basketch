@@ -12,8 +12,6 @@ The legacy React + Vite frontend has been archived to `archive/web-vite/` — se
 ```
 basketch/
 ├── pipeline/              # Data pipeline (TS + Python). Own package.json.
-│   ├── aktionis/          # LEGACY aggregator scraper (Python) — being replaced
-│   ├── coop/              # LEGACY Coop scraper (Python) — being replaced
 │   ├── archive/migros/    # RETIRED direct Migros integration — do not revive (see legal note below)
 │   ├── product-metadata.ts # Brand/quantity/organic extraction (pure function)
 │   ├── product-resolve.ts # Product identity resolution (find/create in products table)
@@ -130,9 +128,6 @@ cd web-next && npm test          # vitest run
 
 # Frontend lint
 cd web-next && npm run lint      # biome check .
-
-# Python tests
-cd pipeline/aktionis && python -m pytest
 
 # Type-check without emitting
 npx tsc --noEmit -p pipeline/tsconfig.json
