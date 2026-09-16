@@ -10,6 +10,7 @@ import {
   findValidity,
   formatFunnel,
   issuuDocUrl,
+  joinNameParts,
   migrosYieldReason,
   parseFlyer,
   parseValidityLine,
@@ -296,6 +297,46 @@ describe('an override wider than the flyer is clipped to the flyer window, never
 })
 
 // ---------------------------------------------------------------------------
+// A "gültig" line is only a validity-OVERRIDE candidate when it also carries
+// a date (re-review 2026-09-16, N1). Ordinary Swiss flyer copy —
+// "gültig solange Vorrat", "nur gültig mit Cumulus" — mentions "gültig" with
+// no date at all. Before this fix it would have been found, failed to parse
+// (correctly — it states no window), and REJECTED an otherwise-valid offer
+// for text that was never trying to be a validity line. The reject guarantee
+// for a date-bearing line that still fails to parse (N1's other half, and
+// finding 3 from the previous round) must not be weakened by this fix.
+// ---------------------------------------------------------------------------
+
+describe('a "gültig" line with no date is not a validity override', () => {
+  it('"gültig solange Vorrat" is not a validity override — the offer is published on the flyer window', () => {
+    const page = oneOfferPage('gultig solange Vorrat', [90, 1080, 650, 1110])
+    const { offers, funnel } = parseFlyer([page], REFERENCE, null)
+    const offer = offers.find((o) => o.productName === 'Sonderangebot')
+    expect(offer).toBeDefined()
+    expect(offer?.validity).toEqual(FLYER_WEEK)
+    expect(funnel.invalidValidity).toBe(0)
+  })
+
+  it('"nur gültig mit Cumulus" (no date) is not a validity override either', () => {
+    const page = oneOfferPage('nur gultig mit Cumulus', [90, 1080, 650, 1110])
+    const { offers, funnel } = parseFlyer([page], REFERENCE, null)
+    expect(offers.some((o) => o.productName === 'Sonderangebot')).toBe(true)
+    expect(funnel.invalidValidity).toBe(0)
+  })
+
+  it('a date-bearing "gültig" line that will not parse still rejects the anchor', () => {
+    // The guarantee the date-shape requirement must NOT weaken: this line
+    // carries a date (6.9.) but no "vom", so it cannot state a real window —
+    // and unlike the no-date cases above, THIS one must still reject rather
+    // than publish under the flyer window.
+    const page = oneOfferPage('gultig bis6.9.', [90, 1080, 650, 1110])
+    const { offers, funnel } = parseFlyer([page], REFERENCE, null)
+    expect(offers.some((o) => o.productName === 'Sonderangebot')).toBe(false)
+    expect(funnel.invalidValidity).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Golden master — HAND-VERIFIED (name, sale, statt) triples for the committed
 // fixture. Each triple below was verified by reading the OCR tokens and their
 // pixel coordinates directly (see the worked derivation in the WP-C1 build
@@ -312,18 +353,30 @@ describe('an override wider than the flyer is clipped to the flyer window, never
 // x-aligned within the fixture's precision:
 //   - "Schweins-Nierstuck-" (page 4, left, statt 2.85) is followed 10px below
 //     by "steaksmariniert," at the same x0 (1735 vs 1734) — one hyphenated
-//     word wrapped onto two OCR lines. Joined: "Schweins-Nierstuck-steaksmariniert".
+//     word wrapped onto two OCR lines.
 //   - "Delikatess-" (page 4, left, statt 1.75) is followed 3px below by
 //     "Fleischkase,IP-SUiSSE" at the same x0 (362 vs 363) — same pattern, the
 //     quality-programme suffix after the comma is not part of the name.
-//     Joined: "Delikatess-Fleischkase".
 //   - "Migros" alone (page 4, right, statt 5.60) is followed 3px below by
 //     "Kalbsplatzli" at the same x0 (1390 vs 1390) — Migros's own brand
 //     prefix, printed on its own line, is not a complete product name.
-//     Joined: "Migros Kalbsplatzli".
+//
+// RE-JOINED 2026-09-16, second review round (N2): the joining SEPARATOR
+// depends on the continuation's case, per `joinNameParts`. "Delikatess-" +
+// "Fleischkase" (continuation capitalised) keeps the hyphen, no space:
+// "Delikatess-Fleischkase" — the flyer's own convention for a printed
+// compound elsewhere in this fixture ("Schweins-Geschnetzeltes", never
+// wrapped). "Schweins-Nierstuck-" + "steaksmariniert" (continuation
+// LOWERCASE) drops the hyphen and inserts a space instead:
+// "Schweins-Nierstuck steaksmariniert" — read as "Schweins-Nierstück
+// steaks, mariniert" (kidney-piece steaks, MARINATED — a quality adjective
+// describing the cut, not a mid-word break), never the run-together
+// "Schweins-Nierstuck-steaksmariniert" the first cut produced. "Migros" +
+// "Kalbsplatzli" has no trailing hyphen to begin with (the bare-brand-word
+// case), so it is unaffected: "Migros Kalbsplatzli".
 // All three joins were confirmed by running the actual parser against the
-// fixture (not just derived by eye) — see the `findOfferName` join logic and
-// its dedicated tests below.
+// fixture (not just derived by eye) — see `joinNameParts` and its dedicated
+// tests below.
 // ---------------------------------------------------------------------------
 
 type GoldenTriple = { name: string; sale: number; statt: number }
@@ -332,11 +385,11 @@ const GOLDEN_MASTER: GoldenTriple[] = [
   // page 2 — the one non-multi-buy anchor on the page.
   { name: 'Kartoffeln Patatli', sale: 1.4, statt: 2.1 },
   // page 4
-  { name: 'Schweins-Nierstuck-steaksmariniert', sale: 1.9, statt: 2.85 }, // OCR reads "ü" as "u"; joined, see header
+  { name: 'Schweins-Nierstuck steaksmariniert', sale: 1.9, statt: 2.85 }, // OCR reads "ü" as "u"; lowercase continuation -> hyphen dropped, see header
   { name: 'MigrosSpiesse', sale: 2.85, statt: 4.3 },
-  { name: 'Delikatess-Fleischkase', sale: 1.15, statt: 1.75 }, // joined, see header
+  { name: 'Delikatess-Fleischkase', sale: 1.15, statt: 1.75 }, // uppercase continuation -> hyphen kept, see header
   { name: 'Rinds-Entrecotes', sale: 5.25, statt: 7.9 },
-  { name: 'Migros Kalbsplatzli', sale: 3.75, statt: 5.6 }, // joined, see header
+  { name: 'Migros Kalbsplatzli', sale: 3.75, statt: 5.6 }, // no trailing hyphen to begin with, see header
   // page 5
   { name: 'Schweinsfilet,', sale: 3.8, statt: 5.7 },
   { name: 'OptigalPouletgeschnetzeltes', sale: 2.2, statt: 3.35 },
@@ -486,6 +539,24 @@ describe("a name comes from the offer's own tile", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// joinNameParts — pure, unit-tested first (N2, re-review 2026-09-16).
+// ---------------------------------------------------------------------------
+
+describe('joinNameParts', () => {
+  it('keeps the hyphen, no space, when the continuation is capitalised (a printed compound)', () => {
+    expect(joinNameParts('Delikatess-', 'Fleischkase')).toBe('Delikatess-Fleischkase')
+  })
+
+  it('drops the hyphen and inserts a space when the continuation is lowercase (a separate word)', () => {
+    expect(joinNameParts('Schweins-Nierstuck-', 'steaksmariniert')).toBe('Schweins-Nierstuck steaksmariniert')
+  })
+
+  it('joins with a space when the primary has no trailing hyphen at all (a bare brand word)', () => {
+    expect(joinNameParts('Migros', 'Kalbsplatzli')).toBe('Migros Kalbsplatzli')
+  })
+})
+
 describe('a name split across two OCR lines is joined, not truncated to the first line', () => {
   // The HANDOVER "test encodes the defect" trap: the first cut of this golden
   // master locked in "Migros", "Delikatess-" and "Schweins-Nierstuck-" as
@@ -504,9 +575,14 @@ describe('a name split across two OCR lines is joined, not truncated to the firs
     expect(offers.some((o) => o.productName === 'Delikatess-Fleischkase')).toBe(true)
   })
 
-  it('"Schweins-Nierstuck-" + "steaksmariniert," joins across the hyphen', () => {
+  it('"Schweins-Nierstuck-" + lowercase "steaksmariniert," drops the hyphen and adds a space', () => {
+    // N2 (re-review 2026-09-16): a lowercase continuation is never a
+    // capitalised compound continuation — it reads as a separate qualifying
+    // word ("...steaks, mariniert" = marinated), so the wrap-hyphen is
+    // dropped rather than glued directly onto it.
     expect(offers.some((o) => o.productName === 'Schweins-Nierstuck-')).toBe(false)
-    expect(offers.some((o) => o.productName === 'Schweins-Nierstuck-steaksmariniert')).toBe(true)
+    expect(offers.some((o) => o.productName === 'Schweins-Nierstuck-steaksmariniert')).toBe(false)
+    expect(offers.some((o) => o.productName === 'Schweins-Nierstuck steaksmariniert')).toBe(true)
   })
 
   it('a complete one-line name is never joined with an unrelated line below it', () => {

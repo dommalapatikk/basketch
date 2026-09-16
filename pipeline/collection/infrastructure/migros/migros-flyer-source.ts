@@ -57,7 +57,12 @@
 // line vertically closest to the offer's own sale price — Migros prints name
 // and price at the same height, and a line ending in a hyphen ("Schweins-
 // Nierstuck-") or the bare brand word "Migros" continues on the next
-// x-aligned line, which is joined in.
+// x-aligned line, which is joined in. The join separator depends on the
+// continuation's case (see `joinNameParts`): a capitalised continuation is a
+// printed compound and keeps its hyphen ("Delikatess-Fleischkase"); a
+// lowercase one is a separate qualifying word, so the hyphen is dropped for
+// a space instead ("Schweins-Nierstuck steaksmariniert", not the
+// run-together "Schweins-Nierstuck-steaksmariniert").
 //
 // Two price FORMS were also unmodelled: whole-franc ("statt 14.--") and the
 // "ab 2 Stück" multi-buy form. Multi-buy is detected two ways — an inline
@@ -132,13 +137,23 @@ const PERCENT = /^(\d{1,2})\s*%$/
 /** The "ab 2 Stück" multi-buy label, printed above the badge in the tile. */
 const AB_STUECK = /ab\s*\d+\s*St(ü|u)ck/i
 /**
- * Any mention of "gültig"/"gultig" — deliberately not anchored to "…vom…",
- * because OCR sometimes glues them ("gultigvom…") and because a line that
- * says "gültig" but fails to parse a window (missing "vom", wrong order) must
- * still be DETECTED so the anchor can be rejected rather than silently
- * falling back to the flyer-wide window — see `findValidityOverride`.
+ * A "gültig"/"gultig" mention that ALSO carries a date shape (D.D.) somewhere
+ * after it. Two things this must get right at once (re-reviewed 2026-09-16):
+ *   - NOT anchored to "…vom…" specifically, because OCR sometimes glues them
+ *     ("gultigvom…") and because a line that says "gültig" but fails to parse
+ *     a window (missing "vom", wrong order) must still be DETECTED so the
+ *     anchor can be rejected rather than silently falling back to the
+ *     flyer-wide window — see `findValidityOverride`.
+ *   - Ordinary Swiss flyer copy that is never a validity window at all —
+ *     "gültig solange Vorrat", "nur gültig mit Cumulus" — carries no date at
+ *     all and must NOT be treated as an override candidate. Without the date
+ *     requirement, that copy would be found, fail to parse (correctly — it
+ *     is not a window), and REJECT an otherwise-valid offer for text that
+ *     was never trying to state a validity window in the first place.
+ * The `\D*` gap between "gültig" and the date allows "vom", spaces and
+ * punctuation, whatever OCR glues or splits.
  */
-const PER_OFFER_VALIDITY = /g(ü|u)ltig/i
+const PER_OFFER_VALIDITY = /g(ü|u)ltig\D*\d{1,2}\.\d{1,2}\./i
 
 /**
  * Lines that are never a product name. Migros prints the unit basis, the
@@ -416,6 +431,29 @@ function findPrimaryNameLine(page: OcrPage, tile: Tile, saleBox: Box, stattBox: 
  * to be useful for identity or classification, exactly the class of bug this
  * WP fixes for cross-tile mis-pairs.
  */
+/**
+ * Joins a name Migros wrapped onto two OCR lines (re-reviewed 2026-09-16,
+ * N2). Migros hyphenates genuine compounds with the continuation
+ * CAPITALISED — "Delikatess-" + "Fleischkäse" -> "Delikatess-Fleischkäse" —
+ * matching the flyer's own one-line convention for the same shape of word
+ * elsewhere on the fixture ("Schweins-Geschnetzeltes", never wrapped). A
+ * LOWERCASE continuation is never a capitalised compound continuation; German
+ * retail copy reads it as a separate qualifying word instead — "Schweins-
+ * Nierstück-" + "steaksmariniert" reads as "Schweins-Nierstück steaks,
+ * mariniert" (kidney-piece steaks, MARINATED — a quality adjective, not a
+ * mid-word break) — so the hyphen is dropped and a space takes its place,
+ * giving "Schweins-Nierstück steaksmariniert" rather than the run-together
+ * "Schweins-Nierstück-steaksmariniert" that reads as one garbled word.
+ */
+export function joinNameParts(primaryText: string, continuationFirstSegment: string): string {
+  const continuationStartsUpper = /^[A-ZÄÖÜ]/.test(continuationFirstSegment)
+  if (primaryText.endsWith('-')) {
+    if (continuationStartsUpper) return primaryText + continuationFirstSegment
+    return `${primaryText.slice(0, -1)} ${continuationFirstSegment}`
+  }
+  return `${primaryText} ${continuationFirstSegment}`
+}
+
 function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, pageHeight: number): { text: string; box: Box } | undefined {
   const primary = findPrimaryNameLine(page, tile, saleBox, stattBox, pageHeight)
   if (!primary) return undefined
@@ -439,8 +477,7 @@ function findOfferName(page: OcrPage, tile: Tile, saleBox: Box, stattBox: Box, p
     x1: Math.max(primaryBox.x1, continuationBox.x1),
     y1: Math.max(primaryBox.y1, continuationBox.y1),
   }
-  const sep = primaryText.endsWith('-') ? '' : ' '
-  return { text: primaryText + sep + continuationFirstSegment, box: joinedBox }
+  return { text: joinNameParts(primaryText, continuationFirstSegment), box: joinedBox }
 }
 
 type ValidityOverrideResult = { kind: 'none' } | { kind: 'invalid'; raw: string } | { kind: 'override'; period: ValidityPeriod }
