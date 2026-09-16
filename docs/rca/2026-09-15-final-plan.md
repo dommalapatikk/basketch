@@ -293,6 +293,9 @@ the Swiss day boundary in summer.
 - **First failing tests:**
   - `a full run through the composition root stores what the fake sources returned — run.ts had zero tests`
   - `the root wires classifier, reflector, judge and enricher from env — nothing built inline`
+  - **Carried forward from WP-P1** (code review 2026-09-15, accepted as non-blocking there because
+    `run.ts` had no test seam): `live counts are read BEFORE storeDeals — a post-write count makes the
+    sweep guard permissive` (mutation: move `activeCountsByWindow()` back below `storeDeals()` → red).
 - **Mutation:** skip `storeDeals` inside `runTransform` → red.
 - **Depends on:** P1. **Parallel with:** C1–C3, W1–W3.
 
