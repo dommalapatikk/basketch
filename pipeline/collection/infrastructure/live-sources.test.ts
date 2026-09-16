@@ -235,7 +235,7 @@ describe('Aldi CropRegion urls point at a real image (QA 2026-09-16, defect 2)',
           { pages: ['/95562/3331426/pages/' + '4'.repeat(40)] },
         ],
       }),
-      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES }),
+      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES, bytes: 0 }),
     })
 
     const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
@@ -253,7 +253,7 @@ describe('Aldi CropRegion urls point at a real image (QA 2026-09-16, defect 2)',
   it('never throws and still returns offers (with image: null) when the catalogue carries no page-image data', async () => {
     const { sources } = build({
       fetchJson: async () => ({ pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf' }] }),
-      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES }),
+      fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES, bytes: 0 }),
     })
     const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
     const offers = result && 'offers' in result ? result.offers : []
@@ -273,7 +273,7 @@ describe('Spar offers carry no image (QA 2026-09-16, defect 3)', () => {
     // SPAR_EXPECTED_MINIMUM (30).
     const pagesOnce = parseBboxXml(readFileSync(join(__dirname, 'spar/__fixtures__/flyer-kw37-pages1-3.xml'), 'utf8'))
     const pages = [...pagesOnce, ...pagesOnce]
-    const { sources } = build({ fetchPdfPages: async () => ({ ok: true, pages }) })
+    const { sources } = build({ fetchPdfPages: async () => ({ ok: true, pages, bytes: 0 }) })
     const result = await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
     const offers = result && 'offers' in result ? result.offers : []
     expect(offers.length).toBeGreaterThan(0)
