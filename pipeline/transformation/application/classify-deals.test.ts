@@ -223,6 +223,56 @@ describe('caching uncertain outcomes (WP-P6a)', () => {
     expect(isOk(lookup) && lookup.value).toEqual([])
   })
 
+  /**
+   * F1 (code review carry-forward, WP-P6a — closed by WP-P6). The FIRST
+   * exclusion above (`classification === null`) missed a second shape: an
+   * outcome CAN carry a real classification and still be RESOURCE-limited,
+   * not content-disputed — the judge said "wrong" but reflection ran and
+   * returned nothing usable (a dead provider, an unparseable reply). Before
+   * this fix that was memoised exactly like a genuine judge/reflector
+   * disagreement and became PERMANENTLY uncertain (HANDOVER.md §5: "no run
+   * will ever re-open it"), for a reason that said nothing about the
+   * product.
+   */
+  it('a resource-limited uncertain (reflection returned nothing) is not memoised as permanent — WP-P6a F1', async () => {
+    const cache = createInMemoryCache()
+    let judgeCalls = 0
+    const countingJudge = {
+      name: 'sceptic',
+      async judge() {
+        judgeCalls++
+        return { verdict: 'wrong' as const, tokens: 0 }
+      },
+    }
+    const emptyReflector = {
+      async reflect() {
+        return { classification: null, tokens: 0 }
+      },
+    }
+
+    const first = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never, reflector: emptyReflector as never })
+    expect(first.deals[0]?.isUncertain).toBe(true)
+    expect(first.stats.uncertain).toBe(1)
+    expect(judgeCalls).toBe(1)
+
+    // Nothing was cached — this run's unresponsive reflector said nothing
+    // about the PRODUCT, so the memo must not exist at all.
+    const lookup = await cache.lookup([cacheKeyFor('Emmi Milch', CURRENT_VERSIONS)])
+    expect(isOk(lookup) && lookup.value).toEqual([])
+
+    // Proven by re-running: a permanent memo would make this a cache hit
+    // forever. A working reflector on the SECOND run must still be free to
+    // settle the product — impossible if the first run had memoised it.
+    const stubborn = {
+      async reflect(_r: unknown, answer: unknown) {
+        return { classification: answer, tokens: 0 }
+      },
+    }
+    const second = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never, reflector: stubborn as never })
+    expect(second.stats.cacheHits).toBe(0)
+    expect(judgeCalls).toBe(2)
+  })
+
   it('a cached uncertain row rehydrates as uncertain, not as classified', async () => {
     const cache = createInMemoryCache()
     await run([deal('Emmi Milch')], { cache, judge: alwaysDisputes as never })

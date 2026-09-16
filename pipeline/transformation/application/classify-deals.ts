@@ -209,12 +209,27 @@ async function persistChunk(
   // guard), never reaches this filter at all — it is a different `status`
   // value, not 'uncertain'.
   //
+  // F1 (code review carry-forward, WP-P6a — closed here by WP-P6). A SECOND
+  // shape of "not a content signal" slipped through the FIRST filter above:
+  // an outcome CAN carry a real classification (`classification !== null`)
+  // and still be resource-limited rather than disputed — the judge said
+  // "wrong" but this run's escalation BUDGET ran out before reflection got
+  // a turn, or reflection ran and the provider returned nothing usable.
+  // Neither says anything about whether the category is actually wrong; both
+  // are just THIS RUN having less budget or a flakier provider than the
+  // next one. Before this fix both were memoised exactly like "reflection
+  // ran and still disagrees with the judge" — a genuine content signal — and
+  // so became PERMANENTLY uncertain (HANDOVER.md §5: "no run will ever
+  // re-open it"), for a reason that had nothing to do with the product.
+  // `Outcome.failure` (classify-graph.ts) is set on exactly these two cases
+  // and excludes them here.
+  //
   // Deliberately NOT sent to enrichment above (see `enrichable`, F2): an
   // uncertain sub-category is a guess, so its attribute schema is a guess on
   // top of a guess — do not spend enrichment calls on it. Tech Lead ruling,
   // WP-P6a.
   const uncertainWithClassification = chunk.filter(
-    (o) => o.status === 'uncertain' && o.classification !== null,
+    (o) => o.status === 'uncertain' && o.classification !== null && o.failure === undefined,
   )
 
   const toCache = [
@@ -480,6 +495,11 @@ export async function classifyDeals(
       // log is an undiagnosable run. This is the only way a contract breach
       // becomes visible.
       log: (m) => log(`[transform] ⚠ ${m}`),
+      // Per-call judge token usage. The judge makes ONE model call per
+      // escalated product (unlike the classifier's per-25-product batches),
+      // so this is the granularity that actually shows what an OpenRouter
+      // judge run costs — WP-P8's spend guard needs exactly this evidence.
+      onJudgeUsage: (tokens, verdict) => log(`[transform] judge: ${tokens} tokens (verdict ${verdict})`),
     })
     if (plan.judgeSampleRate < 1) {
       log(

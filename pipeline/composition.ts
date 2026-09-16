@@ -168,6 +168,12 @@ async function buildClassificationDeps(
         taxonomy: TAXONOMY,
         batchSize: 25,
         gate: tier1Gate,
+        // WP-P6: this hook existed since the classifier was written and was
+        // never passed — classify token usage never reached a log anywhere.
+        // Per BATCH (up to 25 products), unlike the judge's per-product
+        // `onJudgeUsage` (classify-deals.ts) — the two granularities match
+        // how each adapter actually calls its model.
+        onUsage: (tokens) => log(`[transform] classify: ${tokens} tokens`),
       }),
       log,
     ),

@@ -11,10 +11,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: () => ({}) }) }))
 
 import { RETAILERS } from './collection/domain/offer'
-import { unwrap } from './collection/domain/result'
+import { ok, unwrap } from './collection/domain/result'
 import type { Transport } from './collection/infrastructure/live-sources'
 import { createProductionDeps } from './composition'
+import { buildClassifyGraph } from './transformation/application/classify-graph'
 import { createClassification, createConfidence } from './transformation/domain/classification'
+import type { ClassificationOutcome, ClassificationRequest, Classifier } from './transformation/domain/classifier'
+import { FREE_TIER_BUDGET, ZERO_SPEND } from './transformation/domain/guardrails'
 
 describe('the root wires classifier, reflector, judge and enricher from env — nothing built inline', () => {
   it('builds no escalation path with no API keys, and makes no network call to decide that', async () => {
@@ -94,6 +97,81 @@ describe('classifier, reflector and enricher share ONE Gemini quota — backfill
     // could sleep minutes honouring a Retry-After and the Categorize log
     // would show nothing between two chunk summaries.
     expect(runLog.some((m) => m.includes('waiting'))).toBe(true)
+  })
+})
+
+/**
+ * WP-P6: bounded judge concurrency, wired exactly as composition.ts wires
+ * it — the REAL `createOpenRouterJudge` behind the REAL `createModelGate`,
+ * not a hand-built fake `Judge`. Judged sequentially at ~10.3s each, a
+ * 100-product miss set took ~1,000s (`docs/rca/2026-09-15-tech-lead-items-6-9.md`
+ * §9.1); through the gate at `maxInFlight: 4` (`model-registry.ts`'s
+ * `JUDGE_CHAIN[0]`) the same 100 products should complete in roughly a
+ * quarter of that wall time.
+ */
+describe('judges at most 4 at once through the gate — 100 sequential judgements took ~1,000s', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('bounds concurrent OpenRouter calls to maxInFlight and finishes in a fraction of sequential time', async () => {
+    let concurrent = 0
+    let maxConcurrent = 0
+    const CALL_DELAY_MS = 25
+
+    vi.stubGlobal('fetch', async () => {
+      concurrent++
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      await new Promise((resolve) => setTimeout(resolve, CALL_DELAY_MS))
+      concurrent--
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
+    })
+
+    // 16 disputed products — below the paced per-minute ceiling
+    // (floor(20 * 0.9) = 18), so the gate's RATE limiter never intervenes
+    // and this test measures the IN-FLIGHT bound alone, not a mix of two
+    // mechanisms.
+    const PRODUCT_COUNT = 16
+    const deps = createProductionDeps({ OPENROUTER_API_KEY: 'test-key' })
+    const classification = await deps.createClassificationDeps(() => {})
+    expect(classification.judge).not.toBeNull()
+
+    const tier1: Classifier = {
+      name: 'fake-tier1',
+      tier: 1,
+      batchSize: PRODUCT_COUNT,
+      async classify(batch) {
+        return ok(
+          batch.map(
+            (request): ClassificationOutcome => ({
+              ok: true,
+              request,
+              classification: unwrap(
+                createClassification({ category: 'dairy', subCategory: 'dairy', confidence: unwrap(createConfidence(0.9)), tier: 1, model: 'fake' }),
+              ),
+            }),
+          ),
+        )
+      },
+    }
+
+    const graph = buildClassifyGraph({ tier1, judge: classification.judge, reflector: null, budget: FREE_TIER_BUDGET })
+    const names = Array.from({ length: PRODUCT_COUNT }, (_, i) => `Product ${i}`)
+    const pending: ClassificationRequest[] = names.map((productName) => ({ productName, descriptor: null, retailer: 'denner' }))
+
+    const startedAt = Date.now()
+    const final = (await graph.invoke({ pending, outcomes: [], disputed: [], budget: ZERO_SPEND, halted: null })) as {
+      outcomes: { status: string }[]
+    }
+    const elapsedMs = Date.now() - startedAt
+
+    expect(final.outcomes).toHaveLength(PRODUCT_COUNT)
+    expect(maxConcurrent).toBeLessThanOrEqual(4)
+    // Genuinely concurrent, not sequential — sequential would never exceed 1.
+    expect(maxConcurrent).toBeGreaterThan(1)
+    // 16 calls sequentially would take >= 16 * 25ms = 400ms. Bounded to 4 in
+    // flight, 4 waves of ~25ms each is ~100ms. A generous ceiling keeps this
+    // from flaking on a loaded CI runner while still catching a regression
+    // to sequential (which would take 4x as long).
+    expect(elapsedMs).toBeLessThan(300)
   })
 })
 

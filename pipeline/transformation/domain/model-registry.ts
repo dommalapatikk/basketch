@@ -95,9 +95,20 @@ export const JUDGE_CHAIN: readonly ModelSpec[] = [
     measuredOn: '2026-09-10',
     requestsPerDay: 1000,
     requestsPerMinute: 20,
-    // WP-P6 raises this once bounded judge concurrency ships (Tech Lead: 4).
-    // Sequential-by-construction until then — the seam P6 edits, nothing else.
-    maxInFlight: 1,
+    // WP-P6: raised from 1. Judged sequentially at ~10.3s each
+    // (docs/rca/2026-09-15-tech-lead-items-6-9.md §9.1), a 400-product
+    // cold-start miss set took ~69 minutes against a 45-minute step — every
+    // attempt 1 since 12.9 died on the timeout. 4 is the Tech Lead's number
+    // (`docs/rca/2026-09-15-final-plan.md` WP-P6): at `requestsPerMinute: 20`
+    // paced to 90% (`checkRate`) that is ~18 req/min through the SAME gate
+    // every classifier/reflector call already shares — 4 in flight keeps
+    // each call's own latency (not the per-minute cap) the bottleneck,
+    // rather than opening the gate wide enough that a burst of judge calls
+    // could out-run OpenRouter's own per-minute ceiling on the first wave.
+    // Expected: ~1,000s → ~260s per 100 products (classify-graph.ts's
+    // `judge` node dispatches through THIS gate's `maxInFlight` semaphore —
+    // nothing else changes, per the WP-P5 ADR's "Seams for WP-P6").
+    maxInFlight: 4,
     note: 'as JUDGE: caught 25% of errors with a 0% false-alarm rate',
   },
   {

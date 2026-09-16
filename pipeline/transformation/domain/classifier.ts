@@ -38,6 +38,25 @@ export type ClassificationFailure =
   | 'provider-unavailable'
   /** The run's token or call budget is exhausted. */
   | 'budget-exhausted'
+  /**
+   * WP-P6 / D4. The response was cut off by the output token limit
+   * (`finishReason: 'MAX_TOKENS'`). Retrying the IDENTICAL batch at
+   * temperature 0 truncates identically — this is a CONTENT failure, not a
+   * transient one, so the adapter sends a SMALLER batch instead of asking
+   * the same question again. Reached only after bisection is exhausted
+   * (25 → 13 → 7, at most two splits) and the remaining products are held
+   * back with this reason recorded rather than dropped silently.
+   */
+  | 'output-truncated'
+  /**
+   * WP-P6 / D4. The response was NOT truncated, but its text did not parse
+   * as JSON — even after one retry of the identical batch. Unlike
+   * truncation, this is retried once unbisected: the project has measured
+   * this provider as non-deterministic in practice even at temperature 0
+   * (HANDOVER.md: 16 parse errors one run, 18 the next), so a same-size
+   * retry can genuinely come back different.
+   */
+  | 'unparseable'
 
 export type Classifier = {
   /** Model identifier, recorded on every classification for traceability. */
