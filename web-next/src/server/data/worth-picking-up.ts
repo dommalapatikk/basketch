@@ -1,7 +1,8 @@
 import 'server-only'
 
-import { unstable_cacheLife as cacheLife } from 'next/cache'
+import { cacheLife, cacheTag } from 'next/cache'
 
+import { isInEffect } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
 import { STORE_META, type Store } from '@/lib/v3-types'
 import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingUpCard'
@@ -13,17 +14,79 @@ import type { WorthPickingUpCandidate } from '@/components/landing/WorthPickingU
 // 'use cache' satisfies Next.js 16 Cache Components — without it, Next refuses
 // to prerender the home page (uncached data outside <Suspense>).
 
+/**
+ * One row of `worth_picking_up_candidates`, the columns this module reads.
+ * `valid_from`/`valid_to` exist so `inEffectCandidateRows` can re-check
+ * validity at read time — see that function for why.
+ */
+type PersonalCandidateRow = {
+  concept_id: string
+  deal_store: string
+  deal_id: string
+  deal_price: number
+  deal_regular_price: number | null
+  discount_percent: number
+  valid_from: string
+  /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
+  valid_to: string | null
+  interest_signal: string
+  interest_added_at: string
+}
+
+/**
+ * Re-applies `isInEffect` to rows already read from the
+ * `worth_picking_up_candidates` materialised view.
+ *
+ * WHY THIS EXISTS (WP-W3, docs/decisions/2026-09-15-in-effect-vs-upcoming.md
+ * "Open"; migration 20260916_mv_validity_window.sql). A materialised view
+ * freezes `CURRENT_DATE` at REFRESH time, not at read time — REFRESH runs
+ * once, at the end of every pipeline run. The migration's WHERE clause is
+ * correct AT REFRESH, but a row it correctly included can still have expired,
+ * or a row can still be one whose window has not yet opened relative to a
+ * request that lands hours or days later, before the next refresh. This is
+ * the exact reason `WeeklySnapshot.today` is threaded into `buildSections`
+ * instead of trusting a query filter alone (WP-W2) — the same predicate,
+ * reused, not reimplemented, here.
+ *
+ * `valid_to: string | null` matches `deals.valid_to`'s real nullability
+ * (baseline.sql:96) rather than the `string` the row types here previously,
+ * dishonestly, claimed. A null `valid_to` is treated as NOT in effect —
+ * "expire aggressively" (CLAUDE.md) means an end date this module cannot
+ * confirm is one it does not vouch for. In practice this branch should never
+ * fire: both queries that feed this function already carry
+ * `.gte('valid_to', today)` (`coldStartCandidates`) or are built from a view
+ * whose own WHERE clause excludes a null `valid_to` (Postgres: `NULL >=
+ * CURRENT_DATE` is neither true nor false, so the row is dropped) — but the
+ * type is honest about the column regardless of how reliably today's callers
+ * happen to pre-filter it.
+ */
+export function inEffectCandidateRows<T extends { valid_from: string; valid_to: string | null }>(
+  rows: T[],
+  today: string,
+): T[] {
+  return rows.filter(
+    (row) => row.valid_to !== null && isInEffect({ validFrom: row.valid_from, validTo: row.valid_to }, today),
+  )
+}
+
 export async function getWorthPickingUpCandidates(args: {
   userEmail?: string | null
   locale: string
+  /** Zurich calendar date (`YYYY-MM-DD`) — the same one carried on `WeeklySnapshot.today`. */
+  today: string
 }): Promise<{ mode: 'personal' | 'cold-start'; candidates: WorthPickingUpCandidate[] }> {
   'use cache'
   cacheLife('hours')
+  // Same tag `snapshot.ts` uses — without it, the pipeline's /api/revalidate
+  // call (which invalidates by tag, not by function) cannot reach this
+  // cache, and cold-start suggestions can lag a pipeline run by up to a day
+  // (the `expire` bound cacheLife('hours') carries).
+  cacheTag('deals')
   const sb = createAnonClient()
 
   // 1. Cold-start path — used until user has 5+ interest rows (PM Q11 locked).
   if (!args.userEmail) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   const { count: interestCount } = await sb
@@ -33,38 +96,59 @@ export async function getWorthPickingUpCandidates(args: {
     .is('dismissed_at', null)
 
   if (!interestCount || interestCount < 5) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
   }
 
   // 2. Personal path — read from MV.
   const { data, error } = await sb
     .from('worth_picking_up_candidates')
-    .select('concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, interest_signal, interest_added_at')
+    .select(
+      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, interest_signal, interest_added_at',
+    )
     .eq('user_email', args.userEmail)
     .order('score', { ascending: false })
     .limit(10)
 
-  if (error || !data || data.length === 0) {
-    return { mode: 'cold-start', candidates: await coldStartCandidates(sb) }
+  if (error) {
+    // Distinct from "no rows" below — an actual query failure. The most
+    // likely cause right now is the exact staleness window this WP closes:
+    // `valid_from`/`valid_to` do not exist on `worth_picking_up_candidates`
+    // until the migration is applied (PostgREST 400), or PostgREST's schema
+    // cache has not picked up the applied migration yet (stale schema
+    // cache — `NOTIFY pgrst, 'reload schema';` fixes that specifically).
+    // Without this log every affected user silently degrades to cold-start
+    // with zero telemetry of why.
+    console.error('[wpu] personal path failed', { error: error.message, userEmail: args.userEmail })
   }
 
-  // Hydrate concept names + image (latest deal image as a proxy).
-  const conceptIds = data.map((r) => r.concept_id)
-  const { data: concepts } = await sb
-    .from('concept')
-    .select('id, display_name')
-    .in('id', conceptIds)
-  const nameById = new Map((concepts ?? []).map((c) => [c.id, c.display_name as string]))
+  if (error || !data || data.length === 0) {
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
+  }
 
-  const { data: dealImages } = await sb
-    .from('deals')
-    .select('id, image_url')
-    .in('id', data.map((r) => r.deal_id))
+  // Re-apply isInEffect: the MV's own filter is only as fresh as its last
+  // REFRESH (WP-W3). Falls back to cold-start on an empty result, same as
+  // an empty MV read — the personal path has nothing honest to show today.
+  const inEffect = inEffectCandidateRows(data as PersonalCandidateRow[], args.today)
+  if (inEffect.length === 0) {
+    return { mode: 'cold-start', candidates: await coldStartCandidates(sb, args.today) }
+  }
+
+  // Hydrate concept names + image (latest deal image as a proxy). The two
+  // reads are independent — same store, same pipeline snapshot, no ordering
+  // dependency between them — so they run in parallel rather than paying two
+  // sequential round trips (CLAUDE.md: parallelise independent requests).
+  const conceptIds = inEffect.map((r) => r.concept_id)
+  const dealIds = inEffect.map((r) => r.deal_id)
+  const [{ data: concepts }, { data: dealImages }] = await Promise.all([
+    sb.from('concept').select('id, display_name').in('id', conceptIds),
+    sb.from('deals').select('id, image_url').in('id', dealIds),
+  ])
+  const nameById = new Map((concepts ?? []).map((c) => [c.id, c.display_name as string]))
   const imageByDealId = new Map((dealImages ?? []).map((d) => [d.id, d.image_url as string | null]))
 
   return {
     mode: 'personal',
-    candidates: data.map((r) => {
+    candidates: inEffect.map((r) => {
       const meta = STORE_META[r.deal_store as Store]
       return {
         conceptId: r.concept_id,
@@ -81,29 +165,66 @@ export async function getWorthPickingUpCandidates(args: {
   }
 }
 
-async function coldStartCandidates(
+/**
+ * One row of `deals`, the columns `coldStartCandidates` reads. `valid_from`/
+ * `valid_to` exist for the same reason as `PersonalCandidateRow` above.
+ */
+type ColdStartRow = {
+  id: string
+  store: string
+  product_name: string
+  sale_price: number
+  original_price: number | null
+  discount_percent: number
+  image_url: string | null
+  sub_category: string | null
+  category_slug: string | null
+  valid_from: string
+  /** `deals.valid_to` is nullable (baseline.sql:96) — see `inEffectCandidateRows`. */
+  valid_to: string | null
+}
+
+/**
+ * Cold-start reads `deals` directly, not a materialised view — but the same
+ * "listed but has not started, or has expired" gap applies, and until this
+ * fix it had NEITHER half of the rule: no `.gte('valid_to', …)` safety net
+ * (CLAUDE.md — every other deal query in this codebase carries one) and no
+ * `isInEffect` re-check. Both are applied here, for the two different
+ * failure modes each one alone cannot cover: `.gte('valid_to', today)` is
+ * the source-level filter Postgres applies once; `inEffectCandidateRows` is
+ * the request-time re-check that also excludes a not-yet-started deal
+ * (`.gte('valid_to', …)` cannot express `valid_from`) and defends against a
+ * query-level filter that, for whatever reason, let a row through.
+ */
+export async function coldStartCandidates(
   sb: ReturnType<typeof createAnonClient>,
+  today: string,
 ): Promise<WorthPickingUpCandidate[]> {
   const { data } = await sb
     .from('deals')
-    .select('id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug')
+    .select(
+      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to',
+    )
     .eq('is_active', true)
+    .gte('valid_to', today)
     .gte('discount_percent', 30)
     .order('discount_percent', { ascending: false })
     .limit(10)
 
-  return (data ?? []).map((d) => {
+  const inEffect = inEffectCandidateRows((data ?? []) as ColdStartRow[], today)
+
+  return inEffect.map((d) => {
     const meta = STORE_META[d.store as Store]
     return {
-      conceptId: d.id,  // best-effort — uses deal id since cold-start has no concept link yet
-      conceptName: d.product_name as string,
-      imageUrl: d.image_url as string | null,
-      storeSlug: d.store as string,
-      storeLabel: meta?.label ?? (d.store as string),
-      dealPrice: d.sale_price as number,
-      regularPrice: (d.original_price as number | null) ?? (d.sale_price as number),
-      discountPercent: d.discount_percent as number,
-      contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').toString().replace(/-/g, ' ')} this week`,
+      conceptId: d.id, // best-effort — uses deal id since cold-start has no concept link yet
+      conceptName: d.product_name,
+      imageUrl: d.image_url,
+      storeSlug: d.store,
+      storeLabel: meta?.label ?? d.store,
+      dealPrice: d.sale_price,
+      regularPrice: d.original_price ?? d.sale_price,
+      discountPercent: d.discount_percent,
+      contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').replace(/-/g, ' ')} this week`,
     }
   })
 }
