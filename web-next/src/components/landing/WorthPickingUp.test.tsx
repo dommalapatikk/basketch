@@ -56,6 +56,7 @@ const candidate: WorthPickingUpCandidate = {
   discountPercent: 20,
   contextLine: 'You added these 6 weeks ago',
   priceBasis: { kind: 'everyone' },
+  minQuantity: null,
 }
 
 const LOCALES = [

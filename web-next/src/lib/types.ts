@@ -120,6 +120,28 @@ export type WeeklySnapshot = {
    * itself may be served from up to an hour-old cache.
    */
   today: string
+  /**
+   * True only for the fail-soft empty snapshot `SupabaseDealsProvider`
+   * returns when the deals query itself errors (server/data/supabase-
+   * provider.ts) — NOT "zero deals matched the filters", a real and
+   * unremarkable state `totalDeals === 0` already covers on its own.
+   *
+   * Code review of 422bd51/F1: that fail-soft branch used to set
+   * `updatedAt: new Date().toISOString()` — a snapshot that failed
+   * completely read as "0 deals, updated just now", which made
+   * `StaleBanner`'s own `isStale(updatedAt)` check pass (not stale) over a
+   * page that could not load any data at all. A Playwright run against this
+   * exact outage reported green because of it. `isDegraded` is the explicit
+   * signal `StaleBanner` now also checks, independent of `updatedAt`'s age
+   * — an outage a moment old is still an outage, not "fresh".
+   *
+   * Optional, defaulting to "not degraded" when absent: every existing
+   * fixture that builds a `WeeklySnapshot` by hand (tests) describes a
+   * successful snapshot and should not have to say so explicitly, the same
+   * "claims less" reasoning `Deal.minQuantity` and `PriceBasis` already use
+   * for an absent field.
+   */
+  isDegraded?: boolean
 }
 
 export type SnapshotInput = {

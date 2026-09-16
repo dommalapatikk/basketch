@@ -50,6 +50,7 @@ type FixtureRow = {
   valid_to: string | null
   price_basis: string | null
   loyalty_programme: string | null
+  min_quantity: number | null
   interest_signal: string
   interest_added_at: string
 }
@@ -65,6 +66,7 @@ const row = (over: Partial<FixtureRow> = {}): FixtureRow => ({
   valid_to: '2026-09-16',
   price_basis: 'everyone',
   loyalty_programme: null,
+  min_quantity: null,
   interest_signal: 'added',
   interest_added_at: '2026-09-01T00:00:00Z',
   ...over,
@@ -194,6 +196,7 @@ type DealRow = {
   valid_to: string
   price_basis: string | null
   loyalty_programme: string | null
+  min_quantity: number | null
 }
 
 const dealRow = (over: Partial<DealRow> = {}): DealRow => ({
@@ -210,6 +213,7 @@ const dealRow = (over: Partial<DealRow> = {}): DealRow => ({
   valid_to: '2026-09-16',
   price_basis: 'everyone',
   loyalty_programme: null,
+  min_quantity: null,
   ...over,
 })
 
@@ -350,6 +354,31 @@ describe('the home page never shows a member price without naming the programme 
 })
 
 /**
+ * Code review of 422bd51 found the IDENTICAL gap for `min_quantity` that
+ * the block above closes for `price_basis`: `coldStartCandidates` never
+ * selected the column, so a Migros "ab N Stück" price could win a
+ * cold-start spot and render bare on the home page the first week WP-C4's
+ * pipeline lands — the same Art. 3(1)(e) UWG failure, one field over.
+ */
+describe('the home page never shows a multi-buy price without its condition (cold-start)', () => {
+  it('carries a multi-buy minimum through unchanged', async () => {
+    const rows = [dealRow({ id: 'migros-1', store: 'migros', min_quantity: 2 })]
+    const { chain } = fakeDealsClient(rows)
+
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.minQuantity).toBe(2)
+  })
+
+  it('reads the ordinary single-item price as null', async () => {
+    const { chain } = fakeDealsClient([dealRow()])
+    const result = await coldStartCandidates(asSupabaseClient(chain), '2026-09-15')
+    expect(result[0]?.minQuantity).toBeNull()
+  })
+})
+
+/**
  * F4 (code review of 4e6211a): "the guard that ships is the one nothing
  * tests." Every test above exercises `inEffectCandidateRows` and
  * `coldStartCandidates` directly — neither proves `getWorthPickingUpCandidates`
@@ -474,5 +503,38 @@ describe('getWorthPickingUpCandidates — the personal path re-applies isInEffec
       kind: 'member-only',
       programme: 'Lidl Plus',
     })
+  })
+
+  it('the home page never shows a multi-buy price without its condition (personal path)', async () => {
+    // Code review of 422bd51: the personal path takes the minimum sale_price
+    // per concept from concept_cheapest_now with no multi-buy exclusion or
+    // label — the identical gap the test above closes for price_basis.
+    const client = fakeMultiTableClient({
+      user_interest: { count: 5 },
+      worth_picking_up_candidates: {
+        data: [
+          row({
+            deal_id: 'migros-1',
+            deal_store: 'migros',
+            valid_from: '2026-09-01',
+            valid_to: '2026-09-20',
+            min_quantity: 2,
+          }),
+        ],
+        error: null,
+      },
+      concept: { data: [{ id: 'c1', display_name: 'Rindsplätzli' }], error: null },
+      deals: { data: [], error: null },
+    })
+    vi.mocked(createAnonClient).mockReturnValue(asSupabaseClient(client))
+
+    const result = await getWorthPickingUpCandidates({
+      userEmail: 'shopper@example.ch',
+      locale: 'en',
+      today: '2026-09-15',
+    })
+
+    expect(result.mode).toBe('personal')
+    expect(result.candidates[0]?.minQuantity).toBe(2)
   })
 })

@@ -39,6 +39,33 @@ async function gotoStable(page: Page, url: string) {
 }
 
 // ---------------------------------------------------------------------------
+// The deals page never silently renders empty (code review of 422bd51, F1).
+//
+// Nine assertions in this file `test.skip(count === 0, …)` over "no
+// DealCards rendered" — deliberately, per each one's own comment, so a
+// quiet preview snapshot doesn't fail a test that has nothing to check. The
+// same mechanism converts a REAL total outage (a bad SELECT_COLUMNS entry,
+// an unapplied migration, a Supabase query erroring outright) into a fully
+// green suite: proven live — a Playwright run against main and against a
+// branch that broke this exact way reported 46 pass/14 skip vs 38 pass/22
+// skip, zero FAILURES either time, because every assertion gated on
+// `main article` count skipped instead of failing.
+//
+// This assertion is the one exception: it is never allowed to skip. An
+// empty deals page is not "nothing to assert" here — it IS the failure.
+// ---------------------------------------------------------------------------
+test.describe('the deals page never silently renders empty', () => {
+  test('/de/deals renders at least one deal card', async ({ page }) => {
+    await gotoStable(page, '/de/deals')
+    const count = await page.locator('main article').count()
+    expect(
+      count,
+      'zero DealCards rendered on /de/deals — this must FAIL, not skip, over an empty page',
+    ).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // AC1 — No store-color rail anywhere on a DealCard.
 // ---------------------------------------------------------------------------
 test.describe('AC1 — no store-color rail on DealCard', () => {

@@ -30,7 +30,11 @@ export default async function HomePage({
     <section className="mx-auto max-w-[1240px] px-4 py-12 md:px-10 md:py-20">
       {/* Suspense around the client island that reads new Date() — required by Cache Components. */}
       <Suspense fallback={null}>
-        <StaleBanner updatedAt={snapshot.updatedAt} locale={locale} />
+        <StaleBanner
+          updatedAt={snapshot.updatedAt}
+          locale={locale}
+          isDegraded={snapshot.isDegraded}
+        />
       </Suspense>
 
       {/* Two-column hero: spec §5.1 — 7fr/5fr above 1024px, stacks below */}

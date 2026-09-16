@@ -65,6 +65,12 @@ type PersonalCandidateRow = {
    */
   price_basis: string | null
   loyalty_programme: string | null
+  /**
+   * WP-C4/D2/TP-7a, carried through the same way as price_basis above
+   * (supabase/migrations/20260917_mv_price_basis.sql). `null` is the
+   * ordinary single-item price — see lib/domain/quantity-requirement.ts.
+   */
+  min_quantity: number | null
   interest_signal: string
   interest_added_at: string
 }
@@ -139,7 +145,7 @@ export async function getWorthPickingUpCandidates(args: {
   const { data, error } = await sb
     .from('worth_picking_up_candidates')
     .select(
-      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, price_basis, loyalty_programme, interest_signal, interest_added_at',
+      'concept_id, deal_store, deal_id, deal_price, deal_regular_price, discount_percent, valid_from, valid_to, price_basis, loyalty_programme, min_quantity, interest_signal, interest_added_at',
     )
     .eq('user_email', args.userEmail)
     .order('score', { ascending: false })
@@ -206,6 +212,7 @@ export async function getWorthPickingUpCandidates(args: {
           discountPercent: r.discount_percent,
           contextLine: contextLineFromSignal(r.interest_signal, r.interest_added_at),
           priceBasis,
+          minQuantity: r.min_quantity,
         },
       ]
     }),
@@ -232,6 +239,8 @@ type ColdStartRow = {
   /** `deals.price_basis`/`deals.loyalty_programme` — read directly, no view in the way. */
   price_basis: string | null
   loyalty_programme: string | null
+  /** `deals.min_quantity` (WP-C4/D2/TP-7a) — read directly, no view in the way. */
+  min_quantity: number | null
 }
 
 /**
@@ -253,7 +262,7 @@ export async function coldStartCandidates(
   const { data } = await sb
     .from('deals')
     .select(
-      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to, price_basis, loyalty_programme',
+      'id, store, product_name, sale_price, original_price, discount_percent, image_url, sub_category, category_slug, valid_from, valid_to, price_basis, loyalty_programme, min_quantity',
     )
     .eq('is_active', true)
     .gte('valid_to', today)
@@ -281,6 +290,7 @@ export async function coldStartCandidates(
         discountPercent: d.discount_percent,
         contextLine: `Top discount in ${(d.sub_category ?? d.category_slug ?? '—').replace(/-/g, ' ')} this week`,
         priceBasis,
+        minQuantity: d.min_quantity,
       },
     ]
   })

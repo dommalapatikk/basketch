@@ -18,6 +18,10 @@ import { type WorthPickingUpCandidate, WorthPickingUpCard } from './WorthPicking
  * over. QA confirmed the live cold-start set is 100% Coop open-price today,
  * so this was not visible yet — it surfaces the first week a member-only
  * deal qualifies (>= 30% discount, in effect).
+ *
+ * Code review of 422bd51 found the IDENTICAL gap for `min_quantity`
+ * (WP-C4, D2, TP-7a): a Migros "ab N Stück" price could win a spot on this
+ * section and render bare, the first week WP-C4's pipeline lands.
  */
 
 afterEach(cleanup)
@@ -33,6 +37,7 @@ const candidate = (over: Partial<WorthPickingUpCandidate> = {}): WorthPickingUpC
   discountPercent: 20,
   contextLine: 'You added these 6 weeks ago',
   priceBasis: { kind: 'everyone' },
+  minQuantity: null,
   ...over,
 })
 
@@ -73,5 +78,34 @@ describe('the home page never shows a member price without naming the programme'
     // ever sees it (server/data/worth-picking-up.ts).
     const basis = createPriceBasis('member-only', null)
     expect(basis.ok).toBe(false)
+  })
+})
+
+describe('the home page never shows a multi-buy price without its "from N items" condition', () => {
+  it('shows the quantity condition for a multi-buy candidate', () => {
+    renderCard(candidate({ minQuantity: 2, storeSlug: 'migros', storeLabel: 'Migros' }))
+    expect(screen.getByText('From 2 items')).toBeTruthy()
+  })
+
+  it('says nothing extra for the ordinary single-item price', () => {
+    renderCard(candidate({ minQuantity: null }))
+    expect(screen.queryByText(/items$/)).toBeNull()
+  })
+
+  it('carries the label as text, not as a colour (WCAG 2.1 AA)', () => {
+    renderCard(candidate({ minQuantity: 2 }))
+    const label = screen.getByText('From 2 items')
+    expect(label.textContent?.trim()).toBe('From 2 items')
+  })
+
+  it('shows both conditions together when a price is both member-only and multi-buy', () => {
+    renderCard(
+      candidate({
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+        minQuantity: 2,
+      }),
+    )
+    expect(screen.getByText('Lidl Plus members only')).toBeTruthy()
+    expect(screen.getByText('From 2 items')).toBeTruthy()
   })
 })
