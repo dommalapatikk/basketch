@@ -74,22 +74,6 @@ jobs:
       - name: Test pipeline
         run: cd pipeline && npx vitest run
 
-  test-python:
-    name: Test (Python)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install dependencies
-        run: pip install -r pipeline/aktionis/requirements.txt pytest
-
-      - name: Run aktionis scraper tests
-        run: cd pipeline/aktionis && python -m pytest
-
   # ---------------------------------------------------------------------------
   # web-next/ — the v2.1 Next.js 16 build that lives at basketch.vercel.app.
   # Five jobs per v2.1 §G: lint+typecheck, vitest, build, playwright, axe (inside playwright).

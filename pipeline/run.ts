@@ -9,7 +9,6 @@
 import 'dotenv/config'
 
 import { createProductionDeps } from './composition'
-import { readCollectionMode } from './collection/application/collection-mode'
 import { pingHealthcheck } from './observability/healthcheck-ping'
 import { computeRunId, exitCodeFor, runPipeline } from './run-pipeline'
 
@@ -29,10 +28,8 @@ async function shell(): Promise<void> {
   const deps = createProductionDeps(process.env)
 
   const outcome = await runPipeline(deps, {
-    cwd: process.cwd(),
     now,
     runId,
-    collectionMode: readCollectionMode(process.env),
     isFinalAttempt: isFinalAttempt(process.env),
   })
 

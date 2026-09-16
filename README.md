@@ -50,7 +50,7 @@ No app to install. No account to create. No password to remember.
 ## Data Pipeline
 
 Every **Wednesday at 22:00 CET**, a scheduled pipeline:
-1. Scrapes promotions for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) from [aktionis.ch](https://aktionis.ch) via a unified Python scraper in `pipeline/aktionis/`
+1. Scrapes promotions for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) from [aktionis.ch](https://aktionis.ch)
 2. Categorizes deals into Fresh / Long-life / Non-food
 3. Stores in Supabase — ready for Thursday morning shopping
 

@@ -161,7 +161,7 @@ Python for all stores via aktionis.ch (unified scraper using requests + Beautifu
 | **Responsibility** | Scrape current promotions for all 7 stores from aktionis.ch |
 | **Language** | Python 3.12 |
 | **Key dependency** | aktionis.ch (web scraper via requests + BeautifulSoup) |
-| **Location** | `pipeline/aktionis/` (main.py, fetch.py, normalize.py) |
+| **Location** | ~~`pipeline/aktionis/` (main.py, fetch.py, normalize.py)~~ — deleted (WP-P4, 2026-09-16); superseded by the collection module's per-retailer adapters (`pipeline/collection/infrastructure/`) |
 | **Interface** | Per-store JSON output (`{store}-deals.json`), 8-job GitHub Actions matrix (coop, coop-megastore, migros, lidl, aldi-suisse, denner, spar, volg) |
 | **Error handling** | Return empty array on failure per store. Log error. Pipeline continues with remaining stores. |
 
@@ -1465,7 +1465,7 @@ Each step is independently testable before proceeding to the next.
 **Why second:** Most constrained dependency (npm wrapper).
 
 ### Step 3: Coop Source
-**Build:** `pipeline/coop/fetch.py`, `normalize.py`
+**Build:** ~~`pipeline/coop/fetch.py`, `normalize.py`~~ — `pipeline/coop/` deleted (WP-P4, 2026-09-16); Coop is now collected via `pipeline/collection/infrastructure/coop/coop-aktionis-source.ts`.
 **Verify:** Outputs valid JSON matching UnifiedDeal shape. Tests pass with HTML fixture.
 **Why third:** Independent of Migros.
 
