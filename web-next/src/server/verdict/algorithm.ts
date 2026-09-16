@@ -1,4 +1,5 @@
 import { MIN_DEALS_FOR_WINNER, TIE_THRESHOLD_PCT } from '@/lib/category-rules'
+import { votesInVerdict } from '@/lib/domain/votes-in-verdict'
 import type { StoreKey } from '@/lib/store-tokens'
 import type {
   CategoryVerdict,
@@ -15,15 +16,11 @@ import type {
 export function scoreStoresForCategory(
   deals: Deal[],
   category: DealCategory,
+  today: string,
 ): StoreScore[] {
   const byStore = new Map<StoreKey, { sum: number; count: number }>()
   for (const d of deals) {
-    // An uncertain deal is published with its price but its category is the
-    // classifier's unverified guess (D3). Letting it score a category would
-    // put a product we are not sure about into the sentence "Coop wins Fresh"
-    // — the one claim on the home page that has to be defensible. It still
-    // appears in the list; it just does not vote.
-    if (d.isUncertain) continue
+    if (!votesInVerdict(d, today)) continue
     if (d.category !== category) continue
     const acc = byStore.get(d.store) ?? { sum: 0, count: 0 }
     acc.sum += d.discountPercent
@@ -90,6 +87,12 @@ export function computeCategoryVerdict(
   }
 }
 
-export function computeAllVerdicts(deals: Deal[], categories: DealCategory[]): CategoryVerdict[] {
-  return categories.map((cat) => computeCategoryVerdict(cat, scoreStoresForCategory(deals, cat)))
+export function computeAllVerdicts(
+  deals: Deal[],
+  categories: DealCategory[],
+  today: string,
+): CategoryVerdict[] {
+  return categories.map((cat) =>
+    computeCategoryVerdict(cat, scoreStoresForCategory(deals, cat, today)),
+  )
 }

@@ -93,6 +93,15 @@ export type WeeklySnapshot = {
   stores: StoreSummary[]
   categories: CategoryVerdict[]
   deals: Deal[]
+  /**
+   * The Zurich calendar date (`YYYY-MM-DD`) this snapshot was built against —
+   * see `lib/domain/validity.ts`. Computed once, server-side, and carried on
+   * the snapshot so every client-side consumer of `deals` (buildSections,
+   * onlyStoreSubCategories) agrees with the category verdicts already baked
+   * into `categories` about what "today" means, even though the snapshot
+   * itself may be served from up to an hour-old cache.
+   */
+  today: string
 }
 
 export type SnapshotInput = {

@@ -60,6 +60,14 @@ describe('createPriceBasis', () => {
     expect(isMemberOnly(basis)).toBe(false)
   })
 
+  it('treats a persisted list item with no priceBasis at all as open, not a crash', () => {
+    // stores/list-store.ts: a ListItem saved before WP-W2 has no priceBasis
+    // key whatsoever. `undefined` must read the same as an open price, never
+    // throw — the code-review BLOCKER this guards.
+    expect(isMemberOnly(undefined)).toBe(false)
+    expect(programmeOf(undefined)).toBeNull()
+  })
+
   it('makes the invalid state unrepresentable in the type, not just at runtime', () => {
     const basis = unwrap(createPriceBasis('member-only', 'Lidl Plus'))
     // Narrowing on the discriminant is what gives the renderer a non-null

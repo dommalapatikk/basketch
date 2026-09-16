@@ -4,7 +4,7 @@ import { Check, Plus } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import type { StoreKey } from '@/lib/store-tokens'
-import type { DealCategory } from '@/lib/types'
+import type { DealCategory, PriceBasis } from '@/lib/types'
 import { useListStore } from '@/stores/list-store'
 
 type Props = {
@@ -15,6 +15,8 @@ type Props = {
   salePrice: number
   imageUrl?: string | null
   sourceUrl?: string | null
+  validFrom: string
+  priceBasis: PriceBasis
   size?: 'sm' | 'md'
 }
 
@@ -28,6 +30,8 @@ export function AddToListButton({
   salePrice,
   imageUrl,
   sourceUrl,
+  validFrom,
+  priceBasis,
   size = 'md',
 }: Props) {
   const t = useTranslations('deals')
@@ -39,7 +43,17 @@ export function AddToListButton({
     if (inList) {
       remove(id)
     } else {
-      add({ id, store, productName, category, salePrice, imageUrl: imageUrl ?? null, sourceUrl: sourceUrl ?? null })
+      add({
+        id,
+        store,
+        productName,
+        category,
+        salePrice,
+        imageUrl: imageUrl ?? null,
+        sourceUrl: sourceUrl ?? null,
+        validFrom,
+        priceBasis,
+      })
     }
   }
 

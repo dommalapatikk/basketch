@@ -5,8 +5,9 @@ import { PriceBlock } from '@/components/ui/price-block'
 import { ProductImage } from '@/components/ui/product-image'
 import { Tag } from '@/components/ui/tag'
 import { type DealAttribute, isStandaloneAttribute } from '@/lib/deal-attributes'
+import { splitAroundDate } from '@/lib/format'
 import { STORE_BRAND, type StoreKey } from '@/lib/store-tokens'
-import type { CropRegion, DealCategory } from '@/lib/types'
+import type { CropRegion, DealCategory, PriceBasis } from '@/lib/types'
 
 import { AddToListButton } from './AddToListButton'
 
@@ -57,12 +58,35 @@ type CommonProps = {
    */
   memberPriceLabel?: string | null
   /**
+   * "From Thu 17.9." — set only when the deal has not started yet
+   * (server/data/filter-deals.ts votesInVerdict via lib/domain/validity.ts
+   * startsAfterToday). RCA #10: retailers' own flyers publish 1-2 weeks
+   * ahead, so a deal can be collected before it is on sale. Hiding it would
+   * be its own inaccuracy — it is shown, with this date, and it never wears
+   * the "Cheapest" tag (isCheapest is already false when this is set).
+   */
+  notYetStartedLabel?: string | null
+  /**
+   * The formatted date inside `notYetStartedLabel` ("Thu 17.9."), so only it
+   * goes inside `<time dateTime>` and not the whole sentence (code review
+   * NEW-4). Optional: without it the label still renders, just unsplit.
+   */
+  notYetStartedDate?: string | null
+  /**
+   * The deal's own validity start and price basis, snapshotted into the
+   * shopping list at add-time (stores/list-store.ts) so ListDrawer and the
+   * share text can render the same labels later, in whatever locale the list
+   * is viewed in.
+   */
+  validFrom: string
+  priceBasis: PriceBasis
+  /**
    * Localised "Only at Coop" — shown ONLY together with onlyStoreNote, which
    * states the scope of the claim. The badge on its own would read as "this
    * product is only at Coop", which is not what the data supports.
    */
   onlyStoreBadge?: string | null
-  /** Localised "No other store we track has a Dairy deal this week." */
+  /** Localised "No other store we track has a Dairy deal right now." */
   onlyStoreNote?: string | null
   /** Up to three facts the retailer actually stated. Never inferred. */
   attributes?: DealAttribute[]
@@ -103,6 +127,10 @@ function Primary({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  notYetStartedLabel,
+  notYetStartedDate,
+  validFrom,
+  priceBasis,
   onlyStoreBadge,
   onlyStoreNote,
   attributes,
@@ -176,6 +204,13 @@ function Primary({
         <AttributeLine attributes={attributes} />
 
         {memberPriceLabel ? <MemberPriceNote label={memberPriceLabel} /> : null}
+        {notYetStartedLabel ? (
+          <NotYetStartedNote
+            label={notYetStartedLabel}
+            date={notYetStartedDate}
+            validFrom={validFrom}
+          />
+        ) : null}
 
         {onlyStoreNote ? (
           <p className="text-xs leading-snug text-[var(--color-ink-3)]">{onlyStoreNote}</p>
@@ -197,6 +232,8 @@ function Primary({
             salePrice={current}
             imageUrl={imageUrl}
             sourceUrl={href}
+            validFrom={validFrom}
+            priceBasis={priceBasis}
           />
         </div>
       </div>
@@ -219,6 +256,10 @@ function Compact({
   isUncertain,
   unverifiedLabel,
   memberPriceLabel,
+  notYetStartedLabel,
+  notYetStartedDate,
+  validFrom,
+  priceBasis,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
   const titleId = titleIdFor(id)
@@ -288,6 +329,11 @@ function Compact({
             {memberPriceLabel}
           </p>
         ) : null}
+        {notYetStartedLabel ? (
+          <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">
+            <DatedLabel label={notYetStartedLabel} date={notYetStartedDate} validFrom={validFrom} />
+          </p>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-3 md:contents">
@@ -308,6 +354,8 @@ function Compact({
           salePrice={current}
           imageUrl={imageUrl}
           sourceUrl={href}
+          validFrom={validFrom}
+          priceBasis={priceBasis}
           size="sm"
         />
       </div>
@@ -359,6 +407,64 @@ function MemberPriceNote({ label }: { label: string }) {
       />
       {label}
     </p>
+  )
+}
+
+/**
+ * "From Thu 17.9." — text, not colour, same WCAG reasoning as the member
+ * price note. Neutral tone: unlike a member price, a not-yet-started deal is
+ * not a legal exposure to flag in signal colour, just a fact worth stating
+ * plainly before the price applies.
+ *
+ * The date itself is wrapped in `<time dateTime>` (code review LOW, a11y) —
+ * `validFrom` is already machine-readable ISO (`YYYY-MM-DD`), so this is
+ * free: no parsing, no guessing, just naming what the visible text already
+ * says in a form assistive tech and browsers can act on.
+ */
+function NotYetStartedNote({
+  label,
+  date,
+  validFrom,
+}: {
+  label: string
+  date?: string | null
+  validFrom: string
+}) {
+  return (
+    <p className="inline-flex w-fit items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-1 text-xs font-medium text-[var(--color-ink-2)]">
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-ink-3)]"
+      />
+      <DatedLabel label={label} date={date} validFrom={validFrom} />
+    </p>
+  )
+}
+
+/**
+ * "From <time dateTime="2026-09-17">Thu 17.9.</time>" — only the date sits
+ * inside the `<time>` element (code review NEW-4); the surrounding words of
+ * the translated sentence stay outside it. Without a `date` to find, or when
+ * a translation reformats it, the whole label renders plain: naming the date
+ * is an enhancement, and losing the visible text would not be.
+ */
+function DatedLabel({
+  label,
+  date,
+  validFrom,
+}: {
+  label: string
+  date?: string | null
+  validFrom: string
+}) {
+  const split = date ? splitAroundDate(label, date) : null
+  if (!split) return <>{label}</>
+  return (
+    <>
+      {split.before}
+      <time dateTime={validFrom}>{date}</time>
+      {split.after}
+    </>
   )
 }
 

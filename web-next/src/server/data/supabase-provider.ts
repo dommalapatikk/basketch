@@ -3,6 +3,7 @@ import { type CropRegion, createCropRegion } from '@/lib/domain/crop-region'
 import { createPriceBasis } from '@/lib/domain/price-basis'
 import { isOk } from '@/lib/domain/result'
 import { parseStorageState } from '@/lib/domain/storage-state'
+import { todayInZurich } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import type { Deal, DealCategory, SnapshotInput, WeeklySnapshot } from '@/lib/types'
 
@@ -156,7 +157,11 @@ class SupabaseDealsProvider implements DealsProvider {
   async getWeeklySnapshot(input: SnapshotInput = {}): Promise<WeeklySnapshot> {
     const region = input.region ?? 'all'
     const locale = input.locale ?? 'de'
-    const today = new Date().toISOString().slice(0, 10)
+    // The Zurich calendar date, not UTC — see lib/domain/validity.ts. Used
+    // both as the `.gte('valid_to', …)` safety net below AND as the "today"
+    // every in-effect check downstream (verdicts here, buildSections and
+    // onlyStoreSubCategories client-side) must agree on.
+    const today = todayInZurich()
 
     const supabase = createAnonClient()
     // Pull active, non-expired rows in pages of 1000 (PostgREST max).
@@ -201,6 +206,7 @@ class SupabaseDealsProvider implements DealsProvider {
           storeScores: [],
         })),
         deals: [],
+        today,
       }
     }
 
@@ -223,8 +229,9 @@ class SupabaseDealsProvider implements DealsProvider {
       region,
       locale,
       stores: STORE_KEYS.map((store) => ({ store, dealCount: storeCounts.get(store) ?? 0 })),
-      categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES),
+      categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES, today),
       deals,
+      today,
     }
   }
 }

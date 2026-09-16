@@ -1,3 +1,5 @@
+import { isInEffect } from '@/lib/domain/validity'
+import { votesInVerdict } from '@/lib/domain/votes-in-verdict'
 import type { DealsFilters } from '@/lib/filters'
 import type { StoreKey } from '@/lib/store-tokens'
 import type { Deal, StorageState } from '@/lib/types'
@@ -193,7 +195,7 @@ export function subCategoryCounts(
  * Sub-categories where exactly one tracked store has anything on offer.
  *
  * ⚠️ READ THE SCOPE BEFORE CHANGING THE COPY THAT USES THIS. The claim this
- * supports is "no other store we track has a DAIRY deal this week" — about the
+ * supports is "no other store we track has a DAIRY deal right now" — about the
  * sub-category, not about the product.
  *
  * The per-product claim is the one we actually want, and it cannot be made
@@ -211,10 +213,15 @@ export function subCategoryCounts(
  *
  * Computed over the WHOLE snapshot, never the filtered view — a deal is not
  * "only at Coop" merely because the visitor deselected the other six stores.
+ *
+ * Also restricted to deals IN EFFECT today (RCA #10): a flyer fetched a week
+ * early must not manufacture a false "no other store has one" claim before
+ * its own price is even on sale.
  */
-export function onlyStoreSubCategories(deals: Deal[]): Map<string, StoreKey> {
+export function onlyStoreSubCategories(deals: Deal[], today: string): Map<string, StoreKey> {
   const storesBySubCategory = new Map<string, Set<StoreKey>>()
   for (const d of deals) {
+    if (!isInEffect(d, today)) continue
     const key = d.subCategory?.trim()
     // A deal with no sub-category cannot support the claim in either direction.
     if (!key) continue
@@ -232,10 +239,65 @@ export function onlyStoreSubCategories(deals: Deal[]): Map<string, StoreKey> {
   return out
 }
 
+/**
+ * The store to badge "Only at X" for one section's headline card, or `null`
+ * when the badge would be a false claim.
+ *
+ * HIGH, code review of 9525601: `buildSections`' primary is not always a
+ * deal from `onlyStoreSubCategories`' named store — `pickPrimary` falls back
+ * to the section's best discount overall when nothing in it votes
+ * (lib/domain/votes-in-verdict.ts), and that fallback can be a different
+ * store entirely. Attaching the badge to whatever card is featured, without
+ * checking whose card it is, put "Only at Coop" on a LIDL card — an Art.
+ * 3(1)(e) UWG false comparative claim, not a cosmetic bug.
+ *
+ * Two conditions, both required: the primary must actually BE from the named
+ * store, and it must itself be in effect — a "from Thu" card of a price that
+ * is not on sale yet is not evidence that no other store has one THIS WEEK.
+ */
+export function onlyStoreBadgeStore(
+  section: { subCategory: string; primary: Deal },
+  onlyStore: Map<string, StoreKey>,
+  today: string,
+): StoreKey | null {
+  const only = onlyStore.get(section.subCategory)
+  if (!only) return null
+  if (section.primary.store !== only) return null
+  if (!isInEffect(section.primary, today)) return null
+  return only
+}
+
 export type DealsSection = {
   subCategory: string
   primary: Deal
+  /**
+   * Whether `primary` may wear the "Cheapest" tag. False does not mean
+   * `primary` is hidden or wrong — it is still the best discount in the
+   * group — only that the group has nothing eligible to make the claim
+   * (lib/domain/votes-in-verdict.ts), so no deal in it may be
+   * called Cheapest today.
+   */
+  primaryIsCheapest: boolean
   others: Deal[]
+}
+
+/**
+ * The section's headline card, and whether it may be called Cheapest.
+ *
+ * The best discount in the group is still featured even when it has not
+ * started yet or is member-only (RCA #10, TP-10) — hiding a real published
+ * price would be its own kind of inaccuracy, and the PM decision is to SHOW
+ * it with its own label. What changes is narrower: "Cheapest" is an Art.
+ * 3(1)(e) UWG claim about TODAY, so it is only made about a deal that
+ * actually votes today. Preferring the best voting deal, and falling back to
+ * the group's best discount with no tag, replaces what would otherwise be an
+ * `if` at every call site with one function that has no special case to get
+ * wrong twice.
+ */
+function pickPrimary(sorted: Deal[], today: string): { primary: Deal; primaryIsCheapest: boolean } {
+  const eligible = sorted.find((d) => votesInVerdict(d, today))
+  if (eligible) return { primary: eligible, primaryIsCheapest: true }
+  return { primary: sorted[0] as Deal, primaryIsCheapest: false }
 }
 
 // Group filtered deals by sub_category, sort each group by discountPercent
@@ -248,7 +310,11 @@ export type DealsSection = {
 // the Fresh page (10 sub-cats × 5 visible vs. 30+ deals each in dense ones
 // like Dairy). Caller can still pass a smaller cap if a list view ever
 // needs a curated subset.
-export function buildSections(deals: Deal[], compactLimit = Number.POSITIVE_INFINITY): DealsSection[] {
+export function buildSections(
+  deals: Deal[],
+  today: string,
+  compactLimit = Number.POSITIVE_INFINITY,
+): DealsSection[] {
   const groups = new Map<string, Deal[]>()
   for (const d of deals) {
     const key = d.subCategory?.trim() || 'Other'
@@ -259,10 +325,12 @@ export function buildSections(deals: Deal[], compactLimit = Number.POSITIVE_INFI
   return Array.from(groups.entries())
     .map(([subCategory, items]) => {
       const sorted = [...items].sort((a, b) => b.discountPercent - a.discountPercent)
+      const { primary, primaryIsCheapest } = pickPrimary(sorted, today)
       return {
         subCategory,
-        primary: sorted[0],
-        others: sorted.slice(1, 1 + compactLimit),
+        primary,
+        primaryIsCheapest,
+        others: sorted.filter((d) => d.id !== primary.id).slice(0, compactLimit),
       }
     })
     .sort((a, b) => b.others.length + 1 - (a.others.length + 1))

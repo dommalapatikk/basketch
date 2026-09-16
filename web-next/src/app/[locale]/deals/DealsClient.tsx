@@ -7,8 +7,9 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
 import { usePathname } from '@/i18n/navigation'
 import { visibleAttributes } from '@/lib/deal-attributes'
+import { startsAfterToday } from '@/lib/domain/validity'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
-import { formatShortDate } from '@/lib/format'
+import { formatMemberPriceLabel, formatShortDate, formatValidFromShort } from '@/lib/format'
 import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { Deal, WeeklySnapshot } from '@/lib/types'
@@ -16,6 +17,7 @@ import {
   buildSections,
   categoryCounts,
   filterDeals,
+  onlyStoreBadgeStore,
   onlyStoreSubCategories,
   storageCounts,
   storeCounts,
@@ -115,10 +117,16 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     () => storageCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
   )
-  const sections = useMemo(() => buildSections(filtered), [filtered])
+  const sections = useMemo(
+    () => buildSections(filtered, snapshot.today),
+    [filtered, snapshot.today],
+  )
   // Computed over the WHOLE snapshot, never `filtered`: a deal is not "only at
   // Coop" because the visitor deselected the other six stores.
-  const onlyStore = useMemo(() => onlyStoreSubCategories(snapshot.deals), [snapshot.deals])
+  const onlyStore = useMemo(
+    () => onlyStoreSubCategories(snapshot.deals, snapshot.today),
+    [snapshot.deals, snapshot.today],
+  )
   const facets = useMemo(
     () =>
       snapshot.deals.map((d) => ({
@@ -131,6 +139,19 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
       })),
     [snapshot.deals],
   )
+
+  // "From Thu 17.9." for a deal that has not started yet (RCA #10). Closes
+  // over `t`/`locale`/`snapshot.today` so SubCategorySection and
+  // OtherStoresBlock don't each have to thread all three through separately.
+  const notYetStartedLabel = (deal: Deal): string | null =>
+    startsAfterToday(deal, snapshot.today)
+      ? t('from_date', { date: formatValidFromShort(deal.validFrom, locale) })
+      : null
+
+  // The date on its own, so DealCard can put only it inside <time dateTime>
+  // rather than the whole sentence (code review NEW-4).
+  const notYetStartedDate = (deal: Deal): string | null =>
+    startsAfterToday(deal, snapshot.today) ? formatValidFromShort(deal.validFrom, locale) : null
 
   const noStores = filters.stores.length === 0
   const noResults = !noStores && filtered.length === 0
@@ -205,6 +226,10 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
             >
               {sectionVirtualizer.getVirtualItems().map((vRow) => {
                 const s = sections[vRow.index]
+                // null unless the section's OWN featured card is genuinely
+                // from the "only" store AND is itself in effect — see
+                // onlyStoreBadgeStore's doc comment (code review HIGH).
+                const badgeStore = onlyStoreBadgeStore(s, onlyStore, snapshot.today)
                 return (
                   <div
                     key={s.subCategory}
@@ -223,24 +248,25 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
                       subCategoryKey={s.subCategory}
                       title={subCategoryLabel(s.subCategory, locale)}
                       primary={s.primary}
+                      primaryIsCheapest={s.primaryIsCheapest}
                       others={s.others}
                       cheapestLabel={t('cheapest')}
                       othersLabel={t('section_others')}
                       unverifiedLabel={t('category_unverified')}
                       onlyStoreBadge={
-                        onlyStore.has(s.subCategory)
-                          ? t('only_store_badge', {
-                              store: STORE_BRAND[onlyStore.get(s.subCategory) as StoreKey].label,
-                            })
+                        badgeStore
+                          ? t('only_store_badge', { store: STORE_BRAND[badgeStore].label })
                           : null
                       }
                       onlyStoreNote={
-                        onlyStore.has(s.subCategory)
+                        badgeStore
                           ? t('only_store_note', {
                               category: subCategoryLabel(s.subCategory, locale),
                             })
                           : null
                       }
+                      notYetStartedLabel={notYetStartedLabel}
+                      notYetStartedDate={notYetStartedDate}
                       locale={locale}
                     />
                   </div>
@@ -285,23 +311,29 @@ function SubCategorySection({
   subCategoryKey,
   title,
   primary,
+  primaryIsCheapest,
   others,
   cheapestLabel,
   othersLabel,
   unverifiedLabel,
   onlyStoreBadge,
   onlyStoreNote,
+  notYetStartedLabel,
+  notYetStartedDate,
   locale,
 }: {
   subCategoryKey: string
   title: string
   primary: ReturnType<typeof buildSections>[number]['primary']
+  primaryIsCheapest: boolean
   others: ReturnType<typeof buildSections>[number]['others']
   cheapestLabel: string
   othersLabel: string
   unverifiedLabel: string
   onlyStoreBadge: string | null
   onlyStoreNote: string | null
+  notYetStartedLabel: (deal: Deal) => string | null
+  notYetStartedDate: (deal: Deal) => string | null
   locale: string
 }) {
   const subline = `${others.length + 1} ${others.length === 0 ? (locale === 'de' ? 'Aktion' : 'deal') : locale === 'de' ? 'Aktionen' : 'deals'}`
@@ -342,12 +374,16 @@ function SubCategorySection({
               : null
           }
           savingsPct={primary.discountPercent}
-          isCheapest
+          isCheapest={primaryIsCheapest}
           href={primary.sourceUrl}
           cheapestLabel={cheapestLabel}
           isUncertain={primary.isUncertain}
           unverifiedLabel={unverifiedLabel}
-          memberPriceLabel={memberPriceLabel(primary, locale)}
+          memberPriceLabel={formatMemberPriceLabel(primary.priceBasis, locale)}
+          notYetStartedLabel={notYetStartedLabel(primary)}
+          notYetStartedDate={notYetStartedDate(primary)}
+          validFrom={primary.validFrom}
+          priceBasis={primary.priceBasis}
           onlyStoreBadge={onlyStoreBadge}
           onlyStoreNote={onlyStoreNote}
           attributes={visibleAttributes(primary.attributes, locale)}
@@ -359,6 +395,8 @@ function SubCategorySection({
           others={others}
           othersLabel={othersLabel}
           unverifiedLabel={unverifiedLabel}
+          notYetStartedLabel={notYetStartedLabel}
+          notYetStartedDate={notYetStartedDate}
           locale={locale}
         />
       ) : null}
@@ -374,11 +412,15 @@ function OtherStoresBlock({
   others,
   othersLabel,
   unverifiedLabel,
+  notYetStartedLabel,
+  notYetStartedDate,
   locale,
 }: {
   others: ReturnType<typeof buildSections>[number]['others']
   othersLabel: string
   unverifiedLabel: string
+  notYetStartedLabel: (deal: Deal) => string | null
+  notYetStartedDate: (deal: Deal) => string | null
   locale: string
 }) {
   const COLLAPSE_THRESHOLD = 5
@@ -437,7 +479,11 @@ function OtherStoresBlock({
               href={d.sourceUrl}
               isUncertain={d.isUncertain}
               unverifiedLabel={unverifiedLabel}
-              memberPriceLabel={memberPriceLabel(d, locale)}
+              memberPriceLabel={formatMemberPriceLabel(d.priceBasis, locale)}
+              notYetStartedLabel={notYetStartedLabel(d)}
+              notYetStartedDate={notYetStartedDate(d)}
+              validFrom={d.validFrom}
+              priceBasis={d.priceBasis}
             />
           ))}
         </div>
@@ -450,21 +496,3 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-/**
- * The label a members-only price must carry, or null for an open price.
- *
- * Art. 3(1)(e) UWG and CLAUDE.md both make this binding: a Lidl Plus, Supercard
- * or Cumulus price may never render as one anybody can pay.
- *
- * Note what is NOT here — a fallback for a member price with no programme name.
- * There is no such case to handle: `createPriceBasis` refuses to build one, so
- * narrowing on the discriminant yields a programme that is always a string.
- * The earlier version of this function had a branch that announced "Loyalty
- * members only" and named nobody, which is the unlabelled member price the rule
- * is about.
- */
-function memberPriceLabel(deal: Deal, locale: string): string | null {
-  if (deal.priceBasis.kind !== 'member-only') return null
-  const { programme } = deal.priceBasis
-  return locale === 'de' ? `Nur mit ${programme}` : `${programme} members only`
-}

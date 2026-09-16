@@ -5,6 +5,8 @@ import type { Deal, DealCategory } from '@/lib/types'
 
 import { computeAllVerdicts, computeCategoryVerdict, scoreStoresForCategory } from './algorithm'
 
+const TODAY = '2026-04-27'
+
 const make = (
   store: Deal['store'],
   category: DealCategory,
@@ -28,11 +30,11 @@ const make = (
   sourceUrl: null,
   productId: 'p',
   taxonomyConfidence: 1,
-    isUncertain: false,
-    storage: null,
-    priceBasis: { kind: 'everyone' as const },
-    crop: null,
-    attributes: {},
+  isUncertain: false,
+  storage: null,
+  priceBasis: { kind: 'everyone' as const },
+  crop: null,
+  attributes: {},
   isActive: true,
   updatedAt: '2026-04-24T00:00:00Z',
 })
@@ -48,14 +50,14 @@ describe('scoreStoresForCategory', () => {
       make('coop', 'fresh', 50),
       make('coop', 'longlife', 99), // wrong category — must be ignored
     ]
-    const scores = scoreStoresForCategory(deals, 'fresh')
+    const scores = scoreStoresForCategory(deals, 'fresh', TODAY)
     expect(scores).toHaveLength(2)
     expect(scores[0]).toMatchObject({ store: 'coop', avgDiscountPct: 50, dealCount: 1 })
     expect(scores[1]).toMatchObject({ store: 'migros', avgDiscountPct: 25, dealCount: 2 })
   })
 
   it('returns [] when no deals match the category', () => {
-    expect(scoreStoresForCategory([make('migros', 'fresh', 10)], 'household')).toEqual([])
+    expect(scoreStoresForCategory([make('migros', 'fresh', 10)], 'household', TODAY)).toEqual([])
   })
 })
 
@@ -65,7 +67,7 @@ describe('computeCategoryVerdict — winner', () => {
       ...repeat('denner', 'longlife', 35, 6),
       ...repeat('migros', 'longlife', 20, 6),
     ]
-    const v = computeCategoryVerdict('longlife', scoreStoresForCategory(deals, 'longlife'))
+    const v = computeCategoryVerdict('longlife', scoreStoresForCategory(deals, 'longlife', TODAY))
     expect(v.state).toBe('winner')
     expect(v.winner).toBe('denner')
     expect(v.dealCount).toBe(12)
@@ -78,7 +80,7 @@ describe('computeCategoryVerdict — tied', () => {
       ...repeat('denner', 'longlife', 25, 6),
       ...repeat('migros', 'longlife', 24, 6),
     ]
-    const v = computeCategoryVerdict('longlife', scoreStoresForCategory(deals, 'longlife'))
+    const v = computeCategoryVerdict('longlife', scoreStoresForCategory(deals, 'longlife', TODAY))
     expect(v.state).toBe('tied')
     expect(v.winner).toBeNull()
   })
@@ -88,7 +90,7 @@ describe('computeCategoryVerdict — tied', () => {
       ...repeat('lidl', 'fresh', 60, 2),
       ...repeat('migros', 'fresh', 20, 30),
     ]
-    const v = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh'))
+    const v = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
     expect(v.state).toBe('tied')
     expect(v.winner).toBeNull()
   })
@@ -104,7 +106,7 @@ describe('computeCategoryVerdict — edge cases', () => {
 
   it('returns single-store when only one store has any deals in the category', () => {
     const deals = repeat('aldi', 'household', 40, 10)
-    const v = computeCategoryVerdict('household', scoreStoresForCategory(deals, 'household'))
+    const v = computeCategoryVerdict('household', scoreStoresForCategory(deals, 'household', TODAY))
     expect(v.state).toBe('single-store')
     expect(v.winner).toBeNull()
   })
@@ -113,7 +115,7 @@ describe('computeCategoryVerdict — edge cases', () => {
 describe('computeAllVerdicts', () => {
   it('produces one verdict per active category, even when some are empty', () => {
     const deals = repeat('migros', 'fresh', 25, 6).concat(repeat('coop', 'fresh', 24, 6))
-    const verdicts = computeAllVerdicts(deals, ACTIVE_CATEGORIES)
+    const verdicts = computeAllVerdicts(deals, ACTIVE_CATEGORIES, TODAY)
     expect(verdicts.map((v) => v.category)).toEqual(['fresh', 'longlife', 'household'])
     expect(verdicts.find((v) => v.category === 'longlife')?.state).toBe('no-data')
     expect(verdicts.find((v) => v.category === 'household')?.state).toBe('no-data')
@@ -128,7 +130,7 @@ describe('uncertain deals do not vote (D3)', () => {
 
   it('excludes an uncertain deal from a store score', () => {
     const deals = [...repeat('coop', 'fresh', 10, 5), uncertain('coop', 'fresh', 90)]
-    const scores = scoreStoresForCategory(deals, 'fresh')
+    const scores = scoreStoresForCategory(deals, 'fresh', TODAY)
     // The 90% deal is real, but we are not sure it is fresh. Averaging it in
     // would move Coop from 10% to 23% on a category guess.
     expect(scores[0]?.avgDiscountPct).toBe(10)
@@ -142,13 +144,13 @@ describe('uncertain deals do not vote (D3)', () => {
       // One unverified 99% deal would otherwise flip the headline.
       uncertain('coop', 'fresh', 99),
     ]
-    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh'))
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
     expect(verdict.winner).toBe('migros')
   })
 
   it('reports no-data rather than a verdict built only from guesses', () => {
     const deals = [uncertain('coop', 'fresh', 40), uncertain('migros', 'fresh', 50)]
-    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh'))
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
     expect(verdict.state).toBe('no-data')
     expect(verdict.winner).toBeNull()
   })
@@ -158,7 +160,51 @@ describe('uncertain deals do not vote (D3)', () => {
     // covers the verdict only, so the assertion here is the negative one:
     // nothing in scoring mutates or removes the input.
     const deals = [...repeat('coop', 'fresh', 20, 5), uncertain('coop', 'fresh', 99)]
-    scoreStoresForCategory(deals, 'fresh')
+    scoreStoresForCategory(deals, 'fresh', TODAY)
     expect(deals).toHaveLength(6)
+  })
+})
+
+// votesInVerdict itself is unit-tested at its own home,
+// lib/domain/votes-in-verdict.test.ts. These two describes cover the
+// integration — that scoreStoresForCategory/computeCategoryVerdict actually
+// apply it, not merely that the predicate itself is correct in isolation.
+
+describe("a deal starting Thursday does not vote in today's verdict", () => {
+  // Root cause, 2026-09-15: run 34833209176 fetched next week's ALDI, LIDL and
+  // SPAR flyers early. Every one of those rows had `validFrom` after the run
+  // date, but nothing checked it — so ALDI, LIDL and SPAR voted in the
+  // category verdict with prices that were not on sale yet.
+  it('excludes a not-yet-started deal from its store score, so it cannot flip a category win', () => {
+    const deals = [
+      ...repeat('coop', 'fresh', 10, 6),
+      // ALDI's 5 deals look unbeatable at 90% — but their window opens next week.
+      ...Array.from({ length: 5 }, () => ({
+        ...make('aldi', 'fresh', 90),
+        validFrom: '2026-05-01',
+        validTo: '2026-05-07',
+      })),
+    ]
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
+    // Coop is the only store with anything in effect today.
+    expect(verdict.state).toBe('single-store')
+    expect(verdict.winner).toBeNull()
+    const aldiScore = scoreStoresForCategory(deals, 'fresh', TODAY).find((s) => s.store === 'aldi')
+    expect(aldiScore).toBeUndefined()
+  })
+})
+
+describe('a Lidl Plus member price does not vote', () => {
+  it('excludes a member-only deal from its store score, even at a huge discount', () => {
+    const deals = [
+      ...repeat('coop', 'fresh', 15, 6),
+      ...Array.from({ length: 5 }, () => ({
+        ...make('lidl', 'fresh', 80),
+        priceBasis: { kind: 'member-only' as const, programme: 'Lidl Plus' },
+      })),
+    ]
+    const verdict = computeCategoryVerdict('fresh', scoreStoresForCategory(deals, 'fresh', TODAY))
+    expect(verdict.state).toBe('single-store')
+    expect(verdict.winner).toBeNull()
   })
 })
