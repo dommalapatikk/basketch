@@ -137,6 +137,49 @@ describe('nothing is ever dropped for being uncertain (D3)', () => {
     expect(r.deals).toHaveLength(0)
   })
 
+  /**
+   * MUST-FIX 2 (WP-P6 code review). `heldBack` alone folds a truncated
+   * response, an unparseable one and a dead provider into ONE number — an
+   * operator sees "N held back" and cannot tell a systemic truncation
+   * problem (many products, one root cause) from an ordinary cold-start
+   * deferral. `heldBackByFailure` is keyed on `Outcome.failure`
+   * (classify-graph.ts) instead.
+   */
+  it('breaks heldBack down by Outcome.failure kind — a truncation is not the same number as a dead provider', async () => {
+    const mixedFailures: Classifier = {
+      name: 'mixed',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        return ok(
+          batch.map((request): ClassificationOutcome =>
+            request.productName === 'Emmi Milch'
+              ? { ok: false, request, reason: 'output-truncated', detail: 'output truncated (MAX_TOKENS)' }
+              : { ok: false, request, reason: 'unparseable', detail: 'could not parse a JSON array' },
+          ),
+        )
+      },
+    }
+    const r = await run([deal('Emmi Milch'), deal('Denner Brot')], { tier1: mixedFailures })
+    expect(r.stats.heldBack).toBe(2)
+    expect(r.stats.heldBackByFailure).toEqual({ 'output-truncated': 1, unparseable: 1 })
+  })
+
+  it('heldBackByFailure always sums to heldBack — including the plain cold-start deferral bucket', async () => {
+    const failing: Classifier = {
+      name: 'down',
+      tier: 1,
+      batchSize: 25,
+      async classify() {
+        return { ok: false, error: 'provider-unavailable: 503' }
+      },
+    }
+    const r = await run([deal('Emmi Milch'), deal('Denner Brot'), deal('Coop Butter')], { tier1: failing })
+    const total = Object.values(r.stats.heldBackByFailure).reduce((a, b) => a + b, 0)
+    expect(total).toBe(r.stats.heldBack)
+    expect(r.stats.heldBackByFailure).toEqual({ 'provider-unavailable': 3 })
+  })
+
   it('never writes a guessed category — every written deal has a real one', async () => {
     const failing: Classifier = {
       name: 'down',

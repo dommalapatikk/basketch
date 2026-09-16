@@ -105,9 +105,12 @@ describe('classifier, reflector and enricher share ONE Gemini quota — backfill
  * it — the REAL `createOpenRouterJudge` behind the REAL `createModelGate`,
  * not a hand-built fake `Judge`. Judged sequentially at ~10.3s each, a
  * 100-product miss set took ~1,000s (`docs/rca/2026-09-15-tech-lead-items-6-9.md`
- * §9.1); through the gate at `maxInFlight: 4` (`model-registry.ts`'s
- * `JUDGE_CHAIN[0]`) the same 100 products should complete in roughly a
- * quarter of that wall time.
+ * §9.1). This test uses a small product count (16, below the gate's paced
+ * 18 req/min ceiling) so it measures the IN-FLIGHT bound alone, not the
+ * rate limiter — at production scale (100 products, `maxInFlight: 4` on
+ * `model-registry.ts`'s `JUDGE_CHAIN[0]`) the paced ceiling binds first, so
+ * the real-world win is ~3x (~330s), not 4x — see that spec's own comment
+ * for the corrected arithmetic.
  */
 describe('judges at most 4 at once through the gate — 100 sequential judgements took ~1,000s', () => {
   afterEach(() => vi.unstubAllGlobals())

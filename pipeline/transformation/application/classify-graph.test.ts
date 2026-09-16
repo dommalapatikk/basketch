@@ -4,7 +4,7 @@ import { createClassification, createConfidence } from '../domain/classification
 import type { ClassificationOutcome, ClassificationRequest, Classifier } from '../domain/classifier'
 import type { Budget } from '../domain/guardrails'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
-import { type Judge, type JudgeVerdict, type Reflector, buildClassifyGraph } from './classify-graph'
+import { type Judge, type JudgeVerdict, type Reflector, buildClassifyGraph, selectForJudging } from './classify-graph'
 
 const req = (productName: string): ClassificationRequest => ({ productName, descriptor: null, retailer: 'denner' })
 
@@ -384,6 +384,62 @@ describe('the judge dispatches concurrently but never loses which answer belongs
     expect(final.outcomes).toHaveLength(10)
     expect(calls).toBe(5)
     expect(final.outcomes.filter((o) => o.judgeVerdict === null)).toHaveLength(5)
+  })
+})
+
+// ── WP-P6 code review, MUST-FIX 1 ─────────────────────────────────────────
+//
+// THE DEFECT: `selectForJudging` checked `mayEscalate` against a budget that
+// was only reassigned AFTER the judge calls resolved, so every item in the
+// pre-dispatch selection pass read the SAME starting state. Either every
+// item in a chunk passed, or none did — the reviewer measured `maxCalls: 10`
+// (the 80% line: 8) admitting 50 of 100 disputed items in one chunk.
+// Deleting the `mayEscalate` call from `selectForJudging` outright left all
+// tests green before this fix, which is exactly the untested-guard problem
+// HANDOVER.md warns about.
+describe('the escalation budget is enforced PER ITEM within one chunk (WP-P6 MUST-FIX 1)', () => {
+  it('selectForJudging — a budget of N calls admits exactly N judge calls out of 100 disputed items', () => {
+    const disputed = Array.from({ length: 100 }, (_, i) => ({ request: req(`Product ${i}`), classification: cls('dairy', 'dairy') }))
+    const budget: Budget = { maxTokens: 1_000_000, maxCalls: 10, maxRappen: 500 } // 80% line: 8
+
+    const { toJudge, accepted } = selectForJudging(disputed, 1, ZERO_SPEND, budget)
+
+    expect(toJudge).toHaveLength(8)
+    expect(accepted).toHaveLength(92)
+  })
+
+  it('through the full graph — a budget of 10 calls never lets a 100-item chunk dispatch more than 8 judge calls', async () => {
+    let judgeCalls = 0
+    const countingJudge: Judge = {
+      name: 'counting',
+      async judge() {
+        judgeCalls++
+        return { verdict: 'correct', tokens: 1 }
+      },
+    }
+    // ONE classify batch (batchSize 100), so its own call cost is exactly 1
+    // and the judge node's budget arithmetic is fully predictable: entering
+    // the judge node at callsMade=1, the 80% line of maxCalls:10 is 8, so
+    // items are admitted while reserved < 8 — 7 of them (1..7), the 8th
+    // check sees 8 and refuses.
+    const graph = buildClassifyGraph({
+      tier1: fixedClassifier('dairy', 'dairy', 100),
+      judge: countingJudge,
+      reflector: null,
+      budget: { maxTokens: 1_000_000, maxCalls: 10, maxRappen: 500 },
+    })
+    const names = Array.from({ length: 100 }, (_, i) => `Product ${i}`)
+    const final = (await graph.invoke({
+      pending: names.map(req),
+      outcomes: [],
+      disputed: [],
+      budget: ZERO_SPEND,
+      halted: null,
+    })) as { outcomes: { status: string }[] }
+
+    expect(final.outcomes).toHaveLength(100)
+    expect(judgeCalls).toBe(7)
+    expect(judgeCalls).toBeLessThan(50) // the reviewer's measured regression number
   })
 })
 

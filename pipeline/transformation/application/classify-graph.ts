@@ -29,8 +29,10 @@ import {
   checkBudget,
   mayEscalate,
   recordSpend,
+  reserveCall,
   sanitiseDescriptor,
   sanitiseForPrompt,
+  settleTokens,
 } from '../domain/guardrails'
 import { guardJudge, guardReflector } from './port-guards'
 
@@ -112,27 +114,41 @@ function acceptedWithoutJudging(d: { request: ClassificationRequest; classificat
  * strictly BEFORE any judge call is dispatched. A decision made once a
  * concurrent call is already in flight would be racing the thing it is
  * meant to gate, which is not a gate.
+ *
+ * WP-P6 code review, MUST-FIX 1. `budget` is READ ONCE from `mayEscalate`'s
+ * point of view only if it is never updated across the pass — the first
+ * version of this function took a `mayEscalateNow` closure over a budget
+ * that was only reassigned AFTER the judge calls resolved, so every item in
+ * this loop saw the SAME starting state. Measured: `maxCalls: 10` (the 80%
+ * line: 8) admitted 50 of 100 disputed items in one chunk, because nothing
+ * during SELECTION ever moved the needle — either every item passed or none
+ * did. `reserveCall` fixes this by reserving a call slot the moment an item
+ * is ACCEPTED, so the NEXT item's check already accounts for it, in the same
+ * synchronous pass, before any of them has actually run.
  */
-function selectForJudging(
+export function selectForJudging(
   disputed: GraphState['disputed'],
   judgeRate: number,
-  mayEscalateNow: () => boolean,
-): { readonly toJudge: GraphState['disputed']; readonly accepted: Outcome[] } {
+  budget: BudgetState,
+  policy: Budget,
+): { readonly toJudge: GraphState['disputed']; readonly accepted: Outcome[]; readonly reserved: BudgetState } {
   const toJudge: GraphState['disputed'] = []
   const accepted: Outcome[] = []
+  let reserved = budget
 
   for (const [i, d] of disputed.entries()) {
     // Sampling keeps the judge affordable; unjudged answers are accepted as
     // classified rather than held back.
     const sampledOut = judgeRate < 1 && i % Math.round(1 / judgeRate) !== 0
-    if (sampledOut || !mayEscalateNow()) {
+    if (sampledOut || !mayEscalate(policy, reserved)) {
       accepted.push(acceptedWithoutJudging(d))
       continue
     }
     toJudge.push(d)
+    reserved = reserveCall(reserved)
   }
 
-  return { toJudge, accepted }
+  return { toJudge, accepted, reserved }
 }
 
 /**
@@ -290,6 +306,12 @@ export function buildClassifyGraph(deps: GraphDeps) {
           outcomes: s.pending.map((r) => ({
             request: r, classification: null, status: 'skipped-budget' as const,
             judgeVerdict: null, reflected: false, detail: verdict.reason,
+            // MUST-FIX 2 (WP-P6 code review): the RUN's own token/call/spend
+            // budget, not the escalation one D4 targets — same reported
+            // reason kind, so classify-deals.ts's held-back breakdown does
+            // not need a third bucket for what is, from an operator's view,
+            // the same shape of "budget ran out before this product's turn".
+            failure: 'budget-exhausted' as const,
           })),
           pending: [],
         }
@@ -348,10 +370,13 @@ export function buildClassifyGraph(deps: GraphDeps) {
     // step (`docs/rca/2026-09-15-tech-lead-items-6-9.md` §9.1). Dispatching
     // through `Promise.all` below and letting the (provider, model) gate's
     // own semaphore (`model-gate.ts`, `maxInFlight: 4` on `JUDGE_CHAIN[0]` in
-    // `model-registry.ts`) bound the actual concurrency cuts that to ~260s
-    // per 100 products. Nothing about PACING changes: the gate already owns
-    // rate, retry and the circuit — this node only changes how many calls it
-    // has OUTSTANDING at once, never how fast the provider's bucket refills.
+    // `model-registry.ts`) bound the actual concurrency cuts that to ~330s
+    // per 100 products — see `JUDGE_CHAIN[0]`'s own comment for the
+    // corrected arithmetic (the gate's paced 18 req/min ceiling binds
+    // before 4-in-flight latency does, so this is a ~3x win, not 4x).
+    // Nothing about PACING changes: the gate already owns rate, retry and
+    // the circuit — this node only changes how many calls it has
+    // OUTSTANDING at once, never how fast the provider's bucket refills.
     .addNode('judge', async (s: GraphState) => {
       if (!judge) {
         return {
@@ -363,16 +388,14 @@ export function buildClassifyGraph(deps: GraphDeps) {
         }
       }
 
-      // A mutable LEDGER, not a `let` reassigned inline inside a concurrent
-      // loop body. `selectForJudging` reads `mayEscalate` synchronously,
-      // once per item, in a single pass BEFORE any judge call is dispatched
-      // — every item in that pass sees the SAME starting budget a sequential
-      // run would have seen for the first item of this batch.
-      // `foldJudgeResults` below folds in every call's real spend only AFTER
-      // `Promise.all` settles, so the budget returned to the NEXT chunk is
-      // the true total, never a value some in-flight call raced past.
-      let budget = s.budget
-      const { toJudge, accepted } = selectForJudging(s.disputed, judgeRate, () => mayEscalate(deps.budget, budget))
+      // `selectForJudging` reserves a call slot PER ACCEPTED ITEM, in one
+      // synchronous pass, BEFORE any judge call is dispatched — see its own
+      // doc comment (MUST-FIX 1). `reserved` already carries every accepted
+      // item's call slot; `foldJudgeResults` below only has to settle the
+      // REAL token cost once `Promise.all` resolves, via `settleTokens`
+      // (never `recordSpend`, which would count each call a second time).
+      const { toJudge, accepted, reserved } = selectForJudging(s.disputed, judgeRate, s.budget, deps.budget)
+      let budget = reserved
 
       // Bounded concurrency lives in the GATE (`model-gate.ts`'s semaphore,
       // `policy.maxInFlight`), not here — `Promise.all` dispatches every
@@ -384,7 +407,7 @@ export function buildClassifyGraph(deps: GraphDeps) {
       )
 
       const { outcomes, stillDisputed } = foldJudgeResults(toJudge, judged, (tokens, verdict) => {
-        budget = recordSpend(budget, tokens)
+        budget = settleTokens(budget, tokens)
         onJudgeUsage(tokens, verdict)
       })
 
