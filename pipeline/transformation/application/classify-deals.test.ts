@@ -294,6 +294,60 @@ describe('the happy path', () => {
   })
 })
 
+describe('the in-process deadline (WP-P3) — attempt 1 persists what it has, in time to exit 75', () => {
+  /** Returns each value in `values` once, in order, then repeats the last. */
+  const statefulClock = (values: readonly number[]): (() => number) => {
+    let i = 0
+    return () => values[Math.min(i++, values.length - 1)]!
+  }
+
+  it('never starts a single chunk once the deadline has already passed', async () => {
+    let calls = 0
+    const countingClassifier: Classifier = {
+      name: 'counting',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        calls++
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+      },
+    }
+
+    const many = [deal('A'), deal('B'), deal('C')]
+    const r = await run(many, {
+      tier1: countingClassifier,
+      deadlineAtMs: 1_000,
+      now: () => 1_000, // >= deadlineAtMs — checkDeadline is inclusive, see resilience.test.ts
+    })
+
+    expect(calls).toBe(0)
+    expect(r.stats.deadlineHit).toBe(true)
+    expect(r.stats.classified).toBe(0)
+    expect(r.stats.deferred).toBe(3)
+    expect(r.deals).toHaveLength(0)
+  })
+
+  it('a chunk already dispatched always finishes — only the NEXT one is deferred', async () => {
+    // CHUNK_SIZE is 100 (classify-deals.ts). 150 misses is exactly one full
+    // chunk plus a second, partial one — the clock allows the first, refuses
+    // the second.
+    const many = Array.from({ length: 150 }, (_, i) => deal(`Produkt ${i} Deadline`))
+    const clock = statefulClock([0, 999_999]) // within deadline once, then past it
+
+    const r = await run(many, { deadlineAtMs: 1_000, now: clock })
+
+    expect(r.stats.deadlineHit).toBe(true)
+    expect(r.stats.classified).toBe(100)
+    expect(r.stats.deferred).toBe(50)
+    expect(r.deals).toHaveLength(100)
+  })
+
+  it('a run with no deadline set behaves exactly as before — deadlineAtMs defaults to null', async () => {
+    const r = await run([deal('Emmi Milch')])
+    expect(r.stats.deadlineHit).toBe(false)
+  })
+})
+
 describe('cold start', () => {
   it('defers the overflow instead of blowing the budget, and keeps those deals', async () => {
     const many = Array.from({ length: 900 }, (_, i) => deal(`Produkt ${i} Test`))

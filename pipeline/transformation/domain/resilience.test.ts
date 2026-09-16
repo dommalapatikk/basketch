@@ -6,6 +6,9 @@ import {
   DEFAULT_RETRY,
   FRESH_RATE_STATE,
   KNOWN_LIMITS,
+  RUN_DEADLINE_MS,
+  RUN_TIMEOUT_MS,
+  checkDeadline,
   checkRate,
   classifyFailure,
   decideRetry,
@@ -172,6 +175,26 @@ describe('latency budget', () => {
     // nemotron-3.5-lightning took 873s for 65 products. A hung run never reports.
     const r = withinLatencyBudget({ elapsedMs: 46 * 60_000, limitMs: 45 * 60_000 })
     expect(isOk(r)).toBe(false)
+  })
+})
+
+describe('the in-process deadline (WP-P3) — a process that exits on purpose is the only one that gets retried', () => {
+  it('is within deadline while now is before the deadline', () => {
+    expect(checkDeadline(1_000, 2_000).withinDeadline).toBe(true)
+  })
+
+  it('is past deadline at the exact millisecond, not only after it', () => {
+    // >= , not >: a chunk starting in the SAME tick the deadline is crossed
+    // must not slip through — see classify-deals.ts's per-chunk check.
+    const atDeadline = checkDeadline(2_000, 2_000)
+    expect(atDeadline.withinDeadline).toBe(false)
+  })
+
+  it('is well inside the 45-minute step timeout, leaving room for the write pipeline to finish', () => {
+    // If this ever fails, RUN_DEADLINE_MS has drifted past RUN_TIMEOUT_MS — a
+    // deadline that can never be observed inside the process before the
+    // external kill is not a deadline, it is dead code.
+    expect(RUN_DEADLINE_MS).toBeLessThan(RUN_TIMEOUT_MS)
   })
 })
 

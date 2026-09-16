@@ -246,8 +246,55 @@ export function recordSuccess(): CircuitState {
  */
 export const REQUEST_TIMEOUT_MS = 60_000
 
-/** Whole-run ceiling, well under the Actions job limit. */
+/**
+ * Whole-run ceiling — THE ONE DEFINITION OF THE STEP TIMEOUT.
+ *
+ * Must equal `timeout_minutes` on the "Categorize and store (with retry)"
+ * step in `pipeline.yml`. A second, uncoordinated 45 living only in the
+ * workflow file is how a threshold silently drifts from the code that is
+ * supposed to stay inside it — see the config test in `config.test.ts`,
+ * which reads the workflow file and asserts `RUN_DEADLINE_MS < RUN_TIMEOUT_MS`.
+ */
 export const RUN_TIMEOUT_MS = 45 * 60_000
+
+/**
+ * In-process deadline (WP-P3 / RCA T1): stop starting new classification
+ * chunks after this long, so the process can persist what it has and exit
+ * ON PURPOSE — with a chosen code — before `RUN_TIMEOUT_MS` kills it from
+ * outside.
+ *
+ * This is not cosmetic. Verified against nick-fields/retry's own source
+ * (`index.ts:91-120, 147`): a process killed by the external `timeout_minutes`
+ * is SIGTERM'd, its `exit` handler returns early for that signal
+ * (`index.ts:96-98`), and `exit` is never set — it stays 0. `retry_on_exit_code:
+ * 75` then requires `75 === exit` to retry (`index.ts:147`); 0 never matches,
+ * so an externally-killed run is NOT retried, it just fails. Calling
+ * `process.exit(75)` ourselves, before that line is crossed, is the only way
+ * `retry_on_exit_code` ever fires for a slow run.
+ *
+ * 35 of 45: leaves 10 minutes for the write pipeline (taxonomy, product
+ * resolution, `storeDeals`, the sweep, v3 cutover) to run to completion on
+ * whatever was classified before the deadline. That work must never be cut
+ * off mid-write — the deadline only gates the START of a new classification
+ * chunk, never anything downstream of it.
+ */
+export const RUN_DEADLINE_MS = 35 * 60_000
+
+export type DeadlineCheck = { readonly withinDeadline: true } | { readonly withinDeadline: false; readonly reason: string }
+
+/**
+ * Pure: given "now" and the deadline, are we still inside the budget?
+ *
+ * No `Date.now()` in here — the caller supplies both, so a test can pin any
+ * point in the run without waiting on the wall clock (the same pattern
+ * `finishRun`'s injected `now` already established).
+ */
+export function checkDeadline(nowMs: number, deadlineAtMs: number): DeadlineCheck {
+  if (nowMs >= deadlineAtMs) {
+    return { withinDeadline: false, reason: `run deadline of ${new Date(deadlineAtMs).toISOString()} reached` }
+  }
+  return { withinDeadline: true }
+}
 
 /**
  * How much of a failed response body to keep in the error message.

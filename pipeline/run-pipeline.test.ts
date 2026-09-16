@@ -19,19 +19,21 @@
 // infrastructure-layer tests.
 
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createOffer } from './collection/domain/offer'
 import { createMoney } from './collection/domain/money'
 import { collected } from './collection/domain/offer-source'
 import type { OfferSource } from './collection/domain/offer-source'
-import { ok, unwrap } from './collection/domain/result'
+import { err, ok, unwrap } from './collection/domain/result'
 import { createValidityPeriod } from './collection/domain/validity-period'
+import type { ClassificationCache } from './transformation/domain/classification-cache'
 import { createInMemoryCache } from './transformation/domain/classification-cache'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, Classifier } from './transformation/domain/classifier'
-import type { ClassificationDeps, PipelineDeps, StorageDeps } from './run-pipeline'
-import { finishRun, runPipeline } from './run-pipeline'
+import { RUN_DEADLINE_MS } from './transformation/domain/resilience'
+import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
+import { exitCodeFor, finishRun, runPipeline } from './run-pipeline'
 import type { Deal } from '../shared/types'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
@@ -154,7 +156,32 @@ const baseOptions = {
   now: new Date('2026-09-08T00:00:00Z'),
   runId: 'test-run',
   collectionMode: 'live' as const,
+  // Most tests here are single, non-retried runs — WP-P3's deadline tests
+  // override this explicitly.
+  isFinalAttempt: true,
 }
+
+/** N offers with distinct names, enough to span more than one classify-deals.ts CHUNK_SIZE (100). */
+const manyOffersSource = (n: number): OfferSource => ({
+  retailer: 'denner',
+  expectedMinimumOffers: 1,
+  async fetchOffers() {
+    return collected(
+      'denner',
+      Array.from({ length: n }, (_, i) =>
+        unwrap(
+          createOffer({
+            retailer: 'denner',
+            productName: `Produkt Deadline ${i}`,
+            salePrice: unwrap(createMoney(1.5)),
+            originalPrice: unwrap(createMoney(2)),
+            validity: WEEK,
+          }),
+        ),
+      ),
+    )
+  },
+})
 
 describe('a full run through the composition root stores what the fake sources returned — run.ts had zero tests', () => {
   it('writes the deal the fake source produced, through classification, taxonomy and storage', async () => {
@@ -198,11 +225,21 @@ describe('live counts are read BEFORE storeDeals — a post-write count makes th
 // real. Testing `finishRun` (the function that DECIDES the outcome) and
 // `runPipeline`'s 'no-data'/'ok' paths above covers the same contract without
 // restructuring the shell.
+//
+// ⚠️ WP-P3 (RCA T1) DELIBERATELY CHANGED THIS CONTRACT, and this block with
+// it: `finishRun` now calls `revalidate()` before EVERY status that reports on
+// THIS attempt's data (ok, alert-failed, storage-shortfall) — not only "ok" —
+// because `storeDeals` has already run by the time any of the three is
+// decided, so the site's cache is stale against Supabase regardless of which
+// one comes back. Only `deadline-hit` on a non-final attempt skips it, because
+// that status is not a terminal report: a retry follows within
+// `retry_wait_seconds` and revalidates when IT finishes. See the block below,
+// "the exit-code split (WP-P3)".
 describe('the PipelineOutcome contract every exit-code mapping depends on', () => {
   it('produces "ok" and calls revalidate — the only status a non-zero exit is not mapped from', async () => {
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1 })
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1, isFinalAttempt: true })
 
     expect(outcome).toEqual({ status: 'ok', storedCount: 10 })
     // Asserted, not assumed (code review N1): without this, deleting the
@@ -220,23 +257,38 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
     const deps = fakeDeps({ revalidate: revalidate.fn })
     const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
 
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1, now: staleClock })
+    const outcome = await finishRun(deps, {
+      runId: 'r',
+      stats: statsOf(10),
+      resolvedLength: 10,
+      storedCount: 1,
+      durationMs: 1,
+      isFinalAttempt: true,
+      now: staleClock,
+    })
 
     expect(outcome).toEqual({ status: 'alert-failed' })
-    expect(revalidate.calls).toBe(0)
+    // WP-P3: data was already written this attempt, so the stale site cache
+    // must still be busted even though the run is reported as a failure.
+    expect(revalidate.calls).toBe(1)
   })
 
-  it('produces "storage-shortfall" when stored deals fall below 80% of resolved, and does NOT call revalidate', async () => {
+  it('produces "storage-shortfall" when stored deals fall below 80% of resolved — and still revalidates (WP-P3)', async () => {
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
 
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1 })
+    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1, isFinalAttempt: true })
 
     expect(outcome).toEqual({ status: 'storage-shortfall' })
-    expect(revalidate.calls).toBe(0)
+    expect(exitCodeFor(outcome)).toBe(1)
+    // THE WP-P3 FIX ITSELF: today's behaviour wrote data and then skipped
+    // revalidation, leaving the site cache stale against rows already in
+    // Supabase. A storage-ratio failure is still reported (exit 1, not
+    // retried) — but the cache must reflect what was actually written.
+    expect(revalidate.calls).toBe(1)
   })
 
-  it('produces "alert-failed" when a critical alert fires, and does NOT call revalidate', async () => {
+  it('produces "alert-failed" when a critical alert fires — and still revalidates (WP-P3)', async () => {
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
     // A stale-run clock: `finishedAtMs` reads first (T), `nowMs` reads second
@@ -245,9 +297,95 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
     // see the comment on `evaluateAlertsStep`).
     const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
 
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1, now: staleClock })
+    const outcome = await finishRun(deps, {
+      runId: 'r',
+      stats: statsOf(10),
+      resolvedLength: 10,
+      storedCount: 10,
+      durationMs: 1,
+      isFinalAttempt: true,
+      now: staleClock,
+    })
 
     expect(outcome).toEqual({ status: 'alert-failed' })
+    expect(exitCodeFor(outcome)).toBe(1)
+    expect(revalidate.calls).toBe(1)
+  })
+})
+
+describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1 never retried', () => {
+  it('maps every PipelineOutcome status to exactly the code pipeline.yml is configured to act on', () => {
+    const cases: readonly [PipelineOutcome, 0 | 75 | 1][] = [
+      [{ status: 'ok', storedCount: 1 }, 0],
+      [{ status: 'deadline-hit' }, 75],
+      [{ status: 'cache-unreadable' }, 75],
+      [{ status: 'alert-failed' }, 1],
+      [{ status: 'storage-shortfall' }, 1],
+      [{ status: 'no-data' }, 1],
+    ]
+    for (const [outcome, expected] of cases) expect(exitCodeFor(outcome)).toBe(expected)
+  })
+
+  it('attempt 1 at its deadline persists what it classified and exits 75 — with retry_on_exit_code set a timeout is never retried (nick-fields index.ts:96-98,116-120,147)', async () => {
+    const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
+    // Call 1: runPipeline's own startTime. Call 2: classify-deals' deadline
+    // check before chunk 1 (100 products) — still inside the deadline. Call
+    // 3: before chunk 2 (the remaining 50) — 40 minutes later, past
+    // RUN_DEADLINE_MS (35). The first chunk must still finish and persist.
+    const t0 = 1_700_000_000_000
+    const clock = statefulClock([t0, t0, t0 + RUN_DEADLINE_MS + 60_000])
+
+    const outcome = await runPipeline(deps, { ...baseOptions, isFinalAttempt: false, clock })
+
+    expect(outcome).toEqual({ status: 'deadline-hit' })
+    expect(exitCodeFor(outcome)).toBe(75)
+    // "Persists what it has": the chunk that finished before the deadline was
+    // written, not discarded.
+    expect(deps.storage.storedDeals).toHaveLength(100)
+  })
+
+  it('the final attempt at its deadline publishes what it has and exits 0 with run-deferred', async () => {
+    const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
+    const t0 = 1_700_000_000_000
+    const clock = statefulClock([t0, t0, t0 + RUN_DEADLINE_MS + 60_000])
+    const warnings: string[] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '))
+    })
+
+    try {
+      const outcome = await runPipeline(deps, { ...baseOptions, isFinalAttempt: true, clock })
+
+      expect(outcome.status).toBe('ok')
+      expect(exitCodeFor(outcome)).toBe(0)
+      expect(deps.storage.storedDeals).toHaveLength(100)
+      expect(warnings.some((w) => /run-deferred/.test(w))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('an unreadable classification cache exits 75 — nothing was written, so nothing needs revalidating', async () => {
+    const unreadableCache: ClassificationCache = {
+      lookup: async () => err('7 of 8 lookup chunks could not be read'),
+      save: async () => ok(0),
+    }
+    const revalidate = spy()
+    const storage = fakeStorage()
+    const deps = fakeDeps(
+      {
+        sources: () => [dennerOfferSource('Bio Vollmilch 1l')],
+        createClassificationDeps: async () => ({ ...fakeClassificationDeps(), cache: unreadableCache }),
+        revalidate: revalidate.fn,
+      },
+      storage,
+    )
+
+    const outcome = await runPipeline(deps, baseOptions)
+
+    expect(outcome).toEqual({ status: 'cache-unreadable' })
+    expect(exitCodeFor(outcome)).toBe(75)
+    expect(storage.calls).toEqual([])
     expect(revalidate.calls).toBe(0)
   })
 })
@@ -265,6 +403,7 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     judgeUnavailable: 0,
     deferred: 0,
     isColdStart: false,
+    deadlineHit: false,
   }
 }
 
