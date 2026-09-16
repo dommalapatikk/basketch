@@ -17,7 +17,8 @@ import {
   validateAttributes,
 } from '../enrich-prompt'
 import { extractAnswers } from '../classification-prompt'
-import { postJson } from '../model-http'
+import type { ModelGate } from '../model-gate'
+import { postJson, summariseError } from '../model-http'
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
 
@@ -37,6 +38,13 @@ export type EnricherDeps = {
   apiKey: string
   model: string
   batchSize?: number
+  /**
+   * REQUIRED (WP-P5). The SAME (provider, model) gate the classifier and the
+   * reflector use when they share this model — one Gemini quota, three
+   * callers, paced together instead of three private limiters that never see
+   * each other. See `model-gate.ts`.
+   */
+  gate: ModelGate
   /** Injected so tests never touch the network. */
   ask?: (prompt: string) => Promise<{ text: string; tokens: number }>
   log?: (message: string) => void
@@ -45,13 +53,14 @@ export type EnricherDeps = {
 // Bounded by model-http. Enrichment failing costs metadata, never a category —
 // but an enrichment call that HANGS costs the run, because every classification
 // chunk behind it waits.
-async function askGemini(apiKey: string, model: string, prompt: string) {
+async function askGemini(apiKey: string, model: string, prompt: string, gate: ModelGate) {
   const j = (await postJson({
     url: `${ENDPOINT}/${model}:generateContent?key=${apiKey}`,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json' },
     }),
+    gate,
   })) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
     usageMetadata?: { totalTokenCount?: number }
@@ -63,7 +72,7 @@ async function askGemini(apiKey: string, model: string, prompt: string) {
 }
 
 export function createGeminiEnricher(deps: EnricherDeps): Enricher {
-  const ask = deps.ask ?? ((p: string) => askGemini(deps.apiKey, deps.model, p))
+  const ask = deps.ask ?? ((p: string) => askGemini(deps.apiKey, deps.model, p, deps.gate))
   const batchSize = deps.batchSize ?? ENRICH_BATCH
   const log = deps.log ?? (() => {})
 
@@ -87,7 +96,13 @@ export function createGeminiEnricher(deps: EnricherDeps): Enricher {
           } catch (e) {
             // Enrichment failing costs metadata, never the product. The deal is
             // already classified and will be stored either way.
-            log(`enrich ${subCategory}: ${e instanceof Error ? e.message : String(e)}`)
+            //
+            // ONE short summary line, not the raw error: `ModelGate` already
+            // retried this call internally (see model-gate.ts), so what
+            // reaches here is the FINAL outcome, and its message can still
+            // carry up to ERROR_BODY_CHARS (2,000) of a provider's JSON body.
+            // Before WP-P5, 429s alone were 89% of one run's log by byte count.
+            log(`enrich ${subCategory}: ${summariseError(e)}`)
             continue
           }
 

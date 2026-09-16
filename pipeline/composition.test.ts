@@ -6,13 +6,15 @@
 // mocked before anything imports it. `run-pipeline.test.ts` (application
 // layer) needs no such mock; that split is the point of WP-P2's F1 fix.
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: () => ({}) }) }))
 
 import { RETAILERS } from './collection/domain/offer'
+import { unwrap } from './collection/domain/result'
 import type { Transport } from './collection/infrastructure/live-sources'
 import { createProductionDeps } from './composition'
+import { createClassification, createConfidence } from './transformation/domain/classification'
 
 describe('the root wires classifier, reflector, judge and enricher from env — nothing built inline', () => {
   it('builds no escalation path with no API keys, and makes no network call to decide that', async () => {
@@ -33,6 +35,58 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     expect(classification.judge).not.toBeNull()
     expect(classification.reflector).toBeNull()
     expect(classification.enricher).toBeNull()
+  })
+})
+
+describe('classifier, reflector and enricher share ONE Gemini quota — backfill fired ~250 requests in 20s and got 255×429 (run 34833209176)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('paces across all three REAL adapters, wired exactly as composition.ts wires them', async () => {
+    // Every model call succeeds instantly — the point is to count REQUESTS,
+    // not to exercise any one adapter's parsing.
+    let fetchCalls = 0
+    vi.stubGlobal('fetch', async () => {
+      fetchCalls++
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }), { status: 200 })
+    })
+
+    let clockMs = 0
+    const sleeps: number[] = []
+    const deps = createProductionDeps(
+      { GOOGLE_AI_API_KEY: 'test-key' },
+      {
+        modelClock: {
+          now: () => clockMs,
+          sleep: async (ms) => {
+            sleeps.push(ms)
+            clockMs += ms
+          },
+        },
+      },
+    )
+    const classification = await deps.createClassificationDeps(() => {})
+    expect(classification.reflector).not.toBeNull()
+    expect(classification.enricher).not.toBeNull()
+
+    const req = { productName: 'Emmi Milch', descriptor: null, retailer: 'denner' }
+    const answer = unwrap(
+      createClassification({ category: 'dairy', subCategory: 'dairy', confidence: unwrap(createConfidence(0.9)), tier: 1, model: 'test' }),
+    )
+
+    // 5 classifier calls + 1 reflector call + 8 enricher calls = 14, one over
+    // checkRate's paced ceiling (floor(15 * 0.9) = 13). If the three callers
+    // had their own limiter (today's bug), none of them would ever see the
+    // other two, and none would pace — exactly what let a backfill fire
+    // ~250 requests in 20 seconds. One shared gate must pace exactly once.
+    for (let i = 0; i < 5; i++) await classification.tier1.classify([req])
+    await classification.reflector?.reflect(req, answer)
+    for (let i = 0; i < 8; i++) {
+      await classification.enricher?.enrich([{ request: req, subCategory: `sub-${i}` }])
+    }
+
+    expect(fetchCalls).toBe(15) // 14 model calls + 1 startup probe (its own, separate gate)
+    expect(sleeps).toHaveLength(1)
+    expect(sleeps[0]).toBeGreaterThan(0)
   })
 })
 

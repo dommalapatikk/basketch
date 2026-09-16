@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isOk } from '../../../collection/domain/result'
+import { createNoopGate } from '../../../test-support/gate'
 import { GOOGLE_429_BODY } from '../../__fixtures__/google-429'
 import { buildPrompt, createGeminiClassifier, extractAnswers } from './gemini-classifier'
 import type { TaxonomyEntry } from './gemini-classifier'
@@ -28,6 +29,7 @@ const make = (fetchJson: (url: string, body: string) => Promise<unknown>, onUsag
     model: 'gemini-test',
     tier: 1,
     taxonomy: TAXONOMY,
+    gate: createNoopGate(),
     fetchJson,
     onUsage,
   })
@@ -222,7 +224,7 @@ describe('the default network path is bounded', () => {
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }), { status: 200 })
     })
 
-    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY })
+    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY, gate: createNoopGate() })
     await c.classify([req('Milch')])
 
     expect(seen).toBeInstanceOf(AbortSignal)
@@ -234,7 +236,7 @@ describe('the default network path is bounded', () => {
     // to a guessed exponential backoff instead of obeying the provider.
     vi.stubGlobal('fetch', async () => new Response(GOOGLE_429_BODY, { status: 429 }))
 
-    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY })
+    const c = createGeminiClassifier({ apiKey: 'k', model: 'gemini-test', tier: 1, taxonomy: TAXONOMY, gate: createNoopGate() })
     const r = await c.classify([req('Milch')])
 
     expect(isOk(r)).toBe(false)

@@ -90,6 +90,22 @@ export const DEFAULT_RETRY: RetryPolicy = {
   maxDelayMs: 30_000,
 }
 
+/**
+ * The ceiling `rate-limited-short` obeys instead of `policy.maxDelayMs`.
+ *
+ * MEASURED 2026-09-14 (run 34833209176): Google's own `retryDelay` was 57s —
+ * nearly double `DEFAULT_RETRY.maxDelayMs` (30s). `decideRetry` used to cap
+ * every provider instruction at `maxDelayMs`, so a run backed off for 30s,
+ * asked again, and got exactly the 429 it would have gotten by waiting the
+ * full 57s in the first place. That is how a backfill of 1,107 products fired
+ * ~250 requests in 20 seconds and got 255 of them refused.
+ *
+ * 90s, not "whatever Google asks": a provider that is lying, or a bug that
+ * mis-parses a huge number, must still not stall a run indefinitely — a
+ * SEPARATE ceiling, not the same one used for a guessed exponential backoff.
+ */
+export const PROVIDER_WAIT_CEILING_MS = 90_000
+
 export type RetryDecision =
   | { readonly retry: true; readonly delayMs: number; readonly attempt: number }
   | { readonly retry: false; readonly reason: string }
@@ -122,7 +138,16 @@ export function decideRetry(
   }
 
   if (retryAfterMs !== null && retryAfterMs > 0) {
-    return { retry: true, delayMs: Math.min(retryAfterMs, policy.maxDelayMs), attempt: attempt + 1 }
+    // WP-P5 / RCA item 6: `rate-limited-short` is Google (or OpenRouter) TELLING
+    // us exactly how long the bucket needs to refill — 57s was measured live on
+    // 2026-09-14. Capping that at `policy.maxDelayMs` (30s, sized for a GUESSED
+    // exponential backoff) doesn't shorten the wait, it just buys one more 429:
+    // the bucket is not back until 57s regardless of what we do in the
+    // meantime. `PROVIDER_WAIT_CEILING_MS` is a much longer, separate ceiling
+    // that exists only to stop a run stalling indefinitely on a provider that
+    // is lying or misconfigured — it is not a substitute guess.
+    const ceiling = kind === 'rate-limited-short' ? PROVIDER_WAIT_CEILING_MS : policy.maxDelayMs
+    return { retry: true, delayMs: Math.min(retryAfterMs, ceiling), attempt: attempt + 1 }
   }
 
   const exponential = policy.baseDelayMs * 2 ** attempt

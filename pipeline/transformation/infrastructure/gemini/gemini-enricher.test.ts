@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createNoopGate } from '../../../test-support/gate'
 import type { EnrichRequest } from '../enrich-prompt'
 import { createGeminiEnricher } from './gemini-enricher'
 
@@ -8,7 +9,7 @@ const item = (productName: string, subCategory: string, descriptor: string | nul
 })
 
 const make = (text: string, tokens = 50) =>
-  createGeminiEnricher({ apiKey: 'k', model: 'gemini-test', ask: async () => ({ text, tokens }) })
+  createGeminiEnricher({ apiKey: 'k', model: 'gemini-test', gate: createNoopGate(), ask: async () => ({ text, tokens }) })
 
 describe('extracting attributes', () => {
   it('returns validated attributes keyed by product name', async () => {
@@ -52,6 +53,7 @@ describe('batching by sub-category', () => {
     const e = createGeminiEnricher({
       apiKey: 'k',
       model: 'm',
+      gate: createNoopGate(),
       ask: async () => {
         calls++
         return { text: '[]', tokens: 1 }
@@ -67,6 +69,7 @@ describe('batching by sub-category', () => {
       apiKey: 'k',
       model: 'm',
       batchSize: 5,
+      gate: createNoopGate(),
       ask: async () => {
         calls++
         return { text: '[]', tokens: 1 }
@@ -83,6 +86,7 @@ describe('failure costs metadata, never the product', () => {
     const e = createGeminiEnricher({
       apiKey: 'k',
       model: 'm',
+      gate: createNoopGate(),
       ask: async () => {
         call++
         if (call === 1) throw new Error('HTTP 429')
@@ -92,6 +96,24 @@ describe('failure costs metadata, never the product', () => {
     const { attributes } = await e.enrich([item('Butter', 'dairy'), item('Dash', 'laundry')])
     // The dairy batch failed; the laundry one still produced a result.
     expect(attributes.size).toBeLessThanOrEqual(1)
+  })
+
+  it('logs ONE short summary line per phase, not a 2KB body per failure (WP-P5)', async () => {
+    const lines: string[] = []
+    const hugeBody = `HTTP 429: ${'x'.repeat(2_000)}`
+    const e = createGeminiEnricher({
+      apiKey: 'k',
+      model: 'm',
+      gate: createNoopGate(),
+      log: (m) => lines.push(m),
+      ask: async () => {
+        throw new Error(hugeBody)
+      },
+    })
+    await e.enrich([item('Butter', 'dairy')])
+
+    expect(lines).toHaveLength(1)
+    expect(lines[0]?.length).toBeLessThan(250)
   })
 
   it('survives an unparseable response', async () => {
@@ -104,6 +126,7 @@ describe('failure costs metadata, never the product', () => {
     const e = createGeminiEnricher({
       apiKey: 'k',
       model: 'm',
+      gate: createNoopGate(),
       ask: async () => {
         called = true
         return { text: '[]', tokens: 0 }
@@ -150,7 +173,7 @@ describe('the default network path is bounded', () => {
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '[]' }] } }] }), { status: 200 })
     })
 
-    await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test' }).enrich([item('Emmi Milch', 'dairy')])
+    await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test', gate: createNoopGate() }).enrich([item('Emmi Milch', 'dairy')])
 
     expect(seen).toBeInstanceOf(AbortSignal)
   })
@@ -159,7 +182,7 @@ describe('the default network path is bounded', () => {
     // The standing rule: enrichment must never cost a product its category.
     vi.stubGlobal('fetch', async () => new Response('nope', { status: 500 }))
 
-    const { attributes } = await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test' }).enrich([
+    const { attributes } = await createGeminiEnricher({ apiKey: 'k', model: 'gemini-test', gate: createNoopGate() }).enrich([
       item('Emmi Milch', 'dairy'),
     ])
 
