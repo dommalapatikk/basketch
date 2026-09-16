@@ -21,6 +21,7 @@ import {
   buildPrompt,
   extractAnswers,
 } from '../classification-prompt'
+import type { ModelGate } from '../model-gate'
 import { postJson } from '../model-http'
 
 // Re-exported so existing tests and callers keep one import site.
@@ -50,6 +51,12 @@ export type GeminiDeps = {
   batchSize?: number
   /** Retrieval few-shot block, built per batch from the cache. */
   examplesFor?: (batch: readonly ClassificationRequest[]) => string
+  /**
+   * REQUIRED (WP-P5). The (provider, model) quota this call shares with the
+   * reflector and the enricher when they run the same model — see
+   * `model-gate.ts`. Built once by the composition root, never per call.
+   */
+  gate: ModelGate
   /** Injected so tests never touch the network. */
   fetchJson?: (url: string, body: string) => Promise<unknown>
   /** Accumulates token usage for the run budget (§7b.3). */
@@ -58,13 +65,13 @@ export type GeminiDeps = {
 
 // Bounded by model-http: Node's fetch has no default timeout, and a chunk of
 // 100 products makes ~59 SEQUENTIAL calls through here.
-async function httpPost(url: string, body: string): Promise<unknown> {
-  return postJson({ url, body })
+async function httpPost(url: string, body: string, gate: ModelGate): Promise<unknown> {
+  return postJson({ url, body, gate })
 }
 
 export function createGeminiClassifier(deps: GeminiDeps): Classifier {
   const batchSize = deps.batchSize ?? 25
-  const fetchJson = deps.fetchJson ?? httpPost
+  const fetchJson = deps.fetchJson ?? ((url: string, body: string) => httpPost(url, body, deps.gate))
 
   return {
     name: deps.model,

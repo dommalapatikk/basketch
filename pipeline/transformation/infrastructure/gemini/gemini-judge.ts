@@ -30,7 +30,8 @@ import {
   buildReflectPrompt,
   extractAnswers,
 } from '../classification-prompt'
-import { postJson } from '../model-http'
+import type { ModelGate } from '../model-gate'
+import { postJson, summariseError } from '../model-http'
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models'
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
@@ -39,13 +40,17 @@ export type JudgeDeps = {
   apiKey: string
   model: string
   taxonomy: readonly TaxonomyEntry[]
+  /** REQUIRED (WP-P5). This judge's own OpenRouter (provider, model) gate — see `model-gate.ts`. */
+  gate: ModelGate
+  /** Told about a judge call that ultimately failed, after the gate's own retries. Never swallowed. */
+  log?: (message: string) => void
   /** Injected so tests never touch the network. */
   ask?: (prompt: string) => Promise<{ text: string; tokens: number }>
 }
 
 // Bounded by model-http. The judge runs once per escalated product, in
 // sequence, so a stall here holds up the whole classification chain.
-async function askOpenRouter(apiKey: string, model: string, prompt: string) {
+async function askOpenRouter(apiKey: string, model: string, prompt: string, gate: ModelGate) {
   const j = (await postJson({
     url: OPENROUTER,
     headers: {
@@ -54,6 +59,7 @@ async function askOpenRouter(apiKey: string, model: string, prompt: string) {
       'X-Title': 'basketch',
     },
     body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0 }),
+    gate,
   })) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } }
   return { text: j?.choices?.[0]?.message?.content ?? '', tokens: j?.usage?.total_tokens ?? 0 }
 }
@@ -67,7 +73,8 @@ async function askOpenRouter(apiKey: string, model: string, prompt: string) {
  * producing the right answer.
  */
 export function createOpenRouterJudge(deps: JudgeDeps): Judge {
-  const ask = deps.ask ?? ((p: string) => askOpenRouter(deps.apiKey, deps.model, p))
+  const ask = deps.ask ?? ((p: string) => askOpenRouter(deps.apiKey, deps.model, p, deps.gate))
+  const log = deps.log ?? (() => {})
 
   return {
     name: deps.model,
@@ -84,8 +91,12 @@ export function createOpenRouterJudge(deps: JudgeDeps): Judge {
         // An unparseable verdict must not be read as disapproval — that would
         // escalate everything the moment the judge changed its output format.
         return { verdict: 'unavailable', tokens }
-      } catch {
-        // A judge that is down must not block classification. The answer stands.
+      } catch (e) {
+        // A judge that is down must not block classification. The answer
+        // stands — but a silent 429/402/timeout is exactly what made a dead
+        // judge indistinguishable from an approving one (RCA item 6.2 step 4:
+        // the reflector's identical silent catch hid a probable quota drain).
+        log(`judge: ${summariseError(e)}`)
         return { verdict: 'unavailable', tokens: 0 }
       }
     },
@@ -96,17 +107,26 @@ export type ReflectorDeps = {
   apiKey: string
   model: string
   taxonomy: readonly TaxonomyEntry[]
+  /**
+   * REQUIRED (WP-P5). The SAME gate as the tier-1 classifier when they share
+   * a model — one Gemini quota, shared, not two limiters that never see each
+   * other's calls.
+   */
+  gate: ModelGate
+  /** Told about a reflection call that ultimately failed. Never swallowed — see the catch below. */
+  log?: (message: string) => void
   ask?: (prompt: string) => Promise<{ text: string; tokens: number }>
 }
 
 // Bounded by model-http, same reason as the judge above.
-async function askGemini(apiKey: string, model: string, prompt: string) {
+async function askGemini(apiKey: string, model: string, prompt: string, gate: ModelGate) {
   const j = (await postJson({
     url: `${GEMINI}/${model}:generateContent?key=${apiKey}`,
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0, responseMimeType: 'application/json' },
     }),
+    gate,
   })) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
     usageMetadata?: { totalTokenCount?: number }
@@ -124,7 +144,8 @@ async function askGemini(apiKey: string, model: string, prompt: string) {
  * misunderstanding rather than a slip.
  */
 export function createGeminiReflector(deps: ReflectorDeps): Reflector {
-  const ask = deps.ask ?? ((p: string) => askGemini(deps.apiKey, deps.model, p))
+  const ask = deps.ask ?? ((p: string) => askGemini(deps.apiKey, deps.model, p, deps.gate))
+  const log = deps.log ?? (() => {})
 
   return {
     async reflect(
@@ -156,7 +177,13 @@ export function createGeminiReflector(deps: ReflectorDeps): Reflector {
         // A reflection that produces an invalid category is no reflection. The
         // graph then treats the item as unresolved rather than accepting junk.
         return { classification: isOk(built) ? built.value : null, tokens }
-      } catch {
+      } catch (e) {
+        // WP-P5 / RCA item 6.2 step 4: this catch used to swallow every
+        // failure with no log at all, which made the reflector's own 429s
+        // invisible — the probable-but-unproven cause of enrichment starting
+        // with an already-drained bucket. It is now the diagnostic this run
+        // needed: if reflect calls are 429ing, this line says so.
+        log(`reflect: ${summariseError(e)}`)
         return { classification: null, tokens: 0 }
       }
     },

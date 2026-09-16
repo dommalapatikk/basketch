@@ -18,12 +18,13 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isOk } from '../../collection/domain/result'
+import { createNoopGate } from '../../test-support/gate'
 import { createClassification, createConfidence } from '../domain/classification'
+import { guardClassifier } from '../domain/classifier'
 import { unwrap } from '../../collection/domain/result'
 import { createGeminiClassifier } from './gemini/gemini-classifier'
 import { createGeminiEnricher } from './gemini/gemini-enricher'
 import { createGeminiReflector, createOpenRouterJudge } from './gemini/gemini-judge'
-import { resilientClassifier } from './resilient-classifier'
 
 const TAXONOMY = [{ category: 'dairy', subCategories: ['dairy', 'eggs'] }]
 const request = { productName: 'Emmi Milch', descriptor: null, retailer: 'denner' }
@@ -57,7 +58,7 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
 
   it('Classifier returns Err rather than throwing', async () => {
     stub()
-    const port = createGeminiClassifier({ apiKey: 'k', model: 'm', tier: 1, taxonomy: TAXONOMY })
+    const port = createGeminiClassifier({ apiKey: 'k', model: 'm', tier: 1, taxonomy: TAXONOMY, gate: createNoopGate() })
 
     const r = await port.classify([request])
 
@@ -66,7 +67,7 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
 
   it('Judge returns a verdict of "unavailable" rather than throwing', async () => {
     stub()
-    const port = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY })
+    const port = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate() })
 
     const { verdict, tokens } = await port.judge(request, { category: 'dairy', subCategory: 'dairy' })
 
@@ -77,7 +78,7 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
 
   it('Reflector returns no revision rather than throwing', async () => {
     stub()
-    const port = createGeminiReflector({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY })
+    const port = createGeminiReflector({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate() })
 
     const { classification } = await port.reflect(request, answer)
 
@@ -86,7 +87,7 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
 
   it('Enricher returns no attributes rather than throwing — enrichment never costs a category', async () => {
     stub()
-    const port = createGeminiEnricher({ apiKey: 'k', model: 'm' })
+    const port = createGeminiEnricher({ apiKey: 'k', model: 'm', gate: createNoopGate() })
 
     const { attributes } = await port.enrich([{ request, subCategory: 'dairy' }])
 
@@ -94,13 +95,15 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
   })
 })
 
-// resilientClassifier is itself a Classifier, so the same contract binds it —
+// guardClassifier is itself a Classifier, so the same contract binds it —
 // including when the adapter it decorates is the one breaking the rules.
+// (F6, code review: this used to go through resilientClassifier, deleted
+// once it shrank to a one-line call to guardClassifier and nothing else.)
 describe('a decorator is a port implementation too', () => {
   it('returns Err when the classifier it wraps throws instead of returning', async () => {
     const logged: string[] = []
-    const port = resilientClassifier({
-      inner: {
+    const port = guardClassifier(
+      {
         name: 'rude-model',
         tier: 1,
         batchSize: 25,
@@ -108,16 +111,16 @@ describe('a decorator is a port implementation too', () => {
           throw new Error('ECONNRESET')
         },
       },
-      sleep: async () => {},
-      log: (m) => logged.push(m),
-    })
+      (m) => logged.push(m),
+    )
 
     const r = await port.classify([request])
 
     expect(isOk(r)).toBe(false)
     if (!isOk(r)) expect(r.error).toContain('ECONNRESET')
-    // And it went through the retry path rather than around it: a breach that
-    // bypassed the circuit breaker would leave a dead provider uncounted.
+    // The guard logs the breach it caught, rather than a silent swallow —
+    // WP-P5 moved rate/retry/circuit into ModelGate, but the port-contract
+    // guard (a throw must come back as Err) still lives here.
     expect(logged.some((m) => m.includes('port contract breached'))).toBe(true)
   })
 })

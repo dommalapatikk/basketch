@@ -7,6 +7,7 @@ import {
   FRESH_RATE_STATE,
   KNOWN_LIMITS,
   MAX_CHUNK_MS,
+  PROVIDER_WAIT_CEILING_MS,
   RUN_DEADLINE_MS,
   RUN_TIMEOUT_MS,
   WRITE_TAIL_MS,
@@ -75,6 +76,28 @@ describe('decideRetry', () => {
 
   it('caps the delay so a run cannot stall indefinitely', () => {
     const d = decideRetry('transient', 0, DEFAULT_RETRY, 10 * 60_000)
+    expect(d.retry && d.delayMs).toBe(DEFAULT_RETRY.maxDelayMs)
+  })
+
+  it('obeys Google\'s retryDelay of 57s instead of cutting it to 30s (WP-P5, run 34833209176)', () => {
+    // Measured live: Google told us 57s. The old code did
+    // Math.min(retryAfterMs, policy.maxDelayMs) with maxDelayMs = 30_000, so we
+    // waited 30s, asked again, and got the SAME 429 back — the bucket was not
+    // due to refill for another 27 seconds no matter what we did.
+    const d = decideRetry('rate-limited-short', 0, DEFAULT_RETRY, 57_000)
+    expect(d.retry && d.delayMs).toBe(57_000)
+  })
+
+  it('still caps rate-limited-short at PROVIDER_WAIT_CEILING_MS, not left unbounded', () => {
+    const d = decideRetry('rate-limited-short', 0, DEFAULT_RETRY, 10 * 60_000)
+    expect(d.retry && d.delayMs).toBe(PROVIDER_WAIT_CEILING_MS)
+  })
+
+  it('does NOT extend the ceiling to transient failures — only rate-limited-short gets the longer wait', () => {
+    // A transient 503 with a huge Retry-After is still a guess about a flaky
+    // provider, not a quota bucket with a known refill time. It keeps the
+    // shorter, guess-shaped ceiling.
+    const d = decideRetry('transient', 0, DEFAULT_RETRY, 57_000)
     expect(d.retry && d.delayMs).toBe(DEFAULT_RETRY.maxDelayMs)
   })
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { unwrap } from '../../../collection/domain/result'
+import { createNoopGate } from '../../../test-support/gate'
 import { createClassification, createConfidence } from '../../domain/classification'
 import { createGeminiReflector, createOpenRouterJudge } from './gemini-judge'
 
@@ -17,7 +18,7 @@ const reply = (text: string, tokens = 40) => async () => ({ text, tokens })
 
 describe('the judge never sets a category — it rates trust', () => {
   const make = (text: string) =>
-    createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, ask: reply(text) })
+    createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply(text) })
 
   it('reads a "correct" verdict', async () => {
     const r = await make('{"i":0,"verdict":"correct","category":"pantry-canned","confidence":0.9}').judge(req, {
@@ -38,7 +39,7 @@ describe('the judge never sets a category — it rates trust', () => {
   })
 
   it('reports usage so the run budget sees it', async () => {
-    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, ask: reply('{"verdict":"correct"}', 137) })
+    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply('{"verdict":"correct"}', 137) })
     expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).tokens).toBe(137)
   })
 })
@@ -47,12 +48,12 @@ describe('a judge that misbehaves must not escalate everything', () => {
   it('returns "unavailable", NOT "wrong", for an unparseable answer', async () => {
     // Reading garbage as disapproval would escalate every product the moment
     // the judge changed its output format.
-    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, ask: reply('I cannot help with that.') })
+    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply('I cannot help with that.') })
     expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).verdict).toBe('unavailable')
   })
 
   it('returns "unavailable" for an unrecognised verdict word', async () => {
-    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, ask: reply('{"verdict":"maybe"}') })
+    const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply('{"verdict":"maybe"}') })
     expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).verdict).toBe('unavailable')
   })
 
@@ -60,7 +61,7 @@ describe('a judge that misbehaves must not escalate everything', () => {
     const j = createOpenRouterJudge({
       apiKey: 'k',
       model: 'm',
-      taxonomy: TAXONOMY,
+      taxonomy: TAXONOMY, gate: createNoopGate(),
       ask: async () => {
         throw new Error('HTTP 429')
       },
@@ -69,11 +70,28 @@ describe('a judge that misbehaves must not escalate everything', () => {
     expect(r.verdict).toBe('unavailable')
     expect(r.tokens).toBe(0)
   })
+
+  it('logs a judge failure too — same defect class as the reflector, fixed for consistency', async () => {
+    const lines: string[] = []
+    const j = createOpenRouterJudge({
+      apiKey: 'k',
+      model: 'm',
+      taxonomy: TAXONOMY,
+      gate: createNoopGate(),
+      log: (m) => lines.push(m),
+      ask: async () => {
+        throw new Error('HTTP 402: out of credit')
+      },
+    })
+    await j.judge(req, { category: 'dairy', subCategory: 'dairy' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('judge')
+  })
 })
 
 describe('the reflector', () => {
   const make = (text: string) =>
-    createGeminiReflector({ apiKey: 'k', model: 'gemini-3.5-flash-lite', taxonomy: TAXONOMY, ask: reply(text) })
+    createGeminiReflector({ apiKey: 'k', model: 'gemini-3.5-flash-lite', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply(text) })
 
   it('returns a revised classification, marked tier 2', async () => {
     const r = await make('{"i":0,"category":"pantry-canned","subCategory":"canned","confidence":0.88,"reasoning":"jarred olives are preserved"}')
@@ -104,7 +122,7 @@ describe('the reflector', () => {
     const r = createGeminiReflector({
       apiKey: 'k',
       model: 'm',
-      taxonomy: TAXONOMY,
+      taxonomy: TAXONOMY, gate: createNoopGate(),
       ask: async () => {
         throw new Error('ECONNRESET')
       },
@@ -112,11 +130,33 @@ describe('the reflector', () => {
     expect((await r.reflect(req, cls('dairy', 'dairy'))).classification).toBeNull()
   })
 
+  it('logs a reflector failure instead of swallowing it (RCA item 6.2 step 4)', async () => {
+    // THE DEFECT: this catch used to return { classification: null, tokens: 0 }
+    // with no log call at all, so the reflector's own 429s were invisible —
+    // the probable-but-unproven cause of enrichment starting with an
+    // already-drained bucket.
+    const lines: string[] = []
+    const r = createGeminiReflector({
+      apiKey: 'k',
+      model: 'm',
+      taxonomy: TAXONOMY,
+      gate: createNoopGate(),
+      log: (m) => lines.push(m),
+      ask: async () => {
+        throw new Error('HTTP 429: rate limited')
+      },
+    })
+    await r.reflect(req, cls('dairy', 'dairy'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('reflect')
+    expect(lines[0]).toContain('429')
+  })
+
   it('reports usage so escalation counts against the budget', async () => {
     const r = await createGeminiReflector({
       apiKey: 'k',
       model: 'm',
-      taxonomy: TAXONOMY,
+      taxonomy: TAXONOMY, gate: createNoopGate(),
       ask: reply('{"category":"dairy","subCategory":"dairy","confidence":0.8}', 210),
     }).reflect(req, cls('dairy', 'dairy'))
     expect(r.tokens).toBe(210)
@@ -139,7 +179,7 @@ describe('the default network paths are bounded', () => {
       return new Response(JSON.stringify({ choices: [{ message: { content: '{"verdict":"correct"}' } }] }), { status: 200 })
     })
 
-    const v = await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY }).judge(req, {
+    const v = await createOpenRouterJudge({ apiKey: 'k', model: 'openai/gpt-5-nano', taxonomy: TAXONOMY, gate: createNoopGate() }).judge(req, {
       category: 'dairy',
       subCategory: 'dairy',
     })
@@ -156,7 +196,7 @@ describe('the default network paths are bounded', () => {
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), { status: 200 })
     })
 
-    const r = await createGeminiReflector({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY }).reflect(req, cls('dairy', 'dairy'))
+    const r = await createGeminiReflector({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate() }).reflect(req, cls('dairy', 'dairy'))
 
     expect(seen).toBeInstanceOf(AbortSignal)
     expect(r.classification?.category).toBe('dairy')

@@ -18,6 +18,7 @@
 // to probing.
 
 import type { ModelSpec, ProbeResult } from '../domain/model-registry'
+import { type ModelGate, createModelGate } from './model-gate'
 import { postJson } from './model-http'
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models'
@@ -26,12 +27,33 @@ const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
 /** Short enough that a probe cannot itself stall a run — tighter than the call budget on purpose. */
 const PROBE_TIMEOUT_MS = 15_000
 
-async function probeGemini(model: string, apiKey: string): Promise<ProbeResult> {
+/**
+ * A probe's own gate — WP-P5 requires `postJson` to have one, but a probe is
+ * deliberately NOT the shared production gate for that model: this file's own
+ * header says it "calls each model in the chain ONCE with a trivial prompt".
+ * `maxAttempts: 1` keeps that true — retrying a probe would turn a
+ * 10-second startup check into the very "forty minutes" this file exists to
+ * avoid, and the chain's early-stop (below) means a slow retry on model N
+ * would also delay every model after it.
+ */
+function probeGate(spec: ModelSpec): ModelGate {
+  return createModelGate({
+    modelId: spec.id,
+    provider: spec.provider,
+    requestsPerMinute: 60,
+    requestsPerDay: null,
+    maxInFlight: 1,
+    retry: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  })
+}
+
+async function probeGemini(model: string, apiKey: string, gate: ModelGate): Promise<ProbeResult> {
   try {
     await postJson({
       url: `${GEMINI}/${model}:generateContent?key=${apiKey}`,
       body: JSON.stringify({ contents: [{ parts: [{ text: 'ok' }] }] }),
       timeoutMs: PROBE_TIMEOUT_MS,
+      gate,
     })
     return { id: model, available: true }
   } catch (e) {
@@ -39,7 +61,7 @@ async function probeGemini(model: string, apiKey: string): Promise<ProbeResult> 
   }
 }
 
-async function probeOpenRouter(model: string, apiKey: string): Promise<ProbeResult> {
+async function probeOpenRouter(model: string, apiKey: string, gate: ModelGate): Promise<ProbeResult> {
   try {
     await postJson({
       url: OPENROUTER,
@@ -50,6 +72,7 @@ async function probeOpenRouter(model: string, apiKey: string): Promise<ProbeResu
       },
       body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ok' }], max_tokens: 5 }),
       timeoutMs: PROBE_TIMEOUT_MS,
+      gate,
     })
     return { id: model, available: true }
   } catch (e) {
@@ -76,7 +99,8 @@ export async function probeModels(chain: readonly ModelSpec[], keys: ProbeKeys):
       continue
     }
 
-    const result = spec.provider === 'google' ? await probeGemini(spec.id, key) : await probeOpenRouter(spec.id, key)
+    const gate = probeGate(spec)
+    const result = spec.provider === 'google' ? await probeGemini(spec.id, key, gate) : await probeOpenRouter(spec.id, key, gate)
     results.push(result)
 
     // The chain is ordered best-first, so the first success is the one we want.

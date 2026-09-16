@@ -16,6 +16,7 @@
 
 import type { Result } from '../../collection/domain/result'
 import { err, ok } from '../../collection/domain/result'
+import { DEFAULT_RETRY, type RetryPolicy } from './resilience'
 
 export type ModelSpec = {
   readonly id: string
@@ -27,6 +28,24 @@ export type ModelSpec = {
   readonly measuredMacroF1: number | null
   readonly measuredOn: string | null
   readonly requestsPerDay: number | null
+  /**
+   * WP-P5. Measured 2026-09-10 against a real key (same figure as
+   * `resilience.ts`'s `KNOWN_LIMITS` — this is the one place it turns into a
+   * gate). The free-tier Gemini variants share one project-level quota, so the
+   * same number applies to every entry in `TIER1_CHAIN` even though only
+   * `gemini-3.5-flash-lite` has been probed live.
+   */
+  readonly requestsPerMinute: number
+  /**
+   * How many calls to this model may be in flight at once.
+   *
+   * WP-P5 ruling (D1): Gemini is 1 — every existing caller (classifier,
+   * reflector, enricher) already runs sequentially, and 1 keeps that true by
+   * construction instead of by accident. WP-P6 raises the judge's entry to a
+   * bounded N once concurrent judging ships; this field is the seam it edits
+   * — no other file changes.
+   */
+  readonly maxInFlight: number
   readonly note?: string
 }
 
@@ -42,6 +61,8 @@ export const TIER1_CHAIN: readonly ModelSpec[] = [
     measuredMacroF1: 0.855,
     measuredOn: '2026-09-10',
     requestsPerDay: 1000,
+    requestsPerMinute: 15,
+    maxInFlight: 1,
   },
   {
     id: 'gemini-3.1-flash-lite',
@@ -49,6 +70,8 @@ export const TIER1_CHAIN: readonly ModelSpec[] = [
     measuredMacroF1: 0.842,
     measuredOn: '2026-09-10',
     requestsPerDay: 1000,
+    requestsPerMinute: 15,
+    maxInFlight: 1,
     note: 'one batch lost to a network error during measurement; score is on 266 of 291',
   },
   {
@@ -57,6 +80,8 @@ export const TIER1_CHAIN: readonly ModelSpec[] = [
     measuredMacroF1: null,
     measuredOn: null,
     requestsPerDay: 1000,
+    requestsPerMinute: 15,
+    maxInFlight: 1,
     note: 'floating alias — survives a retirement, but the model behind it can change without notice',
   },
 ]
@@ -69,6 +94,10 @@ export const JUDGE_CHAIN: readonly ModelSpec[] = [
     measuredMacroF1: 0.831,
     measuredOn: '2026-09-10',
     requestsPerDay: 1000,
+    requestsPerMinute: 20,
+    // WP-P6 raises this once bounded judge concurrency ships (Tech Lead: 4).
+    // Sequential-by-construction until then — the seam P6 edits, nothing else.
+    maxInFlight: 1,
     note: 'as JUDGE: caught 25% of errors with a 0% false-alarm rate',
   },
   {
@@ -77,6 +106,8 @@ export const JUDGE_CHAIN: readonly ModelSpec[] = [
     measuredMacroF1: 0.887,
     measuredOn: '2026-09-10',
     requestsPerDay: 1000,
+    requestsPerMinute: 20,
+    maxInFlight: 1,
     note: 'higher classification score, but failed to answer 3 of 5 in single-item mode',
   },
 ]
@@ -134,4 +165,50 @@ export function downgradeWarning(chain: readonly ModelSpec[], chosen: ModelSpec)
     return `falling back to ${chosen.id}: macro-F1 ${chosen.measuredMacroF1.toFixed(3)} vs ${primary.measuredMacroF1.toFixed(3)} (${drop >= 0 ? '-' : '+'}${Math.abs(drop).toFixed(3)})`
   }
   return `falling back to ${chosen.id}`
+}
+
+// ── ModelCallPolicy (WP-P5) ──────────────────────────────────────────────────
+//
+// What one `ModelGate` (transformation/infrastructure/model-gate.ts) needs to
+// pace, retry and circuit-break calls to ONE (provider, model) pair. Built
+// only by `createModelCallPolicy`, never assembled by hand at a call site —
+// the invariant below must hold everywhere a policy exists, not just where
+// someone remembered to check it.
+
+export type ModelCallPolicy = {
+  readonly modelId: string
+  readonly provider: ModelSpec['provider']
+  readonly requestsPerMinute: number
+  readonly requestsPerDay: number | null
+  readonly maxInFlight: number
+  readonly retry: RetryPolicy
+}
+
+/**
+ * Builds a `ModelCallPolicy` from a `ModelSpec`, refusing an unusable one.
+ *
+ * `spec` is always our own static registry data (`TIER1_CHAIN`, `JUDGE_CHAIN`
+ * or a fallback literal) — never untrusted input — so a failure here is a
+ * defect in this file, caught at composition-root startup rather than 40
+ * minutes into a run.
+ */
+export function createModelCallPolicy(spec: ModelSpec, retry: RetryPolicy = DEFAULT_RETRY): Result<ModelCallPolicy> {
+  if (spec.requestsPerMinute <= 0) {
+    return err(`${spec.id}: requestsPerMinute must be > 0, got ${spec.requestsPerMinute}`)
+  }
+  if (spec.maxInFlight < 1) {
+    return err(`${spec.id}: maxInFlight must be >= 1, got ${spec.maxInFlight}`)
+  }
+  if (spec.requestsPerDay !== null && spec.requestsPerDay <= 0) {
+    return err(`${spec.id}: requestsPerDay must be > 0 or null, got ${spec.requestsPerDay}`)
+  }
+
+  return ok({
+    modelId: spec.id,
+    provider: spec.provider,
+    requestsPerMinute: spec.requestsPerMinute,
+    requestsPerDay: spec.requestsPerDay,
+    maxInFlight: spec.maxInFlight,
+    retry,
+  })
 }

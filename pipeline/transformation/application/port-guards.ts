@@ -18,10 +18,10 @@
 //   itself — no caller has to remember, and no FUTURE adapter can opt out.
 //
 // `guardClassifier` lives in `domain/classifier.ts` instead of here, beside the
-// port it guards: infrastructure needs it too (resilient-classifier wraps an
-// adapter with no try/catch of its own), and infrastructure must not import
-// application. Judge and Reflector are declared in this layer, so their guards
-// belong in this layer.
+// port it guards: infrastructure needs it too (`composition.ts` wraps an
+// adapter with it directly, with no try/catch of its own), and infrastructure
+// must not import application. Judge and Reflector are declared in this
+// layer, so their guards belong in this layer.
 //
 // WHAT A GUARD DOES NOT DO: it does not invent an answer. Each port already
 // declares what "I could not do this" looks like, and the guard returns exactly

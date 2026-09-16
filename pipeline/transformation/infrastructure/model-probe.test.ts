@@ -12,6 +12,8 @@ const spec = (id: string, provider: 'google' | 'openrouter'): ModelSpec => ({
   measuredMacroF1: null,
   measuredOn: null,
   requestsPerDay: null,
+  requestsPerMinute: 15,
+  maxInFlight: 1,
 })
 
 const GOOGLE = spec('gemini-3.5-flash-lite', 'google')
@@ -71,7 +73,10 @@ describe('probing a chain', () => {
 
     const results = await probeModels([GOOGLE], { google: 'g' })
 
-    expect(results[0]).toEqual({ id: GOOGLE.id, available: false, detail: 'fetch failed' })
+    // WP-P5: the failure now passes through the probe's own ModelGate, which
+    // prefixes its FailureKind onto the message (same convention
+    // resilientClassifier used) — a network error classifies as 'transient'.
+    expect(results[0]).toEqual({ id: GOOGLE.id, available: false, detail: 'transient: fetch failed' })
   })
 
   it('bounds itself — a probe that stalls cannot itself stall the run', async () => {
