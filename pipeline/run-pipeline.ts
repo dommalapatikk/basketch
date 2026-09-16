@@ -15,8 +15,12 @@
 // BEHAVIOUR: every log line, every phase order and every exit condition below
 // is moved from `run.ts`, not rewritten. `process.exit` is gone — each
 // function RETURNS an outcome, and `run.ts` (now a thin shell) maps it to an
-// exit code. WP-P3 extends that mapping (exit 75 vs 1); this module does not
-// change it.
+// exit code via `exitCodeFor`.
+//
+// WP-P3 (RCA T1) extends that mapping to 0 / 75 / 1 and adds the in-process
+// deadline. The deadline DECISION (`checkDeadline`) lives in the domain
+// (`transformation/domain/resilience.ts`); this file only threads the clock
+// and the deadline through, and decides what to DO with the result.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -36,9 +40,10 @@ import type { AliasMap, UnknownTag } from './resolve-taxonomy'
 import { collectUnknownTags, resolveTaxonomy } from './resolve-taxonomy'
 import { isValidDealEntry } from './validate'
 import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/application/classify-deals'
-import { classifyDeals } from './transformation/application/classify-deals'
+import { ClassificationCacheUnreadableError, classifyDeals } from './transformation/application/classify-deals'
 import type { Alert, RunSnapshot } from './transformation/domain/alerts'
 import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
+import { RUN_DEADLINE_MS, checkWriteTailDuration } from './transformation/domain/resilience'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
 import type { DealEnrichment } from './storage/domain/offer-to-unified'
 import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
@@ -50,8 +55,12 @@ import { sweepPlan } from './storage/domain/stale-sweep'
 // The port — every real dependency composition.ts must build
 // ============================================================
 
-/** What `classifyDeals` needs, minus the per-run fields (`runId`, `log`) `runTransform` supplies itself. */
-export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log'>
+/**
+ * What `classifyDeals` needs, minus the per-run fields (`runId`, `log`,
+ * `deadlineAtMs`, `now`) `classifyGroceryDeals` supplies itself — the deadline
+ * is a property of THIS run, not of the classifier/cache/judge composition.
+ */
+export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log' | 'deadlineAtMs' | 'now'>
 
 export type V3CutoverStats = {
   readonly concepts_resolved: number
@@ -104,10 +113,61 @@ export type PipelineDeps = {
 
 export type TransformOutcome =
   | { readonly status: 'ok'; readonly storedCount: number }
+  /**
+   * WP-P3 / RCA T1: the in-process deadline (`RUN_DEADLINE_MS`) was reached on
+   * a NON-final attempt. Whatever was classified before the deadline is
+   * already persisted (`storeDeals` already ran) — this status exists only to
+   * pick exit 75 over exit 1, so `retry_on_exit_code: 75` retries the run
+   * instead of treating an incomplete run as a deterministic failure.
+   */
+  | { readonly status: 'deadline-hit' }
+  /**
+   * The classification cache could not be read (most lookup chunks failed) —
+   * a transient Supabase/network problem, not a bug. Nothing was written this
+   * attempt (the failure happens before any storage write), so there is
+   * nothing new to revalidate.
+   */
+  | { readonly status: 'cache-unreadable' }
   | { readonly status: 'alert-failed' }
   | { readonly status: 'storage-shortfall' }
 
 export type PipelineOutcome = TransformOutcome | { readonly status: 'no-data' }
+
+/** EX_TEMPFAIL (BSD sysexits) — the code `pipeline.yml`'s `retry_on_exit_code` watches for. */
+const EX_TEMPFAIL = 75
+
+/**
+ * The exit-code split (RCA T1): 0 success (including a deliberate partial
+ * publish), 75 transient — worth retrying now — 1 deterministic: a bug, a
+ * critical alert, or a genuine write shortfall. Never retried.
+ *
+ * Kept as ONE function so the mapping lives in exactly one place — the
+ * opposite of `run.ts`'s old `if (outcome.status !== 'ok') process.exit(1)`,
+ * which could only ever express two outcomes.
+ */
+export function exitCodeFor(outcome: PipelineOutcome): 0 | 75 | 1 {
+  switch (outcome.status) {
+    case 'ok':
+      return 0
+    case 'deadline-hit':
+    case 'cache-unreadable':
+      return EX_TEMPFAIL
+    // 'no-data' is 1, not 75: every source returning nothing is a
+    // COLLECTION problem (a fetch refused, a source misconfigured, a
+    // genuine bug), not the transient-infrastructure shape 75 exists for.
+    // Retrying it as-is would re-run collection for all seven retailers,
+    // against CLAUDE.md's "one fetch per publication" rule — a retryable
+    // exit code must never be the default for "something upstream failed
+    // and we don't know why". Before `retry_on_exit_code` existed,
+    // nick-fields/retry's default `retry_on: 'any'` retried EVERY non-zero
+    // exit unconditionally, so 'no-data' WAS implicitly retried by attempt
+    // 2 — this exit-code split deliberately removes that.
+    case 'no-data':
+    case 'alert-failed':
+    case 'storage-shortfall':
+      return 1
+  }
+}
 
 const infoLog = (message: string): void => console.log(`[pipeline] [INFO] ${message}`)
 
@@ -345,14 +405,23 @@ function logClassificationSummary(stats: ClassifyDealsResult['stats']): void {
   if (stats.uncertain > 0) {
     console.log(`[pipeline] [INFO] ${stats.uncertain} products need review: WHERE is_uncertain`)
   }
-  if (stats.deferred > 0) {
+  // The deadline-triggered case already logged its own "run-deferred" line,
+  // with the chunk it stopped before — this generic message would say "(cold
+  // start)" for a run that may not be one.
+  if (stats.deferred > 0 && !stats.deadlineHit) {
     console.warn(`[pipeline] [WARN] ${stats.deferred} products deferred to the next run (cold start)`)
   }
 }
 
-async function classifyGroceryDeals(deps: PipelineDeps, groceryOnly: readonly UnifiedDeal[], runId: string): Promise<ClassifyDealsResult> {
+async function classifyGroceryDeals(
+  deps: PipelineDeps,
+  groceryOnly: readonly UnifiedDeal[],
+  runId: string,
+  deadlineAtMs: number,
+  now: () => number,
+): Promise<ClassifyDealsResult> {
   const classification = await deps.createClassificationDeps(infoLog)
-  const result = await classifyDeals(groceryOnly, { ...classification, runId, log: infoLog })
+  const result = await classifyDeals(groceryOnly, { ...classification, runId, log: infoLog, deadlineAtMs, now })
   logClassificationSummary(result.stats)
   return result
 }
@@ -574,6 +643,20 @@ export type RunTransformOptions = {
   readonly startTime: number
   readonly startDate: Date
   readonly runId: string
+  /**
+   * Whether this is nick-fields/retry's LAST attempt (`PIPELINE_FINAL_ATTEMPT`
+   * env var — see `composition.ts`/`run.ts`). A deadline hit on a non-final
+   * attempt exits 75 to retry; on the final attempt it publishes what it has
+   * and exits 0. There is no further retry to defer to.
+   */
+  readonly isFinalAttempt: boolean
+  /**
+   * Clock, injected for tests. Defaults to `Date.now`. Drives BOTH the
+   * in-process deadline check and alert evaluation, so one test can pin both
+   * without waiting on the wall clock — the same clock P2's `finishRun.now`
+   * seam already established.
+   */
+  readonly clock?: () => number
 }
 
 export type FinishRunParams = {
@@ -582,17 +665,51 @@ export type FinishRunParams = {
   readonly resolvedLength: number
   readonly storedCount: number
   readonly durationMs: number
+  readonly isFinalAttempt: boolean
   /** Test-only seam — see `evaluateAlertsStep`. Production never sets this. */
   readonly now?: () => number
 }
 
 /**
- * The exit checks: an alert, then a storage shortfall, then (only then)
- * success — same order `run.ts` used. Exported so WP-P3, which rewrites
- * exactly this mapping, and today's tests, can both drive it directly without
+ * The exit checks, in order: revalidate, then the in-process deadline
+ * (WP-P3), then an alert, then a storage shortfall, then (only then) success.
+ *
+ * Exported so WP-P3's tests, and today's, can drive it directly without
  * running the whole transform phase.
+ *
+ * REVALIDATE UNCONDITIONALLY, FIRST — every status this function can return
+ * reports on an attempt where `storeDeals` has already run, `deadline-hit`
+ * included. Fixes TWO things, not one:
+ *
+ *   1. (The original WP-P3 fix.) A storage-ratio failure or a critical alert
+ *      used to write data and then skip revalidation entirely.
+ *   2. (F3, code review of the first WP-P3 submission.) The first submission
+ *      special-cased `deadline-hit` as "not terminal, attempt 2 revalidates
+ *      when it finishes" — but attempt 2 can itself be killed, throw, or
+ *      return `cache-unreadable` (which never reaches this function at all).
+ *      Any of those leaves attempt 1's already-published rows unrevalidated
+ *      until `cacheLife('hours')` expires. Revalidating is an idempotent
+ *      webhook ping — there is no correctness cost to calling it on a run
+ *      that turns out to need a retry, only a cost to skipping it on one
+ *      that turns out not to get one.
  */
 export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Promise<TransformOutcome> {
+  // Bust the web-next snapshot cache so fresh data shows up immediately
+  // instead of waiting for the cacheLife('hours') safety belt to expire.
+  await deps.revalidate()
+
+  if (params.stats.deadlineHit && !params.isFinalAttempt) {
+    console.warn(
+      `[pipeline] [WARN] run-deferred: attempt hit the in-process deadline — persisted what was classified, exiting 75 to retry`,
+    )
+    return { status: 'deadline-hit' }
+  }
+  if (params.stats.deadlineHit) {
+    console.warn(
+      '[pipeline] [WARN] run-deferred: final attempt hit the in-process deadline — publishing everything classified or cached, deferring the rest',
+    )
+  }
+
   if (evaluateAlertsStep(params.runId, params.stats, params.durationMs, params.now)) {
     return { status: 'alert-failed' }
   }
@@ -601,20 +718,40 @@ export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Pr
   }
 
   console.log(`[pipeline] [INFO] Pipeline complete in ${params.durationMs}ms — stored ${params.storedCount} deals`)
-  // Bust the web-next snapshot cache so fresh data shows up immediately
-  // instead of waiting for the cacheLife('hours') safety belt to expire.
-  await deps.revalidate()
-
   return { status: 'ok', storedCount: params.storedCount }
 }
 
 export async function runTransform(deps: PipelineDeps, collected: CollectOutcome, options: RunTransformOptions): Promise<TransformOutcome> {
+  const clock = options.clock ?? Date.now
   const allRaw = flattenStoreDeals(collected.storeDealsMap)
   normalizeProductNames(allRaw)
   const groceryOnly = filterToGroceryOnly(allRaw)
   logProductMetadata(groceryOnly)
 
-  const { deals: categorized, stats } = await classifyGroceryDeals(deps, groceryOnly, options.runId)
+  let categorized: Deal[]
+  let stats: ClassifyDealsResult['stats']
+  try {
+    const deadlineAtMs = options.startTime + RUN_DEADLINE_MS
+    ;({ deals: categorized, stats } = await classifyGroceryDeals(deps, groceryOnly, options.runId, deadlineAtMs, clock))
+  } catch (err) {
+    // A cache that cannot be read is a transient Supabase/network problem,
+    // not a bug — nothing has been written yet, so there is nothing to
+    // revalidate. Any OTHER thrown error is a real bug and is left to
+    // propagate to run.ts's outer catch, which maps it to exit 1.
+    if (err instanceof ClassificationCacheUnreadableError) {
+      console.error(`[pipeline] [ERROR] ${err.message}`)
+      return { status: 'cache-unreadable' }
+    }
+    throw err
+  }
+
+  // F1 ruling, point 3: the write tail — everything from here to `logRun` —
+  // is one of the two measured constants `RUN_DEADLINE_MS` is derived from
+  // (`WRITE_TAIL_MS`, `resilience.ts`). Logged as its own line every run so
+  // it stays measurable instead of rotting into folklore; WP-P7 will feed it
+  // into the stored run metrics.
+  const writeTailStart = clock()
+
   const resolved = await resolveTaxonomyStep(deps, categorized)
   const productIds = await resolveProductIds(deps, resolved, collected.storeStatusMap)
 
@@ -628,10 +765,34 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount)
   await deactivateExpiredStep(deps)
 
-  const durationMs = Date.now() - options.startTime
+  // F7 (code review of the first WP-P3 submission): `Date.now()` here while
+  // `options.startTime` came from the injected clock made a test-pinned
+  // `startTime` produce a nonsensical multi-year `durationMs` — the tests
+  // passing was luck, not design. One clock, used everywhere in this
+  // function, is what makes the deadline tests' `durationMs` a real ~29
+  // minutes (RUN_DEADLINE_MS plus a minute) instead of ~9e10ms.
+  const durationMs = clock() - options.startTime
   await logRunStep(deps, { storeStatusMap: collected.storeStatusMap, storedCount, resolvedLength: resolved.length, storagePartialFailure, durationMs })
 
-  return finishRun(deps, { runId: options.runId, stats, resolvedLength: resolved.length, storedCount, durationMs })
+  const writeTailMs = clock() - writeTailStart
+  console.log(
+    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → v3 cutover → sweep → deactivate → logRun)`,
+  )
+  // N4 (code review, round 2): WRITE_TAIL_MS scales with deal count — warn
+  // the moment a real run exceeds it, rather than trusting a measurement
+  // taken at a smaller catalogue forever.
+  const writeTailWarning = checkWriteTailDuration(writeTailMs)
+  if (writeTailWarning) console.warn(`[pipeline] [WARN] ${writeTailWarning}`)
+
+  return finishRun(deps, {
+    runId: options.runId,
+    stats,
+    resolvedLength: resolved.length,
+    storedCount,
+    durationMs,
+    isFinalAttempt: options.isFinalAttempt,
+    now: options.clock,
+  })
 }
 
 // ============================================================
@@ -643,10 +804,15 @@ export type RunPipelineOptions = {
   readonly now: Date
   readonly runId: string
   readonly collectionMode: CollectionMode
+  /** See `RunTransformOptions.isFinalAttempt`. */
+  readonly isFinalAttempt: boolean
+  /** See `RunTransformOptions.clock`. */
+  readonly clock?: () => number
 }
 
 export async function runPipeline(deps: PipelineDeps, options: RunPipelineOptions): Promise<PipelineOutcome> {
-  const startTime = Date.now()
+  const clock = options.clock ?? Date.now
+  const startTime = clock()
   console.log(`[pipeline] [INFO] Starting pipeline run ${options.runId}`)
 
   const collected = await runCollect(deps, { cwd: options.cwd, now: options.now, collectionMode: options.collectionMode })
@@ -657,5 +823,11 @@ export async function runPipeline(deps: PipelineDeps, options: RunPipelineOption
     return { status: 'no-data' }
   }
 
-  return runTransform(deps, collected, { startTime, startDate: options.now, runId: options.runId })
+  return runTransform(deps, collected, {
+    startTime,
+    startDate: options.now,
+    runId: options.runId,
+    isFinalAttempt: options.isFinalAttempt,
+    clock: options.clock,
+  })
 }

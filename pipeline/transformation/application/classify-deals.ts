@@ -22,8 +22,23 @@ import type { CachedClassification, ClassificationCache } from '../domain/classi
 import { CURRENT_VERSIONS, cacheKeyFor, needsEnrichment, normaliseForCache } from '../domain/classification-cache'
 import type { ClassificationRequest, Classifier } from '../domain/classifier'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
+import { checkChunkDuration, checkDeadline } from '../domain/resilience'
 import { orderForColdStart, planRun } from '../domain/run-plan'
 import { type GraphDeps, type Outcome, buildClassifyGraph } from './classify-graph'
+
+/**
+ * Raised only when the classification cache is genuinely unreadable (most
+ * lookup chunks failed) — never for an ordinary miss, which degrades silently
+ * by design. A distinct class, not a bare `Error`, so `run-pipeline.ts` can
+ * distinguish "Supabase/cache unreadable, worth retrying" (exit 75) from any
+ * other bug in this function (exit 1) with `instanceof`, not a message regex.
+ */
+export class ClassificationCacheUnreadableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ClassificationCacheUnreadableError'
+  }
+}
 
 export type ClassifyDealsDeps = {
   cache: ClassificationCache
@@ -44,6 +59,14 @@ export type ClassifyDealsDeps = {
   reflector: GraphDeps['reflector']
   runId: string
   log?: (message: string) => void
+  /**
+   * In-process deadline (epoch ms), checked before each classification chunk
+   * — WP-P3 / RCA T1. `null` (the default) means no deadline: every existing
+   * caller and test that never set this keeps running exactly as before.
+   */
+  deadlineAtMs?: number | null
+  /** Clock, injected for tests. Defaults to `Date.now`. */
+  now?: () => number
 }
 
 export type ClassifyDealsResult = {
@@ -82,6 +105,14 @@ export type ClassifyDealsResult = {
     readonly judgeUnavailable: number
     readonly deferred: number
     readonly isColdStart: boolean
+    /**
+     * True when the run stopped classifying early because `deadlineAtMs` was
+     * reached — distinct from an ordinary budget/cold-start deferral. The
+     * caller (`run-pipeline.ts`) uses this, not `deferred`, to decide between
+     * exit 75 (retry) and exit 0 (a deliberate partial publish on the final
+     * attempt).
+     */
+    readonly deadlineHit: boolean
   }
 }
 
@@ -256,7 +287,7 @@ export async function classifyDeals(
   // So reaching this branch means the memo is genuinely gone, and pressing on
   // is a guaranteed slow failure that also spends the day's quota.
   if (!isOk(lookup)) {
-    throw new Error(
+    throw new ClassificationCacheUnreadableError(
       `classification cache could not be read: ${lookup.error}. Refusing to continue — ` +
         'treating cached products as uncached would re-classify the whole catalogue ' +
         'and exceed the step timeout.',
@@ -336,8 +367,11 @@ export async function classifyDeals(
   const toClassify = orderForColdStart(
     misses.map((m) => ({ ...m, productName: m.deal.productName })),
   ).slice(0, plan.limit)
-  const deferred = misses.length - toClassify.length
-  if (deferred > 0) log(`[transform] deferring ${deferred} products to the next run`)
+
+  // Resolved once the classify loop below knows how many it actually reached
+  // — a deadline hit can defer MORE than the budget-limited slice already did.
+  const clock = deps.now ?? Date.now
+  const deadlineAtMs = deps.deadlineAtMs ?? null
 
   // ── 3. Agent ──────────────────────────────────────────────────────────────
   //
@@ -356,6 +390,19 @@ export async function classifyDeals(
   // even a failed run advances the cold start.
   const outcomes: Outcome[] = []
   const attributesByName = new Map<string, Record<string, unknown>>()
+  let deadlineHit = false
+  // F8 (code review of the first WP-P3 submission): named `classifiedCount`
+  // before, which overstated what it measures. This counts products in a
+  // chunk that was DISPATCHED to the graph and ran to completion — not how
+  // many actually came back with a category. A chunk `final.halted` (the
+  // circuit breaker, or a budget cutoff mid-chunk) still adds its whole
+  // `slice.length` here, because the chunk was genuinely attempted; some of
+  // its outcomes may still be `rejected` or carry no classification. That
+  // distinction already exists per-item in `outcomes` and the final stats
+  // (`rejected`, `heldBack`, …) below — this counter only answers "how far
+  // through `toClassify` did the loop get", which is exactly what `deferred`
+  // needs.
+  let attemptedCount = 0
 
   if (toClassify.length > 0) {
     const graph = buildClassifyGraph({
@@ -385,6 +432,20 @@ export async function classifyDeals(
     const chunkCount = Math.ceil(toClassify.length / CHUNK_SIZE)
     for (let start = 0; start < toClassify.length; start += CHUNK_SIZE) {
       const chunkNo = Math.floor(start / CHUNK_SIZE) + 1
+
+      // WP-P3 / RCA T1: checked BEFORE starting a new chunk, never mid-chunk —
+      // a chunk already dispatched always finishes and persists. Everything
+      // from here on is deferred, exactly like a budget-limited deferral, so
+      // it resumes as an ordinary cache miss next run.
+      if (deadlineAtMs !== null && !checkDeadline(clock(), deadlineAtMs).withinDeadline) {
+        deadlineHit = true
+        log(
+          `[transform] ⚠ run-deferred: in-process deadline reached before chunk ${chunkNo}/${chunkCount} — ` +
+            `${toClassify.length - attemptedCount} of ${toClassify.length} queued products deferred to the next run`,
+        )
+        break
+      }
+
       const chunkStart = Date.now()
       const slice = toClassify.slice(start, start + CHUNK_SIZE)
 
@@ -429,13 +490,22 @@ export async function classifyDeals(
       // to it, the gap is whatever nobody has accounted for, and it becomes
       // visible instead of arguable.
       const judged = final.outcomes.filter((o) => o.judgeVerdict != null).length
+      const chunkTotalMs = Date.now() - chunkStart
       log(
         `[transform] chunk ${chunkNo}/${chunkCount}: ` +
           `classify+judge ${(graphMs / 1000).toFixed(1)}s (${slice.length} products, ${judged} judged) · ` +
           `enrich ${(enrichMs / 1000).toFixed(1)}s · ` +
           `save ${(saveMs / 1000).toFixed(1)}s · ` +
-          `total ${((Date.now() - chunkStart) / 1000).toFixed(1)}s`,
+          `total ${(chunkTotalMs / 1000).toFixed(1)}s`,
       )
+      // N4 (code review, round 2): MAX_CHUNK_MS is an observed max, not a
+      // physical limit — nothing bounds a chunk against a provider slowdown
+      // or a long Retry-After wait. Warn the moment reality exceeds it,
+      // rather than trusting a four-sample observation forever.
+      const chunkDurationWarning = checkChunkDuration(chunkTotalMs)
+      if (chunkDurationWarning) log(`[transform] ⚠ ${chunkDurationWarning}`)
+
+      attemptedCount += slice.length
 
       if (final.halted) {
         log(`[transform] HALTED: ${final.halted}`)
@@ -443,6 +513,21 @@ export async function classifyDeals(
       }
     }
   }
+
+  // Covers BOTH kinds of deferral in one number: products excluded from
+  // `toClassify` by the budget/cold-start limit, and (if `deadlineHit`)
+  // products still queued in `toClassify` when the deadline broke the loop.
+  //
+  // F8: this is NOT the same number as `plan.deferred` (`run-plan.ts`,
+  // `misses - limit`) — that one is a PLANNING-TIME estimate, computed
+  // before the loop runs at all, of how many will never even be attempted
+  // this run. When nothing breaks the loop early (no deadline, no halt),
+  // `attemptedCount === toClassify.length === plan.limit`, so the two agree
+  // exactly. A deadline or a halt only ever makes THIS number bigger than
+  // `plan.deferred`, never smaller — the plan is a floor on what gets
+  // deferred, not a ceiling.
+  const deferred = misses.length - attemptedCount
+  if (deferred > 0 && !deadlineHit) log(`[transform] deferring ${deferred} products to the next run`)
 
   const byName = new Map<string, Outcome>()
   for (const o of outcomes) byName.set(normaliseForCache(o.request.productName), o)
@@ -600,6 +685,7 @@ export async function classifyDeals(
       judgeUnavailable,
       deferred,
       isColdStart: plan.isColdStart,
+      deadlineHit,
     },
   }
 }

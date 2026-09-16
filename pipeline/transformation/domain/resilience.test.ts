@@ -6,7 +6,14 @@ import {
   DEFAULT_RETRY,
   FRESH_RATE_STATE,
   KNOWN_LIMITS,
+  MAX_CHUNK_MS,
+  RUN_DEADLINE_MS,
+  RUN_TIMEOUT_MS,
+  WRITE_TAIL_MS,
+  checkChunkDuration,
+  checkDeadline,
   checkRate,
+  checkWriteTailDuration,
   classifyFailure,
   decideRetry,
   parseRetryAfter,
@@ -172,6 +179,59 @@ describe('latency budget', () => {
     // nemotron-3.5-lightning took 873s for 65 products. A hung run never reports.
     const r = withinLatencyBudget({ elapsedMs: 46 * 60_000, limitMs: 45 * 60_000 })
     expect(isOk(r)).toBe(false)
+  })
+})
+
+describe('the in-process deadline (WP-P3) — a process that exits on purpose is the only one that gets retried', () => {
+  it('is within deadline while now is before the deadline', () => {
+    expect(checkDeadline(1_000, 2_000).withinDeadline).toBe(true)
+  })
+
+  it('is past deadline at the exact millisecond, not only after it', () => {
+    // >= , not >: a chunk starting in the SAME tick the deadline is crossed
+    // must not slip through — see classify-deals.ts's per-chunk check.
+    const atDeadline = checkDeadline(2_000, 2_000)
+    expect(atDeadline.withinDeadline).toBe(false)
+  })
+
+  it('is well inside the step timeout, leaving room for the write pipeline to finish', () => {
+    // A cheap smoke check at the domain-unit level only — trivially true
+    // even at an UNSAFE deadline (F1, code review: 35 < 45 also "passed"
+    // this shape of assertion, and 35 was 6m15s short of the real write
+    // tail). The load-bearing guard is `config.test.ts`'s full inequality
+    // (RUN_DEADLINE_MS + MAX_CHUNK_MS + WRITE_TAIL_MS + SAFETY_MARGIN_MS ≤
+    // RUN_TIMEOUT_MS, read against the real pipeline.yml), which is
+    // mutation-tested to catch exactly what this assertion cannot.
+    expect(RUN_DEADLINE_MS).toBeLessThan(RUN_TIMEOUT_MS)
+  })
+})
+
+describe('the deadline arithmetic is monitored, not just trusted (N4, code review round 2)', () => {
+  it('checkChunkDuration is silent when a chunk finishes within MAX_CHUNK_MS', () => {
+    expect(checkChunkDuration(MAX_CHUNK_MS)).toBeNull()
+    expect(checkChunkDuration(MAX_CHUNK_MS - 1)).toBeNull()
+  })
+
+  it('checkChunkDuration warns, naming the constant, once a chunk exceeds MAX_CHUNK_MS', () => {
+    const warning = checkChunkDuration(MAX_CHUNK_MS + 1)
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('MAX_CHUNK_MS')
+    // Names WHICH run set the constant, so a reader knows what to compare
+    // this run against, not just that a threshold was crossed.
+    expect(warning).toMatch(/run 34833209176/)
+  })
+
+  it('checkWriteTailDuration is silent when the write tail finishes within WRITE_TAIL_MS', () => {
+    expect(checkWriteTailDuration(WRITE_TAIL_MS)).toBeNull()
+  })
+
+  it('checkWriteTailDuration warns, naming the constant, once the write tail exceeds WRITE_TAIL_MS', () => {
+    // THE N4 SCENARIO: a catalogue that grew past the ~1,500 deals
+    // WRITE_TAIL_MS was measured against (live count 1,523 and rising).
+    const warning = checkWriteTailDuration(WRITE_TAIL_MS + 60_000)
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('WRITE_TAIL_MS')
+    expect(warning).toMatch(/run 34833209176/)
   })
 })
 

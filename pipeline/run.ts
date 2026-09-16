@@ -10,7 +10,18 @@ import 'dotenv/config'
 
 import { createProductionDeps } from './composition'
 import { readCollectionMode } from './collection/application/collection-mode'
-import { computeRunId, runPipeline } from './run-pipeline'
+import { pingHealthcheck } from './observability/healthcheck-ping'
+import { computeRunId, exitCodeFor, runPipeline } from './run-pipeline'
+
+/**
+ * WP-P3 / RCA T1: `pipeline.yml`'s `new_command_on_retry` sets this to `1` for
+ * nick-fields/retry's final attempt. Attempt 1 leaving the in-process deadline
+ * unfinished must exit 75 (retried); the final attempt hitting it must
+ * publish what it has and exit 0 — there is no further attempt to defer to.
+ */
+function isFinalAttempt(env: Record<string, string | undefined>): boolean {
+  return env.PIPELINE_FINAL_ATTEMPT === '1'
+}
 
 async function shell(): Promise<void> {
   const now = new Date()
@@ -22,12 +33,21 @@ async function shell(): Promise<void> {
     now,
     runId,
     collectionMode: readCollectionMode(process.env),
+    isFinalAttempt: isFinalAttempt(process.env),
   })
 
-  // Exit 0 on full success, exit 1 on every other outcome. WP-P3 splits this
-  // into 0 / 75 / 1 with a final-attempt flag — this shell does not.
-  if (outcome.status !== 'ok') {
-    process.exit(1)
+  const exitCode = exitCodeFor(outcome)
+
+  // AP-5: the dead-man ping fires on every exit — success or not, retried or
+  // not — carrying the exit code itself (F4: healthchecks.io reads `/0` as
+  // success and any other suffix as failure, so the dashboard's pass/fail
+  // state tracks what actually happened, not merely "a process ran"). It
+  // answers "did the run reach its end", never "was the run good" (that is
+  // `alerts.ts`'s job). Awaited so it cannot race process.exit below.
+  await pingHealthcheck(process.env, exitCode, { fetch, log: (m) => console.log(m) })
+
+  if (exitCode !== 0) {
+    process.exit(exitCode)
   }
 }
 

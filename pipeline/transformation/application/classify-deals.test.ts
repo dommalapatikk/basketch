@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { UnifiedDeal } from '../../../shared/types'
 import { err, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
+import { MAX_CHUNK_MS } from '../domain/resilience'
+import { statefulClock } from '../../test-support/clock'
 import { classifyDeals } from './classify-deals'
 
 const deal = (productName: string, store = 'denner'): UnifiedDeal =>
@@ -291,6 +293,82 @@ describe('the happy path', () => {
     const r = await run([])
     expect(r.deals).toEqual([])
     expect(r.stats.total).toBe(0)
+  })
+})
+
+describe('the in-process deadline (WP-P3) — attempt 1 persists what it has, in time to exit 75', () => {
+  it('never starts a single chunk once the deadline has already passed', async () => {
+    let calls = 0
+    const countingClassifier: Classifier = {
+      name: 'counting',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        calls++
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+      },
+    }
+
+    const many = [deal('A'), deal('B'), deal('C')]
+    const r = await run(many, {
+      tier1: countingClassifier,
+      deadlineAtMs: 1_000,
+      now: () => 1_000, // >= deadlineAtMs — checkDeadline is inclusive, see resilience.test.ts
+    })
+
+    expect(calls).toBe(0)
+    expect(r.stats.deadlineHit).toBe(true)
+    expect(r.stats.classified).toBe(0)
+    expect(r.stats.deferred).toBe(3)
+    expect(r.deals).toHaveLength(0)
+  })
+
+  it('a chunk already dispatched always finishes — only the NEXT one is deferred', async () => {
+    // CHUNK_SIZE is 100 (classify-deals.ts). 150 misses is exactly one full
+    // chunk plus a second, partial one — the clock allows the first, refuses
+    // the second.
+    const many = Array.from({ length: 150 }, (_, i) => deal(`Produkt ${i} Deadline`))
+    // F9: named, not positional — one value per deadline check the 150-item,
+    // 2-chunk loop makes, in the order it makes them.
+    const beforeChunk1WithinDeadline = 0
+    const beforeChunk2PastDeadline = 999_999
+    const clock = statefulClock([beforeChunk1WithinDeadline, beforeChunk2PastDeadline])
+
+    const r = await run(many, { deadlineAtMs: 1_000, now: clock })
+
+    expect(r.stats.deadlineHit).toBe(true)
+    expect(r.stats.classified).toBe(100)
+    expect(r.stats.deferred).toBe(50)
+    expect(r.deals).toHaveLength(100)
+  })
+
+  it('a run with no deadline set behaves exactly as before — deadlineAtMs defaults to null', async () => {
+    const r = await run([deal('Emmi Milch')])
+    expect(r.stats.deadlineHit).toBe(false)
+  })
+})
+
+describe('the deadline arithmetic is monitored, not just trusted (N4, code review round 2)', () => {
+  it('warns when a chunk takes longer than MAX_CHUNK_MS — the constant is an observation, not a bound', async () => {
+    // Real elapsed time, not the injected deadline clock: chunk timing
+    // (`chunkStart`/`chunkTotalMs`) reads `Date.now()` directly, same as the
+    // pre-existing `graphMs`/`enrichMs`/`saveMs` metrics — this proves the
+    // WARN is actually WIRED to that measurement, not only correct in
+    // isolation (`resilience.test.ts`), without sleeping for real minutes.
+    let t = 0
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      t += MAX_CHUNK_MS + 1
+      return t
+    })
+    const warnings: string[] = []
+
+    try {
+      await run([deal('Slow Chunk Product')], { log: (m) => { if (/⚠/.test(m)) warnings.push(m) } })
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+
+    expect(warnings.some((w) => w.includes('MAX_CHUNK_MS'))).toBe(true)
   })
 })
 

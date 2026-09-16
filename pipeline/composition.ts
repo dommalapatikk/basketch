@@ -25,6 +25,7 @@ import {
 } from './store'
 import { supabase } from './supabase-client'
 import { writeEnrichment } from './storage/infrastructure/write-enrichment'
+import { pingRevalidateWebhook } from './observability/revalidate-webhook'
 import { populateV3Layer } from './v3-cutover'
 import { CURRENT_VERSIONS } from './transformation/domain/classification-cache'
 import { JUDGE_CHAIN, TIER1_CHAIN, downgradeWarning, selectModel } from './transformation/domain/model-registry'
@@ -142,29 +143,6 @@ const PRODUCTION_STORAGE: StorageDeps = {
   logPipelineRun,
 }
 
-async function pingRevalidateWebhook(env: Env): Promise<void> {
-  const url = env.WEB_REVALIDATE_URL
-  const secret = env.WEB_REVALIDATE_SECRET
-  if (!url || !secret) {
-    console.log('[pipeline] [INFO] revalidate webhook skipped — env vars not set')
-    return
-  }
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag: 'deals' }),
-    })
-    if (!res.ok) {
-      console.error(`[pipeline] [WARN] revalidate webhook ${res.status} ${res.statusText}`)
-      return
-    }
-    console.log('[pipeline] [INFO] revalidate webhook ok')
-  } catch (err) {
-    console.error('[pipeline] [WARN] revalidate webhook failed:', err)
-  }
-}
-
 export type ProductionDepsOverrides = {
   /** Test-only seam: the real adapters run against a fake network instead of the real one. */
   readonly transport?: Transport
@@ -181,6 +159,6 @@ export function createProductionDeps(env: Env, overrides: ProductionDepsOverride
     sources: (week: IsoWeekParts) => createLiveSources({ kw: week.kw, year: week.year, transport: overrides.transport }),
     createClassificationDeps: (log) => buildClassificationDeps(env, log),
     storage: PRODUCTION_STORAGE,
-    revalidate: () => pingRevalidateWebhook(env),
+    revalidate: () => pingRevalidateWebhook(env, { fetch, log: (m) => console.log(m) }),
   }
 }

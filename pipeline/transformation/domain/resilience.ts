@@ -246,8 +246,144 @@ export function recordSuccess(): CircuitState {
  */
 export const REQUEST_TIMEOUT_MS = 60_000
 
-/** Whole-run ceiling, well under the Actions job limit. */
-export const RUN_TIMEOUT_MS = 45 * 60_000
+/**
+ * Whole-run ceiling — THE ONE DEFINITION OF THE STEP TIMEOUT.
+ *
+ * Must equal `timeout_minutes` on the "Categorize and store (with retry)"
+ * step in `pipeline.yml`. A second, uncoordinated number living only in the
+ * workflow file is how a threshold silently drifts from the code that is
+ * supposed to stay inside it — `alerts.ts`'s `run-slow` warning derives its
+ * own threshold from this constant for the same reason (F6, code review of
+ * the first WP-P3 submission) — see the config test in `config.test.ts`,
+ * which reads the workflow file and asserts the full deadline inequality
+ * below, not merely `RUN_DEADLINE_MS < RUN_TIMEOUT_MS`.
+ *
+ * 60, not 45 (F1 ruling, Tech Lead, 2026-09-16): raised alongside
+ * `RUN_DEADLINE_MS` dropping to 28 — see that constant's comment for why 45
+ * was unsafe. **After WP-P6 (judge concurrency) lands, this deadline must be
+ * RE-DERIVED from the same inequality with re-measured constants — 28 is not
+ * a magic number, it is 60 minus three OTHER measured numbers, and P6 is
+ * expected to shrink `MAX_CHUNK_MS` substantially.**
+ */
+export const RUN_TIMEOUT_MS = 60 * 60_000
+
+/**
+ * Duration of ONE classification chunk (100 products: tier-1 batches, judge
+ * escalations, enrichment) against the free tier's ~15 req/min pacing.
+ *
+ * N4 (code review, round 2): NOT a p99 — the first WP-P3 submission called it
+ * one, but it is the MAX of four chunks actually observed on run
+ * 34833209176 (attempt 2): 1042.9s, 1165.8s, 1064.7s, 313.4s. Four samples
+ * cannot support a percentile claim, and nothing here BOUNDS a chunk — a 429
+ * storm honouring `Retry-After` up to 90s per call (WP-P5's `ModelCallPolicy`)
+ * can push a real chunk past this. `checkChunkDuration` below WARNS the
+ * first time that happens instead of silently trusting a four-sample
+ * observation forever.
+ */
+export const MAX_CHUNK_MS = 19.5 * 60_000
+
+/**
+ * The WRITE TAIL: everything AFTER the last classification chunk returns —
+ * taxonomy resolution, product resolution, `storeDeals`, enrichment, v3
+ * cutover, the sweep, expiring old deals, `logRun`. THE PART THE FIRST
+ * WP-P3 SUBMISSION LEFT OUT OF THE ARITHMETIC (code review F1): T1 bounds
+ * the START of a classification chunk, never the process as a whole, so a
+ * deadline placed with only `MAX_CHUNK_MS` of headroom can still let the
+ * process overshoot `RUN_TIMEOUT_MS` by exactly this much.
+ *
+ * Measured against run 34833209176, attempt 2 (last classify chunk logged at
+ * 11:41:38, "Pipeline complete" at 11:50:53 — 9m15s) and cross-checked
+ * against run 34718508157. Logged as its own line every run
+ * (`runTransform`'s "write tail" log) so this number stays measurable from a
+ * normal run instead of rotting into folklore — WP-P7 will feed it into the
+ * stored run metrics.
+ *
+ * N4: SCALES WITH DEAL COUNT, not fixed. 9m15s over that run's ~1,500 deals
+ * ≈ 0.37s/deal. The live site was 1,213 deals when this constant was
+ * measured and is 1,523 and rising — at 0.37s/deal, ~3,000 deals ≈ 18.5 min,
+ * which alone would break the F1 inequality (28 + 19.5 + 18.5 + 2 = 68 > 60).
+ * Re-derive this constant from a fresh measurement at the THEN-current deal
+ * count, not from this comment — `checkWriteTailDuration` below WARNS when
+ * a real run exceeds it, so drift is caught rather than assumed away.
+ */
+export const WRITE_TAIL_MS = 9.5 * 60_000
+
+/** Headroom against measurement noise in `MAX_CHUNK_MS` and `WRITE_TAIL_MS`. */
+export const SAFETY_MARGIN_MS = 2 * 60_000
+
+/**
+ * N4 (code review, round 2): both constants above are OBSERVATIONS, not
+ * physical limits, and nothing forces them to stay true as the model's
+ * latency, the retry policy or the deal count changes. Making them DYNAMIC
+ * (re-measured and self-adjusting every run) is the wrong weight for a
+ * threshold nobody should need to think about weekly — it would hide a real
+ * regression behind a number that quietly absorbs it. A WARN, fired the
+ * moment a real run exceeds what the constant claims, is the right weight:
+ * loud enough that "the arithmetic behind the deadline no longer holds" is
+ * read in the log the FIRST time it stops holding, cheap enough to ship
+ * without a dashboard.
+ */
+const RUN_34833209176 = 'run 34833209176'
+
+/** `null` when `chunkMs` is within `MAX_CHUNK_MS`; otherwise a log-ready warning naming both the constant and the run it was measured from. */
+export function checkChunkDuration(chunkMs: number): string | null {
+  if (chunkMs <= MAX_CHUNK_MS) return null
+  return (
+    `chunk took ${(chunkMs / 1000).toFixed(1)}s — longer than MAX_CHUNK_MS ` +
+    `(${(MAX_CHUNK_MS / 1000).toFixed(1)}s, set from the max of four chunks on ${RUN_34833209176}). ` +
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant in transformation/domain/resilience.ts.'
+  )
+}
+
+/** `null` when `writeTailMs` is within `WRITE_TAIL_MS`; otherwise a log-ready warning naming both the constant and the run it was measured from. */
+export function checkWriteTailDuration(writeTailMs: number): string | null {
+  if (writeTailMs <= WRITE_TAIL_MS) return null
+  return (
+    `write tail took ${(writeTailMs / 1000).toFixed(1)}s — longer than WRITE_TAIL_MS ` +
+    `(${(WRITE_TAIL_MS / 1000).toFixed(1)}s, set from ${RUN_34833209176}, attempt 2, at ~1,500 deals). ` +
+    'The arithmetic behind RUN_DEADLINE_MS no longer holds — re-measure and update the constant in transformation/domain/resilience.ts.'
+  )
+}
+
+/**
+ * In-process deadline (WP-P3 / RCA T1): stop starting new classification
+ * chunks after this long, so the process can persist what it has and exit
+ * ON PURPOSE — with a chosen code — before `RUN_TIMEOUT_MS` kills it from
+ * outside.
+ *
+ * This is not cosmetic. Verified against nick-fields/retry's own source
+ * (`index.ts:91-120, 147`): a process killed by the external `timeout_minutes`
+ * is SIGTERM'd, its `exit` handler returns early for that signal
+ * (`index.ts:96-98`), and `exit` is never set — it stays 0. `retry_on_exit_code:
+ * 75` then requires `75 === exit` to retry (`index.ts:147`); 0 never matches,
+ * so an externally-killed run is NOT retried, it just fails. Calling
+ * `process.exit(75)` ourselves, before that line is crossed, is the only way
+ * `retry_on_exit_code` ever fires for a slow run.
+ *
+ * THE INVARIANT (F1 ruling): `RUN_DEADLINE_MS + MAX_CHUNK_MS + WRITE_TAIL_MS +
+ * SAFETY_MARGIN_MS ≤ RUN_TIMEOUT_MS`. Not "leaves N minutes for the write
+ * pipeline" as prose — `config.test.ts` asserts this exact sum, because a
+ * threshold at the kill line can never be observed, and prose that merely
+ * SOUNDS like it leaves room is exactly what let 35 (of the old 45) miss the
+ * write tail entirely: 28 + 19.5 + 9.5 + 2 = 59 ≤ 60.
+ */
+export const RUN_DEADLINE_MS = 28 * 60_000
+
+export type DeadlineCheck = { readonly withinDeadline: true } | { readonly withinDeadline: false; readonly reason: string }
+
+/**
+ * Pure: given "now" and the deadline, are we still inside the budget?
+ *
+ * No `Date.now()` in here — the caller supplies both, so a test can pin any
+ * point in the run without waiting on the wall clock (the same pattern
+ * `finishRun`'s injected `now` already established).
+ */
+export function checkDeadline(nowMs: number, deadlineAtMs: number): DeadlineCheck {
+  if (nowMs >= deadlineAtMs) {
+    return { withinDeadline: false, reason: `run deadline of ${new Date(deadlineAtMs).toISOString()} reached` }
+  }
+  return { withinDeadline: true }
+}
 
 /**
  * How much of a failed response body to keep in the error message.
