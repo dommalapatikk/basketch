@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { describe, expect, it } from 'vitest'
 import { isOk, unwrap } from '../../../collection/domain/result'
-import { createClassification, createConfidence } from '../../domain/classification'
+import { createClassification, createConfidence, markUncertain } from '../../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, normaliseForCache } from '../../domain/classification-cache'
 import {
   chunkByEncodedSize,
@@ -174,6 +174,51 @@ describe('rows are re-validated on READ', () => {
     const { client } = stubClient({ selectResult: { data: [row({ confidence: 1.7 })], error: null } })
     const r = await make(client).lookup(['k'])
     expect(isOk(r) && r.value).toEqual([])
+  })
+})
+
+/**
+ * WP-P6a — a cached uncertain row must rehydrate as uncertain.
+ *
+ * `createClassification` derives `isUncertain` from confidence alone
+ * (classification.ts: `confidence.value < LABEL_VISIBLE_ABOVE`). A
+ * judge-disputed classification can carry a high self-reported confidence —
+ * the classifier said 0.95 and the judge disputed it anyway — so re-deriving
+ * `isUncertain` purely from confidence on READ silently promotes a disputed
+ * row back to certain the moment it is served from the cache. `is_uncertain`
+ * is the column that exists to prevent exactly that; it must survive the
+ * round trip through both `save` and `lookup`.
+ */
+describe('a cached uncertain row rehydrates as uncertain, not as classified', () => {
+  it('round-trips is_uncertain through save and lookup even when confidence alone reads certain', async () => {
+    const { client, calls } = stubClient({})
+    const cache = createSupabaseClassificationCache({ client, versions: CURRENT_VERSIONS })
+
+    const disputed = unwrap(
+      createClassification({
+        category: 'dairy',
+        subCategory: 'dairy',
+        confidence: unwrap(createConfidence(0.95)),
+        tier: 1,
+        model: 'test',
+      }),
+    )
+    const uncertain = markUncertain(disputed)
+
+    await cache.save([
+      { cacheKey: 'emmi milch|t3|p1|s1', normalisedName: 'emmi milch', classification: uncertain, attributes: {}, runId: 'run-1' },
+    ])
+
+    const writtenRow = calls.upserted[0]?.[0] as Record<string, unknown>
+    expect(writtenRow.is_uncertain).toBe(true)
+
+    // Read it back through a FRESH cache instance, from the row the write
+    // actually produced — a read must not re-derive uncertainty from
+    // confidence alone.
+    const { client: readClient } = stubClient({ selectResult: { data: [writtenRow], error: null } })
+    const readCache = createSupabaseClassificationCache({ client: readClient, versions: CURRENT_VERSIONS })
+    const r = await readCache.lookup(['emmi milch|t3|p1|s1'])
+    expect(isOk(r) && r.value[0]?.classification.isUncertain).toBe(true)
   })
 })
 

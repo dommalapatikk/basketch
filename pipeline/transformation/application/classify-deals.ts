@@ -158,9 +158,24 @@ async function persistChunk(
   let enrichMs = 0
   let saveMs = 0
 
-  if (deps.enricher && enrich && classified.length > 0) {
+  // F2 (code review round 2, WP-P6a). Enrichment eligibility is gated on the
+  // CLASSIFICATION'S OWN `isUncertain`, not on the outcome's workflow status.
+  // 'classified' means "no judge dispute happened", not "certain" —
+  // `createClassification` already sets `isUncertain` from self-reported
+  // confidence alone (classification.ts), with no judge involved at all: no
+  // judge configured, sampled out on a cold start, or the escalation budget
+  // spent before this product's turn (classify-graph.ts's judge node returns
+  // `status: 'classified'` in all three cases, classification unchanged).
+  // Gating in-chunk enrichment on status while gating the backfill queue
+  // (`owedEnrichment` below) on `isUncertain` meant such a product COULD be
+  // enriched in-chunk but, if that attempt missed it, could never be
+  // revisited — a permanent loss of the storage facet (ADR-001). One
+  // predicate for both call sites: uncertain ⇒ no enrichment, full stop.
+  const enrichable = classified.filter((o) => !o.classification?.isUncertain)
+
+  if (deps.enricher && enrich && enrichable.length > 0) {
     const t0 = Date.now()
-    const toEnrich = classified.map((o) => ({
+    const toEnrich = enrichable.map((o) => ({
       request: o.request,
       // biome-ignore lint/style/noNonNullAssertion: filtered above
       subCategory: o.classification!.subCategory,
@@ -175,14 +190,56 @@ async function persistChunk(
     enrichMs = Date.now() - t0
   }
 
-  const toCache = classified.map((o) => ({
-    cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
-    normalisedName: normaliseForCache(o.request.productName),
-    // biome-ignore lint/style/noNonNullAssertion: filtered above
-    classification: o.classification!,
-    attributes: attributesByName.get(o.request.productName) ?? {},
-    runId: deps.runId,
-  }))
+  // WP-P6a. A judge-disputed outcome still carries a real, validated
+  // classification — `createClassification` refuses to build one without a
+  // category and sub-category (classification.ts). The only thing unsettled
+  // is whether the LABEL can be trusted, and that is exactly what caching it
+  // preserves. Without this, RCA item 9 measured the same 5-20% of every
+  // chunk re-classified AND re-judged every run, identically, at
+  // temperature 0 — the cache schema already carries `is_uncertain` for
+  // exactly this purpose (20260910_classification_cache.sql).
+  //
+  // A PROVIDER-FAILURE 'uncertain' — `classification === null`: a whole batch
+  // the tier-1 provider refused (classify-graph.ts:170, `!isOk(res)`) or one
+  // item within an otherwise-ok batch the provider gave no answer for
+  // (:179, `!o.ok`) — is excluded on purpose. Caching it would memoise an
+  // error as if it were an answer, and the next run would serve a permanent
+  // non-result instead of trying again. A THIRD null-classification shape,
+  // `status: 'skipped-budget'` (:148-151, the classify node's own budget
+  // guard), never reaches this filter at all — it is a different `status`
+  // value, not 'uncertain'.
+  //
+  // Deliberately NOT sent to enrichment above (see `enrichable`, F2): an
+  // uncertain sub-category is a guess, so its attribute schema is a guess on
+  // top of a guess — do not spend enrichment calls on it. Tech Lead ruling,
+  // WP-P6a.
+  const uncertainWithClassification = chunk.filter(
+    (o) => o.status === 'uncertain' && o.classification !== null,
+  )
+
+  const toCache = [
+    ...classified.map((o) => ({
+      cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
+      normalisedName: normaliseForCache(o.request.productName),
+      // biome-ignore lint/style/noNonNullAssertion: filtered above
+      classification: o.classification!,
+      attributes: attributesByName.get(o.request.productName) ?? {},
+      runId: deps.runId,
+    })),
+    ...uncertainWithClassification.map((o) => ({
+      cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
+      normalisedName: normaliseForCache(o.request.productName),
+      // markUncertain, not the outcome's own classification.isUncertain: the
+      // judge dispute is what makes this row uncertain, and the classifier's
+      // OWN confidence can still read above the visibility threshold — the
+      // cached row must say so, or the next run rehydrates it as certain.
+      // biome-ignore lint/style/noNonNullAssertion: filtered above
+      classification: markUncertain(o.classification!),
+      // Never enriched (see above), so there is nothing to carry here.
+      attributes: {},
+      runId: deps.runId,
+    })),
+  ]
 
   if (toCache.length > 0) {
     const t0 = Date.now()
@@ -341,7 +398,12 @@ export async function classifyDeals(
       const hit = cached.get(keys[i] as string)
       const key = keys[i] as string
       // Same rule as `misses`: one request per cache key, not per deal.
-      if (hit && needsEnrichment(hit) && !owedKeys.has(key)) {
+      // WP-P6a: a cached uncertain row is excluded here too, not only from
+      // the in-chunk enrichment above — otherwise it re-enters this backfill
+      // queue on every warm run forever (its attributes never leave `{}`,
+      // because nothing is ever allowed to fill them), spending quota on a
+      // sub-category that is itself a guess.
+      if (hit && !hit.isUncertain && needsEnrichment(hit) && !owedKeys.has(key)) {
         owedKeys.add(key)
         owedEnrichment.push({ deal, key, subCategory: hit.subCategory })
       }

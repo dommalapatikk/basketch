@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { UnifiedDeal } from '../../../shared/types'
-import { err, ok, unwrap } from '../../collection/domain/result'
+import { err, isOk, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
@@ -155,6 +155,192 @@ describe('nothing is ever dropped for being uncertain (D3)', () => {
     expect(r.deals[0]?.isUncertain).toBe(false)
     expect(r.stats.uncertain).toBe(0)
     expect(r.stats.classified).toBe(1)
+  })
+})
+
+/**
+ * WP-P6a — cache `uncertain` classification outcomes (RCA item 9, D4).
+ *
+ * THE DEFECT. `persistChunk` (classify-deals.ts) used to cache only
+ * `status === 'classified'`. Every 'uncertain' outcome — 5-20% of a chunk,
+ * measured — was therefore re-classified AND re-judged on every run,
+ * identically, at temperature 0. The cache schema already carries
+ * `is_uncertain` for exactly this purpose (20260910_classification_cache.sql).
+ *
+ * Scope, as the Tech Lead ruled it: cache an 'uncertain' outcome only when it
+ * carries a real classification. A provider-failure 'uncertain' — parse
+ * failure, circuit open, judge unavailable — has `classification: null`
+ * (classify-graph.ts:171,179) and must never be cached: that would memoise an
+ * error as if it were an answer.
+ */
+describe('caching uncertain outcomes (WP-P6a)', () => {
+  const alwaysDisputes = {
+    name: 'sceptic',
+    async judge() {
+      return { verdict: 'wrong' as const, tokens: 0 }
+    },
+  }
+
+  it('an uncertain outcome that carries a classification is cached, so it is not re-judged next run', async () => {
+    const cache = createInMemoryCache()
+    let judgeCalls = 0
+    const countingJudge = {
+      name: 'sceptic',
+      async judge() {
+        judgeCalls++
+        return { verdict: 'wrong' as const, tokens: 0 }
+      },
+    }
+
+    const first = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never })
+    expect(first.deals[0]?.isUncertain).toBe(true)
+    expect(first.stats.uncertain).toBe(1)
+    expect(judgeCalls).toBe(1)
+
+    // Same product, second run, same cache. If it is genuinely cached, this
+    // must be a hit — no second call to the classifier's judge.
+    const second = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never })
+    expect(second.stats.cacheHits).toBe(1)
+    expect(second.deals[0]?.isUncertain).toBe(true)
+    expect(judgeCalls).toBe(1)
+  })
+
+  it('a provider-failure uncertain is not cached — that would be caching an error', async () => {
+    const cache = createInMemoryCache()
+    const failing: Classifier = {
+      name: 'down',
+      tier: 1,
+      batchSize: 25,
+      async classify() {
+        return { ok: false, error: 'provider-unavailable: 503' }
+      },
+    }
+
+    const r = await run([deal('Emmi Milch')], { cache, tier1: failing })
+    expect(r.stats.heldBack).toBe(1)
+
+    const lookup = await cache.lookup([cacheKeyFor('Emmi Milch', CURRENT_VERSIONS)])
+    expect(isOk(lookup) && lookup.value).toEqual([])
+  })
+
+  it('a cached uncertain row rehydrates as uncertain, not as classified', async () => {
+    const cache = createInMemoryCache()
+    await run([deal('Emmi Milch')], { cache, judge: alwaysDisputes as never })
+
+    // A fresh run reads the memo back. It must not silently promote the label
+    // to certain just because nothing disputed it THIS time — the cache is a
+    // memo of the settled answer, and the settled answer was disputed.
+    const rehydrated = await run([deal('Emmi Milch')], { cache })
+    expect(rehydrated.stats.cacheHits).toBe(1)
+    expect(rehydrated.deals[0]?.isUncertain).toBe(true)
+    expect(rehydrated.stats.uncertain).toBe(1)
+    expect(rehydrated.stats.classified).toBe(0)
+  })
+
+  it('enrichment still skips uncertain products — an uncertain sub-category is a guess', async () => {
+    const cache = createInMemoryCache()
+    const seed = Array.from({ length: 12 }, (_, i) => deal(`Vorrat ${i} Produkt`))
+    await run(seed, { cache })
+
+    const seenNames: string[] = []
+    const enricher = {
+      async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
+        const attributes = new Map<string, Record<string, unknown>>()
+        for (const i of items) {
+          seenNames.push(i.request.productName)
+          attributes.set(i.request.productName, { fatPercent: 3.5 })
+        }
+        return { attributes, tokens: 0 }
+      },
+    }
+
+    // Run 1: warm (seed is cached), enrichment affordable — but the product
+    // itself is disputed and lands uncertain.
+    const first = await run([...seed, deal('Emmi Milch')], {
+      cache,
+      enricher: enricher as never,
+      judge: alwaysDisputes as never,
+    })
+    expect(first.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
+
+    // Run 2: now a cache hit, still warm, enrichment still affordable. The
+    // uncertain row must not be queued for backfill either — its attribute
+    // schema is a guess on top of a disputed sub-category.
+    const second = await run([...seed, deal('Emmi Milch')], { cache, enricher: enricher as never })
+    expect(second.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
+  })
+})
+
+/**
+ * F2 (code review round 2, WP-P6a).
+ *
+ * The in-chunk enrichment gate and the backfill gate used to disagree. In
+ * chunk: `status === 'classified'`. Backfill (`owedEnrichment`):
+ * `!hit.isUncertain`. `status === 'classified'` is not the same thing as
+ * "certain" — `createClassification` sets `isUncertain` from self-reported
+ * confidence ALONE, with no judge involved: no judge configured, sampled out
+ * on a cold start, or the escalation budget spent before this product's turn
+ * all leave the outcome at `status: 'classified'` while its OWN confidence
+ * already reads below the visibility threshold. Such a product could be
+ * enriched in-chunk under the old code but never backfilled if that attempt
+ * missed it — a permanent loss of the storage facet (ADR-001). Chose: gate
+ * BOTH on the classification's `isUncertain` (Tech Lead's reading —
+ * "uncertain ⇒ no enrichment").
+ */
+describe('the enrichment gate matches the backfill gate (F2)', () => {
+  it('a classified product with self-reported low confidence never reaches enrichment — in-chunk or backfill — same as a judge-disputed one', async () => {
+    const cache = createInMemoryCache()
+    const seed = Array.from({ length: 12 }, (_, i) => deal(`Vorrat ${i} Produkt`))
+    await run(seed, { cache })
+
+    // No judge dispute at all — status ends up 'classified' — but the
+    // classifier's OWN confidence (0.4) is below LABEL_VISIBLE_ABOVE (0.7),
+    // so classification.isUncertain is already true.
+    const lowConfidence: Classifier = {
+      name: 'unsure',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        return ok(
+          batch.map((request): ClassificationOutcome => ({
+            ok: true,
+            request,
+            classification: cls('dairy', 'dairy', 0.4),
+          })),
+        )
+      },
+    }
+
+    const seenNames: string[] = []
+    const enricher = {
+      async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
+        const attributes = new Map<string, Record<string, unknown>>()
+        for (const i of items) {
+          seenNames.push(i.request.productName)
+          attributes.set(i.request.productName, { fatPercent: 3.5 })
+        }
+        return { attributes, tokens: 0 }
+      },
+    }
+
+    // Run 1: freshly classified, status 'classified', but self-reported
+    // uncertain. Must not reach in-chunk enrichment.
+    const first = await run([...seed, deal('Emmi Milch')], {
+      cache,
+      tier1: lowConfidence,
+      judge: null,
+      enricher: enricher as never,
+    })
+    expect(first.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
+
+    // Run 2: now a cache hit, still warm, enrichment still affordable. Must
+    // not be queued for backfill either — the same rule, the same product.
+    const second = await run([...seed, deal('Emmi Milch')], { cache, enricher: enricher as never })
+    expect(second.deals.find((d) => d.productName === 'Emmi Milch')?.isUncertain).toBe(true)
+    expect(seenNames).not.toContain('Emmi Milch')
   })
 })
 
