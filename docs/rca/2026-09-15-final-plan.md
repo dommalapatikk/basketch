@@ -568,6 +568,14 @@ counts, so a second real flyer will show whether they bite):
 
 ### Lane W: web
 
+**Standing weakness found during WP-W3 review (own ticket, not blocking):** nine e2e assertions in
+`web-next/e2e/v2-acceptance.spec.ts` (`:53, 96, 161, 197, 227, 242, 258, 323, 375`) are
+`test.skip(count === 0, …)` / `test.skip(status >= 400, …)` against LIVE Supabase data. A page that
+renders zero cards turns them green by skipping — **a test that cannot fail exactly when it matters
+most**. WP-W2/W3 make this likelier to bite, because their whole purpose is that fewer deals
+qualify. Fix shape: assert a minimum expected count (or fail on zero) instead of skipping, so an
+empty site is a red run. Watch for it when reading any "46 passed / 14 skipped" line.
+
 **WP-W1: Commit the #3 copy change (already in the working tree)**
 - **Files:** `web-next/src/messages/{en,de,fr,it}.json` (`subtitle_cold_start` = first sentence only;
   `cold_start_cta` removed), `components/landing/WorthPickingUp.tsx`, `WorthPickingUp.test.tsx` (untracked).
