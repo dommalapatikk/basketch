@@ -106,6 +106,17 @@ export const MIN_REFRESH_SHARE = 0.5
 // `store.ts` turns a plan into the actual query: `.gte(min).lte(max)` scopes
 // the range at the database, `.in('valid_from', […])` restricts it further
 // to exactly the sweepable windows the plan computed.
+//
+// A NOTE ON WHAT CLAUSE (b) CANNOT SEE. Clause (b) protects an unwritten
+// in-range window using only the RANGE'S aggregate share — it has no
+// per-window number for that date, because nothing was written to it. If two
+// DIFFERENT, independently-scheduled publications ever shared a store and
+// overlapped so that an unwritten window belonged to a still-running
+// publication this run did not touch at all (rather than to the one it did),
+// clause (b) could not tell the difference and would judge that window by
+// the wrong range's share. No current retailer's schedule produces that
+// overlap — each store publishes one flyer edition at a time — so this is a
+// documented limit of the model, not a live defect.
 
 export type StoreSweepPlan = {
   /** `[min, max]` of the valid_from dates this run wrote for this store. */

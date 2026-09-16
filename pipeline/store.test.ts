@@ -31,11 +31,14 @@ function createUpdateChain(result: UpdateChainResult) {
 }
 
 // A `.select().eq().gte().order().range()` read chain — activeCountsByWindow
-// (F1). `range` is the terminal call and resolves one PAGE per invocation, in
-// order, so pagination can be exercised.
+// (F1/N2). `range` is the terminal call and resolves one PAGE per
+// invocation, in order, repeating the LAST page if called more times than
+// pages supplied — which is what makes "a repeated page" easy to model: give
+// it exactly one page and let the chain hand it back forever.
 type SelectPage = {
   data: { store: string; valid_from: string }[] | null
   error: { message: string; details?: string; hint?: string } | null
+  count?: number | null
 }
 
 function createSelectChain(pages: SelectPage[]) {
@@ -535,14 +538,21 @@ describe('storeDeals reports what the database accepted, not what it was handed'
   })
 })
 
-describe('activeCountsByWindow — live counts read BEFORE this run writes anything (F1)', () => {
+describe('activeCountsByWindow — live counts read BEFORE this run writes anything (F1/N2)', () => {
   /**
    * F1, 2026-09-15. The prior `activeDealCountByStore` called `.limit(10_000)`
    * and was read AFTER `storeDeals` — both wrong. PostgREST silently caps an
-   * unpaginated read at its configured `db-max-rows` (commonly 1000)
-   * regardless of `.limit()`; a store past that point looked like it had
-   * fewer live rows than it really did, which is the wrong direction for a
-   * guard that exists to refuse sweeping too much.
+   * unpaginated read at its configured `db-max-rows` regardless of
+   * `.limit()`; a store past that point looked like it had fewer live rows
+   * than it really did, which is the wrong direction for a guard that exists
+   * to refuse sweeping too much.
+   *
+   * N2, 2026-09-16 (re-review). Stopping pagination on "this page came back
+   * shorter than 1000" assumes the SERVER's own cap is at least 1000. If it
+   * is lower, every page looks short from page one and the loop stops having
+   * silently missed rows — the identical undercount F1 exists to prevent,
+   * one layer down. `{ count: 'exact' }` gives an independent total to check
+   * the paginated sum against.
    */
   beforeEach(() => {
     vi.clearAllMocks()
@@ -558,36 +568,40 @@ describe('activeCountsByWindow — live counts read BEFORE this run writes anyth
             { store: 'lidl', valid_from: '2026-09-17' },
           ],
           error: null,
+          count: 3,
         },
-        { data: [], error: null },
       ]),
     )
 
-    const counts = await activeCountsByWindow()
+    const result = await activeCountsByWindow()
 
-    expect(counts?.get('aldi')).toEqual(new Map([['2026-09-17', 2]]))
-    expect(counts?.get('lidl')).toEqual(new Map([['2026-09-17', 1]]))
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.counts.get('aldi')).toEqual(new Map([['2026-09-17', 2]]))
+    expect(result.counts.get('lidl')).toEqual(new Map([['2026-09-17', 1]]))
   })
 
   it('a store past row 1000 is not a first run — pagination sums across pages instead of truncating', async () => {
     const page1 = Array.from({ length: 1000 }, () => ({ store: 'coop', valid_from: '2026-09-08' }))
     const page2 = Array.from({ length: 500 }, () => ({ store: 'coop', valid_from: '2026-09-08' }))
     const chain = createSelectChain([
-      { data: page1, error: null },
-      { data: page2, error: null },
+      { data: page1, error: null, count: 1500 },
+      { data: page2, error: null, count: 1500 },
     ])
     mockSelectDeals.mockReturnValue(chain)
 
-    const counts = await activeCountsByWindow()
+    const result = await activeCountsByWindow()
 
-    expect(counts?.get('coop')?.get('2026-09-08')).toBe(1500)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('expected ok')
+    expect(result.counts.get('coop')?.get('2026-09-08')).toBe(1500)
     expect(chain.range).toHaveBeenCalledTimes(2)
     expect(chain.range).toHaveBeenNthCalledWith(1, 0, 999)
     expect(chain.range).toHaveBeenNthCalledWith(2, 1000, 1999)
   })
 
   it('reads in a deterministic order — pagination without one can skip or repeat rows', async () => {
-    const chain = createSelectChain([{ data: [], error: null }])
+    const chain = createSelectChain([{ data: [], error: null, count: 0 }])
     mockSelectDeals.mockReturnValue(chain)
 
     await activeCountsByWindow()
@@ -595,21 +609,61 @@ describe('activeCountsByWindow — live counts read BEFORE this run writes anyth
     expect(chain.order).toHaveBeenCalledWith('id')
   })
 
-  it('an unreadable count returns null, never an empty map, and logs .details/.hint', async () => {
+  it('an unreadable count is never a bare empty map, and logs .details/.hint', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const chain = createSelectChain([
       { data: null, error: { message: 'connection reset', details: 'upstream closed', hint: 'retry' } },
     ])
     mockSelectDeals.mockReturnValue(chain)
 
-    const counts = await activeCountsByWindow()
+    const result = await activeCountsByWindow()
 
-    expect(counts).toBeNull()
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected not ok')
+    expect(result.error.message).toBe('connection reset')
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('active window counts'),
       'connection reset',
       { details: 'upstream closed', hint: 'retry' },
     )
     errorSpy.mockRestore()
+  })
+
+  it('a server page cap below 1000 undercounts — the sweep guard must refuse, not permit (N2)', async () => {
+    // The server's real cap is 500: every page it returns is short of the
+    // 1000 we asked for, so the OLD "page shorter than requested = done"
+    // rule stops after page 1 having missed 1000 rows. The independently-
+    // computed `count: 'exact'` total (1500) catches the mismatch.
+    const chain = createSelectChain([
+      {
+        data: Array.from({ length: 500 }, () => ({ store: 'coop', valid_from: '2026-09-08' })),
+        error: null,
+        count: 1500,
+      },
+    ])
+    mockSelectDeals.mockReturnValue(chain)
+
+    const result = await activeCountsByWindow()
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected not ok')
+    expect(result.error.message).toContain('1500')
+  })
+
+  it('a repeated page terminates instead of looping forever (N2)', async () => {
+    // Only ONE page is supplied; createSelectChain hands it back on every
+    // subsequent call, modelling a server or mock that ignores `range()`
+    // and repeats the same full page forever. Without a page cap this never
+    // resolves.
+    const chain = createSelectChain([
+      { data: Array.from({ length: 1000 }, () => ({ store: 'coop', valid_from: '2026-09-08' })), error: null, count: 999_999 },
+    ])
+    mockSelectDeals.mockReturnValue(chain)
+
+    const result = await activeCountsByWindow()
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('expected not ok')
+    expect(chain.range).toHaveBeenCalledTimes(50)
   })
 })

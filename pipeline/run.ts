@@ -443,9 +443,22 @@ async function main(): Promise<void> {
   // (store.ts): PostgREST silently caps an unpaginated read at its
   // configured max-rows — a `.limit(10_000)` call that quietly returns 1000
   // rows is why the old share guard was inert for exactly the row range
-  // that mattered. `null` means the read failed; sweepPlan below treats
-  // that as "sweep nothing", never as "nothing is live".
-  const liveByWindowBeforeWrite = await activeCountsByWindow()
+  // that mattered.
+  const liveCountsResult = await activeCountsByWindow()
+  if (!liveCountsResult.ok) {
+    // N1, 2026-09-16 (re-review). Without this the plan below is silently
+    // empty and every collected store is logged as "collected but stored
+    // nothing this run" — the true cause (the live-count READ failed, not
+    // the write) never reaches the operator. HANDOVER §3: "blind by our own
+    // hand" is this exact shape.
+    console.warn(
+      `[pipeline] [WARN] Live counts unreadable — stale sweep skipped for all stores: ${liveCountsResult.error.message}`,
+      { details: liveCountsResult.error.details, hint: liveCountsResult.error.hint },
+    )
+  }
+  // `null` here — never an empty map — is what tells sweepPlan below to
+  // sweep NOTHING, rather than reading "we don't know" as "nothing is live".
+  const liveByWindowBeforeWrite = liveCountsResult.ok ? liveCountsResult.counts : null
 
   // Store deals (now with categorySlug attached) + product_id references
   const writeResult = await storeDeals(resolved, productIds)
@@ -502,14 +515,20 @@ async function main(): Promise<void> {
     liveByWindow: liveByWindowBeforeWrite,
   })
 
-  const skipped = collectionSucceeded.filter((s) => !plan.has(s))
-  if (skipped.length > 0) {
-    // Loud: a store that collected but wrote nothing this run is a real
-    // failure, and keeping its previous week visible is a deliberate
-    // fallback, not a no-op.
-    console.error(
-      `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
-    )
+  // N1: when the live-count read failed, `plan` is empty for a reason that
+  // has nothing to do with any individual store — the WARN above already
+  // said so. Looping every collected store through the "stored nothing"
+  // message here would blame the write for a read failure (HANDOVER §3).
+  if (liveCountsResult.ok) {
+    const skipped = collectionSucceeded.filter((s) => !plan.has(s))
+    if (skipped.length > 0) {
+      // Loud: a store that collected but wrote nothing this run is a real
+      // failure, and keeping its previous week visible is a deliberate
+      // fallback, not a no-op.
+      console.error(
+        `[pipeline] [ERROR] NOT sweeping ${skipped.join(', ')} — collected but stored nothing this run. Their previous deals stay visible rather than being switched off.`,
+      )
+    }
   }
 
   // The blunt backstop, above and beyond the per-store plan: if the write

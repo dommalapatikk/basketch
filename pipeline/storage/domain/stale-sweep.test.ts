@@ -118,19 +118,22 @@ describe('sweepPlan — which stores, and which of their windows, may be swept',
   })
 
   it('a Coop card whose start date moved is swept', () => {
-    // A card previously live under 08.9 was re-published under 10.9 in the
-    // same flyer. 08.9 was never written this run — clause (b) — but the
-    // run's write covers a healthy share of the whole 08.9–10.9 range, so
-    // the untouched 08.9 rows (the old, superseded card) may be swept.
+    // 08.9 and 10.9 ARE written this run — 300 of a live 320 (clause (a),
+    // healthy) and 20 into a fresh window (clause (a), trivially fine,
+    // nothing live yet). 09.9 is the OLD date: five cards that used to carry
+    // a 09.9 start date and now appear (this run) dated 08.9 or 10.9
+    // instead — their start date MOVED. 09.9 itself is never written this
+    // run, so it has no per-window number of its own; clause (b) judges it
+    // on the WHOLE range's share (320 written of 325 live ≈ 98%, healthy),
+    // which is what lets the old date be swept without ever being
+    // individually re-written.
     const plan = sweepPlan({
       collectionSucceeded: ['coop'],
       writtenByWindow: counts({ coop: { '2026-09-08': 300, '2026-09-10': 20 } }),
       liveByWindow: counts({ coop: { '2026-09-08': 320, '2026-09-09': 5, '2026-09-10': 0 } }),
     })
-    // 09.9 and 10.9 were untouched by the write but sit inside the range —
-    // both are covered by the same whole-range clause.
-    expect(plan.get('coop')?.windows.has('2026-09-09')).toBe(true)
-    expect(plan.get('coop')?.windows.has('2026-09-08')).toBe(true)
+    expect(plan.get('coop')?.windows.has('2026-09-09')).toBe(true) // the old, moved-off date — clause (b)
+    expect(plan.get('coop')?.windows.has('2026-09-08')).toBe(true) // written in full — clause (a)
   })
 
   it("a Coop card's untouched date is not swept when the whole range's share is poor, even beside two healthy written windows", () => {
@@ -163,16 +166,23 @@ describe('sweepPlan — which stores, and which of their windows, may be swept',
   })
 
   /**
-   * F1, THE COMPOSITION-LEVEL CASE. A 1,523-row live snapshot across seven
-   * stores, shaped so ALDI and LIDL would have been BLOCKED on 14.9 had this
-   * run's write landed in the same range as an already-populated one: ALDI
-   * wrote 127 of 270 live in its range (≈47%), LIDL wrote 74 of 154 (≈48%) —
-   * both below MIN_REFRESH_SHARE. The old store-level guard compared against
-   * ONLY this-week's disjoint 143/80/69 counts (outside the range entirely)
-   * and would have passed both; this plan compares against what is actually
-   * live INSIDE the range being swept, and blocks them.
+   * NOT a replay of the real 14.9 incident (item #10) — ALDI's and LIDL's
+   * actual next-week windows held 0 live rows before that write, a first
+   * publication, so the RANGE clause alone already protects them (see "a
+   * next-week flyer does not deactivate..." above), no share math needed.
+   *
+   * This is a deliberately constructed, realistic-scale stress test of the
+   * PER-WINDOW share clause (a) instead: a retry into a window an EARLIER
+   * attempt this same run-window had already substantially populated — say
+   * ALDI's and LIDL's 17.9 pages, fetched once, then re-fetched after a
+   * partial failure and only partly re-parsed. Re-writing a thin fraction of
+   * an already-healthy window must not license sweeping the rest of it, at a
+   * scale bigger than the small fixtures above (hundreds of rows, seven
+   * stores). ALDI writes 127 of a live 270 (≈47%), LIDL 74 of 154 (≈48%) —
+   * both below MIN_REFRESH_SHARE and blocked. SPAR, which re-wrote its
+   * window in full, is the control and must still be swept.
    */
-  it('a run that under-refreshes its own publication range is blocked — the 1,523-row snapshot', () => {
+  it('a thin write into an already-populated window is blocked', () => {
     const liveByWindow = counts({
       aldi: { '2026-09-17': 270 },
       lidl: { '2026-09-17': 154 },
@@ -182,11 +192,6 @@ describe('sweepPlan — which stores, and which of their windows, may be swept',
       migros: { '2026-09-08': 280 },
       volg: { '2026-09-16': 83 },
     })
-    const totalLive = [...liveByWindow.values()].reduce(
-      (sum, byWindow) => sum + [...byWindow.values()].reduce((a, b) => a + b, 0),
-      0,
-    )
-    expect(totalLive).toBe(1523)
 
     const plan = sweepPlan({
       collectionSucceeded: ['aldi', 'lidl', 'spar'],

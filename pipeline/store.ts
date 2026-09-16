@@ -305,60 +305,125 @@ export async function deactivateStaleForStores(
   return count
 }
 
+/** Why a live-count read could not be trusted — carried up so the caller can log it, not just react to it. */
+export type UnreadableCount = {
+  readonly message: string
+  readonly details?: string
+  readonly hint?: string
+}
+
+export type ActiveCountsResult =
+  | { readonly ok: true; readonly counts: Map<string, Map<string, number>> }
+  | { readonly ok: false; readonly error: UnreadableCount }
+
+const LIVE_COUNT_PAGE_SIZE = 1000
+
+/**
+ * How many pages `activeCountsByWindow` will follow before refusing to
+ * guess. 50 pages × 1000 rows = 50,000 — this table holds a few thousand
+ * rows at the scale this project runs at (CLAUDE.md: 10-50 users, free
+ * tier); a real run never gets close. It exists purely so a page that never
+ * shrinks — a mock, or a server bug, repeating the same page — terminates
+ * instead of looping forever (N2, 2026-09-16: the reviewer's own
+ * repeated-page mutation hung on the previous unbounded `for (;;)`).
+ */
+const MAX_LIVE_COUNT_PAGES = 50
+
+function unreadableFromPostgrestError(error: { message: string; details?: string; hint?: string }): UnreadableCount {
+  return { message: error.message, details: error.details, hint: error.hint }
+}
+
+/** One page of the active-window read — the `.select` projection and filters live in exactly one place. */
+function fetchLiveCountsPage(today: string, from: number) {
+  return supabase
+    .from('deals')
+    .select('store, valid_from', { count: 'exact' })
+    .eq('is_active', true)
+    .gte('valid_to', today)
+    .order('id')
+    .range(from, from + LIVE_COUNT_PAGE_SIZE - 1)
+}
+
+function accumulatePage(
+  counts: Map<string, Map<string, number>>,
+  page: readonly { store: string; valid_from: string }[],
+): void {
+  for (const row of page) {
+    const forStore = counts.get(row.store) ?? new Map<string, number>()
+    forStore.set(row.valid_from, (forStore.get(row.valid_from) ?? 0) + 1)
+    counts.set(row.store, forStore)
+  }
+}
+
 /**
  * How many active, unexpired deals exist per (store, valid_from) window,
  * read BEFORE this run writes anything (F1, 2026-09-15).
  *
- * PAGINATED, in a deterministic order. PostgREST caps a single request's
- * rows at its configured `db-max-rows` (commonly 1000) regardless of
- * `.limit()`, SILENTLY — no error, just fewer rows than asked for. The prior
- * version called `.limit(10_000)` and never noticed it was only ever
- * receiving up to 1000: past that point every store looked like it had
- * fewer live rows than it really did, which is the wrong direction for a
- * guard whose whole job is refusing to sweep too much.
+ * PAGINATED, in a deterministic order, with the actual row count requested
+ * alongside the page (`{ count: 'exact' }`). PostgREST caps a single
+ * request's rows at its configured `db-max-rows` regardless of `.limit()`,
+ * SILENTLY — no error, just fewer rows than asked for. Stopping the loop on
+ * "this page came back shorter than 1000" (the original F1 fix) is not
+ * enough on its own: if the SERVER's own cap is lower than 1000, every page
+ * looks "short" from row one, and the loop would stop after page 1 having
+ * silently missed everything past the server's cap — the exact same
+ * undercount F1 exists to prevent, one layer down (N2, 2026-09-16). The
+ * `count: 'exact'` total is computed by Postgres independently of any page
+ * size, so comparing it against what was actually paginated catches this:
+ * a mismatch is treated as unreadable, not as "that's all there is".
  *
  * Read is per (store, valid_from), not per store — the F1/F3/F4 sweep plan
  * needs to compare a run's write against what was live IN THE SAME WINDOW,
  * not the store's grand total, which could span an unrelated publication.
  *
- * Returns `null` — never an empty map — on any read error, so the caller
- * (`sweepPlan`) can tell "genuinely nothing live" from "we don't know" and
+ * Returns `{ ok: false }` — never a bare empty map — on any read error, an
+ * unresolvable page-count mismatch, or exceeding `MAX_LIVE_COUNT_PAGES`, so
+ * the caller can tell "genuinely nothing live" from "we don't know" and
  * sweep NOTHING rather than guess. A guard that reads "don't know" as
  * "nothing live" permits sweeping on a lie — the same defect class as #5,
  * one level up the call chain.
  */
-const LIVE_COUNT_PAGE_SIZE = 1000
-
-export async function activeCountsByWindow(): Promise<Map<string, Map<string, number>> | null> {
+export async function activeCountsByWindow(): Promise<ActiveCountsResult> {
   const counts = new Map<string, Map<string, number>>()
   const today = new Date().toISOString().slice(0, 10)
   let from = 0
+  let rowsSeen = 0
+  let reportedTotal: number | null = null
 
-  for (;;) {
-    const { data, error } = await supabase
-      .from('deals')
-      .select('store, valid_from')
-      .eq('is_active', true)
-      .gte('valid_to', today)
-      .order('id')
-      .range(from, from + LIVE_COUNT_PAGE_SIZE - 1)
+  for (let pagesFetched = 1; ; pagesFetched++) {
+    if (pagesFetched > MAX_LIVE_COUNT_PAGES) {
+      const error = { message: `exceeded ${MAX_LIVE_COUNT_PAGES} pages (${MAX_LIVE_COUNT_PAGES * LIVE_COUNT_PAGE_SIZE} rows) without finishing` }
+      console.error('[storage] [ERROR] Could not read active window counts:', error.message)
+      return { ok: false, error }
+    }
+
+    const { data, error, count } = await fetchLiveCountsPage(today, from)
 
     if (error) {
-      const { details, hint } = error
-      console.error('[storage] [ERROR] Could not read active window counts:', error.message, { details, hint })
-      return null
+      const unreadable = unreadableFromPostgrestError(error)
+      console.error('[storage] [ERROR] Could not read active window counts:', unreadable.message, {
+        details: unreadable.details,
+        hint: unreadable.hint,
+      })
+      return { ok: false, error: unreadable }
     }
 
+    if (count != null) reportedTotal = count
     const page = (data ?? []) as { store: string; valid_from: string }[]
-    for (const row of page) {
-      const forStore = counts.get(row.store) ?? new Map<string, number>()
-      forStore.set(row.valid_from, (forStore.get(row.valid_from) ?? 0) + 1)
-      counts.set(row.store, forStore)
-    }
+    rowsSeen += page.length
+    accumulatePage(counts, page)
 
     if (page.length < LIVE_COUNT_PAGE_SIZE) break
     from += LIVE_COUNT_PAGE_SIZE
   }
 
-  return counts
+  if (reportedTotal !== null && rowsSeen !== reportedTotal) {
+    const error = {
+      message: `paginated ${rowsSeen} rows but the server reports ${reportedTotal} live — a page cap below ${LIVE_COUNT_PAGE_SIZE} may have truncated a page silently`,
+    }
+    console.error('[storage] [ERROR] Could not read active window counts:', error.message)
+    return { ok: false, error }
+  }
+
+  return { ok: true, counts }
 }
