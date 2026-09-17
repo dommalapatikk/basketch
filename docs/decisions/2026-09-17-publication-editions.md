@@ -47,6 +47,14 @@ for this ADR found the answer is no, for both:
   same finding independently: *"on Mon 14.9 the ALDI catalogue carried both the 17.9 and 21.9 cycles
   (live: 70 + 57 offers)"*. One `data.json` fetch returns both cycles' offers, each carrying its own
   per-page validity window (`parseCycleStart`) — there is nothing a second fetch would add.
+  **The decisive fact, which rules out the one scenario that would break this design:** the
+  wrongly-fetched Mon 14.9 run requested the KW38 catalogue — content starting **Thursday 17.9,
+  three days later** — and both cycles (17.9 *and* the following Monday 21.9) were already present
+  in that single fetch, three days *before* the catalogue's own Thursday start. If ALDI only
+  populated its Monday cycle into the catalogue partway through the week, a single upfront
+  Thursday fetch could miss it; the measured evidence is the opposite — both cycles are complete
+  the moment the catalogue itself becomes fetchable. That is what makes the no-`cycle`-field design
+  safe, not merely convenient.
 - **Volg's "fresh" section is a validity window inside one publication, not a second one.**
   `volg-html-source.ts`'s own header: *"THREE sections with DIFFERENT validity windows.
   'Frische-Aktionen' runs Wed–Sat while 'Volg-Aktionen' and 'Weitere Aktionen' run Mon–Sat."* One
@@ -124,6 +132,14 @@ only ever one `Edition` to fetch in the first place.
 ## Rejected alternatives
 
 - **A `cycle` field on `Edition`.** Rejected above — no retailer's real publication needs it.
+  **The fallback cost, named explicitly:** if a future ALDI (or Volg) flyer capture ever shows its
+  two cycles split into genuinely separate publications, the cost of having chosen no `cycle` field
+  now is not "add the field back" — by then WP-J2's `collection_edition` table will exist with
+  primary key `(retailer, publication)`, and `publication` alone will have stopped being unique for
+  that retailer. Recovering means a primary-key migration on a live table, not a one-line type
+  change. That cost is accepted here because the evidence for "one publication" is measured, not
+  assumed (see the decisive fact above) — but it is the real cost, and worth naming rather than
+  discovering later.
 - **A shared `THURSDAY_ANCHORED_RETAILERS` list, imported by all four flyer adapters.** Rejected:
   collapses four independently-evidenced facts into one, and would need to be un-collapsed the day
   any one of the four retailers changes its cycle without the others.
@@ -143,6 +159,12 @@ only ever one `Edition` to fetch in the first place.
   twice per collection — once to read products, once more just to read `pdfUrl` off it
   (item 1 RCA, path f). `lidl-flyer-source.ts`'s `fetchOffers` now reads both out of the ONE response
   `deps.fetchFlyer` returns (`extractPdfUrl`), mutation-tested.
+- **A small semantic change, noted here because the code review found it undocumented:** a Lidl
+  flyer JSON carrying no `pdfUrl` now reports `source-changed` (the shape of the response is not
+  what was expected) rather than the earlier `source-unavailable` `live-sources.ts` used to raise
+  via its own `unavailable()` throw-and-catch. `source-changed` is the more accurate reason — the
+  fetch succeeded, the shape did not match — but it is a behaviour change for anything reading
+  `CollectionFailureReason` (alerts, the run summary), not merely a refactor.
 - **Not yet built:** the fetch ledger itself (WP-J2) — `decideFetch(edition, record)`, the
   `collection_edition` table, and the actual "never call `fetchOffers` twice for one edition"
   enforcement. This package makes the mechanical call unconditionally; WP-J2 inserts the gate.
@@ -151,3 +173,22 @@ only ever one `Edition` to fetch in the first place.
   place to correct — and the golden-master/URL tests in each adapter's own test file, plus
   `live-sources.test.ts`'s composition-root tests, will show a 404 or a wrong-week fetch immediately
   rather than silently.
+
+## Known gaps, carried forward to WP-J2 (not fixed in this package)
+
+- **CF-1: ALDI's dual-cycle bundling is not fixture-backed.** The committed fixture
+  (`aldi/__fixtures__/catalog-kw37-pages3-6.xml`) contains only the `AB DONNERSTAG, 10.9.` heading;
+  `AB MONTAG, 14.9.` exists only as a string literal in `parseCycleStart`'s own test and in this
+  ADR's prose, never in an offline fixture. Nothing in the committed test suite would go red if
+  ALDI ever split its cycles into two catalogues. Capture a Monday-cycle page from the next real
+  ALDI fetch and add it to the fixture set.
+- **CF-2: No year-boundary test for `isoWeekOfCycle`.** Verified by hand during code review:
+  `isoWeekOfCycle(new Date('2027-01-04'), 4)` (a Monday, Thursday anchor) correctly returns
+  `2026-W53` — the ISO year-53 case, canonical and correct. `IsoWeek` becomes a persisted primary
+  key in WP-J2, so this should be a committed regression test, not a one-off manual check that
+  leaves no trace once the reviewer's terminal closes.
+- **CF-3: `run-pipeline.ts`'s local `week` variable (feeding `collectOffers`'s `runWeek` display
+  argument) should probably not exist at all once per-source `SourceSpan.publication` (MUST-FIX 1)
+  is the field anyone actually reads.** Kept for this package because removing the run-level display
+  week is a product decision about what the step summary heading shows, not a mechanical follow-on
+  of this fix.
