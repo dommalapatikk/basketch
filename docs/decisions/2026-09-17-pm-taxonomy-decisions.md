@@ -77,6 +77,43 @@ a plain file both halves of the repo can read despite `web-next` being unable to
 import `shared/`. The file's existing header ("keep in sync with
 `pipeline/categorize.py`") names a file that no longer exists and must be corrected.
 
+### Amendment, 2026-09-17 — the guard mechanism named above was substituted
+
+**As built, the guard does NOT read a generated `.sql` artefact.** It is
+`shared/sub-category-labels.test.ts`, which imports
+`web-next/src/lib/sub-category-labels.ts` by relative path and asserts set equality
+against `BROWSE_CATEGORIES` in both directions.
+
+Recorded here rather than left in a code comment, because PM-2 named a specific
+mechanism and this is a deviation from it. Two reasons, both accepted on review:
+
+1. **The `.sql` artefact does not exist yet.** WP-T1 owns generating the DB seed
+   from `BROWSE_CATEGORIES`, and WP-T1 has not landed. Gating W5 on it would have
+   re-created the very dependency this decision exists to remove — and a guard that
+   reads a file nothing produces is a guard that passes because there is nothing to
+   check.
+2. **A direct import is strictly stronger than parsing an artefact.** It verifies
+   the exported binding rather than the text that produces it. The rejected
+   alternative — an `fs` + regex read — is a parser nobody tests, whose
+   characteristic failure is matching zero entries and passing silently. That is
+   fail-open by construction, which is the defect class this package closes.
+
+The import direction is the safe one: the `@shared/*` trap documented in CLAUDE.md
+is about alias resolution (`tsc` honours `paths`, the runtime ignores them) in the
+`web-next → shared` direction. This is a plain relative path in the reverse
+direction, in a test that is never shipped. Its failure mode is red-in-CI, not
+green-in-CI-broken-in-production.
+
+**Carry-forward:** retarget the guard at the generated `.sql` once WP-T1 lands — at
+that point the artefact is what the database actually enforces, which makes it the
+better anchor. And note the coupling this creates meanwhile: `ci.yml`'s
+`test-shared` job installs **pipeline** dependencies only, so the day
+`sub-category-labels.ts` gains any import of its own, the shared suite breaks with a
+module-resolution error in a job named after something else. The file's header states
+import-free as a **rule**, names the specific import most likely to be added by a
+well-meaning refactor (`import { BROWSE_CATEGORIES } from '../../../shared/types'`),
+and warns that the tempting fix will be to delete the guard.
+
 ---
 
 ## PM-3 — Deferred, not decided: the 11,206 historical rows
