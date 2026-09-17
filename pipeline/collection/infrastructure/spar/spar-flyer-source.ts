@@ -27,12 +27,13 @@
 // not in this flyer.
 
 import { printedDiscount } from '../../domain/discount'
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOfCycle } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -193,8 +194,12 @@ export function parseFlyer(
 // ── the source ───────────────────────────────────────────────────────────────
 
 export type SparSourceDeps = {
-  /** Returns positioned words per page. Injected so tests never shell out. */
-  loadPages: () => Promise<PdfPage[]>
+  /**
+   * Returns positioned words per page. Injected so tests never shell out.
+   * Takes the edition being fetched so the composition root builds the flyer
+   * URL from IT, never from a value captured at construction time.
+   */
+  loadPages: (edition: Edition) => Promise<PdfPage[]>
   /** Fallback when the flyer's own validity line cannot be read. */
   fallbackValidity?: ValidityPeriod | null
   pageImageUrl?: (pageNumber: number) => string
@@ -203,10 +208,19 @@ export type SparSourceDeps = {
    * The human-readable flyer this week's offers were read from, used as each
    * offer's sourceUrl. SPAR publishes no per-product page, and a card that
    * links nowhere is worse than one linking to the flyer the price is printed
-   * in.
+   * in. A function of the edition, for the same reason `loadPages` is.
    */
-  flyerUrl?: string
+  flyerUrl?: (edition: Edition) => string
 }
+
+/**
+ * SPAR's flyer is Thursday to Wednesday, the same cycle as Migros/Lidl/ALDI —
+ * item #10's RCA found the wrongly-fetched 2026-09-14 run's SPAR offers all
+ * dated 17.9 (next Thursday), meaning the edition in effect that Monday was
+ * the PRIOR Thursday's publication (10.9-16.9), not the run date's own ISO
+ * week (WP-J1 ADR).
+ */
+const SPAR_CYCLE_START_WEEKDAY = 4 // Thursday
 
 /**
  * The human-readable flyer — what a visitor should be sent to.
@@ -230,10 +244,14 @@ export function createSparFlyerSource(deps: SparSourceDeps): OfferSource {
     retailer: 'spar',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    editionFor(date: Date): Edition {
+      return edition('spar', isoWeekOfCycle(date, SPAR_CYCLE_START_WEEKDAY))
+    },
+
+    async fetchOffers(offerEdition: Edition): Promise<CollectionResult> {
       let pages: PdfPage[]
       try {
-        pages = await deps.loadPages()
+        pages = await deps.loadPages(offerEdition)
       } catch (e) {
         return collectionFailed('spar', 'source-unavailable', e instanceof Error ? e.message : String(e))
       }
@@ -245,7 +263,7 @@ export function createSparFlyerSource(deps: SparSourceDeps): OfferSource {
         return collectionFailed('spar', 'source-changed', 'no validity window found on the flyer')
       }
 
-      const { offers, warnings } = parseFlyer(pages, validity, deps.pageImageUrl, deps.flyerUrl)
+      const { offers, warnings } = parseFlyer(pages, validity, deps.pageImageUrl, deps.flyerUrl?.(offerEdition))
       return collectedWithYieldCheck({ retailer: 'spar', expectedMinimumOffers }, offers, warnings)
     },
   }

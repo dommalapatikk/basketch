@@ -27,12 +27,13 @@
 //   h≈17  product name, uppercase ("CASHEW-ERDNUSS-MIX")
 //   h≈10  unit price ("1.50/100 g") and description bullets
 
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOfCycle } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -241,7 +242,11 @@ export function parseFlyer(
 // ── the source ───────────────────────────────────────────────────────────────
 
 export type AldiSourceDeps = {
-  loadPages: () => Promise<PdfPage[]>
+  /**
+   * Takes the edition being fetched so the composition root builds the
+   * catalogue URL from IT, never from a value captured at construction time.
+   */
+  loadPages: (edition: Edition) => Promise<PdfPage[]>
   /** Injected so year inference is deterministic under test. */
   reference?: Date
   fallbackValidity?: ValidityPeriod | null
@@ -251,10 +256,23 @@ export type AldiSourceDeps = {
    * The human-readable catalogue this week's offers were read from, used as
    * each offer's sourceUrl. ALDI publishes no per-product page, and a card
    * that links nowhere is worse than one linking to the flyer the price is
-   * printed in.
+   * printed in. A function of the edition, for the same reason `loadPages` is.
    */
-  flyerUrl?: string
+  flyerUrl?: (edition: Edition) => string
 }
+
+/**
+ * ALDI's own catalogue bundles TWO promo cycles into one publication (see the
+ * module header, point 3: "AB DONNERSTAG, 10.9." and "AB MONTAG, 14.9." both
+ * live in the same KW37 catalogue). Measured on the wrongly-fetched 2026-09-14
+ * run (WP-J1 ADR): KW38's catalogue carried the 17.9 (Thu) AND 21.9 (Mon)
+ * cycles together — 70 + 57 offers, one fetch. So ALDI's publication runs
+ * Thursday to Wednesday exactly like Migros/Lidl/Spar, and the "Monday cycle"
+ * the legacy matrix fetched separately is ALREADY inside the Thursday
+ * publication — fetching it again would be the second network call AP-1
+ * forbids for one publication.
+ */
+const ALDI_CYCLE_START_WEEKDAY = 4 // Thursday
 
 /**
  * The human-readable catalogue — what a visitor should be sent to.
@@ -365,10 +383,14 @@ export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
     retailer: 'aldi',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    editionFor(date: Date): Edition {
+      return edition('aldi', isoWeekOfCycle(date, ALDI_CYCLE_START_WEEKDAY))
+    },
+
+    async fetchOffers(offerEdition: Edition): Promise<CollectionResult> {
       let pages: PdfPage[]
       try {
-        pages = await deps.loadPages()
+        pages = await deps.loadPages(offerEdition)
       } catch (e) {
         return collectionFailed('aldi', 'source-unavailable', e instanceof Error ? e.message : String(e))
       }
@@ -378,7 +400,7 @@ export function createAldiFlyerSource(deps: AldiSourceDeps): OfferSource {
         deps.reference ?? new Date(),
         deps.fallbackValidity ?? null,
         deps.pageImageUrl,
-        deps.flyerUrl,
+        deps.flyerUrl?.(offerEdition),
       )
 
       const coverageWarning = pageImageCoverageWarning(pages, deps.pageImageUrl)

@@ -27,12 +27,13 @@
 // card-title, price-new, price-old, data-upox-id etc. stop at this file.
 
 import { printedDiscount } from '../../domain/discount'
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOf } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -312,7 +313,15 @@ export function createCoopAktionisSource(deps: CoopSourceDeps): OfferSource {
     retailer: 'coop',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    // aktionis.ch/vendors/coop is a continuously-updated listing, not a
+    // week-numbered URL — there is no publication identifier to read off the
+    // wire. The edition is the plain ISO week of the day we asked, kept for
+    // the WP-J2 ledger's own bookkeeping, not for building a request.
+    editionFor(date: Date): Edition {
+      return edition('coop', isoWeekOf(date))
+    },
+
+    async fetchOffers(_edition: Edition): Promise<CollectionResult> {
       const all: Offer[] = []
       const warnings: CollectionWarning[] = []
       // The pagination widget shows only 6 links even though ~20 pages exist,

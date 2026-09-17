@@ -20,12 +20,13 @@
 // c-product__title, c-product__price-main, c-product__reduction etc. stop here.
 
 import { printedDiscount } from '../../domain/discount'
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOf } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -304,7 +305,16 @@ export function createVolgHtmlSource(deps: VolgSourceDeps): OfferSource {
     retailer: 'volg',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    // volg.ch/sortiment/wochenaktionen/ is a single "current promotions" page
+    // with no week-numbered URL — the "fresh" section's later start (WP-J1
+    // ADR) is a validity window INSIDE this one publication, not a second
+    // one. The edition is the plain ISO week of the day we asked, kept for
+    // the WP-J2 ledger's own bookkeeping, not for building a request.
+    editionFor(date: Date): Edition {
+      return edition('volg', isoWeekOf(date))
+    },
+
+    async fetchOffers(_edition: Edition): Promise<CollectionResult> {
       let html: string
       try {
         html = await deps.fetchPage()

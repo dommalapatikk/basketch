@@ -92,13 +92,14 @@
 // from the ordinary anchor's: see `findMultiBuyNameLine`.
 
 import { type Discount, discountConsistencyReason, printedDiscount } from '../../domain/discount'
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOfCycle } from '../../domain/iso-week'
 import { type Money, createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionFailureReason,
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -998,9 +999,29 @@ export function parseFlyer(
 
 // ── the source ───────────────────────────────────────────────────────────────
 
+/**
+ * Migros publishes Thursday to Wednesday — measured on production data
+ * (WP-J1 ADR): the live KW37 window is 2026-09-10 (Thu) to 2026-09-16 (Wed),
+ * and 2026-09-10's own plain ISO week is 37. So "KW37" is simply the plain
+ * ISO week of the Thursday it starts on. `Date.getUTCDay()` convention:
+ * Sunday=0 .. Thursday=4 .. Saturday=6.
+ *
+ * THE DEFECT THIS CLOSES: a Monday/Tuesday run used to ask for the ISO week
+ * of the RUN DATE, which on those days is already next week's number —
+ * `migros-wochenflyer-38-2026` on 2026-09-14, a document that does not exist
+ * yet (measured: HTTP 404, run 34833209176). `editionFor` below asks for the
+ * publication in effect, not the run date's own week.
+ */
+const MIGROS_CYCLE_START_WEEKDAY = 4 // Thursday
+
 export type MigrosSourceDeps = {
-  /** Injected so tests use captured OCR output rather than running a model. */
-  loadPages: () => Promise<OcrPage[]>
+  /**
+   * Injected so tests use captured OCR output rather than running a model.
+   * Takes the edition being fetched so the composition root can build the
+   * Issuu document URL from IT, never from a value captured at construction
+   * time — the bug `editionFor`/`fetchOffers(edition)` exists to close.
+   */
+  loadPages: (edition: Edition) => Promise<OcrPage[]>
   reference?: Date
   fallbackValidity?: ValidityPeriod | null
   pageImageUrl?: (pageNumber: number) => string
@@ -1009,9 +1030,10 @@ export type MigrosSourceDeps = {
    * The issuu flyer this week's offers were read from, used as each offer's
    * sourceUrl. Migros publishes no per-product page we may fetch, and a card
    * that links nowhere is worse than one linking to the flyer the price is
-   * printed in.
+   * printed in. A function of the edition, for the same reason `loadPages` is:
+   * the URL must be built from what was actually asked for.
    */
-  flyerUrl?: string
+  flyerUrl?: (edition: Edition) => string
 }
 
 export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
@@ -1021,10 +1043,14 @@ export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
     retailer: 'migros',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    editionFor(date: Date): Edition {
+      return edition('migros', isoWeekOfCycle(date, MIGROS_CYCLE_START_WEEKDAY))
+    },
+
+    async fetchOffers(offerEdition: Edition): Promise<CollectionResult> {
       let pages: OcrPage[]
       try {
-        pages = await deps.loadPages()
+        pages = await deps.loadPages(offerEdition)
       } catch (e) {
         return collectionFailed('migros', 'source-unavailable', e instanceof Error ? e.message : String(e))
       }
@@ -1034,7 +1060,7 @@ export function createMigrosFlyerSource(deps: MigrosSourceDeps): OfferSource {
         deps.reference ?? new Date(),
         deps.fallbackValidity ?? null,
         deps.pageImageUrl,
-        deps.flyerUrl,
+        deps.flyerUrl?.(offerEdition),
       )
 
       const yieldReason = migrosYieldReason(offers.length, funnel.anchors, funnel.multiBuyUnquantified)
