@@ -52,6 +52,45 @@ describe('a judge that misbehaves must not escalate everything', () => {
     expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).verdict).toBe('unavailable')
   })
 
+  // WP-P8 review: max_tokens (2,000) is an unmeasured guess — AP-11's 291-row
+  // re-benchmark was not run. If it is too low the judge returns truncated or
+  // empty content at full price, and the only trace was an aggregate "judge
+  // unavailable for N products", indistinguishable from a dead provider. The
+  // token count next to the cap is what tells the two apart.
+  it('says how many tokens an unparseable verdict burned, and names the cap when it hit it', async () => {
+    const lines: string[] = []
+    const j = createOpenRouterJudge({
+      apiKey: 'k',
+      model: 'm',
+      taxonomy: TAXONOMY,
+      gate: createNoopGate(),
+      maxOutputTokens: 2_000,
+      log: (m) => lines.push(m),
+      ask: reply('{"verdict":"corr', 2_000),
+    })
+
+    expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).verdict).toBe('unavailable')
+    expect(lines.join('\n')).toContain('2000 tokens')
+    expect(lines.join('\n')).toContain('HIT THE CAP')
+  })
+
+  it('does not cry cap when the judge simply answered in an odd shape', async () => {
+    const lines: string[] = []
+    const j = createOpenRouterJudge({
+      apiKey: 'k',
+      model: 'm',
+      taxonomy: TAXONOMY,
+      gate: createNoopGate(),
+      maxOutputTokens: 2_000,
+      log: (m) => lines.push(m),
+      ask: reply('I cannot help with that.', 12),
+    })
+
+    await j.judge(req, { category: 'dairy', subCategory: 'dairy' })
+    expect(lines.join('\n')).toContain('12 tokens')
+    expect(lines.join('\n')).not.toContain('HIT THE CAP')
+  })
+
   it('returns "unavailable" for an unrecognised verdict word', async () => {
     const j = createOpenRouterJudge({ apiKey: 'k', model: 'm', taxonomy: TAXONOMY, gate: createNoopGate(), ask: reply('{"verdict":"maybe"}') })
     expect((await j.judge(req, { category: 'dairy', subCategory: 'dairy' })).verdict).toBe('unavailable')

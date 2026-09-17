@@ -133,6 +133,21 @@ export function createOpenRouterJudge(deps: JudgeDeps): Judge {
         }
         // An unparseable verdict must not be read as disapproval — that would
         // escalate everything the moment the judge changed its output format.
+        //
+        // But it must not be SILENT either. `max_tokens` (2,000) is an
+        // unmeasured guess: AP-11 asked for a 291-row re-benchmark before
+        // capping and it has not been run. If the cap is too low, GPT-5
+        // returns finish_reason 'length' with empty or truncated content — a
+        // full-price call that yields nothing — and without this line the only
+        // trace is an aggregate "judge unavailable for N products", which
+        // reads exactly like a dead provider. The token count is the tell: at
+        // or near the cap means truncation, near zero means the model simply
+        // answered in an unexpected shape.
+        log(
+          `judge: unparseable verdict after ${tokens} tokens ` +
+            `(cap ${maxOutputTokens}${tokens >= maxOutputTokens ? ' — HIT THE CAP, it may be too low' : ''}): ` +
+            `${JSON.stringify(text).slice(0, 120)}`,
+        )
         return { verdict: 'unavailable', tokens }
       } catch (e) {
         // A judge that is down must not block classification. The answer
