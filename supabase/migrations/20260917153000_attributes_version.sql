@@ -1,5 +1,19 @@
 -- Migration: product_classification_cache.attributes_version (additive — nothing dropped).
 --
+-- ⚠️ APPLY THIS BEFORE DEPLOYING THE CODE THAT READS/WRITES attributes_version.
+-- NO EXCEPTIONS. `supabase-classification-cache.ts` names this column in its
+-- `.select(...)` list AND in every upsert row — not behind any column-exists
+-- check. Deploying that code against a database that has not run this
+-- migration makes PostgREST return a schema error (42703 / PGRST204) on
+-- EVERY lookup and EVERY save, deterministically, every run, until this file
+-- is applied. The save side is the dangerous one: this codebase's own rule
+-- ("a failed write degrades to a miss, always") means every classification
+-- the run just paid for is silently never cached — not a crash, a QUIET,
+-- indefinite cold start. See "Deployment order" in
+-- docs/decisions/2026-09-17-attributes-version.md for the full trace (WP-P9
+-- code review MUST-FIX 2 — an earlier version of that ADR wrongly claimed
+-- deploy order did not matter).
+--
 -- WP-P9 (RCA item 6, ruling D3). See docs/decisions/2026-09-17-attributes-version.md
 -- for the full decision record — the timestamp design the Tech Lead first
 -- proposed (`attributes_enriched_at`) was REPLACED by this one, because a
