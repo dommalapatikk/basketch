@@ -45,9 +45,13 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
   const account = (reading: SpendAccountReading) => ({ remaining: async () => reading })
 
   it('wires the OpenRouter judge when the key has a readable credit limit — reflector and enricher still need the Google key', async () => {
+    // WP-P7 code review, F3: remainingMicros and limitMicros are DIFFERENT
+    // here on purpose (a partially-spent month) — a fixture where they
+    // happen to be equal cannot tell "carries the real limit" apart from
+    // "carries remaining twice".
     const deps = createProductionDeps(
       { OPENROUTER_API_KEY: 'test-key' },
-      { spendAccount: account({ kind: 'capped', remainingMicros: 5_000_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }) },
+      { spendAccount: account({ kind: 'capped', remainingMicros: 3_000_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }) },
     )
     const classification = await deps.createClassificationDeps(() => {})
 
@@ -57,7 +61,10 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     // WP-P7: a confirmed provider-side cap is a GUARDED account, and nothing
     // has been spent yet at the point classification deps are built.
     expect(classification.judgeSpend.guarded).toBe(true)
-    expect(classification.judgeSpend.spendSnapshot()).toEqual({ spentMicros: 0, ceilingMicros: 5_000_000 })
+    // WP-P7 code review, F3: carries both remainingMicros (what the GATE
+    // refuses reservations against) and limitMicros (the whole monthly
+    // allowance spendNearCeiling is calibrated against) — not just one.
+    expect(classification.judgeSpend.spendSnapshot()).toEqual({ spentMicros: 0, remainingMicros: 3_000_000, limitMicros: 5_000_000 })
   })
 
   it('runs WITHOUT the judge when the key has no credit limit — AP-10, money fails closed', async () => {
@@ -245,7 +252,8 @@ describe('judges at most 4 at once through the gate — 100 sequential judgement
     const spend = classification.judgeSpend.spendSnapshot()
     expect(spend).not.toBeNull()
     expect(spend!.spentMicros).toBeGreaterThan(0)
-    expect(spend!.spentMicros).toBeLessThanOrEqual(spend!.ceilingMicros)
+    expect(spend!.spentMicros).toBeLessThanOrEqual(spend!.remainingMicros)
+    expect(spend!.limitMicros).toBe(5_000_000)
   })
 })
 

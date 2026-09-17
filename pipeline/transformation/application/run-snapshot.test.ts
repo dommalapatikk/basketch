@@ -96,28 +96,49 @@ describe('buildRunSnapshot carries real output values, not literals (WP-P7)', ()
   it('carries usdMicrosSpent from the judge\'s own ledger, never a literal zero when it actually spent', () => {
     const spentSnapshot: JudgeSpendInfo = {
       guarded: true,
-      spendSnapshot: () => ({ spentMicros: 500_000 as UsdMicros, ceilingMicros: 5_000_000 as UsdMicros }),
+      spendSnapshot: () => ({ spentMicros: 500_000 as UsdMicros, remainingMicros: 4_500_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }),
     }
     const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: spentSnapshot })
     expect(snapshot.usdMicrosSpent).toBe(500_000)
   })
 
-  it('reports spendNearCeiling once spend crosses SPEND_CEILING_WARN_SHARE of the ceiling', () => {
-    const near: JudgeSpendInfo = {
-      guarded: true,
-      spendSnapshot: () => ({ spentMicros: 4_500_000 as UsdMicros, ceilingMicros: 5_000_000 as UsdMicros }),
-    }
-    const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: near })
-    expect(snapshot.spendNearCeiling).toBe(true)
-  })
+  // WP-P7 code review, F3 (MUST-FIX). `spendNearCeiling` must compare against
+  // the WHOLE MONTHLY limit, not just what happened to remain when this run
+  // started — see `buildRunSnapshot`'s `isNearMonthlySpendCeiling`.
+  describe('spendNearCeiling is calibrated against the MONTHLY limit, not what remained at run start (F3)', () => {
+    it('fires when spend before and during this run together cross 80% of the monthly limit', () => {
+      // $4.10 already spent this month (remaining $0.90 of $5), this run
+      // spends another $0.20 -> $4.30 used, 86% of the $5 limit.
+      const near: JudgeSpendInfo = {
+        guarded: true,
+        spendSnapshot: () => ({ spentMicros: 200_000 as UsdMicros, remainingMicros: 900_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }),
+      }
+      const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: near })
+      expect(snapshot.spendNearCeiling).toBe(true)
+    })
 
-  it('does not report spendNearCeiling comfortably under the threshold', () => {
-    const comfortable: JudgeSpendInfo = {
-      guarded: true,
-      spendSnapshot: () => ({ spentMicros: 100_000 as UsdMicros, ceilingMicros: 5_000_000 as UsdMicros }),
-    }
-    const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: comfortable })
-    expect(snapshot.spendNearCeiling).toBe(false)
+    it('a month already 95% spent warns even though THIS RUN barely spends anything — the exact case the old remaining-based math missed', () => {
+      // $4.75 of $5 already spent this month (remaining $0.25). This run
+      // spends only $0.05 — a fifth of what remains, which the OLD
+      // remaining-based comparison (0.05 / 0.25 = 20% < 80%) would have read
+      // as "comfortable". Against the real monthly limit: ($4.75 + $0.05) /
+      // $5 = 96%, well past the ceiling.
+      const almostExhausted: JudgeSpendInfo = {
+        guarded: true,
+        spendSnapshot: () => ({ spentMicros: 50_000 as UsdMicros, remainingMicros: 250_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }),
+      }
+      const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: almostExhausted })
+      expect(snapshot.spendNearCeiling).toBe(true)
+    })
+
+    it('does not fire comfortably under the threshold, fresh month', () => {
+      const comfortable: JudgeSpendInfo = {
+        guarded: true,
+        spendSnapshot: () => ({ spentMicros: 100_000 as UsdMicros, remainingMicros: 4_900_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }),
+      }
+      const snapshot = buildRunSnapshot({ ...baseInputs, judgeSpend: comfortable })
+      expect(snapshot.spendNearCeiling).toBe(false)
+    })
   })
 
   it('never reports spendNearCeiling when no judge ran at all — nothing to compare against a ceiling', () => {

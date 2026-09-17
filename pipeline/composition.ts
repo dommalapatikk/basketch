@@ -174,6 +174,17 @@ function buildClassificationCache() {
  * `null` `ceilingMicros` with `guarded: true` covers the ordinary case where
  * there is simply no OpenRouter key at all — nothing paid was ever possible,
  * so there is nothing to warn about.
+ *
+ * WP-P7 code review, F3 (MUST-FIX): also returns `limitMicros` — the
+ * account's whole-period allowance, not just what is left of it. `ceilingMicros`
+ * (`reading.remainingMicros`) is exactly right for the GATE's own job
+ * (`ModelGate` must refuse a reservation once what remains this period is
+ * gone) but wrong as the denominator for "how close to the monthly cap are
+ * we": a month already 95% spent has a tiny `remainingMicros`, so comparing
+ * THIS RUN's spend against 80% of THAT tiny number almost never trips —
+ * exactly the run `spend-near-ceiling` exists to catch. `limitMicros` was
+ * already read from the account two lines below and discarded; it is not a
+ * second network call.
  */
 async function resolveJudgeSpendCeiling(
   env: Env,
@@ -183,15 +194,15 @@ async function resolveJudgeSpendCeiling(
   // the live API and reading a 401 as "unreadable" — a test that needs the
   // network to decide an answer is not a test.
   spendAccount?: SpendAccount,
-): Promise<{ readonly ceilingMicros: UsdMicros | null; readonly guarded: boolean }> {
-  if (!env.OPENROUTER_API_KEY) return { ceilingMicros: null, guarded: true }
+): Promise<{ readonly ceilingMicros: UsdMicros | null; readonly limitMicros: UsdMicros | null; readonly guarded: boolean }> {
+  if (!env.OPENROUTER_API_KEY) return { ceilingMicros: null, limitMicros: null, guarded: true }
 
   const account = spendAccount ?? createOpenRouterSpendAccount({ apiKey: env.OPENROUTER_API_KEY })
   const reading: SpendAccountReading = await account.remaining()
 
   if (reading.kind === 'capped') {
     log(`spend account: ${formatUsd(reading.remainingMicros)} remaining of ${formatUsd(reading.limitMicros)} this period`)
-    return { ceilingMicros: reading.remainingMicros, guarded: true }
+    return { ceilingMicros: reading.remainingMicros, limitMicros: reading.limitMicros, guarded: true }
   }
 
   const reason =
@@ -202,7 +213,7 @@ async function resolveJudgeSpendCeiling(
     `[pipeline] [WARN] spend-unguarded: running WITHOUT the judge this run — ${reason}. ` +
       'Set a credit limit on the OpenRouter CI key (WP-0 #1, AP-8: USD 5/month, auto top-up off) to re-enable it.',
   )
-  return { ceilingMicros: null, guarded: false }
+  return { ceilingMicros: null, limitMicros: null, guarded: false }
 }
 
 async function buildClassificationDeps(
@@ -299,10 +310,17 @@ async function buildClassificationDeps(
     // and never read again after this function returned — exactly the value
     // `alerts.ts`'s `spend-unguarded` rule needs and had no producer for.
     // `spendSnapshot` reads the SAME gate the judge itself calls through, so
-    // what `buildRunSnapshot` reports is never a second, disconnected number.
+    // `spentMicros` is never a second, disconnected number — and pairs it
+    // with `limitMicros` (WP-P7 code review, F3) so `buildRunSnapshot` can
+    // compare against the whole MONTHLY allowance, not just what happened to
+    // remain when this run started.
     judgeSpend: {
       guarded: spendCeiling.guarded,
-      spendSnapshot: () => judgeGate?.spendSnapshot() ?? null,
+      spendSnapshot: () => {
+        const gateReading = judgeGate?.spendSnapshot()
+        if (!gateReading || spendCeiling.limitMicros === null) return null
+        return { spentMicros: gateReading.spentMicros, remainingMicros: gateReading.ceilingMicros, limitMicros: spendCeiling.limitMicros }
+      },
     },
   }
 }

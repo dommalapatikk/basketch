@@ -45,11 +45,23 @@ export type JudgeSpendInfo = {
    */
   readonly guarded: boolean
   /**
-   * `null` when nothing was ever reserved this run (no judge built at all).
-   * Otherwise the judge's `ModelGate.spendSnapshot()` — what it has actually
-   * spent, out of what this run was allowed.
+   * `null` when nothing was ever reserved this run (no judge built at all,
+   * or the account has no confirmed monthly limit — see `guarded`).
+   * Otherwise:
+   *   - `spentMicros` — what THIS RUN's judge has actually spent
+   *     (`ModelGate.spendSnapshot()`).
+   *   - `remainingMicros` — what was left of the CURRENT PERIOD when this
+   *     run started (`ModelGate`'s own ceiling — right for the gate's job
+   *     of refusing a reservation, but NOT the right denominator for "how
+   *     close to the monthly cap are we", see `limitMicros`).
+   *   - `limitMicros` — the account's WHOLE monthly allowance (WP-P7 code
+   *     review, F3). `spendNearCeiling` is computed against this, not
+   *     `remainingMicros`: a month already 95% spent has almost nothing
+   *     left, so comparing this run's spend against 80% of THAT tiny
+   *     remainder almost never trips — exactly backwards from what the
+   *     rule exists to catch.
    */
-  readonly spendSnapshot: () => { readonly spentMicros: UsdMicros; readonly ceilingMicros: UsdMicros } | null
+  readonly spendSnapshot: () => { readonly spentMicros: UsdMicros; readonly remainingMicros: UsdMicros; readonly limitMicros: UsdMicros } | null
 }
 
 /**
@@ -118,6 +130,25 @@ export type RunSnapshotInputs = {
 }
 
 /**
+ * WP-P7 code review, F3 (MUST-FIX). `spentMicros >= remainingMicros * SHARE`
+ * compared this run's spend against what was left of the CURRENT PERIOD at
+ * run start — not the month's actual limit. A month already 95% spent has a
+ * tiny `remainingMicros`, so this run would need to spend 80% of THAT sliver
+ * before warning, even though the account is nearly exhausted. The correct
+ * question is "what share of the WHOLE month's allowance has been used,
+ * counting everything before this run plus this run's own spend":
+ *
+ *   usedThisMonth = (limitMicros - remainingMicros) + spentMicros
+ *   spendNearCeiling = usedThisMonth >= limitMicros * SPEND_CEILING_WARN_SHARE
+ */
+function isNearMonthlySpendCeiling(spend: { spentMicros: UsdMicros; remainingMicros: UsdMicros; limitMicros: UsdMicros } | null): boolean {
+  if (spend === null || spend.limitMicros <= 0) return false
+  const usedBeforeThisRun = Math.max(0, spend.limitMicros - spend.remainingMicros)
+  const usedThisMonth = usedBeforeThisRun + spend.spentMicros
+  return usedThisMonth >= spend.limitMicros * SPEND_CEILING_WARN_SHARE
+}
+
+/**
  * Pure. No literal left to type: every field comes from a real output — the
  * classification stats, the collected offers, or the judge's own ledger.
  */
@@ -137,7 +168,7 @@ export function buildRunSnapshot(inputs: RunSnapshotInputs): RunSnapshot {
     cacheMisses: stats.total - stats.cacheHits,
     tokensUsed: stats.tokensUsed,
     usdMicrosSpent: (spend?.spentMicros ?? 0) as UsdMicros,
-    spendNearCeiling: spend !== null && spend.ceilingMicros > 0 && spend.spentMicros >= spend.ceilingMicros * SPEND_CEILING_WARN_SHARE,
+    spendNearCeiling: isNearMonthlySpendCeiling(spend),
     spendUnguarded: !inputs.judgeSpend.guarded,
     durationMs: inputs.durationMs,
     benchmarkMacroF1: BENCHMARK_NOT_WIRED,
