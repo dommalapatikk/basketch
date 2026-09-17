@@ -573,6 +573,39 @@ async function logRunStep(deps: PipelineDeps, params: LogRunParams): Promise<voi
   })
 }
 
+// KNOWN LIMITATIONS (WP-P7 code review, 2026-09-17) — carried forward,
+// deliberately NOT fixed in this package. Recorded here so the next WP finds
+// them without re-discovering them from scratch.
+//
+// C1. A DEGRADED run's snapshot becomes the next run's baseline. If a run's
+//     `publishedDataCoverage` or `benchmarkMacroF1` is itself already low
+//     (a real regression that fired `source-shape-changed` or
+//     `classifier-regression` once), that same low value is what
+//     `RunHistory.save` persists — so the NEXT run compares against the
+//     degraded value, not the last healthy one, and the alert can
+//     self-silence after firing exactly once. Also: `RunHistory.lastSuccessful`
+//     returns the last RUN RECORDED, not the last run that actually PASSED
+//     its own alerts (`supabase-run-history.ts`'s own header documents this
+//     as a deliberate choice for week-over-week DRIFT comparisons) — the
+//     port's name promises more than it delivers and should be renamed or
+//     re-scoped.
+// C2. `collapsed` (`store.ts`) is correctly excluded from the storage-ratio
+//     denominator, but is itself unobserved by any alert. A
+//     `normalizeProductName` regression that starts merging genuinely
+//     DISTINCT offers into the same conflict key would inflate `collapsed`,
+//     shrink the denominator, and hide real data loss behind a healthy ratio.
+// C3. No fixture-backed test proves a REAL retailer adapter's offers clear
+//     `COVERAGE_COLLAPSE`'s 0.5 "was working" gate — `source-shape-changed`
+//     is unit-tested but not proven reachable from an actual Denner/Migros/…
+//     fixture the way the collection module's own port-contract tests would.
+// C4. Two independent `pipeline_runs` rows exist per run (`store.ts`'s
+//     `logPipelineRun` and `SupabaseRunHistory#save`), so
+//     `SELECT * FROM pipeline_runs ORDER BY run_at DESC LIMIT 1` can return
+//     the metrics-only row (`total_stored: 0`, no `store_results`). Latent:
+//     only the retired Vite frontend ever read `pipeline_runs` that way.
+// C5. `instrument-missing` for `benchmarkMacroF1` will fire on every run,
+//     forever, until AP-6 (what the metric should measure) is decided — a
+//     deferral with no end condition. That decision is the PM's.
 export type EvaluateAlertsStepInputs = {
   readonly runId: string
   readonly stats: ClassifyDealsResult['stats']
