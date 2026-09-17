@@ -536,6 +536,46 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('valid_from'))
     warnSpy.mockRestore()
   })
+
+  // WP-P7 (RCA item 2): `logStorageShortfall` (run-pipeline.ts) used to read
+  // `attempted - total` as a WRITE FAILURE. A collapsed duplicate conflict
+  // key was never sent to Postgres at all — it is this function's own
+  // dedupe, not the database refusing anything — so folding it into the
+  // same number as a genuine CHECK-constraint rejection is exactly the "48
+  // failed were collapses" defect this field exists to separate out.
+  it('reports a collapsed duplicate conflict key separately from a database rejection', async () => {
+    // Two deals for the SAME conflict key (store + product_name + valid_from)
+    // — the second collapses into the first before anything is upserted.
+    mockUpsert.mockReturnValue({
+      select: () =>
+        Promise.resolve({
+          data: [{ id: '1', store: 'coop', valid_from: '2026-09-09' }],
+          error: null,
+        }),
+    })
+    const result = await storeDeals([
+      { ...deal('coop', 'Emmi Milch'), discountPercent: 10 },
+      { ...deal('coop', 'Emmi Milch'), discountPercent: 25 },
+    ])
+
+    expect(result.attempted).toBe(2)
+    expect(result.collapsed).toBe(1)
+    expect(result.total).toBe(1)
+    // attempted - collapsed - total is the genuine shortfall: here, zero.
+    expect(result.attempted - result.collapsed - result.total).toBe(0)
+  })
+
+  it('reports zero collapsed when every attempted deal has its own conflict key', async () => {
+    mockUpsert.mockReturnValue({
+      select: () =>
+        Promise.resolve({
+          data: [{ id: '1', store: 'coop', valid_from: '2026-09-09' }],
+          error: null,
+        }),
+    })
+    const result = await storeDeals([deal('coop', 'Emmi Milch')])
+    expect(result.collapsed).toBe(0)
+  })
 })
 
 describe('activeCountsByWindow — live counts read BEFORE this run writes anything (F1/N2)', () => {
