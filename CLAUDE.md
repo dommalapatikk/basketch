@@ -129,10 +129,20 @@ cd web-next && npm test          # vitest run
 # Frontend lint
 cd web-next && npm run lint      # biome check .
 
-# Type-check without emitting
-npx tsc --noEmit -p pipeline/tsconfig.json
-npx tsc --noEmit -p web-next/tsconfig.json
+# Type-check without emitting -- run each from ITS OWN folder, via ITS OWN binary
+cd pipeline  && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+cd web-next  && ./node_modules/.bin/tsc --noEmit -p tsconfig.json
 ```
+
+> ⚠️ **Do NOT type-check with `npx tsc` from the repo root.** There is no root
+> `node_modules` (flat layout, no workspaces), so `npx` downloads an unrelated
+> package that prints "This is not the tsc command you are looking for" and
+> exits — printing nothing that looks like a type error. A reviewer who runs the
+> root command and sees no errors has verified **nothing**. This is how a branch
+> can sit red across a dozen files while every test is green: `vitest` does not
+> type-check. Always run the folder-local binary above, and never pipe it through
+> anything that swallows the exit code (`| tail` keeps `tail`'s status, not
+> `tsc`'s — use `${PIPESTATUS[0]}` or do not pipe).
 
 ## Environment Variables
 
