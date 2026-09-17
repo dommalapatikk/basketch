@@ -5,7 +5,7 @@ import { ERROR_BODY_CHARS, REQUEST_TIMEOUT_MS, classifyFailure, decideRetry } fr
 import { GOOGLE_429_BODY, PER_DAY_OFFSET, RETRY_DELAY_OFFSET } from '../__fixtures__/google-429'
 import { createNoopGate } from '../../test-support/gate'
 import { ModelHttpError } from './model-gate'
-import { postJson } from './model-http'
+import { getJson, postJson } from './model-http'
 
 /** A provider that accepts the request and then says nothing, ever — the 873s case. */
 const stalls: typeof fetch = (_url, init) =>
@@ -226,6 +226,43 @@ describe('the happy path', () => {
     expect(init?.body).toBe('{"model":"m"}')
     expect(init?.method).toBe('POST')
     expect(init?.headers).toMatchObject({ 'Content-Type': 'application/json', Authorization: 'Bearer k' })
+  })
+})
+
+// WP-P8: getJson — the GET sibling used to read OpenRouter's own spend
+// account (openrouter-spend-account.ts) through the SAME bounded seam.
+describe('getJson — the GET sibling of postJson', () => {
+  it('sends a GET request with no body', async () => {
+    let seenMethod: string | undefined
+    let seenBody: BodyInit | null | undefined
+    await getJson({
+      url: 'https://openrouter.ai/api/v1/key',
+      headers: { Authorization: 'Bearer k' },
+      gate: gate(),
+      fetchImpl: async (_u, init) => {
+        seenMethod = init?.method
+        seenBody = init?.body
+        return new Response('{"data":{}}', { status: 200 })
+      },
+    })
+    expect(seenMethod).toBe('GET')
+    expect(seenBody).toBeUndefined()
+  })
+
+  it('is bounded by the same timeout as postJson — no unbounded call', async () => {
+    const started = Date.now()
+    await expect(getJson({ url: 'https://example.test/x', timeoutMs: 30, fetchImpl: stalls, gate: gate() })).rejects.toThrow(/timeout/i)
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('refuses to run when gate is omitted, even past the type checker', async () => {
+    const options = { url: 'https://example.test/x' } as Record<string, unknown>
+    await expect(getJson(options as Parameters<typeof getJson>[0])).rejects.toThrow(/gate is required/i)
+  })
+
+  it('returns the parsed JSON body', async () => {
+    const j = await getJson({ url: 'https://example.test/x', gate: gate(), fetchImpl: responds('{"data":{"limit":5}}') })
+    expect(j).toEqual({ data: { limit: 5 } })
   })
 })
 
