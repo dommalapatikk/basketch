@@ -145,6 +145,49 @@ describe('nothing is ever dropped for being uncertain (D3)', () => {
     expect(r.deals).toHaveLength(0)
   })
 
+  /**
+   * MUST-FIX 2 (WP-P6 code review). `heldBack` alone folds a truncated
+   * response, an unparseable one and a dead provider into ONE number — an
+   * operator sees "N held back" and cannot tell a systemic truncation
+   * problem (many products, one root cause) from an ordinary cold-start
+   * deferral. `heldBackByFailure` is keyed on `Outcome.failure`
+   * (classify-graph.ts) instead.
+   */
+  it('breaks heldBack down by Outcome.failure kind — a truncation is not the same number as a dead provider', async () => {
+    const mixedFailures: Classifier = {
+      name: 'mixed',
+      tier: 1,
+      batchSize: 25,
+      async classify(batch) {
+        return ok(
+          batch.map((request): ClassificationOutcome =>
+            request.productName === 'Emmi Milch'
+              ? { ok: false, request, reason: 'output-truncated', detail: 'output truncated (MAX_TOKENS)' }
+              : { ok: false, request, reason: 'unparseable', detail: 'could not parse a JSON array' },
+          ),
+        )
+      },
+    }
+    const r = await run([deal('Emmi Milch'), deal('Denner Brot')], { tier1: mixedFailures })
+    expect(r.stats.heldBack).toBe(2)
+    expect(r.stats.heldBackByFailure).toEqual({ 'output-truncated': 1, unparseable: 1 })
+  })
+
+  it('heldBackByFailure always sums to heldBack — including the plain cold-start deferral bucket', async () => {
+    const failing: Classifier = {
+      name: 'down',
+      tier: 1,
+      batchSize: 25,
+      async classify() {
+        return { ok: false, error: 'provider-unavailable: 503' }
+      },
+    }
+    const r = await run([deal('Emmi Milch'), deal('Denner Brot'), deal('Coop Butter')], { tier1: failing })
+    const total = Object.values(r.stats.heldBackByFailure).reduce((a, b) => a + b, 0)
+    expect(total).toBe(r.stats.heldBack)
+    expect(r.stats.heldBackByFailure).toEqual({ 'provider-unavailable': 3 })
+  })
+
   it('never writes a guessed category — every written deal has a real one', async () => {
     const failing: Classifier = {
       name: 'down',
@@ -229,6 +272,56 @@ describe('caching uncertain outcomes (WP-P6a)', () => {
 
     const lookup = await cache.lookup([cacheKeyFor('Emmi Milch', CURRENT_VERSIONS)])
     expect(isOk(lookup) && lookup.value).toEqual([])
+  })
+
+  /**
+   * F1 (code review carry-forward, WP-P6a — closed by WP-P6). The FIRST
+   * exclusion above (`classification === null`) missed a second shape: an
+   * outcome CAN carry a real classification and still be RESOURCE-limited,
+   * not content-disputed — the judge said "wrong" but reflection ran and
+   * returned nothing usable (a dead provider, an unparseable reply). Before
+   * this fix that was memoised exactly like a genuine judge/reflector
+   * disagreement and became PERMANENTLY uncertain (HANDOVER.md §5: "no run
+   * will ever re-open it"), for a reason that said nothing about the
+   * product.
+   */
+  it('a resource-limited uncertain (reflection returned nothing) is not memoised as permanent — WP-P6a F1', async () => {
+    const cache = createInMemoryCache()
+    let judgeCalls = 0
+    const countingJudge = {
+      name: 'sceptic',
+      async judge() {
+        judgeCalls++
+        return { verdict: 'wrong' as const, tokens: 0 }
+      },
+    }
+    const emptyReflector = {
+      async reflect() {
+        return { classification: null, tokens: 0 }
+      },
+    }
+
+    const first = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never, reflector: emptyReflector as never })
+    expect(first.deals[0]?.isUncertain).toBe(true)
+    expect(first.stats.uncertain).toBe(1)
+    expect(judgeCalls).toBe(1)
+
+    // Nothing was cached — this run's unresponsive reflector said nothing
+    // about the PRODUCT, so the memo must not exist at all.
+    const lookup = await cache.lookup([cacheKeyFor('Emmi Milch', CURRENT_VERSIONS)])
+    expect(isOk(lookup) && lookup.value).toEqual([])
+
+    // Proven by re-running: a permanent memo would make this a cache hit
+    // forever. A working reflector on the SECOND run must still be free to
+    // settle the product — impossible if the first run had memoised it.
+    const stubborn = {
+      async reflect(_r: unknown, answer: unknown) {
+        return { classification: answer, tokens: 0 }
+      },
+    }
+    const second = await run([deal('Emmi Milch')], { cache, judge: countingJudge as never, reflector: stubborn as never })
+    expect(second.stats.cacheHits).toBe(0)
+    expect(judgeCalls).toBe(2)
   })
 
   it('a cached uncertain row rehydrates as uncertain, not as classified', async () => {

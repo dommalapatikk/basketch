@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { err, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import type { ClassificationOutcome, ClassificationRequest, Classifier } from '../domain/classifier'
+import type { Budget } from '../domain/guardrails'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
-import { type Judge, type JudgeVerdict, type Reflector, buildClassifyGraph } from './classify-graph'
+import { type Judge, type JudgeVerdict, type Reflector, buildClassifyGraph, selectForJudging } from './classify-graph'
 
 const req = (productName: string): ClassificationRequest => ({ productName, descriptor: null, retailer: 'denner' })
 
@@ -44,7 +45,10 @@ const run = async (deps: Parameters<typeof buildClassifyGraph>[0], names: string
     disputed: [],
     budget: ZERO_SPEND,
     halted: null,
-  })) as { outcomes: { request: ClassificationRequest; status: string; judgeVerdict: JudgeVerdict | null; reflected: boolean; detail?: string }[]; halted: string | null }
+  })) as {
+    outcomes: { request: ClassificationRequest; status: string; judgeVerdict: JudgeVerdict | null; reflected: boolean; detail?: string; failure?: string }[]
+    halted: string | null
+  }
 }
 
 describe('the happy path', () => {
@@ -298,5 +302,205 @@ describe('a port that breaks its contract and throws', () => {
     )
 
     expect(logged.some((m) => m.includes('rude-judge') && m.includes('402 out of credit'))).toBe(true)
+  })
+})
+
+// ── WP-P6: bounded judge concurrency ──────────────────────────────────────
+//
+// The judge node dispatches every disputed item through `Promise.all` and
+// leaves the ACTUAL concurrency bound to the gate behind `judge.judge()`
+// (`model-gate.ts`'s semaphore, `JUDGE_CHAIN[0].maxInFlight` in
+// `model-registry.ts`). These tests exercise the graph's OWN half of that
+// contract — order and sampling — with a hand-built `Judge` so they stay
+// fast, pure application-layer tests; the gate's own bound is covered by
+// `composition.test.ts`'s composition-root test, which wires the REAL gate.
+describe('the judge dispatches concurrently but never loses which answer belongs to which product', () => {
+  it("the judge's order is preserved under concurrency — answer i belongs to product i", async () => {
+    // Every product resolves at a DIFFERENT delay, and the delays are
+    // REVERSED relative to dispatch order — product 0 resolves LAST, product
+    // 4 resolves FIRST — so completion order is the opposite of request
+    // order. If the graph collected verdicts by ARRIVAL instead of by
+    // `Promise.all`'s index-preserving array, product 0 would receive
+    // product 4's verdict.
+    const delays = [40, 30, 20, 10, 0]
+    const seen: string[] = []
+    const orderedJudge: Judge = {
+      name: 'ordered',
+      async judge(request) {
+        seen.push(request.productName)
+        const delayMs = delays[Number(request.productName.split(' ')[1])] ?? 0
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        // The verdict is DERIVED from the product, so a swap is detectable:
+        // "wrong" for product 0 only, "correct" for everything else.
+        return { verdict: request.productName === 'Product 0' ? 'wrong' : 'correct', tokens: 1 }
+      },
+    }
+
+    const s = await run(
+      { tier1: fixedClassifier('dairy', 'dairy'), judge: orderedJudge, reflector: null, budget: FREE_TIER_BUDGET },
+      ['Product 0', 'Product 1', 'Product 2', 'Product 3', 'Product 4'],
+    )
+
+    // All 5 were dispatched concurrently (every name was asked before any
+    // delay resolved) — proves this is genuinely concurrent, not sequential.
+    expect(seen).toEqual(['Product 0', 'Product 1', 'Product 2', 'Product 3', 'Product 4'])
+
+    // Exactly one outcome per product, each carrying ITS OWN verdict.
+    const byName = new Map(s.outcomes.map((o) => [o.request.productName, o]))
+    expect(byName.get('Product 0')?.status).toBe('uncertain') // disputed, no reflector
+    expect(byName.get('Product 0')?.judgeVerdict).toBe('wrong')
+    for (const name of ['Product 1', 'Product 2', 'Product 3', 'Product 4']) {
+      expect(byName.get(name)?.status).toBe('classified')
+      expect(byName.get(name)?.judgeVerdict).toBe('correct')
+    }
+  })
+
+  it('sampling is decided BEFORE dispatch — a sampled-out product never calls the judge', async () => {
+    let calls = 0
+    const countingJudge: Judge = {
+      name: 'counting',
+      async judge() {
+        calls++
+        return { verdict: 'correct', tokens: 1 }
+      },
+    }
+
+    const graph = buildClassifyGraph({
+      tier1: fixedClassifier('dairy', 'dairy'),
+      judge: countingJudge,
+      reflector: null,
+      budget: FREE_TIER_BUDGET,
+      judgeSampleRate: 0.5, // every other product
+    })
+    const names = Array.from({ length: 10 }, (_, i) => `Product ${i}`)
+    const final = (await graph.invoke({
+      pending: names.map(req),
+      outcomes: [],
+      disputed: [],
+      budget: ZERO_SPEND,
+      halted: null,
+    })) as { outcomes: { status: string; judgeVerdict: JudgeVerdict | null }[] }
+
+    expect(final.outcomes).toHaveLength(10)
+    expect(calls).toBe(5)
+    expect(final.outcomes.filter((o) => o.judgeVerdict === null)).toHaveLength(5)
+  })
+})
+
+// ── WP-P6 code review, MUST-FIX 1 ─────────────────────────────────────────
+//
+// THE DEFECT: `selectForJudging` checked `mayEscalate` against a budget that
+// was only reassigned AFTER the judge calls resolved, so every item in the
+// pre-dispatch selection pass read the SAME starting state. Either every
+// item in a chunk passed, or none did — the reviewer measured `maxCalls: 10`
+// (the 80% line: 8) admitting 50 of 100 disputed items in one chunk.
+// Deleting the `mayEscalate` call from `selectForJudging` outright left all
+// tests green before this fix, which is exactly the untested-guard problem
+// HANDOVER.md warns about.
+describe('the escalation budget is enforced PER ITEM within one chunk (WP-P6 MUST-FIX 1)', () => {
+  it('selectForJudging — a budget of N calls admits exactly N judge calls out of 100 disputed items', () => {
+    const disputed = Array.from({ length: 100 }, (_, i) => ({ request: req(`Product ${i}`), classification: cls('dairy', 'dairy') }))
+    const budget: Budget = { maxTokens: 1_000_000, maxCalls: 10, maxRappen: 500 } // 80% line: 8
+
+    const { toJudge, accepted } = selectForJudging(disputed, 1, ZERO_SPEND, budget)
+
+    expect(toJudge).toHaveLength(8)
+    expect(accepted).toHaveLength(92)
+  })
+
+  it('through the full graph — a budget of 10 calls never lets a 100-item chunk dispatch more than 8 judge calls', async () => {
+    let judgeCalls = 0
+    const countingJudge: Judge = {
+      name: 'counting',
+      async judge() {
+        judgeCalls++
+        return { verdict: 'correct', tokens: 1 }
+      },
+    }
+    // ONE classify batch (batchSize 100), so its own call cost is exactly 1
+    // and the judge node's budget arithmetic is fully predictable: entering
+    // the judge node at callsMade=1, the 80% line of maxCalls:10 is 8, so
+    // items are admitted while reserved < 8 — 7 of them (1..7), the 8th
+    // check sees 8 and refuses.
+    const graph = buildClassifyGraph({
+      tier1: fixedClassifier('dairy', 'dairy', 100),
+      judge: countingJudge,
+      reflector: null,
+      budget: { maxTokens: 1_000_000, maxCalls: 10, maxRappen: 500 },
+    })
+    const names = Array.from({ length: 100 }, (_, i) => `Product ${i}`)
+    const final = (await graph.invoke({
+      pending: names.map(req),
+      outcomes: [],
+      disputed: [],
+      budget: ZERO_SPEND,
+      halted: null,
+    })) as { outcomes: { status: string }[] }
+
+    expect(final.outcomes).toHaveLength(100)
+    expect(judgeCalls).toBe(7)
+    expect(judgeCalls).toBeLessThan(50) // the reviewer's measured regression number
+  })
+})
+
+// ── WP-P6a F1 (carry-forward): a resource-limited uncertain must be
+// DISTINGUISHABLE from a genuine content disagreement, so classify-deals.ts
+// can refuse to cache it as permanent. ────────────────────────────────────
+describe('a resource-limited uncertain carries its own failure kind (WP-P6a F1)', () => {
+  it('judge disputed, but the escalation BUDGET is exhausted — tagged budget-exhausted, not a content signal', async () => {
+    // A tiny budget: the JUDGE node's own mayEscalate check must still PASS
+    // (state starts at ZERO_SPEND, so the item genuinely gets judged and
+    // disputed) — it is the REFLECT node's check, evaluated AFTER the
+    // judge's own token spend is folded in, that must then refuse.
+    const tinyBudget: Budget = { maxTokens: 10, maxCalls: 500, maxRappen: 500 }
+    const expensiveJudge: Judge = { name: 'sceptic', async judge() { return { verdict: 'wrong', tokens: 9 } } }
+    const reflector: Reflector = { async reflect() { return { classification: cls('dairy', 'dairy'), tokens: 0 } } }
+
+    const graph = buildClassifyGraph({ tier1: fixedClassifier('dairy', 'dairy'), judge: expensiveJudge, reflector, budget: tinyBudget })
+    const final = (await graph.invoke({
+      pending: [req('Milch')],
+      outcomes: [],
+      disputed: [],
+      budget: ZERO_SPEND,
+      halted: null,
+    })) as { outcomes: { status: string; failure?: string }[] }
+
+    expect(final.outcomes[0]?.status).toBe('uncertain')
+    expect(final.outcomes[0]?.failure).toBe('budget-exhausted')
+  })
+
+  it('reflection ran and produced nothing usable — tagged no-answer, not a content signal', async () => {
+    const alwaysWrong: Judge = { name: 'sceptic', async judge() { return { verdict: 'wrong', tokens: 0 } } }
+    const emptyReflector: Reflector = { async reflect() { return { classification: null, tokens: 0 } } }
+
+    const s = await run(
+      { tier1: fixedClassifier('dairy', 'dairy'), judge: alwaysWrong, reflector: emptyReflector, budget: FREE_TIER_BUDGET },
+      ['Milch'],
+    )
+
+    expect(s.outcomes[0]?.status).toBe('uncertain')
+    expect(s.outcomes[0]?.failure).toBe('no-answer')
+  })
+
+  it('no reflector configured at all — UNCHANGED: no `failure` tag, still safe to memoise', async () => {
+    const alwaysWrong: Judge = { name: 'sceptic', async judge() { return { verdict: 'wrong', tokens: 0 } } }
+    const s = await run({ tier1: fixedClassifier('dairy', 'dairy'), judge: alwaysWrong, reflector: null, budget: FREE_TIER_BUDGET }, ['Milch'])
+
+    expect(s.outcomes[0]?.status).toBe('uncertain')
+    expect(s.outcomes[0]?.failure).toBeUndefined()
+  })
+
+  it('reflection ran, produced an answer, and still disagrees — a GENUINE content signal, no failure tag', async () => {
+    const alwaysWrong: Judge = { name: 'sceptic', async judge() { return { verdict: 'wrong', tokens: 0 } } }
+    const stubborn: Reflector = { async reflect(_r, answer) { return { classification: answer, tokens: 0 } } }
+
+    const s = await run(
+      { tier1: fixedClassifier('bakery', 'bread'), judge: alwaysWrong, reflector: stubborn, budget: FREE_TIER_BUDGET },
+      ['Mulino Bianco'],
+    )
+
+    expect(s.outcomes[0]?.status).toBe('uncertain')
+    expect(s.outcomes[0]?.detail).toContain('disagree')
+    expect(s.outcomes[0]?.failure).toBeUndefined()
   })
 })

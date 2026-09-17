@@ -200,11 +200,140 @@ describe('classify — the provider misbehaving', () => {
     if (!isOk(r)) expect(r.error).toContain('RESOURCE_EXHAUSTED')
   })
 
-  it('fails loudly when the response is not parseable', async () => {
-    const c = make(reply('I am unable to assist with that request.'))
+})
+
+/**
+ * D4 content guards (WP-P6, `docs/rca/2026-09-15-final-plan.md`).
+ *
+ * THE DEFECT THIS CLOSES: a truncated or unparseable response used to be a
+ * whole-BATCH `Err('source-changed: …')`. `resilientClassifier` (deleted,
+ * WP-P5 F6) then read that as `'transient'` and retried the IDENTICAL
+ * prompt three times — pointless for a response cut off by a token limit,
+ * since temperature 0 truncates the same way every time — and five such
+ * batches opened the circuit for the rest of the run.
+ *
+ * Both guards below resolve to `Ok`, never `Err`: they are CONTENT
+ * failures, decided entirely inside this adapter, and D1's boundary keeps
+ * them there — `model-gate.ts`'s circuit only ever sees what `postJson`
+ * THROWS, and neither guard throws or returns an Err. A batch that is
+ * truncated or unparseable on every single call still classifies as `Ok`,
+ * which is the structural proof it can never open the shared circuit.
+ */
+describe('content guards — MAX_TOKENS truncation is bisected, not retried identically (D4)', () => {
+  /** A Gemini reply cut off by the output token limit. */
+  const maxTokensReply = (text = '[{"i":0,"cat') => ({
+    candidates: [{ content: { parts: [{ text }] }, finishReason: 'MAX_TOKENS' }],
+  })
+
+  /** Product count sent in ONE prompt body — every line of the numbered list. */
+  const productCount = (body: string): number => {
+    const text: string = JSON.parse(body).contents[0].parts[0].text
+    return (text.match(/^\d+\. /gm) ?? []).length
+  }
+
+  it('a MAX_TOKENS batch is split and retried, never three identical calls, never opens the circuit', async () => {
+    // Every single call — original and every bisected half — comes back
+    // truncated, so this exercises the full 25 → 13 → 7 depth.
+    const bodies: string[] = []
+    const c = make(async (_url, body) => {
+      bodies.push(body)
+      return maxTokensReply()
+    })
+
+    const batch = Array.from({ length: 25 }, (_, i) => req(`Product ${i}`))
+    const r = await c.classify(batch)
+
+    // Never an Err — a truncated batch is a content failure, handled here,
+    // not a whole-call failure the gate/circuit ever sees.
+    expect(isOk(r)).toBe(true)
+    if (!isOk(r)) return
+
+    // Every one of the 25 original products still has an outcome — never
+    // silently dropped by the split.
+    expect(r.value).toHaveLength(25)
+    expect(r.value.every((o) => !o.ok)).toBe(true)
+    expect(r.value.every((o) => !o.ok && o.reason === 'output-truncated')).toBe(true)
+
+    // 1 (size 25) + 2 (bisect 1: 13, 12) + 4 (bisect 2: 7, 6, 6, 6) = 7 calls.
+    // Bisection stops at depth 2 — 25 → 13 → 7 — never a third split.
+    expect(bodies).toHaveLength(7)
+
+    // No two calls sent the IDENTICAL prompt — the old bug retried the same
+    // 25-item body three times running.
+    expect(new Set(bodies).size).toBe(bodies.length)
+
+    const sizes = bodies.map(productCount)
+    expect(sizes.sort((a, b) => b - a)).toEqual([25, 13, 12, 7, 6, 6, 6])
+  })
+
+  it('recovers once a bisected half is small enough to answer in full', async () => {
+    const c = make(async (_url, body) => {
+      const size = productCount(body)
+      // The full 25 truncates; every half of 13 or smaller answers cleanly.
+      if (size > 13) return maxTokensReply()
+      const answers = Array.from({ length: size }, (_, i) => `{"i":${i},"category":"dairy","subCategory":"dairy","confidence":0.9}`)
+      return { candidates: [{ content: { parts: [{ text: `[${answers.join(',')}]` }] } }] }
+    })
+
+    const batch = Array.from({ length: 25 }, (_, i) => req(`Product ${i}`))
+    const r = await c.classify(batch)
+
+    expect(isOk(r)).toBe(true)
+    if (!isOk(r)) return
+    expect(r.value).toHaveLength(25)
+    expect(r.value.every((o) => o.ok)).toBe(true)
+  })
+
+  it('a batch whose answers skip indices reports the missing products with a reason', async () => {
+    // The response is complete (no MAX_TOKENS) but the model simply forgot
+    // index 2 of 4 — a genuinely different failure from truncation.
+    const c = make(reply('[{"i":0,"category":"dairy","subCategory":"dairy","confidence":0.9},{"i":1,"category":"dairy","subCategory":"dairy","confidence":0.9},{"i":3,"category":"dairy","subCategory":"dairy","confidence":0.9}]'))
+    const r = await c.classify([req('A'), req('B'), req('C'), req('D')])
+    expect(isOk(r)).toBe(true)
+    if (!isOk(r)) return
+    expect(r.value).toHaveLength(4)
+    const missing = r.value[2]
+    expect(missing?.ok).toBe(false)
+    if (missing && !missing.ok) {
+      expect(missing.reason).toBe('no-answer')
+      expect(missing.detail).toContain('no entry')
+    }
+    // The other three are unaffected — one missing index never costs its neighbours.
+    expect(r.value.filter((o) => o.ok)).toHaveLength(3)
+  })
+})
+
+describe('content guards — an unparseable-but-complete response is retried once (D4)', () => {
+  it('gets exactly one retry, not three identical calls', async () => {
+    let calls = 0
+    const c = make(async () => {
+      calls++
+      return { candidates: [{ content: { parts: [{ text: 'I cannot help with that.' }] } }] }
+    })
     const r = await c.classify([req('Milch')])
-    expect(isOk(r)).toBe(false)
-    if (!isOk(r)) expect(r.error).toContain('source-changed')
+    expect(calls).toBe(2)
+    expect(isOk(r)).toBe(true)
+    if (!isOk(r)) return
+    const outcome = r.value[0]
+    expect(outcome?.ok).toBe(false)
+    if (outcome && !outcome.ok) {
+      expect(outcome.reason).toBe('unparseable')
+      expect(outcome.detail).toContain('one retry')
+    }
+  })
+
+  it('recovers if the retry comes back parseable — the provider is not fully deterministic in practice', async () => {
+    let calls = 0
+    const c = make(async () => {
+      calls++
+      if (calls === 1) return { candidates: [{ content: { parts: [{ text: 'garbled output' }] } }] }
+      return { candidates: [{ content: { parts: [{ text: '[{"i":0,"category":"dairy","subCategory":"dairy","confidence":0.9}]' }] } }] }
+    })
+    const r = await c.classify([req('Milch')])
+    expect(calls).toBe(2)
+    expect(isOk(r)).toBe(true)
+    if (!isOk(r)) return
+    expect(r.value[0]?.ok).toBe(true)
   })
 })
 

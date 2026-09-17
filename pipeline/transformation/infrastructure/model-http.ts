@@ -77,21 +77,75 @@ export type PostJsonOptions = {
  * caller has to regex back out.
  */
 export async function postJson(options: PostJsonOptions): Promise<unknown> {
-  if (!options.gate) {
-    // A runtime guard, not just a type one: `PostJsonOptions.gate` is
-    // required in TypeScript, but a caller that bypasses the type checker (or
-    // a future adapter someone writes in a hurry) must still be stopped here,
-    // not 40 minutes into an ungated run.
+  requireGate(options.gate, 'postJson')
+  return options.gate.request(() =>
+    attemptRequest({
+      method: 'POST',
+      url: options.url,
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      body: options.body,
+      timeoutMs: options.timeoutMs,
+      fetchImpl: options.fetchImpl,
+    }),
+  )
+}
+
+/**
+ * WP-P8. A GET variant of `postJson`, for the ONE non-model, non-body call
+ * this pipeline makes over the same bounded seam: reading the OpenRouter
+ * account's own spend ledger (`openrouter-spend-account.ts`) before deciding
+ * whether the judge may run at all. Shares `attemptRequest` with `postJson`
+ * below — same timeout, same abort handling, same `Retry-After`/`retryDelay`
+ * reading, same "gate is required" runtime guard — so this file stays the
+ * SINGLE place a bounded call to a model-adjacent endpoint is made, exactly
+ * the property `model-http.test.ts`'s "no other infrastructure file calls
+ * fetch directly" enforces.
+ */
+export type GetJsonOptions = {
+  readonly url: string
+  readonly headers?: Readonly<Record<string, string>>
+  readonly timeoutMs?: number
+  readonly fetchImpl?: typeof fetch
+  readonly gate: ModelGate
+}
+
+export async function getJson(options: GetJsonOptions): Promise<unknown> {
+  requireGate(options.gate, 'getJson')
+  return options.gate.request(() =>
+    attemptRequest({
+      method: 'GET',
+      url: options.url,
+      headers: options.headers,
+      body: undefined,
+      timeoutMs: options.timeoutMs,
+      fetchImpl: options.fetchImpl,
+    }),
+  )
+}
+
+function requireGate(gate: ModelGate | undefined, fnName: string): void {
+  if (!gate) {
+    // A runtime guard, not just a type one: `gate` is required in TypeScript,
+    // but a caller that bypasses the type checker (or a future adapter
+    // someone writes in a hurry) must still be stopped here, not 40 minutes
+    // into an ungated run.
     throw new Error(
-      'postJson: a gate is required — every model call must be paced, retried and circuit-broken by a ' +
+      `${fnName}: a gate is required — every model call must be paced, retried and circuit-broken by a ` +
         'ModelGate (WP-P5). Build one in the composition root (one per provider+model) and pass it as `gate`.',
     )
   }
-
-  return options.gate.request(() => attemptOnce(options))
 }
 
-async function attemptOnce(options: PostJsonOptions): Promise<unknown> {
+type AttemptOptions = {
+  readonly method: 'GET' | 'POST'
+  readonly url: string
+  readonly headers?: Readonly<Record<string, string>>
+  readonly body: string | undefined
+  readonly timeoutMs?: number
+  readonly fetchImpl?: typeof fetch
+}
+
+async function attemptRequest(options: AttemptOptions): Promise<unknown> {
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS
   const doFetch = options.fetchImpl ?? fetch
 
@@ -105,8 +159,8 @@ async function attemptOnce(options: PostJsonOptions): Promise<unknown> {
   let res: Response
   try {
     res = await doFetch(options.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      method: options.method,
+      headers: options.headers,
       body: options.body,
       signal,
     })

@@ -36,12 +36,41 @@ import { postJson, summariseError } from '../model-http'
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models'
 const OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions'
 
+/**
+ * WP-P8 (RCA item 5). Pre-AP-11-benchmark conservative default — see
+ * `model-registry.ts`'s `JUDGE_CHAIN` comment for the reasoning and the
+ * number it shares with this one. `composition.ts` normally overrides this
+ * from the SAME `JUDGE_CHAIN` entry's `billing.maxOutputTokens` that built
+ * the judge's `SpendPolicy`, so the request body's cap and the ledger's
+ * worst-case reservation always agree — this constant only matters when a
+ * caller builds a judge without going through composition.ts at all.
+ */
+export const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 2_000
+
 export type JudgeDeps = {
   apiKey: string
   model: string
   taxonomy: readonly TaxonomyEntry[]
   /** REQUIRED (WP-P5). This judge's own OpenRouter (provider, model) gate — see `model-gate.ts`. */
   gate: ModelGate
+  /**
+   * WP-P8. A hard cap on the paid call's output, sent as `max_tokens` on
+   * every request. MUST equal the `maxOutputTokens` the gate's `SpendPolicy`
+   * was built from (`model-registry.ts`) — that number is what bounds the
+   * ledger's worst-case reservation; sending a DIFFERENT number here would
+   * make the reservation a fiction. Defaults to `DEFAULT_JUDGE_MAX_OUTPUT_TOKENS`.
+   */
+  maxOutputTokens?: number
+  /**
+   * WP-P8. OpenAI reasoning effort ('minimal' | 'low' | 'medium' | 'high'),
+   * sent only when provided. Verified against OpenRouter's own docs
+   * (openrouter.ai/docs/guides/best-practices/reasoning-tokens, 2026-09-16):
+   * reasoning tokens are deducted FROM `max_tokens`, not billed in addition
+   * to it — so `max_tokens` alone already bounds the call's worst case, and
+   * this is left UNSET by default rather than silently changing the judge's
+   * measured behaviour beyond the minimum AP-8 requires (see the ADR).
+   */
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high'
   /** Told about a judge call that ultimately failed, after the gate's own retries. Never swallowed. */
   log?: (message: string) => void
   /** Injected so tests never touch the network. */
@@ -50,7 +79,14 @@ export type JudgeDeps = {
 
 // Bounded by model-http. The judge runs once per escalated product, in
 // sequence, so a stall here holds up the whole classification chain.
-async function askOpenRouter(apiKey: string, model: string, prompt: string, gate: ModelGate) {
+async function askOpenRouter(
+  apiKey: string,
+  model: string,
+  prompt: string,
+  gate: ModelGate,
+  maxOutputTokens: number,
+  reasoningEffort?: JudgeDeps['reasoningEffort'],
+) {
   const j = (await postJson({
     url: OPENROUTER,
     headers: {
@@ -58,7 +94,13 @@ async function askOpenRouter(apiKey: string, model: string, prompt: string, gate
       'HTTP-Referer': 'https://basketch.vercel.app',
       'X-Title': 'basketch',
     },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0 }),
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0,
+      max_tokens: maxOutputTokens,
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+    }),
     gate,
   })) as { choices?: { message?: { content?: string } }[]; usage?: { total_tokens?: number } }
   return { text: j?.choices?.[0]?.message?.content ?? '', tokens: j?.usage?.total_tokens ?? 0 }
@@ -73,7 +115,8 @@ async function askOpenRouter(apiKey: string, model: string, prompt: string, gate
  * producing the right answer.
  */
 export function createOpenRouterJudge(deps: JudgeDeps): Judge {
-  const ask = deps.ask ?? ((p: string) => askOpenRouter(deps.apiKey, deps.model, p, deps.gate))
+  const maxOutputTokens = deps.maxOutputTokens ?? DEFAULT_JUDGE_MAX_OUTPUT_TOKENS
+  const ask = deps.ask ?? ((p: string) => askOpenRouter(deps.apiKey, deps.model, p, deps.gate, maxOutputTokens, deps.reasoningEffort))
   const log = deps.log ?? (() => {})
 
   return {
@@ -90,6 +133,21 @@ export function createOpenRouterJudge(deps: JudgeDeps): Judge {
         }
         // An unparseable verdict must not be read as disapproval — that would
         // escalate everything the moment the judge changed its output format.
+        //
+        // But it must not be SILENT either. `max_tokens` (2,000) is an
+        // unmeasured guess: AP-11 asked for a 291-row re-benchmark before
+        // capping and it has not been run. If the cap is too low, GPT-5
+        // returns finish_reason 'length' with empty or truncated content — a
+        // full-price call that yields nothing — and without this line the only
+        // trace is an aggregate "judge unavailable for N products", which
+        // reads exactly like a dead provider. The token count is the tell: at
+        // or near the cap means truncation, near zero means the model simply
+        // answered in an unexpected shape.
+        log(
+          `judge: unparseable verdict after ${tokens} tokens ` +
+            `(cap ${maxOutputTokens}${tokens >= maxOutputTokens ? ' — HIT THE CAP, it may be too low' : ''}): ` +
+            `${JSON.stringify(text).slice(0, 120)}`,
+        )
         return { verdict: 'unavailable', tokens }
       } catch (e) {
         // A judge that is down must not block classification. The answer
