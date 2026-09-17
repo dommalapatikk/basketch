@@ -528,6 +528,8 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     heldBack: 0,
     judgeUnavailable: 0,
     deferred: 0,
+    // WP-P9: additive stats field, not exercised by anything in this file.
+    enrichment: { attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 },
     isColdStart: false,
     deadlineHit: false,
   }

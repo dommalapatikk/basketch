@@ -3,10 +3,18 @@ import type { UnifiedDeal } from '../../../shared/types'
 import { err, isOk, ok, unwrap } from '../../collection/domain/result'
 import { createClassification, createConfidence } from '../domain/classification'
 import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from '../domain/classification-cache'
+import type { EnrichmentOutcome } from '../domain/classification-cache'
 import type { ClassificationOutcome, Classifier } from '../domain/classifier'
 import { MAX_CHUNK_MS } from '../domain/resilience'
 import { statefulClock } from '../../test-support/clock'
 import { classifyDeals } from './classify-deals'
+
+/** A `stated` outcome for every item — the shape a real Gemini call returns. */
+const statedFor = (attrs: Record<string, unknown>) => (items: readonly { request: { productName: string } }[]) => {
+  const outcomes = new Map<string, EnrichmentOutcome>()
+  for (const i of items) outcomes.set(i.request.productName, { kind: 'stated', attributes: attrs })
+  return outcomes
+}
 
 const deal = (productName: string, store = 'denner'): UnifiedDeal =>
   ({
@@ -245,12 +253,12 @@ describe('caching uncertain outcomes (WP-P6a)', () => {
     const seenNames: string[] = []
     const enricher = {
       async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
-        const attributes = new Map<string, Record<string, unknown>>()
+        const outcomes = new Map<string, EnrichmentOutcome>()
         for (const i of items) {
           seenNames.push(i.request.productName)
-          attributes.set(i.request.productName, { fatPercent: 3.5 })
+          outcomes.set(i.request.productName, { kind: 'stated', attributes: { fatPercent: 3.5 } })
         }
-        return { attributes, tokens: 0 }
+        return { outcomes, tokens: 0 }
       },
     }
 
@@ -316,12 +324,12 @@ describe('the enrichment gate matches the backfill gate (F2)', () => {
     const seenNames: string[] = []
     const enricher = {
       async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
-        const attributes = new Map<string, Record<string, unknown>>()
+        const outcomes = new Map<string, EnrichmentOutcome>()
         for (const i of items) {
           seenNames.push(i.request.productName)
-          attributes.set(i.request.productName, { fatPercent: 3.5 })
+          outcomes.set(i.request.productName, { kind: 'stated', attributes: { fatPercent: 3.5 } })
         }
-        return { attributes, tokens: 0 }
+        return { outcomes, tokens: 0 }
       },
     }
 
@@ -349,11 +357,14 @@ describe('enriched attributes reach the deal', () => {
   // attributes column stayed '{}' on every row in the table.
   const enricher = {
     async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
-      const attributes = new Map<string, Record<string, unknown>>()
+      const outcomes = new Map<string, EnrichmentOutcome>()
       for (const i of items) {
-        attributes.set(i.request.productName, { fatPercent: 3.5, storage: 'chilled', organic: true })
+        outcomes.set(i.request.productName, {
+          kind: 'stated',
+          attributes: { fatPercent: 3.5, storage: 'chilled', organic: true },
+        })
       }
-      return { attributes, tokens: 0 }
+      return { outcomes, tokens: 0 }
     },
   }
 
@@ -371,9 +382,9 @@ describe('enriched attributes reach the deal', () => {
     // 'tiefkühl' is what a retailer prints. It is not what the CHECK allows.
     const german = {
       async enrich(items: readonly { request: { productName: string }; subCategory: string }[]) {
-        const attributes = new Map<string, Record<string, unknown>>()
-        for (const i of items) attributes.set(i.request.productName, { storage: 'tiefkühl' })
-        return { attributes, tokens: 0 }
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) outcomes.set(i.request.productName, { kind: 'stated', attributes: { storage: 'tiefkühl' } })
+        return { outcomes, tokens: 0 }
       },
     }
     const r = await runWarm([deal('Findus Erbsen')], { enricher: german as never })
@@ -406,6 +417,7 @@ describe('the cache', () => {
         normalisedName: 'emmi milch',
         classification: cls('dairy', 'dairy', 0.97),
         attributes: {},
+        attributesVersion: null,
         runId: 'earlier',
       },
     ])
@@ -429,6 +441,7 @@ describe('the cache', () => {
         normalisedName: 'emmi milch',
         classification: cls('dairy', 'dairy'),
         attributes: {},
+        attributesVersion: null,
         runId: 'earlier',
       },
     ])
@@ -657,7 +670,7 @@ describe('a cold start does not spend its budget on metadata', () => {
       calls,
       async enrich(items: readonly unknown[]) {
         calls.push(items.length)
-        return { attributes: new Map<string, Record<string, unknown>>(), tokens: 0 }
+        return { outcomes: new Map<string, EnrichmentOutcome>(), tokens: 0 }
       },
     }
   }
@@ -714,12 +727,12 @@ describe('deferred enrichment is actually picked up later', () => {
     return {
       seen,
       async enrich(items: readonly { request: { productName: string } }[]) {
-        const attributes = new Map<string, Record<string, unknown>>()
+        const outcomes = new Map<string, EnrichmentOutcome>()
         for (const i of items) {
           seen.push(i.request.productName)
-          attributes.set(i.request.productName, attrs)
+          outcomes.set(i.request.productName, { kind: 'stated', attributes: attrs })
         }
-        return { attributes, tokens: 0 }
+        return { outcomes, tokens: 0 }
       },
     }
   }
@@ -1106,5 +1119,242 @@ describe('an unreadable classification cache stops the run', () => {
     const result = await run([deal('Emmi Milch')], { cache: createInMemoryCache() })
     expect(result.deals.length).toBe(1)
     expect(result.stats.cacheHits).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// WP-P9 (item 6, D3) — enrichment completion
+// ---------------------------------------------------------------------------
+/**
+ * Measured on run 34833209176 (2026-09-14) and 34718508157 (2026-09-12): the
+ * enrichment backfill succeeded on 0 of 255 and 1 of 277 calls, and
+ * `backfilled 0/100` logged as if nothing had gone wrong. 82.6% of live deals
+ * carry no attributes; 94.9% carry no `storage` value.
+ *
+ * WP-P5's shared ModelGate already fixed the RATE half (a caller can no
+ * longer burst unpaced requests). These tests cover what it did not fix:
+ * recording the RESULT of a call correctly once it succeeds or fails.
+ */
+
+/** A cache seeded with `owedCount` products, all classified but unresolved — the state a cold start leaves behind. */
+function seedOwedCache(owedCount: number, namePrefix = 'Produkt') {
+  const products = Array.from({ length: owedCount }, (_, i) => deal(`${namePrefix} ${i}`))
+  const cache = createInMemoryCache(
+    products.map((d) => ({
+      cacheKey: cacheKeyFor(d.productName, CURRENT_VERSIONS),
+      normalisedName: d.productName.toLowerCase(),
+      classification: cls('dairy', 'dairy'),
+      attributes: {},
+      attributesVersion: null,
+      runId: 'earlier',
+    })),
+  )
+  return { products, cache }
+}
+
+describe('a product whose name states nothing is enriched once, not re-requested every run', () => {
+  // "Emmi Milch 1L" is D3's own example — no fat percentage is printed, so
+  // the honest answer is `statedNothing`, not a drop.
+  it('backfills a statedNothing outcome, and the SAME product is not offered to the enricher again', async () => {
+    const { products, cache } = seedOwedCache(1, 'Emmi Milch 1L Produkt')
+
+    const firstSeen: string[] = []
+    const first = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) {
+          firstSeen.push(i.request.productName)
+          outcomes.set(i.request.productName, { kind: 'statedNothing' })
+        }
+        return { outcomes, tokens: 0 }
+      },
+    }
+    const afterFirst = await run(products, { cache, enricher: first as never })
+    expect(firstSeen).toHaveLength(1)
+    // A real, final answer — published as an empty bag, not a failure.
+    expect(afterFirst.deals[0]?.attributes).toEqual({})
+    expect(afterFirst.stats.enrichment.statedNothing).toBe(1)
+    expect(afterFirst.stats.enrichment.enriched).toBe(0)
+
+    // Second run, same cache: nothing should be offered to the enricher again.
+    const secondSeen: string[] = []
+    const second = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        for (const i of items) secondSeen.push(i.request.productName)
+        return { outcomes: new Map<string, EnrichmentOutcome>(), tokens: 0 }
+      },
+    }
+    await run(products, { cache, enricher: second as never })
+    expect(secondSeen).toEqual([])
+  })
+})
+
+describe('a rate-limited product is still owed next run — never marked done', () => {
+  it('a 429 during backfill leaves the product owed; the next run offers it again', async () => {
+    const { products, cache } = seedOwedCache(1, 'Denner Joghurt')
+
+    const firstSeen: string[] = []
+    const rateLimited = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) {
+          firstSeen.push(i.request.productName)
+          outcomes.set(i.request.productName, { kind: 'failed', reason: 'HTTP 429', rateLimited: true })
+        }
+        return { outcomes, tokens: 0 }
+      },
+    }
+    const afterFirst = await run(products, { cache, enricher: rateLimited as never })
+    expect(firstSeen).toHaveLength(1)
+    // Never published as an answer — the price is unaffected, only metadata is missing.
+    expect(afterFirst.deals[0]?.attributes).toEqual({})
+    expect(afterFirst.stats.enrichment.rateLimited).toBe(1)
+    expect(afterFirst.stats.enrichment.failed).toBe(1)
+    expect(afterFirst.stats.enrichment.enriched).toBe(0)
+    expect(afterFirst.stats.enrichment.statedNothing).toBe(0)
+
+    // The SAME product is offered again — a 429 must never be read as "done".
+    const secondSeen: string[] = []
+    const healthy = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) {
+          secondSeen.push(i.request.productName)
+          outcomes.set(i.request.productName, { kind: 'stated', attributes: { fatPercent: 3.5 } })
+        }
+        return { outcomes, tokens: 0 }
+      },
+    }
+    const afterSecond = await run(products, { cache, enricher: healthy as never })
+    expect(secondSeen).toHaveLength(1)
+    expect(afterSecond.deals[0]?.attributes).toMatchObject({ fatPercent: 3.5 })
+  })
+})
+
+describe('backfill stops at its time budget and carries the rest forward', () => {
+  it('stops before starting a backfill slice past the deadline, and the remainder is still owed next run', async () => {
+    // CHUNK_SIZE (classify-deals.ts) is 100 — 150 owed products is exactly two
+    // backfill slices, so the deadline can cut off the second one.
+    const { products, cache } = seedOwedCache(150, 'Produkt Backfill')
+
+    const firstSeen: string[] = []
+    const paced = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        for (const i of items) firstSeen.push(i.request.productName)
+        return { outcomes: statedFor({ fatPercent: 3.5 })(items), tokens: 0 }
+      },
+    }
+
+    // Every product is already a cache HIT, so `toClassify` is empty and the
+    // classify loop makes ZERO deadline checks — the two scripted values
+    // below are consumed entirely by the two backfill slices.
+    const beforeSlice1WithinDeadline = 0
+    const beforeSlice2PastDeadline = 999_999
+    const clock = statefulClock([beforeSlice1WithinDeadline, beforeSlice2PastDeadline])
+
+    const lines: string[] = []
+    await run(products, {
+      cache,
+      enricher: paced as never,
+      deadlineAtMs: 1_000,
+      now: clock,
+      log: (m) => lines.push(m),
+    })
+
+    // Only the first slice (100 of 150) was attempted before the deadline broke the loop.
+    expect(firstSeen).toHaveLength(100)
+    expect(
+      lines.some((l) => l.includes('run-deferred') && l.includes('50 of 150') && l.includes('carried forward')),
+    ).toBe(true)
+
+    // The 50 cut off by the deadline are still owed — a fresh run (no
+    // deadline this time) offers exactly them, and none of the 100 already
+    // resolved.
+    const secondSeen: string[] = []
+    const noDeadline = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        for (const i of items) secondSeen.push(i.request.productName)
+        return { outcomes: statedFor({ fatPercent: 3.5 })(items), tokens: 0 }
+      },
+    }
+    await run(products, { cache, enricher: noDeadline as never })
+    expect(secondSeen).toHaveLength(50)
+    expect(secondSeen.every((name) => !firstSeen.includes(name))).toBe(true)
+  })
+})
+
+describe('"backfilled 0/100" raises a warning, it is not success', () => {
+  it('warns when a whole backfill batch resolves nothing — every item rate-limited', async () => {
+    const { products, cache } = seedOwedCache(3, 'Produkt Refused')
+
+    const allRateLimited = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) outcomes.set(i.request.productName, { kind: 'failed', reason: 'HTTP 429', rateLimited: true })
+        return { outcomes, tokens: 0 }
+      },
+    }
+
+    const lines: string[] = []
+    const r = await run(products, { cache, enricher: allRateLimited as never, log: (m) => lines.push(m) })
+
+    // The WARN glyph this codebase's other guards use (⚠), not a bare INFO
+    // line indistinguishable from a healthy run.
+    expect(lines.some((l) => l.includes('⚠') && l.includes('backfilled 0/3'))).toBe(true)
+    expect(r.stats.enrichment.rateLimited).toBe(3)
+    expect(r.stats.enrichment.enriched + r.stats.enrichment.statedNothing).toBe(0)
+  })
+
+  it('does NOT warn when a batch resolves everything, even as statedNothing', async () => {
+    const { products, cache } = seedOwedCache(3, 'Produkt Honest')
+
+    const allStatedNothing = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const i of items) outcomes.set(i.request.productName, { kind: 'statedNothing' })
+        return { outcomes, tokens: 0 }
+      },
+    }
+
+    const lines: string[] = []
+    await run(products, { cache, enricher: allStatedNothing as never, log: (m) => lines.push(m) })
+
+    expect(lines.some((l) => l.includes('⚠') && l.includes('backfilled 0'))).toBe(false)
+    expect(lines.some((l) => l.includes('backfilled 3/3'))).toBe(true)
+  })
+})
+
+describe('stats.enrichment reports across in-chunk and backfill outcomes together', () => {
+  it('sums enriched, statedNothing, rateLimited and failed from every batch this run made', async () => {
+    const { products, cache } = seedOwedCache(4, 'Produkt Mixed')
+    let i = 0
+    const mixed = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        for (const item of items) {
+          const outcome: EnrichmentOutcome =
+            i === 0
+              ? { kind: 'stated', attributes: { fatPercent: 3.5 } }
+              : i === 1
+                ? { kind: 'statedNothing' }
+                : { kind: 'failed', reason: 'HTTP 429', rateLimited: true }
+          outcomes.set(item.request.productName, outcome)
+          i++
+        }
+        return { outcomes, tokens: 7 }
+      },
+    }
+
+    const r = await run(products, { cache, enricher: mixed as never })
+    expect(r.stats.enrichment.attempted).toBe(4)
+    expect(r.stats.enrichment.enriched).toBe(1)
+    expect(r.stats.enrichment.statedNothing).toBe(1)
+    expect(r.stats.enrichment.rateLimited).toBe(2)
+    expect(r.stats.enrichment.failed).toBe(2)
+  })
+
+  it('is all zero when no enricher is configured at all', async () => {
+    const r = await run([deal('Emmi Milch')])
+    expect(r.stats.enrichment).toEqual({ attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 })
   })
 })

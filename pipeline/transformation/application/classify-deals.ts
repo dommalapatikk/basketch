@@ -18,8 +18,16 @@ import type { Deal, UnifiedDeal } from '../../../shared/types'
 import { isPublishable, topCategoryFor } from '../../../shared/types'
 import { markUncertain, storageFrom } from '../domain/classification'
 import { isOk } from '../../collection/domain/result'
-import type { CachedClassification, ClassificationCache } from '../domain/classification-cache'
-import { CURRENT_VERSIONS, cacheKeyFor, needsEnrichment, normaliseForCache } from '../domain/classification-cache'
+import type { CachedClassification, ClassificationCache, EnrichmentOutcome, EnrichmentStats } from '../domain/classification-cache'
+import {
+  CURRENT_VERSIONS,
+  attributesFrom,
+  attributesVersionFor,
+  cacheKeyFor,
+  needsEnrichment,
+  normaliseForCache,
+  summariseEnrichmentOutcomes,
+} from '../domain/classification-cache'
 import type { ClassificationRequest, Classifier } from '../domain/classifier'
 import { FREE_TIER_BUDGET, ZERO_SPEND } from '../domain/guardrails'
 import { checkChunkDuration, checkDeadline } from '../domain/resilience'
@@ -51,7 +59,7 @@ export type ClassifyDealsDeps = {
    */
   enricher?: {
     enrich(items: readonly { request: ClassificationRequest; subCategory: string }[]): Promise<{
-      attributes: Map<string, Record<string, unknown>>
+      outcomes: Map<string, EnrichmentOutcome>
       tokens: number
     }>
   } | null
@@ -104,6 +112,16 @@ export type ClassifyDealsResult = {
      */
     readonly judgeUnavailable: number
     readonly deferred: number
+    /**
+     * WP-P9 (item 6, D3). Every enricher outcome this run produced, in-chunk
+     * AND backfill combined. `rateLimited` is a SUBSET of `failed` — broken
+     * out because it is the fixable, expected case (measured: 350 and 365
+     * 429s per run before WP-P5's shared gate). `backfilled 0/100` used to
+     * log as if nothing had gone wrong; this is what makes that impossible —
+     * a caller can now assert `attempted > 0 && enriched + statedNothing ===
+     * 0` and raise a real alarm.
+     */
+    readonly enrichment: EnrichmentStats
     readonly isColdStart: boolean
     /**
      * True when the run stopped classifying early because `deadlineAtMs` was
@@ -147,7 +165,8 @@ const CHUNK_SIZE = 100
 async function persistChunk(
   chunk: readonly Outcome[],
   deps: ClassifyDealsDeps,
-  attributesByName: Map<string, Record<string, unknown>>,
+  enrichmentByName: Map<string, EnrichmentOutcome>,
+  allOutcomes: EnrichmentOutcome[],
   log: (message: string) => void,
   // From the PLAN, never decided here. planRun owns "what can this run
   // afford" — the same reason judgeSampleRate lives there. A condition in the
@@ -181,10 +200,16 @@ async function persistChunk(
       subCategory: o.classification!.subCategory,
     }))
     try {
-      const { attributes, tokens } = await deps.enricher.enrich(toEnrich)
-      for (const [name, attrs] of attributes) attributesByName.set(name, attrs)
-      log(`[transform] enriched ${attributes.size}/${toEnrich.length} products (${tokens} tokens)`)
+      const { outcomes, tokens } = await deps.enricher.enrich(toEnrich)
+      for (const [name, outcome] of outcomes) enrichmentByName.set(name, outcome)
+      allOutcomes.push(...outcomes.values())
+      const summary = summariseEnrichmentOutcomes(outcomes.values())
+      log(`[transform] enriched ${summary.enriched}/${toEnrich.length} products (${tokens} tokens)`)
     } catch (e) {
+      // The enricher port itself never throws (`EnrichmentOutcome` covers
+      // every failure) — this catch is a backstop against a bypassed
+      // contract, not the expected path. Nothing to record per-product here:
+      // the port contract test is what actually guards this.
       log(`[transform] enrichment failed for this chunk: ${e instanceof Error ? e.message : String(e)}`)
     }
     enrichMs = Date.now() - t0
@@ -218,14 +243,21 @@ async function persistChunk(
   )
 
   const toCache = [
-    ...classified.map((o) => ({
-      cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
-      normalisedName: normaliseForCache(o.request.productName),
-      // biome-ignore lint/style/noNonNullAssertion: filtered above
-      classification: o.classification!,
-      attributes: attributesByName.get(o.request.productName) ?? {},
-      runId: deps.runId,
-    })),
+    ...classified.map((o) => {
+      const outcome = enrichmentByName.get(o.request.productName)
+      return {
+        cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
+        normalisedName: normaliseForCache(o.request.productName),
+        // biome-ignore lint/style/noNonNullAssertion: filtered above
+        classification: o.classification!,
+        // WP-P9: no outcome at all means enrichment never ran for this
+        // product this chunk (cold start, or `enrich` false) — attributes and
+        // version both stay at their "still owed" default, exactly as before.
+        attributes: outcome ? attributesFrom(outcome) : {},
+        attributesVersion: outcome ? attributesVersionFor(outcome) : null,
+        runId: deps.runId,
+      }
+    }),
     ...uncertainWithClassification.map((o) => ({
       cacheKey: cacheKeyFor(o.request.productName, CURRENT_VERSIONS),
       normalisedName: normaliseForCache(o.request.productName),
@@ -237,6 +269,7 @@ async function persistChunk(
       classification: markUncertain(o.classification!),
       // Never enriched (see above), so there is nothing to carry here.
       attributes: {},
+      attributesVersion: null,
       runId: deps.runId,
     })),
   ]
@@ -321,6 +354,8 @@ export async function classifyDeals(
       confidence: number
       isUncertain: boolean
       attributes: Record<string, unknown>
+      /** WP-P9. Read by `needsEnrichment` to decide whether the backfill still owes this product a look. */
+      attributesVersion: number | null
       /**
        * The validated Classification exactly as stored.
        *
@@ -360,6 +395,7 @@ export async function classifyDeals(
       // Enriched once, reused every run. Without this the attributes are
       // recomputed or — as they were until 2026-09-11 — simply dropped.
       attributes: entry.attributes,
+      attributesVersion: entry.attributesVersion,
       classification: entry.classification,
     })
   }
@@ -451,7 +487,15 @@ export async function classifyDeals(
   // made. Chunking is what makes that comment describe reality — and it means
   // even a failed run advances the cold start.
   const outcomes: Outcome[] = []
-  const attributesByName = new Map<string, Record<string, unknown>>()
+  // WP-P9: every product's LATEST enricher outcome this run, in-chunk and
+  // backfill both write into this one map — the source both the cache write
+  // and the published deal's attributes read from.
+  const enrichmentByName = new Map<string, EnrichmentOutcome>()
+  // Every outcome ever produced this run, in-chunk AND backfill, flattened —
+  // the input to `stats.enrichment`. Deliberately a flat list, not the map
+  // above: two products sharing a normalised name would otherwise silently
+  // lose one's outcome from the count.
+  const allEnrichmentOutcomes: EnrichmentOutcome[] = []
   let deadlineHit = false
   // F8 (code review of the first WP-P3 submission): named `classifiedCount`
   // before, which overstated what it measures. This counts products in a
@@ -537,7 +581,8 @@ export async function classifyDeals(
       const { enrichMs, saveMs } = await persistChunk(
         final.outcomes,
         deps,
-        attributesByName,
+        enrichmentByName,
+        allEnrichmentOutcomes,
         log,
         plan.enrich,
       )
@@ -607,31 +652,83 @@ export async function classifyDeals(
   // The row is re-saved with its STORED classification and the new attributes.
   // The upsert writes the whole row, so passing anything else here would
   // overwrite a settled category with a guess.
+  //
+  // WP-P9 (item 6, D3). TWO fixes to the pre-existing loop:
+  //
+  //   1. PACED, NOT BURST. Every HTTP call the enricher makes already goes
+  //      through the SAME `ModelGate` the classifier and reflector share
+  //      (WP-P5) — pacing is structural at `postJson`, not a habit this loop
+  //      has to remember. What THIS loop adds is a TIME BUDGET: measured on
+  //      run 34833209176, a backfill of 1,107 products fired ~250 requests in
+  //      20 seconds with no gate at all and no time budget either — it simply
+  //      ran to completion regardless of how much of the step remained. The
+  //      SAME `deadlineAtMs` the classify loop above already obeys is reused
+  //      here (HANDOVER §5: express the guard in products, not chunks — a
+  //      slice IS 100 products, the same unit the classify loop already uses).
+  //   2. "BACKFILLED 0/100" IS NEVER SILENT SUCCESS AGAIN. A batch where
+  //      nothing resolved (no `stated`, no `statedNothing` — only `failed`) is
+  //      a WARN, not an INFO line indistinguishable from a healthy run.
+  let backfillAttempted = 0
   if (deps.enricher && owedEnrichment.length > 0) {
     for (let start = 0; start < owedEnrichment.length; start += CHUNK_SIZE) {
+      if (deadlineAtMs !== null && !checkDeadline(clock(), deadlineAtMs).withinDeadline) {
+        log(
+          `[transform] ⚠ run-deferred: in-process deadline reached before backfilling — ` +
+            `${owedEnrichment.length - backfillAttempted} of ${owedEnrichment.length} products still owing ` +
+            'attributes carried forward to the next run',
+        )
+        break
+      }
+
       const slice = owedEnrichment.slice(start, start + CHUNK_SIZE)
+      backfillAttempted += slice.length
       try {
-        const { attributes, tokens } = await deps.enricher.enrich(
+        const { outcomes: batchOutcomes, tokens } = await deps.enricher.enrich(
           slice.map((o) => ({
             request: { productName: o.deal.productName, descriptor: null, retailer: o.deal.store },
             subCategory: o.subCategory,
           })),
         )
-        for (const [name, attrs] of attributes) attributesByName.set(name, attrs)
-        log(`[transform] backfilled ${attributes.size}/${slice.length} products (${tokens} tokens)`)
+        for (const [name, outcome] of batchOutcomes) enrichmentByName.set(name, outcome)
+        allEnrichmentOutcomes.push(...batchOutcomes.values())
+
+        const summary = summariseEnrichmentOutcomes(batchOutcomes.values())
+        const resolved = summary.enriched + summary.statedNothing
+        // THE LINE THAT USED TO LIE. `backfilled 0/100 (0 tokens)` logged as
+        // INFO every time, indistinguishable from a healthy run — measured on
+        // both 2026-09-12 runs, 12 batches running, every one of them this
+        // exact shape. `resolved === 0` with `attempted > 0` means NOTHING
+        // this batch asked about is any less owed than before it ran.
+        if (summary.attempted > 0 && resolved === 0) {
+          log(
+            `[transform] ⚠ backfilled 0/${slice.length} products (${tokens} tokens) — ` +
+              `${summary.rateLimited} rate-limited, ${summary.failed - summary.rateLimited} otherwise failed; ` +
+              'still owed next run',
+          )
+        } else {
+          log(`[transform] backfilled ${resolved}/${slice.length} products (${tokens} tokens)`)
+        }
 
         const rows = slice
-          .filter((o) => attributesByName.has(o.deal.productName))
-          .map((o) => ({
-            cacheKey: o.key,
-            normalisedName: normaliseForCache(o.deal.productName),
-            classification: (cached.get(o.key) as { classification: CachedClassification['classification'] }).classification,
-            attributes: attributesByName.get(o.deal.productName) ?? {},
-            runId: deps.runId,
-          }))
+          .map((o) => {
+            const outcome = enrichmentByName.get(o.deal.productName)
+            if (!outcome) return null
+            return {
+              cacheKey: o.key,
+              normalisedName: normaliseForCache(o.deal.productName),
+              classification: (cached.get(o.key) as { classification: CachedClassification['classification'] }).classification,
+              attributes: attributesFrom(outcome),
+              attributesVersion: attributesVersionFor(outcome),
+              runId: deps.runId,
+            }
+          })
+          .filter((row): row is NonNullable<typeof row> => row !== null)
         if (rows.length > 0) await deps.cache.save(rows)
       } catch (e) {
-        // A backfill failure costs metadata for one batch and nothing else.
+        // The enricher port itself never throws — this is a backstop against
+        // a bypassed contract. A backfill failure here costs metadata for one
+        // batch and nothing else; every product in it stays owed (no outcome
+        // was recorded, so `needsEnrichment` still reads it as unresolved).
         log(`[transform] backfill failed for a batch: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
@@ -657,6 +754,7 @@ export async function classifyDeals(
         return // tobacco: classified, never served (D10)
       }
       if (hit.isUncertain) uncertain++
+      const backfilled = enrichmentByName.get(deal.productName)
       out.push(
         toDeal(deal, {
           category: hit.category,
@@ -664,7 +762,7 @@ export async function classifyDeals(
           confidence: hit.confidence || CACHED_CONFIDENCE,
           isUncertain: hit.isUncertain,
           // Prefer anything the backfill just produced for this product.
-          attributes: attributesByName.get(deal.productName) ?? hit.attributes,
+          attributes: backfilled ? attributesFrom(backfilled) : hit.attributes,
         }),
       )
       return
@@ -705,13 +803,14 @@ export async function classifyDeals(
       if (classification.isUncertain) uncertain++
       else classified++
 
+      const enriched = enrichmentByName.get(outcome.request.productName)
       out.push(
         toDeal(deal, {
           category: classification.category,
           subCategory: classification.subCategory,
           confidence: classification.confidence.value,
           isUncertain: classification.isUncertain,
-          attributes: attributesByName.get(outcome.request.productName) ?? {},
+          attributes: enriched ? attributesFrom(enriched) : {},
         }),
       )
       return
@@ -746,6 +845,7 @@ export async function classifyDeals(
       heldBack,
       judgeUnavailable,
       deferred,
+      enrichment: summariseEnrichmentOutcomes(allEnrichmentOutcomes),
       isColdStart: plan.isColdStart,
       deadlineHit,
     },
