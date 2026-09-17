@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { createInMemoryCache, mergeForCache, needsEnrichment } from './classification-cache'
-import type { CachedClassification } from './classification-cache'
+import { CURRENT_ATTRIBUTE_SCHEMA_VERSION } from '../../../shared/attribute-schemas'
+import {
+  attributesFrom,
+  attributesVersionFor,
+  createInMemoryCache,
+  mergeForCache,
+  needsEnrichment,
+  summariseEnrichmentOutcomes,
+} from './classification-cache'
+import type { CachedClassification, EnrichmentOutcome } from './classification-cache'
 import { isOk } from '../../collection/domain/result'
 
 describe('needsEnrichment', () => {
@@ -17,40 +25,117 @@ describe('needsEnrichment', () => {
    * products have no attributes, permanently" — so `storageFrom` yields nothing
    * and the Frozen browse tile's facet count undercounts by up to 800 (ADR-001).
    *
-   * A named domain predicate rather than an inline `Object.keys(x).length === 0`
-   * in the caller: the rule is "what counts as un-enriched", and that is a
-   * domain question.
+   * WP-P9 (D3): the predicate reads `attributesVersion`, not `attributes`
+   * emptiness — see the entries below, which have no `attributes` field at all
+   * because none of this is about what the bag holds.
    */
-  const entry = (attributes: Record<string, unknown>) => ({
-    cacheKey: 'k',
-    normalisedName: 'emmi vollmilch 1l',
-    classification: {} as never,
-    attributes,
-    runId: 'run-1',
+  const entry = (attributesVersion: number | null) => ({ attributesVersion })
+
+  it('flags an entry that has never been resolved', () => {
+    expect(needsEnrichment(entry(null))).toBe(true)
   })
 
-  it('flags an entry a cold start left empty', () => {
-    expect(needsEnrichment(entry({}))).toBe(true)
+  it('leaves an entry resolved under the CURRENT schema alone', () => {
+    expect(needsEnrichment(entry(CURRENT_ATTRIBUTE_SCHEMA_VERSION))).toBe(false)
   })
 
-  it('leaves an already-enriched entry alone', () => {
-    expect(needsEnrichment(entry({ fatPercent: 3.5 }))).toBe(false)
+  it('flags a row enriched under an OLDER schema version — a new attribute field shipped since', () => {
+    // Deliberately not equal to CURRENT_ATTRIBUTE_SCHEMA_VERSION. Bumping this
+    // version must never require bumping the cache key's schemaVersion, which
+    // would cold-start CLASSIFICATION too (see the comment on CachedClassification).
+    expect(needsEnrichment(entry(CURRENT_ATTRIBUTE_SCHEMA_VERSION - 1))).toBe(true)
   })
 
-  it('treats a retailer who stated nothing as still needing a look', () => {
-    // An empty bag is indistinguishable from "never asked". Asking again costs
-    // one batched call; never asking costs the facet forever. The enricher is
-    // idempotent, so the safe direction is to re-ask.
-    expect(needsEnrichment(entry({}))).toBe(true)
+  /**
+   * THE DEFECT WP-P9 CLOSES, made concrete.
+   *
+   * "Emmi Milch 1L" genuinely states no fat percentage. Under the OLD rule
+   * (attributes empty ⇒ owed), that answer was indistinguishable from "never
+   * asked" and the product was re-requested every run, forever. Under the NEW
+   * rule, a `statedNothing` outcome sets the version, so it is asked ONCE.
+   */
+  it('a product whose name states nothing is enriched once, not re-requested every run', () => {
+    const statedNothing: EnrichmentOutcome = { kind: 'statedNothing' }
+    const resolvedVersion = attributesVersionFor(statedNothing)
+    expect(needsEnrichment(entry(resolvedVersion))).toBe(false)
   })
 
-  it('does not re-enrich an entry whose only attribute is false', () => {
-    // `false` is a stated answer, not an absence.
-    expect(needsEnrichment(entry({ organic: false }))).toBe(false)
+  /**
+   * THE OTHER HALF: a rate-limited (or otherwise failed) attempt must NEVER
+   * set the version, or a 429'd batch would read as done and never be asked
+   * again — trading "re-ask forever" for "never ask", which is worse because
+   * it is silent. This is the exact scenario measured on 2026-09-14: 255 of
+   * 1,107 backfill calls refused with 429.
+   */
+  it('a rate-limited product is still owed next run — never marked done', () => {
+    const rateLimited: EnrichmentOutcome = { kind: 'failed', reason: 'HTTP 429', rateLimited: true }
+    const resolvedVersion = attributesVersionFor(rateLimited)
+    expect(resolvedVersion).toBeNull()
+    expect(needsEnrichment(entry(resolvedVersion))).toBe(true)
   })
 
-  it('survives a null attributes bag from an old row', () => {
-    expect(needsEnrichment({ ...entry({}), attributes: null as never })).toBe(true)
+  it('an ordinary failure (not rate-limited) is also still owed next run', () => {
+    const unparseable: EnrichmentOutcome = { kind: 'failed', reason: 'unparseable response', rateLimited: false }
+    expect(needsEnrichment(entry(attributesVersionFor(unparseable)))).toBe(true)
+  })
+})
+
+describe('attributesFrom', () => {
+  it('returns the stated attributes for a real answer', () => {
+    expect(attributesFrom({ kind: 'stated', attributes: { fatPercent: 3.5 } })).toEqual({ fatPercent: 3.5 })
+  })
+
+  it('returns an empty bag when nothing was stated', () => {
+    expect(attributesFrom({ kind: 'statedNothing' })).toEqual({})
+  })
+
+  it('returns an empty bag for a failure — never guesses', () => {
+    expect(attributesFrom({ kind: 'failed', reason: 'HTTP 429', rateLimited: true })).toEqual({})
+  })
+})
+
+describe('attributesVersionFor', () => {
+  it('sets the current version for a real answer', () => {
+    expect(attributesVersionFor({ kind: 'stated', attributes: { fatPercent: 3.5 } })).toBe(CURRENT_ATTRIBUTE_SCHEMA_VERSION)
+  })
+
+  it('sets the current version when nothing was stated — that is still an answer', () => {
+    expect(attributesVersionFor({ kind: 'statedNothing' })).toBe(CURRENT_ATTRIBUTE_SCHEMA_VERSION)
+  })
+
+  it('leaves the version null for ANY failure, rate-limited or not', () => {
+    expect(attributesVersionFor({ kind: 'failed', reason: 'HTTP 429', rateLimited: true })).toBeNull()
+    expect(attributesVersionFor({ kind: 'failed', reason: 'unparseable response', rateLimited: false })).toBeNull()
+  })
+})
+
+describe('summariseEnrichmentOutcomes', () => {
+  it('is all zero for no outcomes at all — empty is not a crash', () => {
+    expect(summariseEnrichmentOutcomes([])).toEqual({
+      attempted: 0,
+      enriched: 0,
+      statedNothing: 0,
+      rateLimited: 0,
+      failed: 0,
+    })
+  })
+
+  it('buckets a mix of outcomes correctly, and counts rate-limited as a SUBSET of failed', () => {
+    const outcomes: EnrichmentOutcome[] = [
+      { kind: 'stated', attributes: { fatPercent: 3.5 } },
+      { kind: 'stated', attributes: { organic: true } },
+      { kind: 'statedNothing' },
+      { kind: 'failed', reason: 'HTTP 429', rateLimited: true },
+      { kind: 'failed', reason: 'HTTP 429', rateLimited: true },
+      { kind: 'failed', reason: 'unparseable response', rateLimited: false },
+    ]
+    expect(summariseEnrichmentOutcomes(outcomes)).toEqual({
+      attempted: 6,
+      enriched: 2,
+      statedNothing: 1,
+      rateLimited: 2,
+      failed: 3,
+    })
   })
 })
 
@@ -84,6 +169,7 @@ describe('merging entries that share a cache key', () => {
       isUncertain: false,
     } as CachedClassification['classification'],
     attributes: {},
+    attributesVersion: null,
     runId: 'run-1',
     ...over,
   })
@@ -93,14 +179,35 @@ describe('merging entries that share a cache key', () => {
   })
 
   it('keeps the enriched attributes when the other entry has none', () => {
-    // An empty bag is an ABSENCE, not an answer. Writing {} over real
+    // An unresolved bag is an ABSENCE, not an answer. Writing {} over real
     // attributes costs a backfill round-trip, and on a cold start costs the
     // storage facet until a warm run repairs it (ADR-001).
-    const empty = entry({ attributes: {} })
-    const rich = entry({ attributes: { fatPercent: 3.5 } })
-    for (const pair of [[empty, rich], [rich, empty]]) {
+    const unresolved = entry({ attributes: {}, attributesVersion: null })
+    const rich = entry({ attributes: { fatPercent: 3.5 }, attributesVersion: CURRENT_ATTRIBUTE_SCHEMA_VERSION })
+    for (const pair of [[unresolved, rich], [rich, unresolved]]) {
       const [merged] = mergeForCache(pair)
       expect(merged?.attributes).toMatchObject({ fatPercent: 3.5 })
+    }
+  })
+
+  it('keeps the attributesVersion paired with the attributes it belongs to', () => {
+    // The version must travel WITH the bag it resolves, never separately —
+    // otherwise a resolved version could survive next to a stale empty bag,
+    // which `needsEnrichment` would then wrongly call "done".
+    const unresolved = entry({ attributes: {}, attributesVersion: null })
+    const rich = entry({ attributes: { fatPercent: 3.5 }, attributesVersion: CURRENT_ATTRIBUTE_SCHEMA_VERSION })
+    for (const pair of [[unresolved, rich], [rich, unresolved]]) {
+      const [merged] = mergeForCache(pair)
+      expect(merged?.attributesVersion).toBe(CURRENT_ATTRIBUTE_SCHEMA_VERSION)
+    }
+  })
+
+  it('keeps a genuinely resolved "stated nothing" row resolved, even paired with an unresolved copy', () => {
+    const statedNothing = entry({ attributes: {}, attributesVersion: CURRENT_ATTRIBUTE_SCHEMA_VERSION })
+    const neverAsked = entry({ attributes: {}, attributesVersion: null })
+    for (const pair of [[statedNothing, neverAsked], [neverAsked, statedNothing]]) {
+      const [merged] = mergeForCache(pair)
+      expect(merged?.attributesVersion).toBe(CURRENT_ATTRIBUTE_SCHEMA_VERSION)
     }
   })
 
