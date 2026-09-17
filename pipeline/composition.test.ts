@@ -8,6 +8,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { UsdMicros } from './transformation/domain/spend'
+import type { SpendAccountReading } from './transformation/infrastructure/openrouter-spend-account'
+
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: () => ({}) }) }))
 
 import { RETAILERS } from './collection/domain/offer'
@@ -28,13 +31,42 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     expect(classification.enricher).toBeNull()
   })
 
-  it('wires the OpenRouter judge from OPENROUTER_API_KEY alone — reflector and enricher still need the Google key', async () => {
-    const deps = createProductionDeps({ OPENROUTER_API_KEY: 'test-key' })
+  // WP-P8 (AP-10) changed this rule: an OPENROUTER_API_KEY is no longer
+  // enough on its own. The key must also have a provider-side credit limit we
+  // can read, because the ledger derives what it may spend from what actually
+  // remains. Money fails closed; classification carries on without the judge.
+  const account = (reading: SpendAccountReading) => ({ remaining: async () => reading })
+
+  it('wires the OpenRouter judge when the key has a readable credit limit — reflector and enricher still need the Google key', async () => {
+    const deps = createProductionDeps(
+      { OPENROUTER_API_KEY: 'test-key' },
+      { spendAccount: account({ kind: 'capped', remainingMicros: 5_000_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }) },
+    )
     const classification = await deps.createClassificationDeps(() => {})
 
     expect(classification.judge).not.toBeNull()
     expect(classification.reflector).toBeNull()
     expect(classification.enricher).toBeNull()
+  })
+
+  it('runs WITHOUT the judge when the key has no credit limit — AP-10, money fails closed', async () => {
+    const deps = createProductionDeps(
+      { OPENROUTER_API_KEY: 'test-key' },
+      { spendAccount: account({ kind: 'uncapped' }) },
+    )
+    const classification = await deps.createClassificationDeps(() => {})
+
+    expect(classification.judge).toBeNull()
+  })
+
+  it('runs WITHOUT the judge when the spend account cannot be read — never guesses what is left', async () => {
+    const deps = createProductionDeps(
+      { OPENROUTER_API_KEY: 'test-key' },
+      { spendAccount: account({ kind: 'unreadable', reason: 'HTTP 500' }) },
+    )
+    const classification = await deps.createClassificationDeps(() => {})
+
+    expect(classification.judge).toBeNull()
   })
 })
 

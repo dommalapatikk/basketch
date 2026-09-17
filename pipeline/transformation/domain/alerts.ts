@@ -39,6 +39,10 @@ export type RunSnapshot = {
   readonly cacheMisses: number
   readonly tokensUsed: number
   readonly rappenSpent: number
+  /** WP-P8: this run crossed SPEND_CEILING_WARN_SHARE of the monthly allowance. */
+  readonly spendNearCeiling?: boolean
+  /** WP-P8 (AP-10): a paid model was reachable with no provider-side cap, so the judge was skipped. */
+  readonly spendUnguarded?: boolean
   readonly durationMs: number
   readonly benchmarkMacroF1: number | null
   readonly publishedDataCoverage: Partial<Record<Retailer, number>>
@@ -64,6 +68,12 @@ export const UNCERTAIN_RATE_ALARM = 0.20
 export const COVERAGE_COLLAPSE = 0.01
 
 /** GitHub disables scheduled workflows after 60 days idle. 8 days catches it. */
+/**
+ * WP-P8 (AP-8). Warn once a run has consumed this share of the month's paid
+ * allowance — early enough to act, late enough not to fire every week.
+ */
+export const SPEND_CEILING_WARN_SHARE = 0.8
+
 export const STALE_RUN_MS = 8 * 24 * 60 * 60 * 1000
 
 /**
@@ -182,12 +192,33 @@ export function evaluateAlerts(
   }
 
   // ── Money ─────────────────────────────────────────────────────────────────
-  if (current.rappenSpent > 100) {
+  //
+  // WP-P8. This pipeline is NOT free and has not been since 2026-09-10: the
+  // classification judge is `openai/gpt-5-nano` through OpenRouter, a
+  // deliberate PM decision, capped at USD 5 a month (AP-8). The old rule here
+  // warned that spending ANY money was unexpected, which stopped being true
+  // the day the judge was wired and would have cried wolf on every run.
+  //
+  // What is worth waking someone for is a run approaching the ceiling, or a
+  // paid call that was possible with no provider-side cap behind it. Both are
+  // WARNINGS on purpose: under AP-7 a critical alert fails the run, and AP-10
+  // says a run with an unguarded account should keep going WITHOUT the judge,
+  // not die.
+  if (current.spendNearCeiling) {
     alerts.push({
       severity: 'warning',
-      code: 'spend-unexpected',
-      message: `run spent ${current.rappenSpent} rappen — this pipeline should be free`,
-      action: 'Something is calling a paid model. Check which model the classifier resolved to.',
+      code: 'spend-near-ceiling',
+      message: `run is within ${SPEND_CEILING_WARN_SHARE * 100}% of the monthly paid-model allowance`,
+      action: 'Check the OpenRouter key\'s usage. Raising the cap is a PM decision (AP-8), not a code change.',
+    })
+  }
+
+  if (current.spendUnguarded) {
+    alerts.push({
+      severity: 'warning',
+      code: 'spend-unguarded',
+      message: 'a paid model was reachable with no provider-side credit limit — the judge was skipped',
+      action: 'Set a credit limit on the OpenRouter CI key (USD 5/month, monthly reset, auto top-up off), then re-run.',
     })
   }
 

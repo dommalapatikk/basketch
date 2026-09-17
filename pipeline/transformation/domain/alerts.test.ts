@@ -121,8 +121,28 @@ describe('quality and cost signals', () => {
     expect(codes(alerts)).toContain('cache-hit-rate-low')
   })
 
-  it('warns when a free pipeline starts spending money', () => {
-    expect(codes(evaluateAlerts(snap({ rappenSpent: 250 }), snap(), NOW))).toContain('spend-unexpected')
+  // WP-P8 replaced "any spend is unexpected" — untrue since the paid judge was
+  // wired on 2026-09-10, and it would have fired on every run — with the two
+  // things actually worth a warning.
+  it('warns when a run approaches the monthly paid-model allowance', () => {
+    expect(codes(evaluateAlerts(snap({ spendNearCeiling: true }), snap(), NOW))).toContain('spend-near-ceiling')
+  })
+
+  it('warns when a paid model was reachable with no provider-side cap (AP-10)', () => {
+    expect(codes(evaluateAlerts(snap({ spendUnguarded: true }), snap(), NOW))).toContain('spend-unguarded')
+  })
+
+  it('says nothing about money on an ordinary run — the judge is paid by design', () => {
+    const c = codes(evaluateAlerts(snap({ rappenSpent: 250 }), snap(), NOW))
+    expect(c).not.toContain('spend-near-ceiling')
+    expect(c).not.toContain('spend-unguarded')
+  })
+
+  it('neither money warning is critical — AP-10 keeps the run going without the judge', () => {
+    const alerts = evaluateAlerts(snap({ spendNearCeiling: true, spendUnguarded: true }), snap(), NOW)
+    const money = alerts.filter((a) => a.code.startsWith('spend-'))
+    expect(money).toHaveLength(2)
+    expect(money.every((a) => a.severity === 'warning')).toBe(true)
   })
 
   it('warns when a run gets slow enough to threaten the CI limit', () => {

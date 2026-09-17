@@ -44,6 +44,12 @@ import { createGeminiEnricher } from './transformation/infrastructure/gemini/gem
 import { createModelGate, type ModelGate, type ModelGateDeps } from './transformation/infrastructure/model-gate'
 import { createSupabaseClassificationCache } from './transformation/infrastructure/supabase/supabase-classification-cache'
 import { probeModels } from './transformation/infrastructure/model-probe'
+import { type UsdMicros, formatUsd } from './transformation/domain/spend'
+import {
+  type SpendAccount,
+  type SpendAccountReading,
+  createOpenRouterSpendAccount,
+} from './transformation/infrastructure/openrouter-spend-account'
 
 type Env = Record<string, string | undefined>
 
@@ -66,6 +72,15 @@ const JUDGE_SPEC: ModelSpec = JUDGE_CHAIN[0] ?? {
   requestsPerDay: 1000,
   requestsPerMinute: 20,
   maxInFlight: 1,
+  // WP-P8: this fallback is only ever reached if JUDGE_CHAIN is somehow
+  // empty — dead code today — but createModelCallPolicy now refuses ANY
+  // non-`:free` OpenRouter spec without billing, so it needs one too.
+  billing: { kind: 'paid', price: { inputPerMTokMicros: 50_000 as UsdMicros, outputPerMTokMicros: 400_000 as UsdMicros }, maxOutputTokens: 2_000 },
+}
+
+/** `JUDGE_SPEC.billing.maxOutputTokens`, or the judge adapter's own default if somehow absent. */
+function judgeMaxOutputTokens(spec: ModelSpec): number {
+  return spec.billing?.kind === 'paid' ? spec.billing.maxOutputTokens : 2_000
 }
 
 const TAXONOMY = BROWSE_CATEGORIES.map((c) => ({ category: c.id, subCategories: c.subCategories }))
@@ -115,9 +130,14 @@ async function selectTier1Spec(env: Env, log: (message: string) => void): Promis
  * would be blank between two chunk summaries, exactly the evidence gap this
  * WP exists to close. `overrides` still wins where a test supplies its own
  * `log` (or a scripted clock), because it is spread AFTER.
+ *
+ * WP-P8: `spendCeilingMicros`, when given, is threaded into the gate's own
+ * ledger — meaningless for a free-tier spec (the gate ignores it when
+ * `policy.spend` is undefined) and REQUIRED in practice for a paid one, since
+ * a paid gate built without it defaults to a ZERO ceiling (fail closed).
  */
-function buildGate(spec: ModelSpec, log: (message: string) => void, overrides: ModelGateDeps = {}): ModelGate {
-  return createModelGate(unwrap(createModelCallPolicy(spec)), { log, ...overrides })
+function buildGate(spec: ModelSpec, log: (message: string) => void, overrides: ModelGateDeps = {}, spendCeilingMicros?: UsdMicros): ModelGate {
+  return createModelGate(unwrap(createModelCallPolicy(spec)), { log, spendCeilingMicros, ...overrides })
 }
 
 // THE INSTRUMENT. Without this, degraded('save', ...) went nowhere: a failed
@@ -138,10 +158,55 @@ function buildClassificationCache() {
   })
 }
 
+/**
+ * WP-P8 (AP-10). Reads what remains of this billing period's allowance from
+ * OpenRouter's own account, and decides whether the judge may run at all.
+ *
+ * `guarded: false` means "a paid call was possible (the key exists) without a
+ * confirmed provider-side cap" — logged loudly here as a WARNING, never a
+ * critical alert (AP-10, reconciled with AP-7 by the Tech Lead: a critical
+ * alert fails the run, and "run without the judge" must not itself fail the
+ * run it is trying to keep going).
+ *
+ * `null` `ceilingMicros` with `guarded: true` covers the ordinary case where
+ * there is simply no OpenRouter key at all — nothing paid was ever possible,
+ * so there is nothing to warn about.
+ */
+async function resolveJudgeSpendCeiling(
+  env: Env,
+  log: (message: string) => void,
+  // Test-only seam. Without it this function makes a REAL request to
+  // OpenRouter, which is why the composition tests were briefly talking to
+  // the live API and reading a 401 as "unreadable" — a test that needs the
+  // network to decide an answer is not a test.
+  spendAccount?: SpendAccount,
+): Promise<{ readonly ceilingMicros: UsdMicros | null; readonly guarded: boolean }> {
+  if (!env.OPENROUTER_API_KEY) return { ceilingMicros: null, guarded: true }
+
+  const account = spendAccount ?? createOpenRouterSpendAccount({ apiKey: env.OPENROUTER_API_KEY })
+  const reading: SpendAccountReading = await account.remaining()
+
+  if (reading.kind === 'capped') {
+    log(`spend account: ${formatUsd(reading.remainingMicros)} remaining of ${formatUsd(reading.limitMicros)} this period`)
+    return { ceilingMicros: reading.remainingMicros, guarded: true }
+  }
+
+  const reason =
+    reading.kind === 'uncapped'
+      ? 'the OpenRouter key has no credit limit set (limit: null)'
+      : `the OpenRouter spend account could not be read: ${reading.reason}`
+  console.warn(
+    `[pipeline] [WARN] spend-unguarded: running WITHOUT the judge this run — ${reason}. ` +
+      'Set a credit limit on the OpenRouter CI key (WP-0 #1, AP-8: USD 5/month, auto top-up off) to re-enable it.',
+  )
+  return { ceilingMicros: null, guarded: false }
+}
+
 async function buildClassificationDeps(
   env: Env,
   log: (message: string) => void,
   gateDeps: ModelGateDeps = {},
+  spendAccount?: SpendAccount,
 ): Promise<ClassificationDeps> {
   const tier1Spec = await selectTier1Spec(env, log)
   const tier1Model = tier1Spec.id
@@ -152,6 +217,12 @@ async function buildClassificationDeps(
   // replaces the rate/retry loop that used to live on a decorator private to
   // the classifier alone, which never saw the other two callers.
   const tier1Gate = buildGate(tier1Spec, log, gateDeps)
+
+  // WP-P8 / AP-10: read BEFORE deciding whether to build the judge at all —
+  // an unreadable account or an uncapped key means no judge this run, not a
+  // judge running against an unbounded ledger.
+  const spendCeiling = await resolveJudgeSpendCeiling(env, log, spendAccount)
+  const judgeMayRun = Boolean(env.OPENROUTER_API_KEY) && spendCeiling.ceilingMicros !== null
 
   return {
     cache: buildClassificationCache(),
@@ -171,19 +242,22 @@ async function buildClassificationDeps(
       }),
       log,
     ),
-    // THE ESCALATION TRIGGER. Both degrade to null when their key is absent,
-    // so a missing OpenRouter key costs escalation, never the run. Its own
-    // (provider, model) gate — the judge is a different provider and, today,
-    // a different model from the classifier, so it never shares tier1Gate.
-    judge: env.OPENROUTER_API_KEY
-      ? createOpenRouterJudge({
-          apiKey: env.OPENROUTER_API_KEY,
-          model: JUDGE_SPEC.id,
-          taxonomy: TAXONOMY,
-          gate: buildGate(JUDGE_SPEC, log, gateDeps),
-          log,
-        })
-      : null,
+    // THE ESCALATION TRIGGER. Degrades to null when the key is absent OR
+    // (WP-P8, AP-10) when the account has no confirmed provider-side cap —
+    // classification is unaffected either way. Its own (provider, model)
+    // gate — the judge is a different provider and, today, a different model
+    // from the classifier, so it never shares tier1Gate.
+    judge:
+      judgeMayRun && env.OPENROUTER_API_KEY
+        ? createOpenRouterJudge({
+            apiKey: env.OPENROUTER_API_KEY,
+            model: JUDGE_SPEC.id,
+            taxonomy: TAXONOMY,
+            gate: buildGate(JUDGE_SPEC, log, gateDeps, spendCeiling.ceilingMicros ?? undefined),
+            maxOutputTokens: judgeMaxOutputTokens(JUDGE_SPEC),
+            log,
+          })
+        : null,
     // SAME gate instance as tier1 above — the reflector calls the identical
     // Gemini model, so it must pace against the identical bucket.
     reflector: env.GOOGLE_AI_API_KEY
@@ -231,6 +305,12 @@ export type ProductionDepsOverrides = {
    * paced quota without waiting on real wall-clock time.
    */
   readonly modelClock?: ModelGateDeps
+  /**
+   * Test-only seam (WP-P8, AP-10): supplies the judge's spend reading instead
+   * of asking OpenRouter for it, so a test can exercise capped / uncapped /
+   * unreadable without a network call.
+   */
+  readonly spendAccount?: SpendAccount
 }
 
 /**
@@ -242,7 +322,7 @@ export type ProductionDepsOverrides = {
 export function createProductionDeps(env: Env, overrides: ProductionDepsOverrides = {}): PipelineDeps {
   return {
     sources: (week: IsoWeekParts) => createLiveSources({ kw: week.kw, year: week.year, transport: overrides.transport }),
-    createClassificationDeps: (log) => buildClassificationDeps(env, log, overrides.modelClock),
+    createClassificationDeps: (log) => buildClassificationDeps(env, log, overrides.modelClock, overrides.spendAccount),
     storage: PRODUCTION_STORAGE,
     revalidate: () => pingRevalidateWebhook(env, { fetch, log: (m) => console.log(m) }),
   }
