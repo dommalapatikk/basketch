@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { type Edition, edition } from '../domain/edition'
+import { createIsoWeek } from '../domain/iso-week'
 import { createMoney } from '../domain/money'
 import { createOffer } from '../domain/offer'
 import type { CollectionResult, OfferSource } from '../domain/offer-source'
@@ -9,8 +11,9 @@ import { createValidityPeriod } from '../domain/validity-period'
 import { collectOffers } from './collect-offers'
 import { type Clock, createInMemoryTelemetry, toPipelineRunRecord } from './telemetry'
 
-const WEEK_ID = '2026-W37'
+const WEEK_ID = unwrap(createIsoWeek('2026-W37'))
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
+const REFERENCE_DATE = new Date('2026-09-08T00:00:00Z')
 
 const offer = (retailer: 'denner' | 'coop' | 'lidl' | 'aldi', name: string, price = 1.95) =>
   unwrap(
@@ -38,10 +41,16 @@ function fakeClock(stepMs = 10): Clock {
 const sourceReturning = (retailer: 'denner' | 'coop' | 'lidl' | 'aldi', result: CollectionResult): OfferSource => ({
   retailer,
   expectedMinimumOffers: 1,
+  editionFor: (): Edition => edition(retailer, unwrap(createIsoWeek('2026-W37'))),
   fetchOffers: async () => result,
 })
 
-const opts = () => ({ clock: fakeClock(), newRunId: () => 'run_test', telemetry: createInMemoryTelemetry() })
+const opts = () => ({
+  clock: fakeClock(),
+  newRunId: () => 'run_test',
+  telemetry: createInMemoryTelemetry(),
+  referenceDate: REFERENCE_DATE,
+})
 
 describe('collectOffers — happy path', () => {
   it('collects from every source and reports ok', async () => {
@@ -101,6 +110,7 @@ describe('collectOffers — containment of adapter defects', () => {
     const broken: OfferSource = {
       retailer: 'lidl',
       expectedMinimumOffers: 1,
+      editionFor: () => edition('lidl', unwrap(createIsoWeek('2026-W37'))),
       fetchOffers: async () => {
         throw new Error('Cannot read properties of undefined')
       },
@@ -121,6 +131,7 @@ describe('collectOffers — containment of adapter defects', () => {
     const weird: OfferSource = {
       retailer: 'aldi',
       expectedMinimumOffers: 1,
+      editionFor: () => edition('aldi', unwrap(createIsoWeek('2026-W37'))),
       fetchOffers: async () => {
         throw 'string thrown'
       },
@@ -133,6 +144,7 @@ describe('collectOffers — containment of adapter defects', () => {
     const hanging: OfferSource = {
       retailer: 'coop',
       expectedMinimumOffers: 1,
+      editionFor: () => edition('coop', unwrap(createIsoWeek('2026-W37'))),
       fetchOffers: () => new Promise(() => {}), // never settles
     }
     const o = await collectOffers(
@@ -224,5 +236,54 @@ describe('collectOffers — tracing', () => {
   it('leaves error_log null on a clean run', async () => {
     const o = await collectOffers([sourceReturning('denner', collected('denner', [offer('denner', 'A')]))], WEEK_ID, opts())
     expect(toPipelineRunRecord(o.trace).error_log).toBeNull()
+  })
+})
+
+describe('collectOffers — WP-J1: editionFor is wired, not a correct unit nothing calls', () => {
+  it('asks each source for ITS OWN edition, then fetches THAT edition — never a shared week string', async () => {
+    // This is the actual composition-root wiring the item 1 RCA's fix
+    // depends on: collectOffers must call source.editionFor(referenceDate)
+    // and pass the RESULT into fetchOffers, not skip straight to fetchOffers
+    // with a week argument nobody computed per-source.
+    const seenEditions: Edition[] = []
+    const migrosLikeSource: OfferSource = {
+      retailer: 'lidl',
+      expectedMinimumOffers: 1,
+      editionFor: (date) => edition('lidl', unwrap(createIsoWeek(date.getUTCDate() < 15 ? '2026-W37' : '2026-W38'))),
+      fetchOffers: async (e) => {
+        seenEditions.push(e)
+        return collected('lidl', [offer('lidl', 'A')])
+      },
+    }
+
+    await collectOffers([migrosLikeSource], WEEK_ID, { ...opts(), referenceDate: new Date('2026-09-14T00:00:00Z') })
+
+    expect(seenEditions).toHaveLength(1)
+    expect(seenEditions[0]).toEqual({ retailer: 'lidl', publication: '2026-W37' })
+  })
+
+  it('MUTATION-TESTABLE: a source whose editionFor and fetchOffers disagree proves the wrong one would be caught', async () => {
+    // If collectOffers ever regressed to calling fetchOffers with something
+    // OTHER than editionFor's own return value (a hardcoded edition, or the
+    // pre-fix shared IsoWeek), this fake's assertion inside fetchOffers is
+    // what would catch it — not just "did it run".
+    let editionForCalls = 0
+    const source: OfferSource = {
+      retailer: 'aldi',
+      expectedMinimumOffers: 1,
+      editionFor: () => {
+        editionForCalls += 1
+        return edition('aldi', unwrap(createIsoWeek('2026-W41')))
+      },
+      fetchOffers: async (e) => {
+        expect(e).toEqual({ retailer: 'aldi', publication: '2026-W41' })
+        return collected('aldi', [offer('aldi', 'A')])
+      },
+    }
+
+    const o = await collectOffers([source], WEEK_ID, opts())
+
+    expect(editionForCalls).toBe(1)
+    expect(o.offers).toHaveLength(1)
   })
 })

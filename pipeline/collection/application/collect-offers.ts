@@ -20,6 +20,14 @@ export type CollectOffersOptions = {
   timeoutMs?: number
   /** Injected so traces are deterministic under test. */
   newRunId?: () => string
+  /**
+   * WP-J1 (D5). The date each source's OWN `editionFor` is asked about —
+   * "which publication is in effect right now", never a single ISO week
+   * shared across all seven. Defaults to `new Date()`. This is deliberately
+   * separate from the `week: IsoWeek` argument below, which stays a display
+   * label for the trace/telemetry — it is not fed to any adapter any more.
+   */
+  referenceDate?: Date
 }
 
 export type CollectOffersOutcome = {
@@ -51,7 +59,7 @@ function errorMessage(e: unknown): string {
 
 async function runOne(
   source: OfferSource,
-  week: IsoWeek,
+  referenceDate: Date,
   timeoutMs: number,
   clock: Clock,
 ): Promise<{ result: CollectionResult; span: SourceSpan }> {
@@ -85,7 +93,13 @@ async function runOne(
   }
 
   try {
-    return finish(await withTimeout(source.fetchOffers(week), timeoutMs))
+    // WP-J1 (D5): the enforcement point must know WHICH publication before it
+    // fetches. Each source names its own — never a single week shared across
+    // all seven (item 1 RCA: run.ts used to compute one ISO week and hand it
+    // to every adapter, which is how Migros ended up asking for a flyer that
+    // was not published yet).
+    const edition = source.editionFor(referenceDate)
+    return finish(await withTimeout(source.fetchOffers(edition), timeoutMs))
   } catch (e) {
     // An adapter is contractually forbidden from throwing. If one does, that is
     // a defect — contain it, report it, and let the other sources finish.
@@ -107,6 +121,7 @@ export async function collectOffers(
   const clock = options.clock ?? systemClock
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const runId = (options.newRunId ?? defaultRunId)()
+  const referenceDate = options.referenceDate ?? new Date()
 
   const startedAtIso = clock.isoNow()
   const startedAt = clock.now()
@@ -115,7 +130,7 @@ export async function collectOffers(
 
   // Sources are independent; run them together so one slow retailer does not
   // serialise the whole cron. Never rejects — runOne contains its own errors.
-  const settled = await Promise.all(sources.map((s) => runOne(s, week, timeoutMs, clock)))
+  const settled = await Promise.all(sources.map((s) => runOne(s, referenceDate, timeoutMs, clock)))
 
   const results: CollectionResult[] = []
   const spans: SourceSpan[] = []
