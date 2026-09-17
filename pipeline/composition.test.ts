@@ -17,6 +17,7 @@ import { RETAILERS } from './collection/domain/offer'
 import { ok, unwrap } from './collection/domain/result'
 import type { Transport } from './collection/infrastructure/live-sources'
 import { createProductionDeps } from './composition'
+import { runCollect } from './run-pipeline'
 import { buildClassifyGraph } from './transformation/application/classify-graph'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, ClassificationRequest, Classifier } from './transformation/domain/classifier'
@@ -279,6 +280,26 @@ describe('createProductionDeps wires the REAL adapters — the production wiring
     await spar.fetchOffers(sparEdition)
 
     expect(urls.some((u) => u.includes('kw37-2026'))).toBe(true)
+  })
+
+  it('code review MUST-FIX 2: a Monday run asks the REAL Migros adapter for KW37 — through runCollect, not through a fake', async () => {
+    // The test above (and live-sources.test.ts's own "right week" tests)
+    // call editionFor and fetchOffers FROM THE TEST BODY — they simulate the
+    // caller. Nothing previously drove collectOffers/runCollect with the
+    // REAL createLiveSources adapters, so the actual reference-date wiring
+    // this WP exists to fix — run-pipeline.ts passing `referenceDate: now`
+    // into collectOffers, which passes it into source.editionFor — was
+    // unverified end to end. Two mutations survived until this test was
+    // added: deleting `referenceDate: now,` from run-pipeline.ts, and
+    // replacing `source.editionFor(referenceDate)` with a hardcoded date in
+    // collect-offers.ts. Both are killed by this test.
+    const { transport, urls } = recordingTransport()
+    const deps = createProductionDeps({}, { transport })
+
+    await runCollect(deps, { now: new Date('2026-09-14') })
+
+    expect(urls.some((u) => u.includes('migros-wochenflyer-37-2026'))).toBe(true)
+    expect(urls.some((u) => u.includes('migros-wochenflyer-38-2026'))).toBe(false)
   })
 })
 
