@@ -3,7 +3,9 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { RETAILERS } from '../domain/offer'
+import type { Edition } from '../domain/edition'
+import { RETAILERS, type Retailer } from '../domain/offer'
+import type { OfferSource } from '../domain/offer-source'
 import { unwrap } from '../domain/result'
 import { createValidityPeriod } from '../domain/validity-period'
 import type { FlyerImage } from './migros/issuu-fetcher'
@@ -21,6 +23,14 @@ import type { OcrPage } from './migros/migros-flyer-source'
 import { parseBboxXml } from './pdf/pdf-words'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-10', '2026-09-16'))
+
+// A Monday within KW37's Thu-Wed window (2026-09-10 to 2026-09-16) — the
+// SAME date the item 1 / item 7a RCA used to reproduce the "asked for KW38,
+// got HTTP 404" defect. Every Thursday-anchored retailer's editionFor(REFERENCE)
+// resolves to KW37, matching the URLs these tests already asserted against.
+const REFERENCE = new Date('2026-09-14')
+// Thursday of ISO week 7, 2026 — used only by the "pads the week number" test.
+const WEEK_07_REFERENCE = new Date('2026-02-12')
 
 /** Records every URL requested, so the tests can assert what was asked for. */
 function recordingTransport(over: Partial<Transport> = {}) {
@@ -59,9 +69,29 @@ function recordingTransport(over: Partial<Transport> = {}) {
   return { transport: { ...base, ...over }, urls }
 }
 
-const build = (over: Partial<Transport> = {}, kw = 37, year = 2026) => {
+const build = (over: Partial<Transport> = {}) => {
   const { transport, urls } = recordingTransport(over)
-  return { sources: createLiveSources({ kw, year, transport, fallbackValidity: WEEK, pageDelayMs: 0 }), urls }
+  return { sources: createLiveSources({ transport, fallbackValidity: WEEK, pageDelayMs: 0 }), urls }
+}
+
+function sourceFor(sources: readonly OfferSource[], retailer: Retailer): OfferSource {
+  const found = sources.find((s) => s.retailer === retailer)
+  if (!found) throw new Error(`no ${retailer} source in this build`)
+  return found
+}
+
+/**
+ * The composition-root call shape `collectOffers` itself uses: ask the
+ * source for its OWN edition, then fetch THAT edition — never a hand-picked
+ * week string. Every test below that used to call `.fetchOffers('2026-Wnn')`
+ * directly now goes through this, so a regression that breaks the
+ * editionFor -> fetchOffers wiring shows up here too, not only in
+ * collect-offers.test.ts.
+ */
+function fetchFor(sources: readonly OfferSource[], retailer: Retailer, date: Date = REFERENCE) {
+  const source = sourceFor(sources, retailer)
+  const edition: Edition = source.editionFor(date)
+  return source.fetchOffers(edition)
 }
 
 describe('the composition root builds every retailer', () => {
@@ -87,34 +117,95 @@ describe('the composition root builds every retailer', () => {
 })
 
 describe('the right week is requested', () => {
-  it('asks Spar for the flyer of the requested week', async () => {
-    const { sources, urls } = build({}, 37, 2026)
-    await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+  // WP-J1 (D5, item 1 / item 7a RCA): every adapter now builds its URL from
+  // the EDITION it is handed at fetch time — never a kw/year captured once
+  // when createLiveSources was called. These tests prove that by never
+  // passing a week to build() at all: only REFERENCE (a real date) drives
+  // what gets asked for, exactly as collectOffers itself now works.
+  it('asks Spar for the flyer of the edition in effect on the reference date', async () => {
+    const { sources, urls } = build()
+    await fetchFor(sources, 'spar')
     expect(urls.some((u) => u.includes('kw37-2026'))).toBe(true)
   })
 
-  it('asks Aldi for the catalogue of the requested week', async () => {
-    const { sources, urls } = build({}, 37, 2026)
-    await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+  it('asks Aldi for the catalogue of the edition in effect on the reference date', async () => {
+    const { sources, urls } = build()
+    await fetchFor(sources, 'aldi')
     expect(urls.some((u) => u.includes('aldiwoche_kw37-2026'))).toBe(true)
   })
 
-  it('asks Lidl for the flyer of the requested week', async () => {
-    const { sources, urls } = build({}, 37, 2026)
-    await sources.find((s) => s.retailer === 'lidl')?.fetchOffers('2026-W37')
+  it('asks Lidl for the flyer of the edition in effect on the reference date', async () => {
+    const { sources, urls } = build()
+    await fetchFor(sources, 'lidl')
     expect(urls.some((u) => u.includes('lidl-aktuell-kw37'))).toBe(true)
   })
 
-  it('asks Migros for the Issuu document of the requested week', async () => {
-    const { sources, urls } = build({}, 37, 2026)
-    await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+  it('asks Migros for the Issuu document of the edition in effect on the reference date', async () => {
+    const { sources, urls } = build()
+    await fetchFor(sources, 'migros')
     expect(urls.some((u) => u.includes('migros-wochenflyer-37-2026'))).toBe(true)
   })
 
   it('pads the week number — kw07, never kw7', async () => {
-    const { sources, urls } = build({}, 7, 2026)
-    await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W07')
+    const { sources, urls } = build()
+    await fetchFor(sources, 'spar', WEEK_07_REFERENCE)
     expect(urls.some((u) => u.includes('kw07-2026'))).toBe(true)
+  })
+
+  it('on Mon 2026-09-14 Migros is asked for KW37 (valid Thu 10.9-Wed 16.9), never KW38 which 404s — run 34833209176', async () => {
+    // The composition-root-level regression test for the item 1 / item 7a
+    // RCA's actual production defect. The pre-fix code computed ONE ISO week
+    // from the run date (isoWeekOf(runDate)) and handed it to every source;
+    // on a Monday that is already NEXT week's flyer.
+    const { sources, urls } = build()
+    await fetchFor(sources, 'migros', new Date('2026-09-14'))
+    expect(urls.some((u) => u.includes('migros-wochenflyer-37-2026'))).toBe(true)
+    expect(urls.some((u) => u.includes('migros-wochenflyer-38-2026'))).toBe(false)
+  })
+
+  it('every adapter builds its URL from the edition it is handed — the week argument used to be ignored by all seven', async () => {
+    // Reproduces the item 1 RCA's exact finding at the composition-root
+    // level: every one of the seven adapters used to declare
+    // `fetchOffers(_week: IsoWeek)` and silently drop it, building URLs from
+    // a kw/year captured once when createLiveSources was constructed. Two
+    // DIFFERENT reference dates (different EDITIONS, KW37 and KW38) must
+    // produce two DIFFERENT week numbers in the URL for every retailer with
+    // a week-numbered one.
+    const cases: { retailer: Retailer; kw37Marker: string; kw38Marker: string }[] = [
+      { retailer: 'migros', kw37Marker: 'migros-wochenflyer-37-2026', kw38Marker: 'migros-wochenflyer-38-2026' },
+      { retailer: 'lidl', kw37Marker: 'lidl-aktuell-kw37', kw38Marker: 'lidl-aktuell-kw38' },
+      { retailer: 'aldi', kw37Marker: 'aldiwoche_kw37-2026', kw38Marker: 'aldiwoche_kw38-2026' },
+      { retailer: 'spar', kw37Marker: 'kw37-2026', kw38Marker: 'kw38-2026' },
+    ]
+    for (const { retailer, kw37Marker, kw38Marker } of cases) {
+      const { sources, urls } = build()
+      await fetchFor(sources, retailer, new Date('2026-09-14')) // KW37 (Thu 10.9-Wed 16.9)
+      await fetchFor(sources, retailer, new Date('2026-09-17')) // KW38 (Thu 17.9-Wed 23.9)
+      expect(urls.some((u) => u.includes(kw37Marker)), `${retailer}: no KW37 url requested`).toBe(true)
+      expect(
+        urls.some((u) => u.includes(kw38Marker)),
+        `${retailer}: no KW38 url requested — the edition argument was ignored`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe('fetches the Lidl flyer JSON exactly once (item 1 RCA, path f)', () => {
+  it('counts URLs, not .some() — the old wiring fetched it twice: once for products, once more just to read pdfUrl off it', async () => {
+    const calledUrls: string[] = []
+    const { sources } = build({
+      fetchJson: async (u) => {
+        calledUrls.push(u)
+        // Enough of the real shape for the adapter to proceed past both the
+        // product parse and the pdfUrl extraction without failing early —
+        // a below-yield failure would make the "exactly once" count trivially
+        // true for the wrong reason (the adapter giving up after one call).
+        return { flyer: { products: {}, pdfUrl: 'https://assets.leaflets.schwarz/leaflets/pdfs/x/flyer.pdf' } }
+      },
+    })
+    await fetchFor(sources, 'lidl')
+    const flyerJsonUrls = calledUrls.filter((u) => u.includes('lidl-aktuell-kw'))
+    expect(flyerJsonUrls).toHaveLength(1)
   })
 })
 
@@ -124,14 +215,14 @@ describe('a source that cannot fetch FAILS — it never returns zero offers', ()
   // distinction is why the categorisation regression went unnoticed for months.
   it('reports Spar as unavailable when the download fails', async () => {
     const { sources } = build({ fetchPdfPages: async () => ({ ok: false, reason: 'HTTP 404' }) })
-    const r = await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const r = await fetchFor(sources, 'spar')
     expect(r?.ok).toBe(false)
     if (r && !r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports Aldi as unavailable when the catalogue carries no PDF', async () => {
     const { sources } = build({ fetchJson: async () => ({ pages: [] }) })
-    const r = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+    const r = await fetchFor(sources, 'aldi')
     expect(r?.ok).toBe(false)
     if (r && !r.ok) expect(r.detail).toContain('no PDF url')
   })
@@ -145,7 +236,7 @@ describe('a source that cannot fetch FAILS — it never returns zero offers', ()
       }),
       ocr: async () => ({ pages: [], errors: [] }),
     })
-    const r = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const r = await fetchFor(sources, 'migros')
     expect(r?.ok).toBe(false)
     // No per-page diagnostics at all falls back to the generic hint.
     if (r && !r.ok) expect(r.detail).toContain('rapidocr')
@@ -155,7 +246,7 @@ describe('a source that cannot fetch FAILS — it never returns zero offers', ()
     // Without the PDF the Lidl Plus check cannot run, and publishing a member
     // price as a normal one is the Art. 3(1)(e) UWG exposure. Failing is correct.
     const { sources } = build({ fetchJson: async () => ({ flyer: { products: {} } }) })
-    const r = await sources.find((s) => s.retailer === 'lidl')?.fetchOffers('2026-W37')
+    const r = await fetchFor(sources, 'lidl')
     expect(r?.ok).toBe(false)
   })
 
@@ -173,7 +264,7 @@ describe('a source that cannot fetch FAILS — it never returns zero offers', ()
       volgFetchPage: boom as never,
     })
     for (const s of sources) {
-      const r = await s.fetchOffers('2026-W37')
+      const r = await s.fetchOffers(s.editionFor(REFERENCE))
       expect(r.ok, `${s.retailer} should report a failure, not throw`).toBe(false)
     }
   })
@@ -204,7 +295,7 @@ describe('Migros CropRegion urls point at a real image', () => {
         return { pages: [ocrPage(1)], errors: [] }
       },
     })
-    await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    await fetchFor(sources, 'migros')
     expect(captured).toBe('ocr-ran')
   })
 })
@@ -238,7 +329,7 @@ describe('Aldi CropRegion urls point at a real image (QA 2026-09-16, defect 2)',
       fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES, bytes: 0 }),
     })
 
-    const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+    const result = await fetchFor(sources, 'aldi')
     const offers = result && 'offers' in result ? result.offers : []
     expect(offers.length).toBeGreaterThan(0)
 
@@ -255,7 +346,7 @@ describe('Aldi CropRegion urls point at a real image (QA 2026-09-16, defect 2)',
       fetchJson: async () => ({ pages: [{ href: 'https://view.publitas.com/95562/3331426/pdfs/abc.pdf' }] }),
       fetchPdfPages: async () => ({ ok: true, pages: ALDI_PAGES, bytes: 0 }),
     })
-    const result = await sources.find((s) => s.retailer === 'aldi')?.fetchOffers('2026-W37')
+    const result = await fetchFor(sources, 'aldi')
     const offers = result && 'offers' in result ? result.offers : []
     expect(offers.length).toBeGreaterThan(0)
     expect(offers.every((o) => o.image === null)).toBe(true)
@@ -274,7 +365,7 @@ describe('Spar offers carry no image (QA 2026-09-16, defect 3)', () => {
     const pagesOnce = parseBboxXml(readFileSync(join(__dirname, 'spar/__fixtures__/flyer-kw37-pages1-3.xml'), 'utf8'))
     const pages = [...pagesOnce, ...pagesOnce]
     const { sources } = build({ fetchPdfPages: async () => ({ ok: true, pages, bytes: 0 }) })
-    const result = await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const result = await fetchFor(sources, 'spar')
     const offers = result && 'offers' in result ? result.offers : []
     expect(offers.length).toBeGreaterThan(0)
     expect(offers.every((o) => o.image === null)).toBe(true)
@@ -283,9 +374,9 @@ describe('Spar offers carry no image (QA 2026-09-16, defect 3)', () => {
 
 describe('politeness', () => {
   it('does not delay the first page of a paged source', async () => {
-    const { sources } = build({}, 37, 2026)
+    const { sources } = build()
     const started = Date.now()
-    await sources.find((s) => s.retailer === 'coop')?.fetchOffers('2026-W37')
+    await fetchFor(sources, 'coop')
     // pageDelayMs is 0 in these tests; this asserts the delay is not
     // unconditionally applied before the first request.
     expect(Date.now() - started).toBeLessThan(2_000)
@@ -340,11 +431,11 @@ describe('offers carry the flyer they were read from as sourceUrl', () => {
       ocr: async () => ({ pages: [...MIGROS_OCR, ...MIGROS_OCR], errors: [] }),
     })
 
-    const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const result = await fetchFor(sources, 'migros')
     const offers = result && 'offers' in result ? result.offers : []
     expect(offers.length).toBeGreaterThan(0)
 
-    // kw/year come from build()'s defaults (37, 2026).
+    // kw/year come from fetchFor's default REFERENCE date, KW37.
     expect(
       offers.every(
         (o) => o.sourceUrl === 'https://issuu.com/m-magazin/docs/migros-wochenflyer-37-2026-d-zh',
@@ -363,7 +454,7 @@ describe('offers carry the flyer they were read from as sourceUrl', () => {
       }),
       ocr: async () => ({ pages: [...MIGROS_OCR, ...MIGROS_OCR], errors: [] }),
     })
-    const result = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const result = await fetchFor(sources, 'migros')
     const offers = result && 'offers' in result ? result.offers : []
     // Assert there IS something to check first — `.some()` on an empty array is
     // false, so without this the test passes when collection fails entirely.
@@ -502,7 +593,7 @@ describe('the composition root surfaces ocr.py\'s real per-page errors, not a ge
       }),
       ocr: async () => ({ pages: [], errors: [{ pageNumber: 1, error: 'truncated JPEG' }] }),
     })
-    const r = await sources.find((s) => s.retailer === 'migros')?.fetchOffers('2026-W37')
+    const r = await fetchFor(sources, 'migros')
     expect(r?.ok).toBe(false)
     if (r && !r.ok) {
       expect(r.detail).toContain('truncated JPEG')
