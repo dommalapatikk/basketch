@@ -36,6 +36,7 @@ import type { StoreSweepPlan } from './storage/domain/stale-sweep'
 import { statefulClock } from './test-support/clock'
 import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
 import { exitCodeFor, finishRun, runPipeline } from './run-pipeline'
+import type { JudgeSpendInfo, RunHistory } from './transformation/application/run-snapshot'
 import type { Deal } from '../shared/types'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
@@ -87,7 +88,7 @@ function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { read
         forStore.set(deal.validFrom, (forStore.get(deal.validFrom) ?? 0) + 1)
         writtenByWindow.set(deal.store, forStore)
       }
-      return { attempted: deals.length, total: deals.length, byStore, writtenByWindow }
+      return { attempted: deals.length, total: deals.length, collapsed: 0, byStore, writtenByWindow }
     },
     async writeEnrichment(items) {
       calls.push('writeEnrichment')
@@ -113,13 +114,32 @@ function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { read
   return { calls, storedDeals, ...defaults, ...overrides }
 }
 
-function fakeClassificationDeps(): ClassificationDeps {
+/** No judge configured — `guarded: true` because nothing paid was ever possible (no key). */
+const noJudgeSpend: JudgeSpendInfo = { guarded: true, spendSnapshot: () => null }
+
+function fakeClassificationDeps(overrides: Partial<ClassificationDeps> = {}): ClassificationDeps {
   return {
     cache: createInMemoryCache(),
     tier1: classifierAnswering('dairy', 'dairy'),
     judge: null,
     reflector: null,
     enricher: null,
+    judgeSpend: noJudgeSpend,
+    ...overrides,
+  }
+}
+
+/** In-memory RunHistory — no previous run by default, `saved` records every snapshot `save` ever received. */
+function fakeRunHistory(overrides: Partial<RunHistory> = {}): RunHistory & { readonly saved: unknown[] } {
+  const saved: unknown[] = []
+  return {
+    saved,
+    lastSuccessful: async () => ok(null),
+    save: async (snapshot) => {
+      saved.push(snapshot)
+      return ok(undefined)
+    },
+    ...overrides,
   }
 }
 
@@ -129,7 +149,9 @@ function fakeDeps(overrides: Partial<Omit<PipelineDeps, 'storage'>> = {}, storag
   return {
     sources: () => [],
     createClassificationDeps: async () => fakeClassificationDeps(),
+    runHistory: fakeRunHistory(),
     revalidate: async () => {},
+    writeStepSummary: async () => {},
     ...overrides,
     storage,
   }
@@ -259,7 +281,15 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
   it('produces "ok" and calls revalidate — the only status a non-zero exit is not mapped from', async () => {
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 10, durationMs: 1, isFinalAttempt: true })
+    const outcome = await finishRun(deps, {
+      runId: 'r',
+      stats: statsOf(10),
+      resolvedLength: 10,
+      storedCount: 10,
+      durationMs: 1,
+      isFinalAttempt: true,
+      ...noSnapshotInputs,
+    })
 
     expect(outcome).toEqual({ status: 'ok', storedCount: 10 })
     // Asserted, not assumed (code review N1): without this, deleting the
@@ -285,6 +315,7 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
       durationMs: 1,
       isFinalAttempt: true,
       now: staleClock,
+      ...noSnapshotInputs,
     })
 
     expect(outcome).toEqual({ status: 'alert-failed' })
@@ -297,7 +328,15 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
 
-    const outcome = await finishRun(deps, { runId: 'r', stats: statsOf(10), resolvedLength: 10, storedCount: 1, durationMs: 1, isFinalAttempt: true })
+    const outcome = await finishRun(deps, {
+      runId: 'r',
+      stats: statsOf(10),
+      resolvedLength: 10,
+      storedCount: 1,
+      durationMs: 1,
+      isFinalAttempt: true,
+      ...noSnapshotInputs,
+    })
 
     expect(outcome).toEqual({ status: 'storage-shortfall' })
     expect(exitCodeFor(outcome)).toBe(1)
@@ -325,6 +364,7 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
       durationMs: 1,
       isFinalAttempt: true,
       now: staleClock,
+      ...noSnapshotInputs,
     })
 
     expect(outcome).toEqual({ status: 'alert-failed' })
@@ -516,6 +556,89 @@ describe('the write tail is monitored, not just trusted (N4, code review round 2
   })
 })
 
+// WP-P7 (RCA 2026-09-15, item 2): the composition-root tests the architect's
+// own TDD plan asked for — each one would have caught the reported defect
+// where a unit test in isolation could not.
+describe('alerts fed real outputs, not literals, through the whole composition root (WP-P7)', () => {
+  it('a run that stored 400 deals is not "✅ no alerts" — benchmarkMacroF1 is not wired, and now says so (run 34652857097)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '))
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(400)] })
+
+    try {
+      const outcome = await runPipeline(deps, baseOptions)
+
+      expect(outcome.status).toBe('ok')
+      expect(deps.storage.storedDeals).toHaveLength(400)
+      const alertsLine = logs.find((l) => l.includes('[pipeline] [INFO] alerts:'))
+      expect(alertsLine).toBeDefined()
+      // Before WP-P7, `benchmarkMacroF1: null` made `evaluateAlerts` skip the
+      // regression rule silently — a stored run with real data still logged
+      // "✅ no alerts", identical to a run where every instrument was healthy.
+      expect(alertsLine).not.toContain('✅ no alerts')
+      expect(alertsLine).toContain('instrument-missing')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
+  it('a collapsed duplicate is not a failed write — "48 failed" were collapses', async () => {
+    const revalidate = spy()
+    const storage = fakeStorage({
+      async storeDeals(deals) {
+        // 100 resolved deals; 48 collapse into duplicate conflict keys
+        // BEFORE anything reaches Postgres (storeDeals' own in-memory
+        // dedupe) — only 52 could ever have been sent, and all 52 landed.
+        // The OLD arithmetic (resolvedLength - storedCount = 48 "failed")
+        // would read this as 52% storage — below the 80% threshold — and
+        // fail the run on a write that never happened.
+        return { attempted: deals.length, total: 52, collapsed: 48, byStore: new Map(), writtenByWindow: new Map() }
+      },
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(100)], revalidate: revalidate.fn }, storage)
+
+    const outcome = await runPipeline(deps, baseOptions)
+
+    expect(outcome.status).toBe('ok')
+    expect(revalidate.calls).toBe(1)
+  })
+
+  it('a budget-exhausting run exits 1, still revalidates, and 1 is not the retryable code', async () => {
+    const revalidate = spy()
+    // batchSize: 1 makes every PRODUCT its own tier1 call — the fastest way
+    // to reach FREE_TIER_BUDGET.maxCalls (500, guardrails.ts) without a paid
+    // judge. 600 products, cold start (COLD_START_LIMIT 800), 6 chunks of
+    // 100: chunk 6 finds the budget already spent and halts.
+    const oneCallPerProduct: Classifier = {
+      name: 'one-by-one',
+      tier: 1,
+      batchSize: 1,
+      async classify(batch) {
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: classification('dairy', 'dairy') })))
+      },
+    }
+    const deps = fakeDeps({
+      sources: () => [manyOffersSource(600)],
+      createClassificationDeps: async () => fakeClassificationDeps({ tier1: oneCallPerProduct }),
+      revalidate: revalidate.fn,
+    })
+
+    const outcome = await runPipeline(deps, baseOptions)
+
+    // run-halted is a CRITICAL alert (alerts.ts) once RunSnapshot.halted
+    // carries the real reason — before WP-P7 it was a hardcoded `null` and
+    // this alert could never fire in production.
+    expect(outcome).toEqual({ status: 'alert-failed' })
+    expect(exitCodeFor(outcome)).toBe(1)
+    // 1 is deterministic — never retried. 75 (EX_TEMPFAIL) is the retryable
+    // code, reserved for transient infrastructure failures.
+    expect(exitCodeFor(outcome)).not.toBe(75)
+    expect(revalidate.calls).toBe(1)
+  })
+})
+
 /** A minimal `ClassifyDealsResult['stats']` shape — only `total`/`cacheHits` are read by the alert snapshot. */
 function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
   return {
@@ -531,8 +654,13 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     deferred: 0,
     isColdStart: false,
     deadlineHit: false,
+    halted: null,
+    tokensUsed: 0,
   }
 }
+
+/** The WP-P7 fields every direct `finishRun` call now needs — a run with no offers and no judge spend. */
+const noSnapshotInputs = { collapsed: 0, collectedOffers: [], judgeSpend: noJudgeSpend }
 
 function spy(): { fn: () => Promise<void>; calls: number } {
   const state = { calls: 0 }
