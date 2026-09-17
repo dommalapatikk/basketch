@@ -40,6 +40,7 @@ const snap = (over: Partial<RunSnapshot> = {}): RunSnapshot => ({
   benchmarkMacroF1: measured(0.86),
   publishedDataCoverage: { denner: 1.0, lidl: 1.0 },
   halted: null,
+  enrichment: { attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 },
   ...over,
 })
 
