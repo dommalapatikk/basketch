@@ -20,16 +20,17 @@ import { describe, expect, it } from 'vitest'
 
 import { isDisplayTruncated } from '../../../shared/types'
 import type { Offer } from '../domain/offer'
+import type { OfferSource } from '../domain/offer-source'
 import { unwrap } from '../domain/result'
 import { createValidityPeriod } from '../domain/validity-period'
-import { parseFlyer as parseAldiFlyer } from './aldi/aldi-flyer-source'
-import { parsePage as parseCoopPage } from './coop/coop-aktionis-source'
-import { parseResponse as parseDennerResponse } from './denner/denner-api-source'
-import { parseFlyer as parseLidlFlyer } from './lidl/lidl-flyer-source'
-import { type OcrPage, parseFlyer as parseMigrosFlyer } from './migros/migros-flyer-source'
+import { createAldiFlyerSource, parseFlyer as parseAldiFlyer } from './aldi/aldi-flyer-source'
+import { createCoopAktionisSource, parsePage as parseCoopPage } from './coop/coop-aktionis-source'
+import { createDennerApiSource, parseResponse as parseDennerResponse } from './denner/denner-api-source'
+import { createLidlFlyerSource, parseFlyer as parseLidlFlyer } from './lidl/lidl-flyer-source'
+import { type OcrPage, createMigrosFlyerSource, parseFlyer as parseMigrosFlyer } from './migros/migros-flyer-source'
 import { parseBboxXml } from './pdf/pdf-words'
-import { parseFlyer as parseSparFlyer } from './spar/spar-flyer-source'
-import { parsePage as parseVolgPage } from './volg/volg-html-source'
+import { createSparFlyerSource, parseFlyer as parseSparFlyer } from './spar/spar-flyer-source'
+import { createVolgHtmlSource, parsePage as parseVolgPage } from './volg/volg-html-source'
 
 const fixture = (retailer: string, name: string) =>
   readFileSync(join(__dirname, retailer, '__fixtures__', name), 'utf8')
@@ -74,4 +75,66 @@ describe('port contract — no adapter emits a display-truncated name', () => {
     const truncated = offers.filter((o) => isDisplayTruncated(o.productName)).map((o) => o.productName)
     expect(truncated, `${retailer} emitted a display-truncated name`).toEqual([])
   })
+})
+
+// ---------------------------------------------------------------------------
+// editionFor — WP-J1 code review SF-4.
+//
+// WHY THIS BELONGS IN THE SHARED SUITE, NOT SEVEN SEPARATE TESTS: the
+// reviewer mutated Migros's `editionFor` to return `edition('coop', …)` — the
+// wrong retailer — against the existing per-adapter test files, and only 2 of
+// them caught it. The same mutation on Spar was caught by only 1. A future
+// eighth adapter with no per-file discipline could ship with NONE. Port
+// contract tests exist precisely so a property every adapter must hold is
+// structural, not a habit re-invented (or forgotten) file by file.
+//
+// `fetchPage`/`loadPages`/`fetchFlyer`/`fetchPdfText` are all stubbed to
+// throw if ever called — `editionFor` must never touch them.
+// ---------------------------------------------------------------------------
+
+const neverCalled = async (): Promise<never> => {
+  throw new Error('editionFor must be pure — it must never call a fetch/load dependency')
+}
+
+/** One real OfferSource per retailer, built with never-called I/O stubs. */
+function sourcesByRetailer(): { retailer: string; source: OfferSource }[] {
+  return [
+    { retailer: 'denner', source: createDennerApiSource({ fetchPage: neverCalled }) },
+    { retailer: 'coop', source: createCoopAktionisSource({ fetchPage: neverCalled }) },
+    { retailer: 'volg', source: createVolgHtmlSource({ fetchPage: neverCalled }) },
+    { retailer: 'aldi', source: createAldiFlyerSource({ loadPages: neverCalled }) },
+    { retailer: 'spar', source: createSparFlyerSource({ loadPages: neverCalled }) },
+    { retailer: 'lidl', source: createLidlFlyerSource({ fetchFlyer: neverCalled, fetchPdfText: neverCalled }) },
+    { retailer: 'migros', source: createMigrosFlyerSource({ loadPages: neverCalled }) },
+  ]
+}
+
+/** A spread of dates: a Monday, a Thursday (a cycle-start day), and a date in a different year. */
+const SAMPLE_DATES = [new Date('2026-09-14'), new Date('2026-09-17'), new Date('2027-01-04')]
+
+describe('port contract — editionFor', () => {
+  const suites = sourcesByRetailer()
+
+  it('finds a source to check for every retailer — guards against a silently empty suite', () => {
+    expect(suites.length).toBe(7)
+  })
+
+  it.each(suites.map(({ retailer, source }) => [retailer, source] as const))(
+    '%s: editionFor(date).retailer is always its OWN retailer',
+    (retailer, source) => {
+      for (const d of SAMPLE_DATES) {
+        expect(source.editionFor(d).retailer, `${retailer} at ${d.toISOString()}`).toBe(source.retailer)
+      }
+    },
+  )
+
+  it.each(suites.map(({ retailer, source }) => [retailer, source] as const))(
+    '%s: editionFor is pure — never throws, and the same date always answers the same edition',
+    (retailer, source) => {
+      for (const d of SAMPLE_DATES) {
+        expect(() => source.editionFor(d), retailer).not.toThrow()
+        expect(source.editionFor(d), retailer).toEqual(source.editionFor(d))
+      }
+    },
+  )
 })
