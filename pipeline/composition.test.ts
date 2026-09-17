@@ -17,6 +17,7 @@ import { RETAILERS } from './collection/domain/offer'
 import { ok, unwrap } from './collection/domain/result'
 import type { Transport } from './collection/infrastructure/live-sources'
 import { createProductionDeps } from './composition'
+import { runCollect } from './run-pipeline'
 import { buildClassifyGraph } from './transformation/application/classify-graph'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, ClassificationRequest, Classifier } from './transformation/domain/classifier'
@@ -261,20 +262,44 @@ describe('createProductionDeps wires the REAL adapters — the production wiring
   it('builds one real OfferSource per retailer, against a fake transport, not a hand-built fake', () => {
     const deps = createProductionDeps({}, { transport: stubTransport() })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
+    const sources = deps.sources()
 
     expect(sources).toHaveLength(RETAILERS.length)
     expect(sources.map((s) => s.retailer).sort()).toEqual([...RETAILERS].sort())
   })
 
-  it('the real Spar adapter builds the requested week into the URL it asks the fake transport for', async () => {
+  it('the real Spar adapter builds the EDITION it is handed into the URL it asks the fake transport for', async () => {
     const { transport, urls } = recordingTransport()
     const deps = createProductionDeps({}, { transport })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
-    await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const sources = deps.sources()
+    const spar = sources.find((s) => s.retailer === 'spar')!
+    // WP-J1 (D5): through editionFor, exactly as collectOffers itself would
+    // call it — not a hand-picked week string.
+    const sparEdition = spar.editionFor(new Date('2026-09-14'))
+    await spar.fetchOffers(sparEdition)
 
     expect(urls.some((u) => u.includes('kw37-2026'))).toBe(true)
+  })
+
+  it('code review MUST-FIX 2: a Monday run asks the REAL Migros adapter for KW37 — through runCollect, not through a fake', async () => {
+    // The test above (and live-sources.test.ts's own "right week" tests)
+    // call editionFor and fetchOffers FROM THE TEST BODY — they simulate the
+    // caller. Nothing previously drove collectOffers/runCollect with the
+    // REAL createLiveSources adapters, so the actual reference-date wiring
+    // this WP exists to fix — run-pipeline.ts passing `referenceDate: now`
+    // into collectOffers, which passes it into source.editionFor — was
+    // unverified end to end. Two mutations survived until this test was
+    // added: deleting `referenceDate: now,` from run-pipeline.ts, and
+    // replacing `source.editionFor(referenceDate)` with a hardcoded date in
+    // collect-offers.ts. Both are killed by this test.
+    const { transport, urls } = recordingTransport()
+    const deps = createProductionDeps({}, { transport })
+
+    await runCollect(deps, { now: new Date('2026-09-14') })
+
+    expect(urls.some((u) => u.includes('migros-wochenflyer-37-2026'))).toBe(true)
+    expect(urls.some((u) => u.includes('migros-wochenflyer-38-2026'))).toBe(false)
   })
 })
 

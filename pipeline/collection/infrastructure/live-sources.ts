@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { isoWeekParts } from '../domain/iso-week'
 import type { OfferSource } from '../domain/offer-source'
 import type { ValidityPeriod } from '../domain/validity-period'
 import {
@@ -72,9 +73,6 @@ export type Transport = {
 }
 
 export type LiveSourceOptions = {
-  /** ISO week number and year the flyers are published under. */
-  kw: number
-  year: number
   /** Defaults to the real network. Overridden in tests. */
   transport?: Transport
   fallbackValidity?: ValidityPeriod | null
@@ -263,8 +261,7 @@ export const LIVE_TRANSPORT: Transport = {
 
 // ── The seven ────────────────────────────────────────────────────────────────
 
-export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
-  const { kw, year } = options
+export function createLiveSources(options: LiveSourceOptions = {}): OfferSource[] {
   const net = options.transport ?? LIVE_TRANSPORT
   const gap = options.pageDelayMs ?? 1_200
   const fallbackValidity = options.fallbackValidity ?? null
@@ -300,14 +297,22 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
     // docs/research-raw-2026-09-07/report12_line398.md, "contents unknown" —
     // not evidence to build a URL from. Omitting pageImageUrl leaves `image`
     // null (an honest empty card) instead of a src that always fails.
+    //
+    // WP-J1: the url is built from the EDITION handed to `fetchOffers`, not
+    // from a kw/year captured when this array was built — see
+    // `SparSourceDeps.loadPages`'s own header.
     createSparFlyerSource({
-      loadPages: async () => {
-        const result = await net.fetchPdfPages(sparPdfUrl(year, kw))
+      loadPages: async (edition) => {
+        const { year, week } = isoWeekParts(edition.publication)
+        const result = await net.fetchPdfPages(sparPdfUrl(year, week))
         if (!result.ok) unavailable('spar', result.reason)
         return result.pages
       },
       fallbackValidity,
-      flyerUrl: sparPageUrl(year, kw),
+      flyerUrl: (edition) => {
+        const { year, week } = isoWeekParts(edition.publication)
+        return sparPageUrl(year, week)
+      },
     }),
 
     // ── Aldi: Publitas catalogue JSON carries the PDF url AND, per page, the
@@ -324,13 +329,15 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
     // The PDF is the ONLY signal that a price is a member price; the JSON
     // carries no loyalty field at all. Publishing one as a normal price is the
     // Art. 3(1)(e) UWG exposure this whole check exists to avoid.
+    //
+    // WP-J1: fetched exactly once — the adapter itself now reads BOTH the
+    // products and the pdfUrl (`extractPdfUrl`) out of the one response
+    // `fetchFlyer` returns, closing the item 1 RCA's path f (the same JSON
+    // was fetched twice, once per dependency).
     createLidlFlyerSource({
-      fetchFlyer: () => net.fetchJson(lidlFlyerUrl(kw)),
-      fetchPdfText: async () => {
-        const flyer = (await net.fetchJson(lidlFlyerUrl(kw))) as { flyer?: { pdfUrl?: string }; pdfUrl?: string }
-        const url = flyer?.flyer?.pdfUrl ?? flyer?.pdfUrl
-        if (!url) unavailable('lidl', 'flyer JSON carried no pdfUrl — the loyalty check cannot run')
-        const text = await net.fetchPdfText(url)
+      fetchFlyer: (edition) => net.fetchJson(lidlFlyerUrl(isoWeekParts(edition.publication).week)),
+      fetchPdfText: async (pdfUrl) => {
+        const text = await net.fetchPdfText(pdfUrl)
         if (!text.ok) unavailable('lidl', text.reason)
         return text.text
       },
@@ -355,12 +362,12 @@ export function createLiveSources(options: LiveSourceOptions): OfferSource[] {
  * browser, and the pipeline reports a clean run.
  */
 function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSource {
-  const { kw, year } = options
   let revision: string | null = null
 
   return createMigrosFlyerSource({
-    loadPages: async () => {
-      const images = await net.fetchFlyerImages(issuuDocUrl(kw, year))
+    loadPages: async (edition) => {
+      const { year, week } = isoWeekParts(edition.publication)
+      const images = await net.fetchFlyerImages(issuuDocUrl(week, year))
       if (!images.ok) unavailable('migros', images.reason)
 
       revision = images.location.revision
@@ -372,7 +379,10 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
       return pages
     },
     fallbackValidity: options.fallbackValidity ?? null,
-    flyerUrl: issuuDocUrl(kw, year),
+    flyerUrl: (edition) => {
+      const { year, week } = isoWeekParts(edition.publication)
+      return issuuDocUrl(week, year)
+    },
     pageImageUrl: (pageNumber) => {
       // Only ever called after loadPages, for pages that produced offers.
       if (!revision) {
@@ -396,12 +406,12 @@ function createMigrosSource(options: LiveSourceOptions, net: Transport): OfferSo
  * fix, rather than one broken page taking the whole retailer down.
  */
 function createAldiSource(options: LiveSourceOptions, net: Transport): OfferSource {
-  const { kw, year } = options
   let pageImages: ReadonlyMap<number, string> = new Map()
 
   return createAldiFlyerSource({
-    loadPages: async () => {
-      const data = await net.fetchJson(catalogDataUrl(year, kw))
+    loadPages: async (edition) => {
+      const { year, week } = isoWeekParts(edition.publication)
+      const data = await net.fetchJson(catalogDataUrl(year, week))
       const pdf = findPdfUrl(data)
       if (!pdf) unavailable('aldi', 'catalogue carried no PDF url')
 
@@ -412,7 +422,10 @@ function createAldiSource(options: LiveSourceOptions, net: Transport): OfferSour
       return result.pages
     },
     fallbackValidity: options.fallbackValidity ?? null,
-    flyerUrl: catalogPageUrl(year, kw),
+    flyerUrl: (edition) => {
+      const { year, week } = isoWeekParts(edition.publication)
+      return catalogPageUrl(year, week)
+    },
     pageImageUrl: (pageNumber) => pageImages.get(pageNumber) ?? '',
   })
 }

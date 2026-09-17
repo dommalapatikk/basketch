@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest'
 
 import { isDisplayTruncated } from '../../../../shared/types'
 import { collectOffers } from '../../application/collect-offers'
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
 import { dedupeOffers, offerKey } from '../../domain/offer'
+import { unwrap } from '../../domain/result'
 import {
   createCoopAktionisSource,
   mapCardToOffer,
@@ -14,6 +17,8 @@ import {
   parsePage,
   parsePrice,
 } from './coop-aktionis-source'
+
+const EDITION_37 = edition('coop', unwrap(createIsoWeek('2026-W37')))
 
 const FIXTURE = readFileSync(join(__dirname, '__fixtures__/vendors-coop-page1.html'), 'utf8')
 // The full 51-card April capture, copied from pipeline/aktionis/fixtures/coop-page-1.html
@@ -313,7 +318,7 @@ describe('createCoopAktionisSource + collectOffers — the composition-level che
       fetchPage: async (p) => (p === 1 ? FIXTURE : ''),
       expectedMinimumOffers: 1,
     })
-    const outcome = await collectOffers([source], '2026-W37')
+    const outcome = await collectOffers([source], unwrap(createIsoWeek('2026-W37')))
     expect(outcome.offers).toHaveLength(parseCards(FIXTURE).length)
     expect(outcome.offers).toHaveLength(6)
     // The pre-WP-C3 defect, end to end: the two Soave vintages must both
@@ -334,14 +339,14 @@ describe('createCoopAktionisSource', () => {
     const r = await source(async () => {
       calls++
       return FIXTURE
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(calls).toBe(2) // page 2 repeats page 1's ids -> stop
     expect(r.ok).toBe(true)
   })
 
   it('accumulates across pages with distinct ids', async () => {
     const pageTwo = FIXTURE.replace(/data-upox-id="(\d+)"/g, (_m, id) => `data-upox-id="9${id}"`)
-    const r = await source(async (p) => (p === 1 ? FIXTURE : p === 2 ? pageTwo : '')).fetchOffers('2026-W37')
+    const r = await source(async (p) => (p === 1 ? FIXTURE : p === 2 ? pageTwo : '')).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBe(parseCards(FIXTURE).length * 2)
   })
@@ -349,7 +354,7 @@ describe('createCoopAktionisSource', () => {
   it('fails the source when page 1 is unreachable', async () => {
     const r = await source(async () => {
       throw new Error('HTTP 503')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
@@ -360,27 +365,32 @@ describe('createCoopAktionisSource', () => {
       if (p === 1) return FIXTURE
       if (p === 2) return pageTwo
       throw new Error('HTTP 500')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.warnings.some((w) => w.message.includes('page 3 failed'))).toBe(true)
   })
 
   it('reports below-expected-yield rather than a quiet short run', async () => {
-    const r = await source(async () => FIXTURE, 300).fetchOffers('2026-W37')
+    const r = await source(async () => FIXTURE, 300).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('reports source-changed when the markup no longer matches', async () => {
-    const r = await source(async () => '<html><body>redesigned</body></html>').fetchOffers('2026-W37')
+    const r = await source(async () => '<html><body>redesigned</body></html>').fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-changed')
   })
 
   it('never throws on malformed input', async () => {
     for (const junk of ['', '<div data-upox-id="1">', '<<<>>>']) {
-      const r = await source(async () => junk).fetchOffers('2026-W37')
+      const r = await source(async () => junk).fetchOffers(EDITION_37)
       expect(r.ok).toBe(false)
     }
+  })
+
+  it('editionFor is the plain ISO week — aktionis.ch/vendors/coop has no week-numbered URL', () => {
+    const s = source(async () => FIXTURE)
+    expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'coop', publication: '2026-W38' })
   })
 })

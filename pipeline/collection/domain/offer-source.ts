@@ -7,11 +7,9 @@
 //
 // This module must never import an HTTP client, a PDF library or Supabase.
 
+import type { Edition } from './edition'
 import type { Offer, Retailer } from './offer'
 import { isDisplayTruncated } from '../../../shared/types'
-
-/** ISO week identifier, e.g. '2026-W37'. */
-export type IsoWeek = string
 
 /**
  * WHY this is not just `Offer[]`:
@@ -76,7 +74,19 @@ export type OfferSource = {
    * `below-expected-yield`, not a quiet success.
    */
   readonly expectedMinimumOffers: number
-  fetchOffers(week: IsoWeek): Promise<CollectionResult>
+  /**
+   * The publication IN EFFECT on `date` — WHICH publication this source would
+   * fetch if asked right now. Upcoming publications are not pre-fetched (D5).
+   *
+   * This exists so the caller (WP-J2's fetch ledger) can know which
+   * publication it is about to ask for BEFORE calling `fetchOffers` — the
+   * enforcement point for "never refetch a publication" needs that fact
+   * first, not read back out of the fetch afterwards. Calendar knowledge
+   * (which weekday this retailer's week starts on) stays inside the adapter
+   * that implements this; the port only requires every adapter can answer it.
+   */
+  editionFor(date: Date): Edition
+  fetchOffers(edition: Edition): Promise<CollectionResult>
 }
 
 /** More than this share of display-truncated names makes a source degraded. */

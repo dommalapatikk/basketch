@@ -2,9 +2,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
+import { unwrap } from '../../domain/result'
 import {
   createLidlFlyerSource,
   decodeEntities,
+  extractPdfUrl,
   lidlSourceAttributes,
   flyerUrl,
   pagesMentioningLoyalty,
@@ -15,7 +19,13 @@ import {
 } from './lidl-flyer-source'
 
 const FLYER = JSON.parse(readFileSync(join(__dirname, '__fixtures__/flyer-kw37.json'), 'utf8'))
+// The committed fixture predates `extractPdfUrl` (WP-J1) and carries no
+// pdfUrl — every adapter test that needs a working end-to-end fetch adds one,
+// matching the real flyer JSON's own documented shape rather than the
+// fixture's incomplete one.
+const FLYER_WITH_PDF_URL = { ...FLYER, flyer: { ...FLYER.flyer, pdfUrl: 'https://assets.leaflets.schwarz/leaflets/pdfs/test-uuid/flyer.pdf' } }
 const PDF_TEXT = readFileSync(join(__dirname, '__fixtures__/flyer-kw37-pages.txt'), 'utf8')
+const EDITION_37 = edition('lidl', unwrap(createIsoWeek('2026-W37')))
 
 describe('flyerUrl', () => {
   it('builds the weekly endpoint', () => {
@@ -133,14 +143,14 @@ describe('parseFlyer — THE LIDL RULE', () => {
 describe('createLidlFlyerSource', () => {
   const source = (over: Partial<Parameters<typeof createLidlFlyerSource>[0]> = {}) =>
     createLidlFlyerSource({
-      fetchFlyer: async () => FLYER,
+      fetchFlyer: async () => FLYER_WITH_PDF_URL,
       fetchPdfText: async () => PDF_TEXT,
       expectedMinimumOffers: 1,
       ...over,
     })
 
   it('collects the verifiable offers', async () => {
-    const r = await source().fetchOffers('2026-W37')
+    const r = await source().fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBeGreaterThan(0)
   })
@@ -152,7 +162,7 @@ describe('createLidlFlyerSource', () => {
       fetchPdfText: async () => {
         throw new Error('HTTP 500')
       },
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.reason).toBe('source-unavailable')
@@ -165,21 +175,67 @@ describe('createLidlFlyerSource', () => {
       fetchFlyer: async () => {
         throw new Error('HTTP 404')
       },
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports below-expected-yield on a short flyer', async () => {
-    const r = await source({ expectedMinimumOffers: 5000 }).fetchOffers('2026-W37')
+    const r = await source({ expectedMinimumOffers: 5000 }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('never throws on malformed input', async () => {
     for (const junk of [null, undefined, 'text', 42, {}, { flyer: null }]) {
-      const r = await source({ fetchFlyer: async () => junk }).fetchOffers('2026-W37')
+      const r = await source({ fetchFlyer: async () => junk }).fetchOffers(EDITION_37)
       expect(r.ok).toBe(false)
+    }
+  })
+
+  it('fails, never publishes, when the flyer JSON carries no pdfUrl — the loyalty check cannot run', () => {
+    return source({ fetchFlyer: async () => FLYER }).fetchOffers(EDITION_37).then((r) => {
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.detail).toContain('no pdfUrl')
+    })
+  })
+
+  it('fetches the flyer JSON exactly once — the old wiring fetched it twice (item 1 RCA, path f)', async () => {
+    let calls = 0
+    await source({
+      fetchFlyer: async () => {
+        calls += 1
+        return FLYER_WITH_PDF_URL
+      },
+    }).fetchOffers(EDITION_37)
+    expect(calls).toBe(1)
+  })
+
+  describe('editionFor — the publication in effect, not the run date\'s own ISO week', () => {
+    it('on Mon 2026-09-14 the edition is KW37, the flyer live that day', () => {
+      const e = source().editionFor(new Date('2026-09-14'))
+      expect(e).toEqual({ retailer: 'lidl', publication: '2026-W37' })
+    })
+
+    it('on the cycle-start Thursday itself, the edition is that week', () => {
+      const e = source().editionFor(new Date('2026-09-17'))
+      expect(e).toEqual({ retailer: 'lidl', publication: '2026-W38' })
+    })
+  })
+})
+
+describe('extractPdfUrl', () => {
+  it('reads flyer.pdfUrl', () => {
+    expect(extractPdfUrl({ flyer: { pdfUrl: 'https://x/a.pdf' } })).toBe('https://x/a.pdf')
+  })
+
+  it('falls back to a top-level pdfUrl', () => {
+    expect(extractPdfUrl({ pdfUrl: 'https://x/b.pdf' })).toBe('https://x/b.pdf')
+  })
+
+  it('returns null when neither is present, never throws on malformed input', () => {
+    for (const junk of [null, undefined, 'text', 42, {}, { flyer: {} }, { flyer: null }]) {
+      expect(extractPdfUrl(junk)).toBeNull()
     }
   })
 })

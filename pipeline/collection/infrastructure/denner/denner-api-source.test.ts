@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
 import { dedupeOffers } from '../../domain/offer'
 import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
@@ -18,6 +20,7 @@ import {
 
 const FIXTURE = JSON.parse(readFileSync(join(__dirname, '__fixtures__/weekly-special-page1.json'), 'utf8'))
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
+const EDITION_37 = edition('denner', unwrap(createIsoWeek('2026-W37')))
 
 describe('parseInsteadPrice — real Denner strings', () => {
   it('reads a normal price', () => {
@@ -159,7 +162,7 @@ describe('createDennerApiSource — collection behaviour', () => {
       calls.push(page)
       return FIXTURE
     })
-    const r = await s.fetchOffers('2026-W37')
+    const r = await s.fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBe(10) // 5 slots x 2 pages
     expect(calls).toEqual([1, 2])
@@ -168,7 +171,7 @@ describe('createDennerApiSource — collection behaviour', () => {
   it('fails the whole source when page 1 is unreachable', async () => {
     const r = await source(async () => {
       throw new Error('HTTP 503')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.reason).toBe('source-unavailable')
@@ -180,7 +183,7 @@ describe('createDennerApiSource — collection behaviour', () => {
     const r = await source(async (_pid, page) => {
       if (page > 1) throw new Error('HTTP 500')
       return FIXTURE
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.offers.length).toBe(5)
@@ -189,22 +192,27 @@ describe('createDennerApiSource — collection behaviour', () => {
   })
 
   it('reports below-expected-yield rather than a quiet short run', async () => {
-    const r = await source(async () => FIXTURE, 100).fetchOffers('2026-W37')
+    const r = await source(async () => FIXTURE, 100).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('reports source-changed when the response shape no longer matches', async () => {
-    const r = await source(async () => ({ blocks: { searches: [] } })).fetchOffers('2026-W37')
+    const r = await source(async () => ({ blocks: { searches: [] } })).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-changed')
   })
 
   it('never throws, whatever the API returns', async () => {
     for (const junk of [null, undefined, 'a string', 42, {}, { blocks: null }]) {
-      const r = await source(async () => junk).fetchOffers('2026-W37')
+      const r = await source(async () => junk).fetchOffers(EDITION_37)
       expect(r.ok).toBe(false)
     }
+  })
+
+  it('editionFor is the plain ISO week — Denner has no week-numbered URL, pageId 12 always means "current"', () => {
+    const s = source(async () => FIXTURE)
+    expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'denner', publication: '2026-W38' })
   })
 })
 

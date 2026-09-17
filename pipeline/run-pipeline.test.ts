@@ -21,6 +21,8 @@
 import fs from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
+import { edition } from './collection/domain/edition'
+import { createIsoWeek } from './collection/domain/iso-week'
 import { createOffer } from './collection/domain/offer'
 import { createMoney } from './collection/domain/money'
 import { collected } from './collection/domain/offer-source'
@@ -188,6 +190,7 @@ function fakeDeps(overrides: Partial<Omit<PipelineDeps, 'storage'>> = {}, storag
 const dennerOfferSource = (productName: string): OfferSource => ({
   retailer: 'denner',
   expectedMinimumOffers: 1,
+  editionFor: () => edition('denner', unwrap(createIsoWeek('2026-W37'))),
   async fetchOffers() {
     return collected('denner', [
       unwrap(
@@ -215,6 +218,7 @@ const baseOptions = {
 const manyOffersSource = (n: number): OfferSource => ({
   retailer: 'denner',
   expectedMinimumOffers: 1,
+  editionFor: () => edition('denner', unwrap(createIsoWeek('2026-W37'))),
   async fetchOffers() {
     return collected(
       'denner',

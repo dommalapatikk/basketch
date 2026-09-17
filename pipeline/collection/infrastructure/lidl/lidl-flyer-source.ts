@@ -35,12 +35,13 @@
 // which matches the window printed on the PDF ("Ab Do. 10.9. bis Mi. 16.9.").
 // Using startDate would publish every offer as valid four days early.
 
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOfCycle } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -118,11 +119,38 @@ type LidlFlyer = {
   products?: Record<string, LidlProduct>
 }
 
-export type LidlResponse = { flyer?: LidlFlyer }
+export type LidlResponse = { flyer?: LidlFlyer; pdfUrl?: string }
 
 export function flyerUrl(kw: number): string {
   return `https://endpoints.leaflets.schwarz/v4/flyer?flyer_identifier=lidl-aktuell-kw${String(kw).padStart(2, '0')}`
 }
+
+/**
+ * Pulls the PDF url out of the flyer JSON body already fetched for the
+ * products — never a second request. `body.flyer.pdfUrl` is the documented
+ * shape; `body.pdfUrl` is a defensive fallback for a top-level variant.
+ *
+ * THE DEFECT THIS CLOSES (item 1 RCA, path f): the composition root used to
+ * fetch this SAME flyer JSON twice — once to read the products, once more
+ * just to read `pdfUrl` off it — which is a second network call for one
+ * publication AP-1 forbids. `createLidlFlyerSource.fetchOffers` now reads
+ * both the products and this url out of the one response `deps.fetchFlyer`
+ * returns.
+ */
+export function extractPdfUrl(body: unknown): string | null {
+  const response = body as LidlResponse | null | undefined
+  return response?.flyer?.pdfUrl ?? response?.pdfUrl ?? null
+}
+
+/**
+ * LIDL's flyer is Thursday to Wednesday, like Migros: the module header's own
+ * evidence ("Ab Do. 10.9. bis Mi. 16.9.") is a Thursday-starting window for
+ * "KW37". Item 1 RCA measured KW37's ISO week as 2026-09-10's plain ISO week,
+ * 37 — the flyer becomes fetchable ahead of its own start date (research:
+ * "~1 week lookahead"), but which publication is IN EFFECT still turns on the
+ * content's own start day, not on how early the JSON happens to 200.
+ */
+const LIDL_CYCLE_START_WEEKDAY = 4 // Thursday
 
 /**
  * Whitespace-insensitive search. The PDF's text layer separates every glyph,
@@ -264,9 +292,15 @@ export function parseFlyer(
 // ── the source ───────────────────────────────────────────────────────────────
 
 export type LidlSourceDeps = {
-  fetchFlyer: () => Promise<unknown>
+  /**
+   * Takes the edition being fetched so the composition root builds the flyer
+   * URL from IT, never from a value captured at construction time. Fetched
+   * exactly ONCE per collection — `fetchOffers` reads both the products AND
+   * the PDF url (`extractPdfUrl`) out of this SAME response.
+   */
+  fetchFlyer: (edition: Edition) => Promise<unknown>
   /** Required — without it no price can be vouched for. */
-  fetchPdfText: () => Promise<string>
+  fetchPdfText: (pdfUrl: string) => Promise<string>
   expectedMinimumOffers?: number
 }
 
@@ -277,17 +311,26 @@ export function createLidlFlyerSource(deps: LidlSourceDeps): OfferSource {
     retailer: 'lidl',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    editionFor(date: Date): Edition {
+      return edition('lidl', isoWeekOfCycle(date, LIDL_CYCLE_START_WEEKDAY))
+    },
+
+    async fetchOffers(offerEdition: Edition): Promise<CollectionResult> {
       let body: unknown
       try {
-        body = await deps.fetchFlyer()
+        body = await deps.fetchFlyer(offerEdition)
       } catch (e) {
         return collectionFailed('lidl', 'source-unavailable', e instanceof Error ? e.message : String(e))
       }
 
+      const pdfUrl = extractPdfUrl(body)
+      if (!pdfUrl) {
+        return collectionFailed('lidl', 'source-changed', 'flyer JSON carried no pdfUrl — the loyalty check cannot run')
+      }
+
       let pdfText: string
       try {
-        pdfText = await deps.fetchPdfText()
+        pdfText = await deps.fetchPdfText(pdfUrl)
       } catch (e) {
         // Deliberate: the PDF is the ONLY way to tell a public price from a
         // Lidl Plus price. Without it, every price is unverifiable, and

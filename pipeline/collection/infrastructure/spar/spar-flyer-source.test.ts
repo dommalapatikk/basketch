@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
 import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
 import { parseBboxXml } from '../pdf/pdf-words'
@@ -18,6 +20,7 @@ import {
 const XML = readFileSync(join(__dirname, '__fixtures__/flyer-kw37-pages1-3.xml'), 'utf8')
 const PAGES = parseBboxXml(XML)
 const FALLBACK = unwrap(createValidityPeriod('2026-09-10', '2026-09-16'))
+const EDITION_37 = edition('spar', unwrap(createIsoWeek('2026-W37')))
 
 describe('flyerPdfUrl', () => {
   it('builds the weekly URL with a zero-padded week', () => {
@@ -151,7 +154,7 @@ describe('createSparFlyerSource', () => {
     createSparFlyerSource({ loadPages, expectedMinimumOffers: min })
 
   it('collects from the flyer', async () => {
-    const r = await source(async () => PAGES).fetchOffers('2026-W37')
+    const r = await source(async () => PAGES).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBeGreaterThan(8)
   })
@@ -161,7 +164,7 @@ describe('createSparFlyerSource', () => {
       loadPages: async () => PAGES,
       expectedMinimumOffers: 5,
       fallbackValidity: unwrap(createValidityPeriod('2000-01-01', '2000-01-02')),
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers[0]?.validity).toEqual({ from: '2026-09-10', to: '2026-09-16' })
   })
@@ -169,7 +172,7 @@ describe('createSparFlyerSource', () => {
   it('refuses to publish undated offers when no window can be found', async () => {
     const undated = PAGES.map((p) => ({ ...p, words: p.words.filter((w) => !/\d{2}\.\d{2}\.\d{2}/.test(w.text)) }))
     const r = await createSparFlyerSource({ loadPages: async () => undated, expectedMinimumOffers: 5 }).fetchOffers(
-      '2026-W37',
+      EDITION_37,
     )
     expect(r.ok).toBe(false)
     if (!r.ok) {
@@ -181,20 +184,27 @@ describe('createSparFlyerSource', () => {
   it('reports source-unavailable when the PDF cannot be loaded', async () => {
     const r = await source(async () => {
       throw new Error('HTTP 404')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports below-expected-yield on a short flyer', async () => {
-    const r = await source(async () => PAGES, 500).fetchOffers('2026-W37')
+    const r = await source(async () => PAGES, 500).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('reports source-changed on an empty PDF', async () => {
-    const r = await source(async () => []).fetchOffers('2026-W37')
+    const r = await source(async () => []).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
+  })
+
+  describe('editionFor — Thursday-anchored (WP-J1 ADR)', () => {
+    it('on Mon 2026-09-14 the edition is KW37, the flyer in effect that day', () => {
+      const s = source(async () => PAGES)
+      expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'spar', publication: '2026-W37' })
+    })
   })
 })
 

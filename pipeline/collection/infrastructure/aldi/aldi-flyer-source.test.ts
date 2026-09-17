@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
 import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
 import { parseBboxXml } from '../pdf/pdf-words'
@@ -19,6 +21,7 @@ import {
 
 const PAGES = parseBboxXml(readFileSync(join(__dirname, '__fixtures__/catalog-kw37-pages3-6.xml'), 'utf8'))
 const REFERENCE = new Date('2026-09-09T00:00:00Z')
+const EDITION_37 = edition('aldi', unwrap(createIsoWeek('2026-W37')))
 
 describe('catalogDataUrl', () => {
   it('builds the weekly catalogue URL', () => {
@@ -247,7 +250,7 @@ describe('createAldiFlyerSource', () => {
     createAldiFlyerSource({ loadPages, reference: REFERENCE, expectedMinimumOffers: min })
 
   it('collects from the catalogue', async () => {
-    const r = await source(async () => PAGES).fetchOffers('2026-W37')
+    const r = await source(async () => PAGES).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBeGreaterThan(10)
   })
@@ -255,19 +258,19 @@ describe('createAldiFlyerSource', () => {
   it('reports source-unavailable when the PDF cannot be loaded', async () => {
     const r = await source(async () => {
       throw new Error('HTTP 403')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports below-expected-yield on a short catalogue', async () => {
-    const r = await source(async () => PAGES, 5000).fetchOffers('2026-W37')
+    const r = await source(async () => PAGES, 5000).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('reports source-changed on an empty catalogue', async () => {
-    const r = await source(async () => []).fetchOffers('2026-W37')
+    const r = await source(async () => []).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-changed')
   })
@@ -282,13 +285,13 @@ describe('createAldiFlyerSource', () => {
       reference: REFERENCE,
       expectedMinimumOffers: 1,
       fallbackValidity: unwrap(createValidityPeriod('2026-09-10', '2026-09-16')),
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
   })
 
   it('never throws on malformed pages', async () => {
     const junk = [{ pageNumber: 1, widthPt: 0, heightPt: 0, words: [] }]
-    const r = await source(async () => junk).fetchOffers('2026-W37')
+    const r = await source(async () => junk).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
   })
 
@@ -303,7 +306,7 @@ describe('createAldiFlyerSource', () => {
       reference: REFERENCE,
       expectedMinimumOffers: 5,
       pageImageUrl: () => '',
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.warnings.some((w) => w.message.includes('page-image count (0)'))).toBe(true)
@@ -311,11 +314,23 @@ describe('createAldiFlyerSource', () => {
   })
 
   it('does not warn when pageImageUrl is not supplied at all — SPAR-shaped "no image" is not a defect', async () => {
-    const r = await source(async () => PAGES).fetchOffers('2026-W37')
+    const r = await source(async () => PAGES).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.warnings.some((w) => w.message.includes('page-image count'))).toBe(false)
     }
+  })
+
+  describe('editionFor — Thursday-anchored, bundling both cycles into one publication (WP-J1 ADR)', () => {
+    it('on Mon 2026-09-14 the edition is KW37 — the Thursday publication the Monday cycle is bundled inside', () => {
+      const s = source(async () => PAGES)
+      expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'aldi', publication: '2026-W37' })
+    })
+
+    it('on Thu 2026-09-17 the edition rolls to KW38, carrying its own Thu + following-Mon cycles', () => {
+      const s = source(async () => PAGES)
+      expect(s.editionFor(new Date('2026-09-17'))).toEqual({ retailer: 'aldi', publication: '2026-W38' })
+    })
   })
 })
 

@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
+import { unwrap } from '../../domain/result'
 import {
   createVolgHtmlSource,
   isChromeImagePath,
@@ -15,6 +18,7 @@ import {
 const FIXTURE = readFileSync(join(__dirname, '__fixtures__/wochenaktionen.html'), 'utf8')
 // The fixture was captured in KW37 2026.
 const REFERENCE = new Date('2026-09-09T00:00:00Z')
+const EDITION_37 = edition('volg', unwrap(createIsoWeek('2026-W37')))
 
 describe('parseSwissPrice', () => {
   it('reads a normal price', () => {
@@ -235,7 +239,7 @@ describe('createVolgHtmlSource', () => {
     createVolgHtmlSource({ fetchPage, reference: REFERENCE, expectedMinimumOffers: min })
 
   it('collects the full page', async () => {
-    const r = await source(async () => FIXTURE).fetchOffers('2026-W37')
+    const r = await source(async () => FIXTURE).fetchOffers(EDITION_37)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers).toHaveLength(25)
   })
@@ -243,27 +247,32 @@ describe('createVolgHtmlSource', () => {
   it('reports source-unavailable when the page cannot be fetched', async () => {
     const r = await source(async () => {
       throw new Error('HTTP 503')
-    }).fetchOffers('2026-W37')
+    }).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports source-changed when the markup no longer matches', async () => {
-    const r = await source(async () => '<html><body>redesigned</body></html>').fetchOffers('2026-W37')
+    const r = await source(async () => '<html><body>redesigned</body></html>').fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-changed')
   })
 
   it('reports below-expected-yield on a suspiciously short page', async () => {
-    const r = await source(async () => FIXTURE, 100).fetchOffers('2026-W37')
+    const r = await source(async () => FIXTURE, 100).fetchOffers(EDITION_37)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('never throws on malformed input', async () => {
     for (const junk of ['', '<div class="c-product">', '<<<>>>']) {
-      const r = await source(async () => junk).fetchOffers('2026-W37')
+      const r = await source(async () => junk).fetchOffers(EDITION_37)
       expect(r.ok).toBe(false)
     }
+  })
+
+  it('editionFor is the plain ISO week — wochenaktionen has no week-numbered URL; the fresh section\'s later start is a validity window inside this one publication, not a second one', () => {
+    const s = source(async () => FIXTURE)
+    expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'volg', publication: '2026-W38' })
   })
 })

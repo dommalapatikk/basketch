@@ -15,12 +15,13 @@
 // this cost real time to find, see research Part 1.
 
 import { printedDiscount } from '../../domain/discount'
+import { type Edition, edition } from '../../domain/edition'
+import { isoWeekOf } from '../../domain/iso-week'
 import { createMoney } from '../../domain/money'
 import { type Offer, createOffer } from '../../domain/offer'
 import {
   type CollectionResult,
   type CollectionWarning,
-  type IsoWeek,
   type OfferSource,
   collectedWithYieldCheck,
   collectionFailed,
@@ -332,7 +333,16 @@ export function createDennerApiSource(deps: DennerSourceDeps): OfferSource {
     retailer: 'denner',
     expectedMinimumOffers,
 
-    async fetchOffers(_week: IsoWeek): Promise<CollectionResult> {
+    // Denner's own API has no week-numbered URL at all — `pageId 12` always
+    // means "whatever is current" (see the module header). There is no
+    // publication identifier to read off the wire, so the edition is simply
+    // the plain ISO week of the day we asked — bookkeeping for the WP-J2
+    // ledger, not a URL parameter.
+    editionFor(date: Date): Edition {
+      return edition('denner', isoWeekOf(date))
+    },
+
+    async fetchOffers(_edition: Edition): Promise<CollectionResult> {
       const all: Offer[] = []
       const warnings: CollectionWarning[] = []
       const maxPages = deps.maxPages ?? 15

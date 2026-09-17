@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RunTrace } from '../../application/telemetry'
+import { createIsoWeek } from '../../domain/iso-week'
+import { unwrap } from '../../domain/result'
 import { combineTelemetry, createJsonTelemetry, formatRunSummary } from './json-telemetry'
+
+const WEEK_37 = unwrap(createIsoWeek('2026-W37'))
+const WEEK_38 = unwrap(createIsoWeek('2026-W38'))
 
 const trace: RunTrace = {
   runId: 'run_test',
-  week: '2026-W37',
+  // Deliberately the run's own nominal week, NOT necessarily what every
+  // source was asked for — the whole point of MUST-FIX 1 (WP-J1 code
+  // review) is that these two can legitimately disagree.
+  runWeek: WEEK_38,
   startedAt: '2026-09-08T05:00:00.000Z',
   durationMs: 8400,
   totalOffers: 431,
@@ -13,6 +21,9 @@ const trace: RunTrace = {
   sources: [
     {
       retailer: 'denner',
+      // Denner has no week-numbered URL — its own publication is bookkeeping
+      // only and happens to equal the run's week here.
+      publication: WEEK_38,
       durationMs: 2100,
       status: 'ok',
       offerCount: 246,
@@ -22,6 +33,7 @@ const trace: RunTrace = {
     },
     {
       retailer: 'coop',
+      publication: WEEK_38,
       durationMs: 6300,
       status: 'failed',
       offerCount: 0,
@@ -34,8 +46,26 @@ const trace: RunTrace = {
   ],
 }
 
+/**
+ * A Thursday-anchored retailer whose publication DIFFERS from the run's own
+ * week — the exact shape MUST-FIX 1 exists to make visible. If `trace.week`
+ * (now `runWeek`) were the only place a week appeared, this span's real
+ * publication (2026-W37) would be invisible to an operator reading the log.
+ */
+const migrosSpan: RunTrace['sources'][number] = {
+  retailer: 'migros',
+  publication: WEEK_37,
+  durationMs: 4200,
+  status: 'ok',
+  offerCount: 34,
+  warningCount: 2,
+  warnings: [],
+  degraded: false,
+}
+
 const degradedSpan: RunTrace['sources'][number] = {
   retailer: 'coop',
+  publication: WEEK_38,
   durationMs: 5000,
   status: 'ok',
   offerCount: 920,
@@ -53,7 +83,7 @@ describe('JSON telemetry', () => {
   it('emits one parseable JSON object per line', () => {
     const { lines, sink } = capture()
     const t = createJsonTelemetry(sink)
-    t.runStarted('run_test', '2026-W37', ['denner', 'coop'])
+    t.runStarted('run_test', WEEK_38, ['denner', 'coop'])
     t.sourceFinished('run_test', trace.sources[0]!)
     t.runFinished(trace)
 
@@ -66,7 +96,7 @@ describe('JSON telemetry', () => {
   it('tags every line with runId so a run can be reassembled by grep', () => {
     const { lines, sink } = capture()
     const t = createJsonTelemetry(sink)
-    t.runStarted('run_test', '2026-W37', ['denner'])
+    t.runStarted('run_test', WEEK_38, ['denner'])
     t.sourceFinished('run_test', trace.sources[0]!)
     t.runFinished(trace)
     for (const l of lines) expect(JSON.parse(l).runId).toBe('run_test')
@@ -93,6 +123,7 @@ describe('JSON telemetry', () => {
     const { lines, sink } = capture()
     createJsonTelemetry(sink).sourceFinished('run_test', {
       retailer: 'coop',
+      publication: WEEK_38,
       durationMs: 10,
       status: 'ok',
       offerCount: 5,
@@ -125,6 +156,25 @@ describe('JSON telemetry', () => {
     const e = JSON.parse(lines[0]!)
     expect(e.sources[0].degraded).toBe(true)
   })
+
+  describe('WP-J1 code review MUST-FIX 1 — the per-source publication is emitted, not just the run week', () => {
+    it('sourceFinished carries the source\'s OWN publication', () => {
+      const { lines, sink } = capture()
+      createJsonTelemetry(sink).sourceFinished('run_test', migrosSpan)
+      const e = JSON.parse(lines[0]!)
+      expect(e.publication).toBe('2026-W37')
+    })
+
+    it('runFinished carries BOTH the run-level runWeek and each source\'s own publication, and they may disagree', () => {
+      const { lines, sink } = capture()
+      createJsonTelemetry(sink).runFinished({ ...trace, sources: [migrosSpan, trace.sources[1]!] })
+      const e = JSON.parse(lines[0]!)
+      expect(e.runWeek).toBe('2026-W38')
+      expect(e.sources[0].publication).toBe('2026-W37')
+      expect(e.sources[1].publication).toBe('2026-W38')
+      expect(e.runWeek).not.toBe(e.sources[0].publication)
+    })
+  })
 })
 
 describe('combineTelemetry', () => {
@@ -139,11 +189,17 @@ describe('combineTelemetry', () => {
 })
 
 describe('GitHub Actions run summary', () => {
-  it('renders a table with per-store status', () => {
+  it('renders a table with per-store status and each store\'s own publication week', () => {
     const md = formatRunSummary(trace)
-    expect(md).toContain('⚠️ Collection degraded — 2026-W37')
-    expect(md).toContain('| denner | ✅ ok | 246 |')
-    expect(md).toContain('| coop | ❌ below-expected-yield | 0 |')
+    expect(md).toContain('⚠️ Collection degraded — 2026-W38')
+    expect(md).toContain('| denner | 2026-W38 | ✅ ok | 246 |')
+    expect(md).toContain('| coop | 2026-W38 | ❌ below-expected-yield | 0 |')
+  })
+
+  it('shows a retailer\'s publication even when it differs from the run\'s own week', () => {
+    const withMigros: RunTrace = { ...trace, sources: [...trace.sources, migrosSpan] }
+    const md = formatRunSummary(withMigros)
+    expect(md).toContain('| migros | 2026-W37 | ✅ ok | 34 |')
   })
 
   it('lists failures with their detail', () => {
@@ -162,7 +218,7 @@ describe('GitHub Actions run summary', () => {
   it('marks a degraded-but-ok source in its row and lists it separately — WP-C3 code review F2', () => {
     const withDegraded: RunTrace = { ...trace, sources: [...trace.sources, degradedSpan] }
     const md = formatRunSummary(withDegraded)
-    expect(md).toContain('| coop | ⚠️ ok (degraded) | 920 |')
+    expect(md).toContain('| coop | 2026-W38 | ⚠️ ok (degraded) | 920 |')
     expect(md).toContain('### Degraded')
     expect(md).toContain('**coop** — more than 5% of its offers have a display-truncated name')
   })

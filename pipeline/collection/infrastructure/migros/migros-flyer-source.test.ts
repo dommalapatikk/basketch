@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { edition } from '../../domain/edition'
+import { createIsoWeek } from '../../domain/iso-week'
 import { isMinimumQuantity } from '../../domain/quantity-requirement'
+import { unwrap } from '../../domain/result'
 import { createValidityPeriod } from '../../domain/validity-period'
 import {
   type OcrItem,
@@ -23,6 +26,7 @@ const PAGES: OcrPage[] = JSON.parse(
   readFileSync(join(__dirname, '__fixtures__/ocr-kw36-zh-pages2-5.json'), 'utf8'),
 )
 const REFERENCE = new Date('2026-09-09T00:00:00Z')
+const EDITION_36 = edition('migros', unwrap(createIsoWeek('2026-W36')))
 
 describe('issuuDocUrl', () => {
   it('builds the regional flyer URL', () => {
@@ -987,7 +991,7 @@ describe('createMigrosFlyerSource — the ratio guard fires through the port', (
       fallbackValidity: FLYER_WEEK_LITERAL,
       expectedMinimumOffers: 1,
     })
-    return source.fetchOffers('2026-W36').then((r) => {
+    return source.fetchOffers(EDITION_36).then((r) => {
       expect(r.ok).toBe(false)
       if (!r.ok) expect(r.reason).toBe('below-expected-yield')
     })
@@ -1097,7 +1101,7 @@ describe('createMigrosFlyerSource', () => {
     })
 
   it('collects from captured OCR', async () => {
-    const r = await source().fetchOffers('2026-W36')
+    const r = await source().fetchOffers(EDITION_36)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.offers.length).toBe(17)
   })
@@ -1107,28 +1111,54 @@ describe('createMigrosFlyerSource', () => {
       loadPages: async () => {
         throw new Error('issuu 404')
       },
-    }).fetchOffers('2026-W36')
+    }).fetchOffers(EDITION_36)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-unavailable')
   })
 
   it('reports below-expected-yield when OCR degrades', async () => {
     // The yield floor is the guard against a silently bad OCR run.
-    const r = await source({ expectedMinimumOffers: 500 }).fetchOffers('2026-W36')
+    const r = await source({ expectedMinimumOffers: 500 }).fetchOffers(EDITION_36)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('below-expected-yield')
   })
 
   it('reports source-changed when OCR returns nothing', async () => {
-    const r = await source({ loadPages: async () => [] }).fetchOffers('2026-W36')
+    const r = await source({ loadPages: async () => [] }).fetchOffers(EDITION_36)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('source-changed')
   })
 
   it('never throws on malformed OCR output', async () => {
     const junk = [{ pageNumber: 1, width: 0, height: 0, items: [{ text: '', box: [] }] }] as OcrPage[]
-    const r = await source({ loadPages: async () => junk }).fetchOffers('2026-W36')
+    const r = await source({ loadPages: async () => junk }).fetchOffers(EDITION_36)
     expect(r.ok).toBe(false)
+  })
+
+  describe('editionFor — Thursday-anchored (WP-J1, item 1 / item 7a RCA)', () => {
+    it('on Mon 2026-09-14 Migros\'s edition is KW37 — it asked for KW38 and got HTTP 404 (run 34833209176)', () => {
+      const s = source()
+      expect(s.editionFor(new Date('2026-09-14'))).toEqual({ retailer: 'migros', publication: '2026-W37' })
+    })
+
+    it('on the cycle-start Thursday, the edition is that week', () => {
+      const s = source()
+      expect(s.editionFor(new Date('2026-09-17'))).toEqual({ retailer: 'migros', publication: '2026-W38' })
+    })
+
+    it('every fetch builds its URL from the edition it is handed, never a value captured at construction time', async () => {
+      const requestedEditions: string[] = []
+      const s = createMigrosFlyerSource({
+        loadPages: async (e) => {
+          requestedEditions.push(e.publication)
+          return PAGES
+        },
+        reference: REFERENCE,
+        expectedMinimumOffers: 1,
+      })
+      await s.fetchOffers({ retailer: 'migros', publication: EDITION_36.publication })
+      expect(requestedEditions).toEqual(['2026-W36'])
+    })
   })
 })
 
