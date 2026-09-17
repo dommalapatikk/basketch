@@ -351,10 +351,19 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
   it('produces "alert-failed" when a critical alert fires — and still revalidates (WP-P3)', async () => {
     const revalidate = spy()
     const deps = fakeDeps({ revalidate: revalidate.fn })
-    // A stale-run clock: `finishedAtMs` reads first (T), `nowMs` reads second
-    // (T + 9 days) — past STALE_RUN_MS (8 days), the only alert this function
-    // can currently reach (every other field it keys on is hardcoded null —
-    // see the comment on `evaluateAlertsStep`).
+    // WP-P3 pinned this against `pipeline-stale` specifically because, at
+    // the time, it was the ONLY critical alert `finishRun` could reach at
+    // all — every other RunSnapshot field was a hardcoded literal
+    // (`invalidCategoryRejected: 0`, `benchmarkMacroF1: null`, `halted: null`,
+    // `publishedDataCoverage: {}`, `previous: null`), so `run-halted`,
+    // `classifier-regression` and `source-shape-changed` were unreachable —
+    // see the RCA this WP-P3 comment referenced, and `evaluateAlertsStep`'s
+    // own header before WP-P7. That premise no longer holds: `buildRunSnapshot`
+    // (WP-P7) makes every one of those fields real, so `run-halted` is now
+    // ALSO independently reachable — see "alerts fed real outputs..." below.
+    // A stale-run clock still exercises `pipeline-stale` specifically,
+    // deliberately, so this test keeps pinning the exit-mapping contract
+    // (revalidate-before-exit) rather than re-testing which alert fires.
     const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
 
     const outcome = await finishRun(deps, {
