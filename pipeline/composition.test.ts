@@ -261,18 +261,22 @@ describe('createProductionDeps wires the REAL adapters — the production wiring
   it('builds one real OfferSource per retailer, against a fake transport, not a hand-built fake', () => {
     const deps = createProductionDeps({}, { transport: stubTransport() })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
+    const sources = deps.sources()
 
     expect(sources).toHaveLength(RETAILERS.length)
     expect(sources.map((s) => s.retailer).sort()).toEqual([...RETAILERS].sort())
   })
 
-  it('the real Spar adapter builds the requested week into the URL it asks the fake transport for', async () => {
+  it('the real Spar adapter builds the EDITION it is handed into the URL it asks the fake transport for', async () => {
     const { transport, urls } = recordingTransport()
     const deps = createProductionDeps({}, { transport })
 
-    const sources = deps.sources({ kw: 37, year: 2026 })
-    await sources.find((s) => s.retailer === 'spar')?.fetchOffers('2026-W37')
+    const sources = deps.sources()
+    const spar = sources.find((s) => s.retailer === 'spar')!
+    // WP-J1 (D5): through editionFor, exactly as collectOffers itself would
+    // call it — not a hand-picked week string.
+    const sparEdition = spar.editionFor(new Date('2026-09-14'))
+    await spar.fetchOffers(sparEdition)
 
     expect(urls.some((u) => u.includes('kw37-2026'))).toBe(true)
   })
