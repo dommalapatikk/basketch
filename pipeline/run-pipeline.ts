@@ -28,7 +28,8 @@ import { normalizeProductName } from '../shared/types'
 import type { CollectOffersOutcome } from './collection/application/collect-offers'
 import { collectOffers } from './collection/application/collect-offers'
 import type { Offer } from './collection/domain/offer'
-import type { IsoWeek, OfferSource } from './collection/domain/offer-source'
+import { isoWeekOf } from './collection/domain/iso-week'
+import type { OfferSource } from './collection/domain/offer-source'
 import { createJsonTelemetry } from './collection/infrastructure/telemetry/json-telemetry'
 import { formatRunSummary } from './collection/infrastructure/telemetry/json-telemetry'
 import { filterGrocery } from './grocery-filter'
@@ -97,8 +98,6 @@ export type StorageDeps = {
   readonly logPipelineRun: (input: PipelineRunInput) => Promise<void>
 }
 
-export type IsoWeekParts = { readonly kw: number; readonly year: number }
-
 /**
  * The one thing every real dependency (sources, classifier, reflector, judge,
  * enricher, cache, storage, the revalidate ping) is built from. Composed in
@@ -106,7 +105,15 @@ export type IsoWeekParts = { readonly kw: number; readonly year: number }
  * built inline here.
  */
 export type PipelineDeps = {
-  readonly sources: (week: IsoWeekParts) => readonly OfferSource[]
+  /**
+   * WP-J1 (D5): no longer parameterised by a shared ISO week. Each
+   * `OfferSource` now names its own publication via `editionFor(date)`,
+   * asked per source inside `collectOffers` — the ISO-week-for-everyone
+   * shape this signature used to have is exactly the item 1 RCA's root
+   * cause (one week computed here, handed to all seven, Migros asking for
+   * a flyer that was not published yet on a Monday run).
+   */
+  readonly sources: () => readonly OfferSource[]
   /**
    * Deferred rather than eager: selecting the tier-1 model is a network probe
    * (`model-probe.ts`), and it must fire at the exact point in the log
@@ -195,21 +202,6 @@ export function exitCodeFor(outcome: PipelineOutcome): 0 | 75 | 1 {
 
 const infoLog = (message: string): void => console.log(`[pipeline] [INFO] ${message}`)
 
-/**
- * ISO week for a date — the number the retailers publish their flyers under.
- *
- * Thursday-based, per ISO 8601: the week containing the year's first Thursday
- * is week 1. Getting this wrong by one fetches last week's flyer, which parses
- * perfectly and is silently stale.
- */
-export function isoWeekOf(date: Date): IsoWeekParts {
-  const t = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
-  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
-  const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1)
-  const kw = Math.ceil(((t.getTime() - yearStart) / 86_400_000 + 1) / 7)
-  return { kw, year: t.getUTCFullYear() }
-}
-
 /** Correlation id for a run: prefers the GitHub Actions run id so a stored row links back to the job log that produced it. */
 export function computeRunId(env: Record<string, string | undefined>, now: Date): string {
   return env.GITHUB_RUN_ID ? `gha-${env.GITHUB_RUN_ID}` : `local-${now.toISOString().replace(/[:.]/g, '-')}`
@@ -287,12 +279,17 @@ function buildCollectOutcome(offers: readonly Offer[]): CollectOutcome {
  */
 async function runCollectionModule(deps: PipelineDeps, now: Date): Promise<CollectOutcome> {
   console.log('[pipeline] [INFO] collection module: LIVE')
-  const weekParts = isoWeekOf(now)
-  const week: IsoWeek = `${weekParts.year}-W${String(weekParts.kw).padStart(2, '0')}`
+  // WP-J1 (D5): this `week` is a DISPLAY label for the trace/telemetry only —
+  // it is never fed to an adapter any more. Each source names its own
+  // publication via `editionFor`, asked per source inside `collectOffers`
+  // (passed `referenceDate: now` below), which is the actual fix for the
+  // item 1 RCA's "one week for all seven" defect.
+  const week = isoWeekOf(now)
 
-  const outcome = await collectOffers(deps.sources(weekParts), week, {
+  const outcome = await collectOffers(deps.sources(), week, {
     timeoutMs: 600_000,
     telemetry: createJsonTelemetry(),
+    referenceDate: now,
   })
   logCollectionTrace(outcome)
   await deps.writeStepSummary(formatRunSummary(outcome.trace))

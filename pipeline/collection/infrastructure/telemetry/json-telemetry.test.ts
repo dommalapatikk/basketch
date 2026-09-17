@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import type { RunTrace } from '../../application/telemetry'
+import { createIsoWeek } from '../../domain/iso-week'
+import { unwrap } from '../../domain/result'
 import { combineTelemetry, createJsonTelemetry, formatRunSummary } from './json-telemetry'
+
+const WEEK_37 = unwrap(createIsoWeek('2026-W37'))
 
 const trace: RunTrace = {
   runId: 'run_test',
-  week: '2026-W37',
+  week: WEEK_37,
   startedAt: '2026-09-08T05:00:00.000Z',
   durationMs: 8400,
   totalOffers: 431,
@@ -53,7 +57,7 @@ describe('JSON telemetry', () => {
   it('emits one parseable JSON object per line', () => {
     const { lines, sink } = capture()
     const t = createJsonTelemetry(sink)
-    t.runStarted('run_test', '2026-W37', ['denner', 'coop'])
+    t.runStarted('run_test', WEEK_37, ['denner', 'coop'])
     t.sourceFinished('run_test', trace.sources[0]!)
     t.runFinished(trace)
 
@@ -66,7 +70,7 @@ describe('JSON telemetry', () => {
   it('tags every line with runId so a run can be reassembled by grep', () => {
     const { lines, sink } = capture()
     const t = createJsonTelemetry(sink)
-    t.runStarted('run_test', '2026-W37', ['denner'])
+    t.runStarted('run_test', WEEK_37, ['denner'])
     t.sourceFinished('run_test', trace.sources[0]!)
     t.runFinished(trace)
     for (const l of lines) expect(JSON.parse(l).runId).toBe('run_test')

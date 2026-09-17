@@ -13,7 +13,7 @@
 
 import { BROWSE_CATEGORIES, type Deal, type Store } from '../shared/types'
 import { createLiveSources, type Transport } from './collection/infrastructure/live-sources'
-import type { ClassificationDeps, IsoWeekParts, PipelineDeps, StorageDeps } from './run-pipeline'
+import type { ClassificationDeps, PipelineDeps, StorageDeps } from './run-pipeline'
 import { resolveProducts } from './product-resolve'
 import { loadAliases, reportUnknownTags } from './resolve-taxonomy'
 import {
@@ -379,7 +379,11 @@ export type ProductionDepsOverrides = {
  */
 export function createProductionDeps(env: Env, overrides: ProductionDepsOverrides = {}): PipelineDeps {
   return {
-    sources: (week: IsoWeekParts) => createLiveSources({ kw: week.kw, year: week.year, transport: overrides.transport }),
+    // WP-J1 (D5): no kw/year at construction time any more — each real
+    // adapter computes its own edition from the date it is actually asked
+    // about, inside collectOffers (createLiveSources's own header explains
+    // why this file is the composition root for the collection module).
+    sources: () => createLiveSources({ transport: overrides.transport }),
     createClassificationDeps: (log) => buildClassificationDeps(env, log, overrides.modelClock, overrides.spendAccount),
     storage: PRODUCTION_STORAGE,
     runHistory: overrides.runHistory ?? PRODUCTION_RUN_HISTORY,
