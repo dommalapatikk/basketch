@@ -37,6 +37,8 @@ import { statefulClock } from './test-support/clock'
 import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
 import { exitCodeFor, finishRun, runPipeline } from './run-pipeline'
 import type { JudgeSpendInfo, RunHistory } from './transformation/application/run-snapshot'
+import type { RunSnapshot } from './transformation/domain/alerts'
+import { STALE_RUN_MS } from './transformation/domain/alerts'
 import type { UsdMicros } from './transformation/domain/spend'
 import type { Deal } from '../shared/types'
 
@@ -127,6 +129,30 @@ function fakeClassificationDeps(overrides: Partial<ClassificationDeps> = {}): Cl
     enricher: null,
     judgeSpend: noJudgeSpend,
     ...overrides,
+  }
+}
+
+/** A minimal but complete RunSnapshot fixture, for tests that need a real "previous run". */
+function fakeSnapshot(over: Partial<RunSnapshot> = {}): RunSnapshot {
+  return {
+    runId: 'earlier',
+    finishedAtMs: 0,
+    totalProducts: 1,
+    classified: 1,
+    uncertain: 0,
+    rejected: 0,
+    invalidCategoryRejected: 0,
+    cacheHits: 95,
+    cacheMisses: 5,
+    tokensUsed: 0,
+    usdMicrosSpent: 0 as UsdMicros,
+    spendNearCeiling: false,
+    spendUnguarded: false,
+    durationMs: 1,
+    benchmarkMacroF1: { kind: 'not-measured' as const, reason: 'benchmark not wired' },
+    publishedDataCoverage: {},
+    halted: null,
+    ...over,
   }
 }
 
@@ -344,8 +370,12 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
   // and WP-P3 reorders this very sequence.
   it('reports the alert, not the shortfall, when both conditions are true', async () => {
     const revalidate = spy()
-    const deps = fakeDeps({ revalidate: revalidate.fn })
-    const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
+    // WP-P7 code review, F2a: `pipeline-stale` is now measured against the
+    // PREVIOUS run's own `finishedAtMs`, not "now" — a stale-run history
+    // fixture replaces the old stale-clock trick.
+    const runHistory = fakeRunHistory({ lastSuccessful: async () => ok(fakeSnapshot({ finishedAtMs: 1_000 })) })
+    const deps = fakeDeps({ revalidate: revalidate.fn, runHistory })
+    const nineDaysLater = () => 1_000 + STALE_RUN_MS + 24 * 60 * 60 * 1000
 
     const outcome = await finishRun(deps, {
       runId: 'r',
@@ -354,7 +384,7 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
       storedCount: 1,
       durationMs: 1,
       isFinalAttempt: true,
-      now: staleClock,
+      now: nineDaysLater,
       ...noSnapshotInputs,
     })
 
@@ -400,19 +430,21 @@ describe('the PipelineOutcome contract every exit-code mapping depends on', () =
     // own header before WP-P7. That premise no longer holds: `buildRunSnapshot`
     // (WP-P7) makes every one of those fields real, so `run-halted` is now
     // ALSO independently reachable — see "alerts fed real outputs..." below.
-    // A stale-run clock still exercises `pipeline-stale` specifically,
-    // deliberately, so this test keeps pinning the exit-mapping contract
-    // (revalidate-before-exit) rather than re-testing which alert fires.
-    const staleClock = statefulClock([1_000, 1_000 + 9 * 24 * 60 * 60 * 1000])
+    // `pipeline-stale` still exercises this specifically, deliberately, so
+    // this test keeps pinning the exit-mapping contract
+    // (revalidate-before-exit) rather than re-testing which alert fires. A
+    // stale-run HISTORY fixture replaces the old stale-CLOCK trick — see F2a.
+    const runHistory = fakeRunHistory({ lastSuccessful: async () => ok(fakeSnapshot({ finishedAtMs: 1_000 })) })
+    const nineDaysLater = () => 1_000 + STALE_RUN_MS + 24 * 60 * 60 * 1000
 
-    const outcome = await finishRun(deps, {
+    const outcome = await finishRun({ ...deps, runHistory }, {
       runId: 'r',
       stats: statsOf(10),
       resolvedLength: 10,
       storedCount: 10,
       durationMs: 1,
       isFinalAttempt: true,
-      now: staleClock,
+      now: nineDaysLater,
       ...noSnapshotInputs,
     })
 
@@ -496,11 +528,12 @@ describe('the exit-code split (WP-P3 / RCA T1) — 0 success, 75 retry-worthy, 1
   })
 
   it('the final attempt at its deadline publishes what it has and exits 0 with run-deferred', async () => {
-    // Two more calls than `deadlineHitClockScript`: `finishRun`, reached this
+    // One more call than `deadlineHitClockScript`: `finishRun`, reached this
     // time because `isFinalAttempt` is true, evaluates alerts — `now()` for
-    // `finishedAtMs`, then again for `evaluateAlerts`'s `nowMs`.
+    // `finishedAtMs` (WP-P7 code review, F2a: `evaluateAlerts` no longer
+    // takes a separate `nowMs`).
     const t0 = 1_700_000_000_000
-    const script = [...deadlineHitClockScript(t0), t0 + RUN_DEADLINE_MS + 60_000, t0 + RUN_DEADLINE_MS + 60_000]
+    const script = [...deadlineHitClockScript(t0), t0 + RUN_DEADLINE_MS + 60_000]
     const deps = fakeDeps({ sources: () => [manyOffersSource(150)] })
     const clock = statefulClock(script)
     const warnings: string[] = []
@@ -582,13 +615,15 @@ describe('the write tail is monitored, not just trusted (N4, code review round 2
     // (F9): 1. runPipeline's startTime. 2. classify-deals' one deadline check
     // (1 offer is 1 chunk — still comfortably inside RUN_DEADLINE_MS).
     // 3. writeTailStart. 4. durationMs. 5. writeTailMs — jumped far enough
-    // past `writeTailStart` to exceed WRITE_TAIL_MS. 6-7. finishRun's alert
-    // evaluation (finishedAtMs, then evaluateAlerts's nowMs) — same fixed
-    // value as call 5, so the huge duration reads as zero elapsed time
-    // AFTER the run finished, and no stale-run alert fires by accident.
+    // past `writeTailStart` to exceed WRITE_TAIL_MS. 6. finishRun's alert
+    // evaluation (`finishedAtMs` — WP-P7 code review, F2a: `evaluateAlerts`
+    // no longer takes a separate `nowMs`). `pipeline-stale` cannot fire by
+    // accident here regardless of this value: the default `fakeRunHistory`
+    // has no previous run, and the new gap-since-previous check is silent
+    // with nothing to compare against (see F2a).
     const t0 = 1_700_000_000_000
     const afterWriteTail = t0 + WRITE_TAIL_MS + 60_000
-    const clock = statefulClock([t0, t0, t0, afterWriteTail, afterWriteTail, afterWriteTail, afterWriteTail])
+    const clock = statefulClock([t0, t0, t0, afterWriteTail, afterWriteTail, afterWriteTail])
     const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
     const warnings: string[] = []
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
@@ -688,10 +723,12 @@ describe('alerts fed real outputs, not literals, through the whole composition r
   })
 
   it('compares against the last successful run — previous was hardcoded null, so cache-hit-rate-low could never fire', async () => {
-    // Any snapshot works here — the rule only needs a non-null `previous`
-    // to leave its own gate. This run's own cache is empty (0 hits of 200),
-    // well below the 50% threshold.
-    const previousSnapshot = { runId: 'earlier', finishedAtMs: 0, totalProducts: 1, classified: 1, uncertain: 0, rejected: 0, invalidCategoryRejected: 0, cacheHits: 95, cacheMisses: 5, tokensUsed: 0, usdMicrosSpent: 0 as UsdMicros, spendNearCeiling: false, spendUnguarded: false, durationMs: 1, benchmarkMacroF1: { kind: 'not-measured' as const, reason: 'x' }, publishedDataCoverage: {}, halted: null }
+    // Any recent snapshot works here — the rule only needs a non-null
+    // `previous` to leave its own gate. This run's own cache is empty (0
+    // hits of 200), well below the 50% threshold. `finishedAtMs: Date.now()`
+    // keeps the gap-since-previous small, so `pipeline-stale` does not also
+    // fire and muddy what this test is actually about.
+    const previousSnapshot = fakeSnapshot({ finishedAtMs: Date.now() })
     const runHistory = fakeRunHistory({ lastSuccessful: async () => ok(previousSnapshot) })
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
@@ -734,6 +771,32 @@ describe('alerts fed real outputs, not literals, through the whole composition r
     await runPipeline(deps, baseOptions)
 
     expect(runHistory.saved).toHaveLength(1)
+  })
+
+  // WP-P7 code review, F1 (MUST-FIX). `SupabaseRunHistory#lastSuccessful`
+  // genuinely returns `err(...)` when the table cannot be read — this pins
+  // that `run-pipeline.ts` threads that failure through as `not-measured`,
+  // not as `previous = null` ("no previous run yet"), all the way to the
+  // logged alert line. The domain-level test (`alerts.test.ts`) proves
+  // `evaluateAlerts` handles `not-measured` correctly in isolation; this one
+  // proves the composition root does not quietly collapse it before it gets
+  // there — exactly the "dropped at a module boundary" shape the RCA is about.
+  it('an unreadable run history is reported as not-measured, never silently as "no previous run" (F1)', async () => {
+    const runHistory = fakeRunHistory({ lastSuccessful: async () => err('pipeline_runs.metrics unreadable: HTTP 500') })
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '))
+    })
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')], runHistory })
+
+    try {
+      await runPipeline(deps, baseOptions)
+      const alertsLine = logs.find((l) => l.includes('[pipeline] [INFO] alerts:'))
+      expect(alertsLine).toContain('previous run could not be evaluated')
+      expect(alertsLine).toContain('HTTP 500')
+    } finally {
+      logSpy.mockRestore()
+    }
   })
 })
 

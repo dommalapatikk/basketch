@@ -28,7 +28,7 @@
 
 import type { Retailer } from '../../collection/domain/offer'
 import type { UsdMicros } from './spend'
-import { RUN_TIMEOUT_MS } from './resilience'
+import { RUN_DEADLINE_MS, WRITE_TAIL_MS } from './resilience'
 
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 
@@ -129,11 +129,18 @@ export const SPEND_CEILING_WARN_SHARE = 0.8
 export const STALE_RUN_MS = 8 * 24 * 60 * 60 * 1000
 
 /**
- * Warn before the step's own external timeout, not after. Derived from
- * `RUN_TIMEOUT_MS` (THE one definition, `resilience.ts`) rather than a
- * second hardcoded number — F6, code review of the first WP-P3 submission.
+ * Warn before a run's realistic maximum duration, not the step's external
+ * kill line. F6 (code review of the first WP-P3 submission) derived this
+ * from `RUN_TIMEOUT_MS` (the 60-minute `pipeline.yml` step timeout) at 80% —
+ * 48 minutes. Code review of WP-P7 caught that this is the wrong constant:
+ * classification stops at `RUN_DEADLINE_MS` (28 minutes, `resilience.ts`),
+ * and only the write tail runs after it, bounded by `WRITE_TAIL_MS`
+ * (~9.5 minutes) — a normally-finishing run realistically peaks around 37
+ * minutes, never anywhere near 48. A threshold above every duration the run
+ * can actually produce can never fire, which is the exact defect class this
+ * whole alert exists to close.
  */
-export const RUN_SLOW_THRESHOLD_MS = RUN_TIMEOUT_MS * 0.8
+export const RUN_SLOW_THRESHOLD_MS = RUN_DEADLINE_MS + WRITE_TAIL_MS
 
 /**
  * The uniform shape for "a rule could not run". Named `instrument-missing`,
@@ -151,21 +158,58 @@ function instrumentMissing(field: string, reason: string): Alert {
   }
 }
 
+/**
+ * WP-P7 code review, F1 (MUST-FIX): `RunHistory.lastSuccessful()` can fail to
+ * read — `supabase-run-history.ts` returns `err(...)` for exactly that — and
+ * the caller was collapsing that into `previous = null`, which every rule
+ * below reads as "no previous run YET". That is the exact "dropped at a
+ * module boundary" shape the RCA (2026-09-15, item 2) is about: an
+ * unreadable history is silent under 100 lookups (below `cache-hit-rate-low`'s
+ * volume gate) and misreported as "first run ever" above it. `previous` is
+ * now `Measured<RunSnapshot | null>`: `not-measured` is a genuine read
+ * failure (a name, a reason, an alert of its own); `measured(null)` is "read
+ * fine, nothing has ever been saved" — the ONLY state a first-ever run
+ * produces, and the ONLY one every downstream rule may silently skip on.
+ */
 export function evaluateAlerts(
   current: RunSnapshot,
-  previous: RunSnapshot | null,
-  nowMs: number,
+  previous: Measured<RunSnapshot | null>,
 ): Alert[] {
   const alerts: Alert[] = []
 
+  if (previous.kind === 'not-measured') {
+    // ONE alert for the whole unreadable-history root cause — every rule
+    // below that depends on `previous` (pipeline-stale, classifier-regression
+    // /drift, source-shape-changed, cache-hit-rate-low) silently has nothing
+    // to compare against, exactly as it would on a genuine first run; this is
+    // the one place that says WHY, so "not-measured" is never confused with
+    // "no previous run" (the architect's own TDD list, RCA §2.5).
+    alerts.push(instrumentMissing('previous run', `run history unreadable: ${previous.reason}`))
+  }
+  const previousSnapshot = previous.kind === 'measured' ? previous.value : null
+
   // ── The run did not happen ────────────────────────────────────────────────
-  if (nowMs - current.finishedAtMs > STALE_RUN_MS) {
-    alerts.push({
-      severity: 'critical',
-      code: 'pipeline-stale',
-      message: `no successful run for ${Math.floor((nowMs - current.finishedAtMs) / 86_400_000)} days`,
-      action: 'GitHub disables scheduled workflows after 60 days without a commit. Re-enable it and push.',
-    })
+  //
+  // WP-P7 code review, F2a (MUST-FIX): the in-process form
+  // (`nowMs - current.finishedAtMs > STALE_RUN_MS`) is measured from INSIDE
+  // the very process reporting `finishedAtMs`, so the gap is always ~0ms and
+  // the rule could never fire — a pipeline that has stopped cannot report
+  // that it has stopped. The gap-since-the-LAST-SUCCESSFUL-run form below is
+  // the one the original plan kept: it answers "how long since a run before
+  // this one actually finished", which a run that DOES execute can measure.
+  // "The pipeline stopped entirely, forever" is a different question, and
+  // AP-5's out-of-band healthchecks.io ping is the detector for that one —
+  // no in-process check can see its own absence.
+  if (previousSnapshot !== null) {
+    const gapMs = current.finishedAtMs - previousSnapshot.finishedAtMs
+    if (gapMs > STALE_RUN_MS) {
+      alerts.push({
+        severity: 'critical',
+        code: 'pipeline-stale',
+        message: `${Math.floor(gapMs / 86_400_000)} days since the last successful run`,
+        action: 'GitHub disables scheduled workflows after 60 days without a commit. Re-enable it and push.',
+      })
+    }
   }
 
   // ── The run stopped early ─────────────────────────────────────────────────
@@ -185,9 +229,9 @@ export function evaluateAlerts(
   // unwired, so trying both would just be a second way to say nothing.
   if (current.benchmarkMacroF1.kind === 'not-measured') {
     alerts.push(instrumentMissing('benchmarkMacroF1', current.benchmarkMacroF1.reason))
-  } else if (previous !== null && previous.benchmarkMacroF1.kind === 'measured') {
+  } else if (previousSnapshot !== null && previousSnapshot.benchmarkMacroF1.kind === 'measured') {
     const currentF1 = current.benchmarkMacroF1.value
-    const previousF1 = previous.benchmarkMacroF1.value
+    const previousF1 = previousSnapshot.benchmarkMacroF1.value
     const drop = previousF1 - currentF1
     if (drop >= MACRO_F1_REGRESSION_THRESHOLD) {
       alerts.push({
@@ -213,7 +257,7 @@ export function evaluateAlerts(
   // twice-weekly cadence, WP-J1) — that is a scheduling fact, not a shape
   // change, so it must never read as one.
   for (const [retailer, coverage] of Object.entries(current.publishedDataCoverage)) {
-    const was = previous?.publishedDataCoverage?.[retailer as Retailer]
+    const was = previousSnapshot?.publishedDataCoverage?.[retailer as Retailer]
     if (coverage <= COVERAGE_COLLAPSE && was !== undefined && was > 0.5) {
       alerts.push({
         severity: 'critical',
@@ -249,15 +293,19 @@ export function evaluateAlerts(
 
   // ── The cache stopped working ─────────────────────────────────────────────
   const looked = current.cacheHits + current.cacheMisses
+  // `previous.kind === 'measured'` excludes the not-measured (unreadable)
+  // case on purpose — that root cause already has its own alert above, and
+  // repeating "no previous run" for it would misreport WHY nothing compared.
+  const noBaselineYet = previous.kind === 'measured' && previousSnapshot === null
   if (looked > 100) {
-    if (previous === null) {
+    if (noBaselineYet) {
       // WP-P7: this used to be silent — the `previous !== null` gate below
       // meant "no history yet" and "measured and fine" produced the identical
       // empty alert list. A run with real cache traffic and no baseline says
       // so, once, until `RunHistory` has a first successful save to compare
       // against.
       alerts.push(instrumentMissing('cache-hit-rate comparison', 'no previous run to compare against yet'))
-    } else if (current.cacheHits / looked < 0.5) {
+    } else if (previousSnapshot !== null && current.cacheHits / looked < 0.5) {
       alerts.push({
         severity: 'warning',
         code: 'cache-hit-rate-low',
@@ -268,10 +316,9 @@ export function evaluateAlerts(
   }
 
   // ── The run is too slow ───────────────────────────────────────────────────
-  // F6 (code review of the first WP-P3 submission): was a hardcoded 45 while
-  // `resilience.ts` claimed to be THE ONE DEFINITION of the step timeout.
-  // Derived at 80% of it so this warns before the step's own external
-  // timeout, not after.
+  // See `RUN_SLOW_THRESHOLD_MS`'s own comment for why this is derived from
+  // `RUN_DEADLINE_MS` (28m) + `WRITE_TAIL_MS` (~9.5m), not `RUN_TIMEOUT_MS`
+  // (60m) — a threshold above every duration a run can produce can never fire.
   if (current.durationMs > RUN_SLOW_THRESHOLD_MS) {
     alerts.push({
       severity: 'warning',

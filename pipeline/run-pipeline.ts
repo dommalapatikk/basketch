@@ -40,8 +40,8 @@ import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/ap
 import { ClassificationCacheUnreadableError, classifyDeals } from './transformation/application/classify-deals'
 import type { JudgeSpendInfo, RunHistory } from './transformation/application/run-snapshot'
 import { buildRunSnapshot } from './transformation/application/run-snapshot'
-import type { Alert, RunSnapshot } from './transformation/domain/alerts'
-import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
+import type { Alert, Measured, RunSnapshot } from './transformation/domain/alerts'
+import { evaluateAlerts, formatAlerts, measured, notMeasured, shouldFailRun } from './transformation/domain/alerts'
 import { RUN_DEADLINE_MS, checkWriteTailDuration } from './transformation/domain/resilience'
 import { isOk } from './collection/domain/result'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
@@ -597,9 +597,17 @@ export type EvaluateAlertsStepInputs = {
  * nothing ever saved a snapshot for "yet" to end on.
  *
  * `now` is injected (defaulting to `Date.now`) purely so a test can pin
- * `finishedAtMs` and `evaluateAlerts`'s `nowMs` without a real clock — EXACTLY
- * two calls, preserved from before this WP, so every existing scripted-clock
- * test in `run-pipeline.test.ts` keeps its call count.
+ * `finishedAtMs` without a real clock — ONE call (WP-P7 code review, F2a:
+ * `evaluateAlerts` no longer takes a separate `nowMs`; `pipeline-stale` is
+ * measured against the previous run's own `finishedAtMs`, not "now").
+ *
+ * WP-P7 code review, F1 (MUST-FIX): an unreadable `RunHistory` used to
+ * collapse straight to `previous = null` here — indistinguishable from a
+ * genuine first-ever run, and silent under `cache-hit-rate-low`'s 100-lookup
+ * volume gate. `previous` is now `Measured<RunSnapshot | null>`, so
+ * `evaluateAlerts` itself reports the read failure as `instrument-missing`
+ * rather than this call site deciding, on its own, that "unreadable" means
+ * "nothing to compare against yet".
  */
 async function evaluateAlertsStep(deps: PipelineDeps, inputs: EvaluateAlertsStepInputs): Promise<boolean> {
   const now = inputs.now ?? Date.now
@@ -614,12 +622,14 @@ async function evaluateAlertsStep(deps: PipelineDeps, inputs: EvaluateAlertsStep
   })
 
   const previousResult = await deps.runHistory.lastSuccessful()
+  const previous: Measured<RunSnapshot | null> = isOk(previousResult)
+    ? measured(previousResult.value)
+    : notMeasured(previousResult.error)
   if (!isOk(previousResult)) {
     console.warn(`[pipeline] [WARN] run history unreadable — comparing against no baseline this run: ${previousResult.error}`)
   }
-  const previous = isOk(previousResult) ? previousResult.value : null
 
-  const alerts: readonly Alert[] = evaluateAlerts(snapshot, previous, now())
+  const alerts: readonly Alert[] = evaluateAlerts(snapshot, previous)
   console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
   emitAnnotationsForAlerts(alerts)
   await deps.writeStepSummary(`## Pipeline alerts\n\n${formatAlerts(alerts)}`)
