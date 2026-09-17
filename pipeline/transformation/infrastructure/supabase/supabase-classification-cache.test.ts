@@ -15,6 +15,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   category: 'dairy',
   sub_category: 'dairy',
   attributes: { fatPercent: 3.5 },
+  attributes_version: 1,
   confidence: 0.95,
   is_uncertain: false,
   model: 'gemini-3.5-flash-lite',
@@ -92,6 +93,7 @@ describe('lookup', () => {
     if (isOk(r)) {
       expect(r.value[0]?.classification.category).toBe('dairy')
       expect(r.value[0]?.attributes).toEqual({ fatPercent: 3.5 })
+      expect(r.value[0]?.attributesVersion).toBe(1)
     }
   })
 
@@ -99,6 +101,12 @@ describe('lookup', () => {
     const { client } = stubClient({ throwOn: 'select' })
     const r = await make(client).lookup([])
     expect(isOk(r) && r.value).toEqual([])
+  })
+
+  it('treats a row with no attributes_version as still owed — WP-P9, rows written before this column existed', async () => {
+    const { client } = stubClient({ selectResult: { data: [row({ attributes_version: null })], error: null } })
+    const r = await make(client).lookup(['emmi milch|t3|p1|s1'])
+    expect(isOk(r) && r.value[0]?.attributesVersion).toBeNull()
   })
 })
 
@@ -146,7 +154,7 @@ describe('an unreadable cache fails fast; a failed write still degrades', () => 
     const { client } = stubClient({ upsertResult: { error: { message: 'permission denied' } } })
     const cls = unwrap(createClassification({ category: 'dairy', subCategory: 'dairy', confidence: unwrap(createConfidence(0.9)), tier: 1, model: 'm' }))
     const r = await make(client, (op, d) => notes.push(`${op}: ${d}`)).save([
-      { cacheKey: 'k', normalisedName: 'n', classification: cls, attributes: {}, runId: 'r' },
+      { cacheKey: 'k', normalisedName: 'n', classification: cls, attributes: {}, attributesVersion: null, runId: 'r' },
     ])
     expect(isOk(r) && r.value).toBe(0)
     expect(notes[0]).toContain('permission denied')
@@ -206,7 +214,7 @@ describe('a cached uncertain row rehydrates as uncertain, not as classified', ()
     const uncertain = markUncertain(disputed)
 
     await cache.save([
-      { cacheKey: 'emmi milch|t3|p1|s1', normalisedName: 'emmi milch', classification: uncertain, attributes: {}, runId: 'run-1' },
+      { cacheKey: 'emmi milch|t3|p1|s1', normalisedName: 'emmi milch', classification: uncertain, attributes: {}, attributesVersion: null, runId: 'run-1' },
     ])
 
     const writtenRow = calls.upserted[0]?.[0] as Record<string, unknown>
@@ -226,20 +234,21 @@ describe('save', () => {
   it('writes the traceability fields, not just the answer', async () => {
     const { client, calls } = stubClient({})
     const cls = unwrap(createClassification({ category: 'bakery', subCategory: 'pastry', confidence: unwrap(createConfidence(0.8)), tier: 2, model: 'gemini-3.5-flash-lite' }))
-    await make(client).save([{ cacheKey: 'k', normalisedName: 'donut', classification: cls, attributes: { salted: false }, runId: 'run-9' }])
+    await make(client).save([{ cacheKey: 'k', normalisedName: 'donut', classification: cls, attributes: { salted: false }, attributesVersion: 1, runId: 'run-9' }])
 
     const written = calls.upserted[0]?.[0] as Record<string, unknown>
     expect(written.model).toBe('gemini-3.5-flash-lite')
     expect(written.tier).toBe(2)
     expect(written.run_id).toBe('run-9')
     expect(written.prompt_version).toBe(CURRENT_VERSIONS.promptVersion)
+    expect(written.attributes_version).toBe(1)
   })
 
   it('chunks large writes rather than sending one enormous statement', async () => {
     const { client, calls } = stubClient({})
     const cls = unwrap(createClassification({ category: 'dairy', subCategory: 'dairy', confidence: unwrap(createConfidence(0.9)), tier: 1, model: 'm' }))
     const entries = Array.from({ length: 250 }, (_, i) => ({
-      cacheKey: `k${i}`, normalisedName: `n${i}`, classification: cls, attributes: {}, runId: null,
+      cacheKey: `k${i}`, normalisedName: `n${i}`, classification: cls, attributes: {}, attributesVersion: null, runId: null,
     }))
     const r = await make(client).save(entries)
     expect(isOk(r) && r.value).toBe(250)
@@ -272,6 +281,7 @@ describe('one statement, one row per cache key', () => {
       }),
     ),
     attributes: {},
+    attributesVersion: null,
     runId,
   })
 

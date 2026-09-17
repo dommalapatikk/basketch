@@ -27,8 +27,8 @@ import { collected } from './collection/domain/offer-source'
 import type { OfferSource } from './collection/domain/offer-source'
 import { err, ok, unwrap } from './collection/domain/result'
 import { createValidityPeriod } from './collection/domain/validity-period'
-import type { ClassificationCache } from './transformation/domain/classification-cache'
-import { createInMemoryCache } from './transformation/domain/classification-cache'
+import type { ClassificationCache, EnrichmentOutcome } from './transformation/domain/classification-cache'
+import { CURRENT_VERSIONS, cacheKeyFor, createInMemoryCache } from './transformation/domain/classification-cache'
 import { createClassification, createConfidence } from './transformation/domain/classification'
 import type { ClassificationOutcome, Classifier } from './transformation/domain/classifier'
 import { RUN_DEADLINE_MS, WRITE_TAIL_MS } from './transformation/domain/resilience'
@@ -152,6 +152,7 @@ function fakeSnapshot(over: Partial<RunSnapshot> = {}): RunSnapshot {
     benchmarkMacroF1: { kind: 'not-measured' as const, reason: 'benchmark not wired' },
     publishedDataCoverage: {},
     halted: null,
+    enrichment: { attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 },
     ...over,
   }
 }
@@ -773,6 +774,55 @@ describe('alerts fed real outputs, not literals, through the whole composition r
     expect(runHistory.saved).toHaveLength(1)
   })
 
+  /**
+   * WP-P9 code review MUST-FIX 1. `stats.enrichment` (`classify-deals.ts`)
+   * was computed correctly and then read by nothing outside its own tests —
+   * §6.3's named anti-pattern ("a correct unit that nothing wires up"),
+   * verbatim. This is the seam that closes it: a real backfill run through
+   * the WHOLE composition root (`runPipeline`, not `buildRunSnapshot` in
+   * isolation) must leave its enrichment counts on the snapshot
+   * `runHistory.save` actually receives.
+   */
+  it('a run\'s enrichment outcome counts reach the saved snapshot, not only the classify-deals.ts log line (WP-P9)', async () => {
+    const subject = 'Emmi Milch 1L Snapshot Test'
+    // A cache HIT that is classified but still owes its attributes — the
+    // exact state a cold start leaves behind, and the state the backfill
+    // loop (classify-deals.ts §3c) exists to resolve.
+    const cache = createInMemoryCache([
+      {
+        cacheKey: cacheKeyFor(subject, CURRENT_VERSIONS),
+        normalisedName: subject.toLowerCase(),
+        classification: classification('dairy', 'dairy'),
+        attributes: {},
+        attributesVersion: null,
+        runId: 'earlier',
+      },
+    ])
+    const enricher = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        const outcomes = new Map<string, EnrichmentOutcome>()
+        // "Emmi Milch 1L" states no fat percentage — the honest, D3 answer.
+        for (const i of items) outcomes.set(i.request.productName, { kind: 'statedNothing' })
+        return { outcomes, tokens: 3 }
+      },
+    }
+    const runHistory = fakeRunHistory()
+    const deps = fakeDeps({
+      sources: () => [dennerOfferSource(subject)],
+      createClassificationDeps: async () => fakeClassificationDeps({ cache, enricher }),
+      runHistory,
+    })
+
+    const outcome = await runPipeline(deps, baseOptions)
+
+    expect(outcome.status).toBe('ok')
+    expect(runHistory.saved).toHaveLength(1)
+    const saved = runHistory.saved[0] as RunSnapshot
+    expect(saved.enrichment.attempted).toBeGreaterThan(0)
+    expect(saved.enrichment.statedNothing).toBeGreaterThan(0)
+    expect(saved.enrichment.enriched).toBe(0)
+  })
+
   // WP-P7 code review, F1 (MUST-FIX). `SupabaseRunHistory#lastSuccessful`
   // genuinely returns `err(...)` when the table cannot be read — this pins
   // that `run-pipeline.ts` threads that failure through as `not-measured`,
@@ -813,6 +863,10 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     heldBackByFailure: {},
     judgeUnavailable: 0,
     deferred: 0,
+    // Zero for every test that uses this minimal helper — the enrichment
+    // path through `buildRunSnapshot` is covered separately below, in
+    // "a run's enrichment outcome counts reach the saved snapshot (WP-P9)".
+    enrichment: { attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 },
     isColdStart: false,
     deadlineHit: false,
     halted: null,

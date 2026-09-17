@@ -174,5 +174,11 @@ export function buildRunSnapshot(inputs: RunSnapshotInputs): RunSnapshot {
     benchmarkMacroF1: BENCHMARK_NOT_WIRED,
     publishedDataCoverage: publishedDataCoverage(inputs.collectedOffers),
     halted: stats.halted,
+    // WP-P9 code review MUST-FIX 1: forwarded verbatim — `classifyDeals`
+    // already computed this correctly (`summariseEnrichmentOutcomes` over
+    // every in-chunk and backfill outcome this run produced); the defect was
+    // never in the number, it was that nothing past `classify-deals.ts` ever
+    // read it.
+    enrichment: stats.enrichment,
   }
 }

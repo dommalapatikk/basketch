@@ -13,6 +13,7 @@
 //      every stale entry automatically — no manual flush, no mystery six weeks
 //      later. The cost is a cold start, which run-plan.ts handles explicitly.
 
+import { CURRENT_ATTRIBUTE_SCHEMA_VERSION } from '../../../shared/attribute-schemas'
 import type { Result } from '../../collection/domain/result'
 import type { Classification } from './classification'
 import { markUncertain } from './classification'
@@ -36,7 +37,87 @@ export type CachedClassification = {
   readonly normalisedName: string
   readonly classification: Classification
   readonly attributes: Record<string, unknown>
+  /**
+   * WP-P9 (item 6, D3). `null` means "never resolved — still owed", whatever
+   * `attributes` holds. Only `stated` and `statedNothing` (see
+   * `EnrichmentOutcome` below) may set this to
+   * `CURRENT_ATTRIBUTE_SCHEMA_VERSION` (`shared/attribute-schemas.ts`); a
+   * `failed` outcome — rate-limited or otherwise — MUST leave it `null`, or a
+   * 429'd product would be marked done and never asked again. This is a
+   * VERSION, deliberately not a timestamp: the Tech Lead's original
+   * `attributes_enriched_at` design was rejected because a timestamp cannot
+   * express "enriched under an OLDER schema" without either re-deriving that
+   * from `attributes` (fragile) or bumping `schemaVersion` in the cache key
+   * (which forces every row to cold-start classification too, see the
+   * comment on `CURRENT_VERSIONS.schemaVersion` above).
+   */
+  readonly attributesVersion: number | null
   readonly runId: string | null
+}
+
+/**
+ * What the enricher found for ONE product — never a bare
+ * `Map<string, Record<string, unknown>>` that cannot distinguish "the
+ * retailer's name states nothing" from "Gemini refused to answer". Only the
+ * first two set `attributesVersion` (`attributesVersionFor` below); `failed`
+ * leaves a product owed, exactly like never having asked at all.
+ */
+export type EnrichmentOutcome =
+  | { readonly kind: 'stated'; readonly attributes: Record<string, unknown> }
+  | { readonly kind: 'statedNothing' }
+  | { readonly kind: 'failed'; readonly reason: string; readonly rateLimited: boolean }
+
+/** The attributes to persist for one outcome — `{}` for anything but a real answer. */
+export function attributesFrom(outcome: EnrichmentOutcome): Record<string, unknown> {
+  return outcome.kind === 'stated' ? outcome.attributes : {}
+}
+
+/**
+ * THE RULE THAT STOPS THE OWED SET GROWING FOREVER.
+ *
+ * `stated` and `statedNothing` are both ANSWERS — the retailer's name was read
+ * and the model genuinely had nothing to add in the second case. Only a
+ * `failed` outcome (429, an unparseable response, a batch the provider
+ * refused) must leave the version `null`, so the product is offered to the
+ * enricher again next run instead of being silently abandoned.
+ */
+export function attributesVersionFor(outcome: EnrichmentOutcome): number | null {
+  return outcome.kind === 'failed' ? null : CURRENT_ATTRIBUTE_SCHEMA_VERSION
+}
+
+export type EnrichmentStats = {
+  /** Every product the enricher was asked about, across every batch. */
+  readonly attempted: number
+  readonly enriched: number
+  readonly statedNothing: number
+  /** A SUBSET of `failed` — broken out because it is the fixable, expected case. */
+  readonly rateLimited: number
+  readonly failed: number
+}
+
+/**
+ * Folds a batch of per-item outcomes into the counts `stats.enrichment`
+ * reports. Pure and total: an empty input is zero of everything, never an
+ * error — the same "empty is not a crash" shape every pipeline stat obeys.
+ */
+export function summariseEnrichmentOutcomes(outcomes: Iterable<EnrichmentOutcome>): EnrichmentStats {
+  let attempted = 0
+  let enriched = 0
+  let statedNothing = 0
+  let rateLimited = 0
+  let failed = 0
+
+  for (const outcome of outcomes) {
+    attempted++
+    if (outcome.kind === 'stated') enriched++
+    else if (outcome.kind === 'statedNothing') statedNothing++
+    else {
+      failed++
+      if (outcome.rateLimited) rateLimited++
+    }
+  }
+
+  return { attempted, enriched, statedNothing, rateLimited, failed }
 }
 
 /**
@@ -107,18 +188,23 @@ export function createInMemoryCache(seed: readonly CachedClassification[] = []):
  * then yield nothing and the Frozen browse tile would undercount by up to 800
  * (ADR-001).
  *
- * An empty bag is deliberately treated as "ask again" rather than "the
- * retailer stated nothing". The two are indistinguishable once stored, and the
- * costs are not symmetric: re-asking costs one batched call on a warm run,
- * never asking costs the facet forever. The enricher is idempotent, so the
- * safe direction is to re-ask.
+ * WP-P9 (item 6, D3): reads `attributesVersion`, NOT `attributes` emptiness.
+ * The old rule — "an empty bag still owes a look" — could never represent "the
+ * retailer's name genuinely states nothing", so a product like "Emmi Milch 1L"
+ * was re-requested every run, forever: the owed set had a floor no amount of
+ * quota could clear. `attributesVersion` is set ONLY by a real answer
+ * (`attributesVersionFor`) — `stated` or `statedNothing` — never by a `failed`
+ * one, so a 429'd product stays owed exactly as before, and a genuinely empty
+ * one stops being asked after being asked once.
  *
- * Note `{ organic: false }` is NOT empty — false is a stated answer.
+ * `!== CURRENT_ATTRIBUTE_SCHEMA_VERSION`, not merely `=== null`: a row
+ * enriched under an OLDER schema (a new attribute field shipped since) still
+ * owes a look, without needing `schemaVersion` in the cache key bumped and
+ * every classification cold-started over it (see `CachedClassification`'s
+ * own comment).
  */
-export function needsEnrichment(entry: { attributes: Record<string, unknown> | null }): boolean {
-  const attributes = entry.attributes
-  if (!attributes) return true
-  return Object.keys(attributes).length === 0
+export function needsEnrichment(entry: { attributesVersion: number | null }): boolean {
+  return entry.attributesVersion !== CURRENT_ATTRIBUTE_SCHEMA_VERSION
 }
 
 /**
@@ -141,8 +227,15 @@ export function needsEnrichment(entry: { attributes: Record<string, unknown> | n
  * always: one may have been judged and the other not (the judge samples 1 in 4
  * on a cold start), one enriched and the other empty.
  *
- *   attributes   first NON-EMPTY wins — an empty bag is an absence, not an
- *                answer, and writing {} over real attributes costs a backfill
+ *   attributes,
+ *   attributesVersion  the RESOLVED entry wins — `needsEnrichment` on the
+ *                first-seen entry decides: if it still owes a look
+ *                (version null, or an older schema), the OTHER entry's
+ *                attributes AND version both win together, never one without
+ *                the other — a resolved version paired with the stale empty
+ *                bag (or vice versa) would let a `failed` outcome's `{}`
+ *                masquerade as a real answer, or a real answer masquerade as
+ *                still-owed. Writing {} over real attributes costs a backfill
  *                round-trip and the storage facet (ADR-001)
  *   isUncertain  STICKY — if any entry is uncertain the survivor is. `false` is
  *                usually the absence of a judge call rather than counter-
@@ -168,12 +261,16 @@ export function mergeForCache(
       continue
     }
 
-    const attributes = needsEnrichment(existing) ? entry.attributes : existing.attributes
+    // Attributes and their version travel together — see the comment above.
+    const preferNew = needsEnrichment(existing)
+    const attributes = preferNew ? entry.attributes : existing.attributes
+    const attributesVersion = preferNew ? entry.attributesVersion : existing.attributesVersion
     const isUncertain = existing.classification.isUncertain || entry.classification.isUncertain
 
     byKey.set(entry.cacheKey, {
       ...existing,
       attributes,
+      attributesVersion,
       classification: isUncertain
         ? markUncertain(existing.classification)
         : existing.classification,

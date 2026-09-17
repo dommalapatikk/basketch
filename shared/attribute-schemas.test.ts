@@ -2,10 +2,23 @@ import { describe, expect, it } from 'vitest'
 import {
   ATTRIBUTE_SCHEMAS,
   CROSS_CUTTING_ATTRIBUTES,
+  CURRENT_ATTRIBUTE_SCHEMA_VERSION,
   attributesFor,
   hasAttributeSchema,
 } from './attribute-schemas'
 import { BROWSE_CATEGORIES } from './types'
+
+describe('CURRENT_ATTRIBUTE_SCHEMA_VERSION', () => {
+  // WP-P9 (D3): this is a POSITIVE integer stored ALONGSIDE a cache row
+  // (`attributes_version`), never inside the cache key. `null` is reserved to
+  // mean "never enriched" (`needsEnrichment`) — a version of 0 would collide
+  // with a falsy check somewhere down the line, so it is refused here, not
+  // merely avoided by convention.
+  it('is a positive integer, never zero or negative — 0 could be mistaken for "unset"', () => {
+    expect(Number.isInteger(CURRENT_ATTRIBUTE_SCHEMA_VERSION)).toBe(true)
+    expect(CURRENT_ATTRIBUTE_SCHEMA_VERSION).toBeGreaterThan(0)
+  })
+})
 
 describe('every schema is well formed', () => {
   const all = [...CROSS_CUTTING_ATTRIBUTES, ...Object.values(ATTRIBUTE_SCHEMAS).flat()]

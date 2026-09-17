@@ -39,6 +39,7 @@ const baseStats: ClassifyDealsResult['stats'] = {
   deadlineHit: false,
   halted: null,
   tokensUsed: 0,
+  enrichment: { attempted: 0, enriched: 0, statedNothing: 0, rateLimited: 0, failed: 0 },
 }
 
 const noJudge: JudgeSpendInfo = { guarded: true, spendSnapshot: () => null }
@@ -80,6 +81,25 @@ describe('buildRunSnapshot carries real output values, not literals (WP-P7)', ()
     const offers = [dennerOffer('A', true), dennerOffer('B', true), dennerOffer('C', false)]
     const snapshot = buildRunSnapshot({ ...baseInputs, collectedOffers: offers })
     expect(snapshot.publishedDataCoverage.denner).toBeCloseTo(2 / 3)
+  })
+
+  /**
+   * WP-P9 code review MUST-FIX 1: `stats.enrichment` (`classify-deals.ts`)
+   * had zero production consumers — computed, and read only by tests. This
+   * is the seam that closes that: forwarded verbatim onto the snapshot every
+   * run saves, so it is on the run record an operator (or a future alert
+   * rule) can actually read, not only in `classify-deals.ts`'s own return
+   * value.
+   */
+  it('carries the real enrichment outcome counts out of stats — WP-P9 backfill numbers are not just logged, they are saved', () => {
+    const snapshot = buildRunSnapshot({
+      ...baseInputs,
+      stats: {
+        ...baseStats,
+        enrichment: { attempted: 250, enriched: 9, statedNothing: 3, rateLimited: 230, failed: 238 },
+      },
+    })
+    expect(snapshot.enrichment).toEqual({ attempted: 250, enriched: 9, statedNothing: 3, rateLimited: 230, failed: 238 })
   })
 
   it('a retailer this run never collected is absent from coverage, not zero — "not due" is not "shape changed"', () => {

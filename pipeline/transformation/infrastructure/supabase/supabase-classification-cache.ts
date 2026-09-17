@@ -127,6 +127,15 @@ type CacheRow = {
   category: string
   sub_category: string
   attributes: Record<string, unknown> | null
+  /**
+   * WP-P9 (D3). `null` on a row this codebase has never touched (every row
+   * before this migration) — treated identically to "still owed", same as an
+   * absent field would be. Read and written verbatim; the version's MEANING
+   * (only a real answer may set it) lives entirely in the domain
+   * (`attributesVersionFor`, `classification-cache.ts`) — this file is Supabase
+   * vocabulary only.
+   */
+  attributes_version: number | null
   confidence: number
   is_uncertain: boolean
   model: string
@@ -252,6 +261,10 @@ function rowToCached(row: CacheRow): CachedClassification | null {
     normalisedName: row.normalised_name,
     classification,
     attributes: row.attributes ?? {},
+    // `?? null` covers a row written before this migration, where the column
+    // simply does not exist yet in what the client returns — treated exactly
+    // like an explicit NULL: still owed.
+    attributesVersion: row.attributes_version ?? null,
     runId: row.run_id,
   }
 }
@@ -282,7 +295,7 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
       try {
         const { data, error } = await deps.client
           .from(TABLE)
-          .select('cache_key,normalised_name,category,sub_category,attributes,confidence,is_uncertain,model,tier,taxonomy_version,prompt_version,schema_version,run_id')
+          .select('cache_key,normalised_name,category,sub_category,attributes,attributes_version,confidence,is_uncertain,model,tier,taxonomy_version,prompt_version,schema_version,run_id')
           .in('cache_key', chunk)
 
         if (!error) return (data ?? []) as CacheRow[]
@@ -402,6 +415,7 @@ export function createSupabaseClassificationCache(deps: SupabaseCacheDeps): Clas
           category: e.classification.category,
           sub_category: e.classification.subCategory,
           attributes: e.attributes,
+          attributes_version: e.attributesVersion,
           confidence: e.classification.confidence.value,
           is_uncertain: e.classification.isUncertain,
           model: e.classification.model,

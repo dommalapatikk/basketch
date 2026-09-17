@@ -85,13 +85,16 @@ describe.each(HOSTILE_PROVIDERS)('when the provider answers with $name', ({ fetc
     expect(classification).toBeNull()
   })
 
-  it('Enricher returns no attributes rather than throwing — enrichment never costs a category', async () => {
+  it('Enricher returns a failed outcome rather than throwing — enrichment never costs a category', async () => {
     stub()
     const port = createGeminiEnricher({ apiKey: 'k', model: 'm', gate: createNoopGate() })
 
-    const { attributes } = await port.enrich([{ request, subCategory: 'dairy' }])
+    const { outcomes } = await port.enrich([{ request, subCategory: 'dairy' }])
 
-    expect(attributes.size).toBe(0)
+    // WP-P9: a hostile provider must be RECORDED, not silently dropped — an
+    // absent map entry is indistinguishable from "asked and got nothing",
+    // which is exactly the defect this port contract now guards against.
+    expect(outcomes.get(request.productName)).toMatchObject({ kind: 'failed' })
   })
 })
 
