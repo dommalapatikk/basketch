@@ -37,6 +37,7 @@ import { statefulClock } from './test-support/clock'
 import type { ClassificationDeps, PipelineDeps, PipelineOutcome, StorageDeps } from './run-pipeline'
 import { exitCodeFor, finishRun, runPipeline } from './run-pipeline'
 import type { JudgeSpendInfo, RunHistory } from './transformation/application/run-snapshot'
+import type { UsdMicros } from './transformation/domain/spend'
 import type { Deal } from '../shared/types'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
@@ -636,6 +637,55 @@ describe('alerts fed real outputs, not literals, through the whole composition r
     // code, reserved for transient infrastructure failures.
     expect(exitCodeFor(outcome)).not.toBe(75)
     expect(revalidate.calls).toBe(1)
+  })
+
+  it('compares against the last successful run — previous was hardcoded null, so cache-hit-rate-low could never fire', async () => {
+    // Any snapshot works here — the rule only needs a non-null `previous`
+    // to leave its own gate. This run's own cache is empty (0 hits of 200),
+    // well below the 50% threshold.
+    const previousSnapshot = { runId: 'earlier', finishedAtMs: 0, totalProducts: 1, classified: 1, uncertain: 0, rejected: 0, invalidCategoryRejected: 0, cacheHits: 95, cacheMisses: 5, tokensUsed: 0, usdMicrosSpent: 0 as UsdMicros, spendNearCeiling: false, spendUnguarded: false, durationMs: 1, benchmarkMacroF1: { kind: 'not-measured' as const, reason: 'x' }, publishedDataCoverage: {}, halted: null }
+    const runHistory = fakeRunHistory({ lastSuccessful: async () => ok(previousSnapshot) })
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '))
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(200)], runHistory })
+
+    try {
+      await runPipeline(deps, baseOptions)
+      const alertsLine = logs.find((l) => l.includes('[pipeline] [INFO] alerts:'))
+      expect(alertsLine).toContain('cache-hit-rate-low')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
+  it('with no previous run, says it could not compare the cache hit rate — never silent about it', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '))
+    })
+    const deps = fakeDeps({ sources: () => [manyOffersSource(200)] }) // default fakeRunHistory: lastSuccessful() => ok(null)
+
+    try {
+      await runPipeline(deps, baseOptions)
+      const alertsLine = logs.find((l) => l.includes('[pipeline] [INFO] alerts:'))
+      // Never the OLD silent shape (`previous !== null` gate meant "no
+      // history" and "measured and fine" produced the identical empty list).
+      expect(alertsLine).not.toContain('cache-hit-rate-low')
+      expect(alertsLine).toContain('cache-hit-rate comparison could not be evaluated')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
+  it('saves this run\'s snapshot to run history — nothing ever did, so "previous" never had an end condition', async () => {
+    const runHistory = fakeRunHistory()
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')], runHistory })
+
+    await runPipeline(deps, baseOptions)
+
+    expect(runHistory.saved).toHaveLength(1)
   })
 })
 
