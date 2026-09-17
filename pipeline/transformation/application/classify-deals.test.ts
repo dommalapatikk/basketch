@@ -680,6 +680,61 @@ describe('cold start', () => {
   })
 })
 
+// WP-P7 (RCA item 2): `run-pipeline.ts` used to hardcode `halted: null` and
+// `tokensUsed: 0` into the alert snapshot, so `run-halted` (a CRITICAL alert)
+// could never fire and the token figure was always a lie. These tests pin
+// that `classifyDeals` now returns the real thing, not a literal.
+describe('classifyDeals reports what actually happened, not a literal (WP-P7)', () => {
+  it('accumulates real judge token spend — the graph used to record 0 for every classify call', async () => {
+    const tokenJudge = {
+      name: 'metered',
+      async judge() {
+        return { verdict: 'correct' as const, tokens: 500 }
+      },
+    }
+
+    // runWarm, not run: a COLD start samples the judge at 1 in 4
+    // (COLD_START_JUDGE_RATE) precisely to keep a cold start affordable, which
+    // would make this assertion depend on sampling instead of on whether
+    // tokens are threaded through at all. Warm judges every disputed item.
+    const r = await runWarm([deal('A'), deal('B'), deal('C')], { judge: tokenJudge as never })
+
+    // Every judged item settles its own tokens via settleTokens
+    // (classify-graph.ts) — 3 products, 500 tokens each.
+    expect(r.stats.tokensUsed).toBe(1_500)
+    expect(r.stats.halted).toBeNull()
+  })
+
+  it('a run with no judge configured still reports a real (zero) tokensUsed, never a stale figure', async () => {
+    const r = await run([deal('A')])
+    expect(r.stats.tokensUsed).toBe(0)
+    expect(r.stats.halted).toBeNull()
+  })
+
+  it('reports the halt reason when the run exhausts its own call budget — RunSnapshot.halted was a hardcoded null', async () => {
+    // FREE_TIER_BUDGET.maxCalls is 500 (guardrails.ts). `batchSize: 1` makes
+    // every PRODUCT its own tier1 call — the fastest, most direct way to
+    // reach the call cap without a paid judge or tens of thousands of
+    // products: 500 products at one call each, well inside COLD_START_LIMIT
+    // (800), so a single cold-start run genuinely dispatches chunk 6 and
+    // finds the budget already spent.
+    const oneCallPerProduct: Classifier = {
+      name: 'one-by-one',
+      tier: 1,
+      batchSize: 1,
+      async classify(batch) {
+        return ok(batch.map((request): ClassificationOutcome => ({ ok: true, request, classification: cls('dairy', 'dairy') })))
+      },
+    }
+    const many = Array.from({ length: 600 }, (_, i) => deal(`Produkt Budget ${i}`))
+
+    const r = await run(many, { tier1: oneCallPerProduct })
+
+    expect(r.stats.halted).not.toBeNull()
+    expect(r.stats.halted).toContain('call budget exhausted')
+  })
+})
+
 describe('work survives a run that is killed part-way', () => {
   /**
    * THE COLD-START RETRY BUG, 2026-09-11.

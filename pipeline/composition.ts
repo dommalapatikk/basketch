@@ -26,6 +26,7 @@ import {
 import { supabase } from './supabase-client'
 import { writeEnrichment } from './storage/infrastructure/write-enrichment'
 import { pingRevalidateWebhook } from './observability/revalidate-webhook'
+import { writeStepSummary } from './observability/github-step-summary'
 import { populateV3Layer } from './v3-cutover'
 import { unwrap } from './collection/domain/result'
 import { guardClassifier } from './transformation/domain/classifier'
@@ -43,6 +44,8 @@ import { createGeminiClassifier } from './transformation/infrastructure/gemini/g
 import { createGeminiEnricher } from './transformation/infrastructure/gemini/gemini-enricher'
 import { createModelGate, type ModelGate, type ModelGateDeps } from './transformation/infrastructure/model-gate'
 import { createSupabaseClassificationCache } from './transformation/infrastructure/supabase/supabase-classification-cache'
+import { createSupabaseRunHistory } from './transformation/infrastructure/supabase-run-history'
+import type { RunHistory } from './transformation/application/run-snapshot'
 import { probeModels } from './transformation/infrastructure/model-probe'
 import { type UsdMicros, formatUsd } from './transformation/domain/spend'
 import {
@@ -171,6 +174,17 @@ function buildClassificationCache() {
  * `null` `ceilingMicros` with `guarded: true` covers the ordinary case where
  * there is simply no OpenRouter key at all — nothing paid was ever possible,
  * so there is nothing to warn about.
+ *
+ * WP-P7 code review, F3 (MUST-FIX): also returns `limitMicros` — the
+ * account's whole-period allowance, not just what is left of it. `ceilingMicros`
+ * (`reading.remainingMicros`) is exactly right for the GATE's own job
+ * (`ModelGate` must refuse a reservation once what remains this period is
+ * gone) but wrong as the denominator for "how close to the monthly cap are
+ * we": a month already 95% spent has a tiny `remainingMicros`, so comparing
+ * THIS RUN's spend against 80% of THAT tiny number almost never trips —
+ * exactly the run `spend-near-ceiling` exists to catch. `limitMicros` was
+ * already read from the account two lines below and discarded; it is not a
+ * second network call.
  */
 async function resolveJudgeSpendCeiling(
   env: Env,
@@ -180,15 +194,15 @@ async function resolveJudgeSpendCeiling(
   // the live API and reading a 401 as "unreadable" — a test that needs the
   // network to decide an answer is not a test.
   spendAccount?: SpendAccount,
-): Promise<{ readonly ceilingMicros: UsdMicros | null; readonly guarded: boolean }> {
-  if (!env.OPENROUTER_API_KEY) return { ceilingMicros: null, guarded: true }
+): Promise<{ readonly ceilingMicros: UsdMicros | null; readonly limitMicros: UsdMicros | null; readonly guarded: boolean }> {
+  if (!env.OPENROUTER_API_KEY) return { ceilingMicros: null, limitMicros: null, guarded: true }
 
   const account = spendAccount ?? createOpenRouterSpendAccount({ apiKey: env.OPENROUTER_API_KEY })
   const reading: SpendAccountReading = await account.remaining()
 
   if (reading.kind === 'capped') {
     log(`spend account: ${formatUsd(reading.remainingMicros)} remaining of ${formatUsd(reading.limitMicros)} this period`)
-    return { ceilingMicros: reading.remainingMicros, guarded: true }
+    return { ceilingMicros: reading.remainingMicros, limitMicros: reading.limitMicros, guarded: true }
   }
 
   const reason =
@@ -199,7 +213,7 @@ async function resolveJudgeSpendCeiling(
     `[pipeline] [WARN] spend-unguarded: running WITHOUT the judge this run — ${reason}. ` +
       'Set a credit limit on the OpenRouter CI key (WP-0 #1, AP-8: USD 5/month, auto top-up off) to re-enable it.',
   )
-  return { ceilingMicros: null, guarded: false }
+  return { ceilingMicros: null, limitMicros: null, guarded: false }
 }
 
 async function buildClassificationDeps(
@@ -223,6 +237,16 @@ async function buildClassificationDeps(
   // judge running against an unbounded ledger.
   const spendCeiling = await resolveJudgeSpendCeiling(env, log, spendAccount)
   const judgeMayRun = Boolean(env.OPENROUTER_API_KEY) && spendCeiling.ceilingMicros !== null
+
+  // WP-P7: built whenever a key exists, whether or not the judge itself runs
+  // this attempt — `spendSnapshot()` is what `buildRunSnapshot` reads to
+  // produce `spendNearCeiling`, and it must answer `null` honestly (nothing
+  // was ever reserved) rather than not exist at all when `judgeMayRun` is
+  // false. One gate, reused for both the judge itself and this reading —
+  // never a second, disconnected instance.
+  const judgeGate = env.OPENROUTER_API_KEY
+    ? buildGate(JUDGE_SPEC, log, gateDeps, spendCeiling.ceilingMicros ?? undefined)
+    : null
 
   return {
     cache: buildClassificationCache(),
@@ -254,7 +278,7 @@ async function buildClassificationDeps(
     // gate — the judge is a different provider and, today, a different model
     // from the classifier, so it never shares tier1Gate.
     judge:
-      judgeMayRun && env.OPENROUTER_API_KEY
+      judgeMayRun && env.OPENROUTER_API_KEY && judgeGate
         ? createOpenRouterJudge({
             // WP-P8 review: with reasoning effort UNSET, GPT-5 defaults to
             // medium and can spend ~50% of max_tokens thinking, returning
@@ -264,7 +288,7 @@ async function buildClassificationDeps(
             apiKey: env.OPENROUTER_API_KEY,
             model: JUDGE_SPEC.id,
             taxonomy: TAXONOMY,
-            gate: buildGate(JUDGE_SPEC, log, gateDeps, spendCeiling.ceilingMicros ?? undefined),
+            gate: judgeGate,
             maxOutputTokens: judgeMaxOutputTokens(JUDGE_SPEC),
             log,
           })
@@ -282,6 +306,22 @@ async function buildClassificationDeps(
     enricher: env.GOOGLE_AI_API_KEY
       ? createGeminiEnricher({ apiKey: env.GOOGLE_AI_API_KEY, model: tier1Model, gate: tier1Gate, log })
       : null,
+    // WP-P7 (RCA item 2): `guarded` was computed by `resolveJudgeSpendCeiling`
+    // and never read again after this function returned — exactly the value
+    // `alerts.ts`'s `spend-unguarded` rule needs and had no producer for.
+    // `spendSnapshot` reads the SAME gate the judge itself calls through, so
+    // `spentMicros` is never a second, disconnected number — and pairs it
+    // with `limitMicros` (WP-P7 code review, F3) so `buildRunSnapshot` can
+    // compare against the whole MONTHLY allowance, not just what happened to
+    // remain when this run started.
+    judgeSpend: {
+      guarded: spendCeiling.guarded,
+      spendSnapshot: () => {
+        const gateReading = judgeGate?.spendSnapshot()
+        if (!gateReading || spendCeiling.limitMicros === null) return null
+        return { spentMicros: gateReading.spentMicros, remainingMicros: gateReading.ceilingMicros, limitMicros: spendCeiling.limitMicros }
+      },
+    },
   }
 }
 
@@ -306,6 +346,11 @@ const PRODUCTION_STORAGE: StorageDeps = {
   logPipelineRun,
 }
 
+const PRODUCTION_RUN_HISTORY: RunHistory = createSupabaseRunHistory({
+  client: supabase,
+  onDegraded: (op, detail) => console.warn(`[pipeline] [WARN] run history ${op}: ${detail}`),
+})
+
 export type ProductionDepsOverrides = {
   /** Test-only seam: the real adapters run against a fake network instead of the real one. */
   readonly transport?: Transport
@@ -322,6 +367,8 @@ export type ProductionDepsOverrides = {
    * unreadable without a network call.
    */
   readonly spendAccount?: SpendAccount
+  /** Test-only seam (WP-P7): an in-memory RunHistory instead of Supabase. */
+  readonly runHistory?: RunHistory
 }
 
 /**
@@ -335,6 +382,10 @@ export function createProductionDeps(env: Env, overrides: ProductionDepsOverride
     sources: (week: IsoWeekParts) => createLiveSources({ kw: week.kw, year: week.year, transport: overrides.transport }),
     createClassificationDeps: (log) => buildClassificationDeps(env, log, overrides.modelClock, overrides.spendAccount),
     storage: PRODUCTION_STORAGE,
+    runHistory: overrides.runHistory ?? PRODUCTION_RUN_HISTORY,
     revalidate: () => pingRevalidateWebhook(env, { fetch, log: (m) => console.log(m) }),
+    writeStepSummary: async (markdown) => {
+      await writeStepSummary(env, markdown, { log: (m) => console.warn(m) })
+    },
   }
 }
