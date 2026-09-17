@@ -731,6 +731,16 @@ export async function classifyDeals(
   if (deps.enricher && owedEnrichment.length > 0) {
     for (let start = 0; start < owedEnrichment.length; start += CHUNK_SIZE) {
       if (deadlineAtMs !== null && !checkDeadline(clock(), deadlineAtMs).withinDeadline) {
+        // MUST-FIX 3 (WP-P9 code review). Without this, a run whose classify
+        // phase finished comfortably inside budget but whose backfill then
+        // ran out of time reports `deadlineHit: false` — indistinguishable
+        // from a run that finished everything. That is `backfilled 0/100`'s
+        // own defect class one function away: "stopped early" read as
+        // "complete". `deadlineHit` is the field `run-pipeline.ts` already
+        // uses to choose exit 75 (retry) over exit 0 (done) — it must be
+        // true here for the SAME reason it is true when the classify loop
+        // breaks early, above.
+        deadlineHit = true
         log(
           `[transform] ⚠ run-deferred: in-process deadline reached before backfilling — ` +
             `${owedEnrichment.length - backfillAttempted} of ${owedEnrichment.length} products still owing ` +

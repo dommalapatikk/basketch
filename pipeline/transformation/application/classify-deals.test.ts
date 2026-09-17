@@ -1429,6 +1429,48 @@ describe('backfill stops at its time budget and carries the rest forward', () =>
     expect(secondSeen).toHaveLength(50)
     expect(secondSeen.every((name) => !firstSeen.includes(name))).toBe(true)
   })
+
+  /**
+   * MUST-FIX 3 (WP-P9 code review). Before this fix, `deadlineHit` was set
+   * ONLY by the classify loop breaking early — the backfill loop below it
+   * could ALSO break on the same deadline and leave `deadlineHit: false`,
+   * because classification itself had finished with room to spare. That is
+   * "stopped early" reading as "ran to completion", the same defect class as
+   * `backfilled 0/100` reading as success: `run-pipeline.ts`'s `finishRun`
+   * reads `stats.deadlineHit` to choose exit 75 (retry) over exit 0 (done),
+   * so a run that quietly deferred products would report itself finished.
+   */
+  it('sets deadlineHit even when ONLY the backfill — not classification — hit the deadline', async () => {
+    // Every product is already a cache hit, so the classify loop makes no
+    // deadline checks at all (see the test above) — deadlineHit must still
+    // end up true once the backfill loop below it hits the same deadline.
+    const { products, cache } = seedOwedCache(150, 'Produkt DeadlineFlag')
+    const paced = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        return { outcomes: statedFor({ fatPercent: 3.5 })(items), tokens: 0 }
+      },
+    }
+    const clock = statefulClock([0, 999_999])
+
+    const r = await run(products, { cache, enricher: paced as never, deadlineAtMs: 1_000, now: clock })
+
+    expect(r.stats.deadlineHit).toBe(true)
+  })
+
+  it('leaves deadlineHit false when the backfill finishes inside its budget', async () => {
+    const { products, cache } = seedOwedCache(50, 'Produkt NoDeadlineHit')
+    const paced = {
+      async enrich(items: readonly { request: { productName: string } }[]) {
+        return { outcomes: statedFor({ fatPercent: 3.5 })(items), tokens: 0 }
+      },
+    }
+    // One slice only (50 < CHUNK_SIZE), one deadline check, always within budget.
+    const clock = statefulClock([0])
+
+    const r = await run(products, { cache, enricher: paced as never, deadlineAtMs: 1_000, now: clock })
+
+    expect(r.stats.deadlineHit).toBe(false)
+  })
 })
 
 describe('"backfilled 0/100" raises a warning, it is not success', () => {
