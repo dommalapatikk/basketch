@@ -262,6 +262,45 @@ describe('live counts are read BEFORE storeDeals — a post-write count makes th
   })
 })
 
+// WP-P7: `createJsonTelemetry` and `formatRunSummary` (collection/infrastructure
+// /telemetry/json-telemetry.ts) were built, tested, and constructed by
+// nothing in production before this — collectOffers always got the default
+// noopTelemetry. This locks the wiring in, not just the log format.
+describe('the collection trace reaches the run — createJsonTelemetry and the step summary (WP-P7)', () => {
+  it('emits a structured collection.run.finished event, not just the human-readable log line', async () => {
+    // createJsonTelemetry's default sink writes to stdout directly, not
+    // console.log — see json-telemetry.ts's defaultSink.
+    const lines: string[] = []
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      lines.push(String(chunk))
+      return true
+    }) as typeof process.stdout.write)
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
+
+    try {
+      await runPipeline(deps, baseOptions)
+      const ndjson = lines.find((l) => l.includes('"event":"collection.run.finished"'))
+      expect(ndjson).toBeDefined()
+      expect(JSON.parse(ndjson!)).toMatchObject({ event: 'collection.run.finished', status: 'ok', totalOffers: 1 })
+    } finally {
+      writeSpy.mockRestore()
+    }
+  })
+
+  it('writes the collection summary to the step summary, and the alert summary separately', async () => {
+    const summaries: string[] = []
+    const deps = fakeDeps({
+      sources: () => [dennerOfferSource('Bio Vollmilch 1l')],
+      writeStepSummary: async (markdown) => { summaries.push(markdown) },
+    })
+
+    await runPipeline(deps, baseOptions)
+
+    expect(summaries.some((s) => s.startsWith('## ✅ Collection'))).toBe(true)
+    expect(summaries.some((s) => s.startsWith('## Pipeline alerts'))).toBe(true)
+  })
+})
+
 // ── F3: lock today's PipelineOutcome contract before WP-P3 rewrites the exit
 // mapping. `run.ts` itself has no test — it unconditionally calls `shell()`
 // as a module-load side effect, so importing it would run the pipeline for
