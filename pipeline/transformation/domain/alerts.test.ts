@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest'
+import type { UsdMicros } from './spend'
 import {
   MACRO_F1_NOISE_FLOOR,
   type RunSnapshot,
   evaluateAlerts,
   formatAlerts,
+  measured,
+  notMeasured,
   shouldFailRun,
 } from './alerts'
 
 const NOW = Date.parse('2026-09-10T12:00:00Z')
 
+const ZERO = 0 as UsdMicros
+
+/**
+ * WP-P7. Every field is a REAL, MEASURED value on purpose — this fixture
+ * describes a fully-wired run, benchmark included, so the tests below exercise
+ * the regression/drift rules the way they will read once AP-6 lands. The
+ * "not-measured" shape gets its OWN describe block further down, because
+ * production emits it today and it must not be silent.
+ */
 const snap = (over: Partial<RunSnapshot> = {}): RunSnapshot => ({
   runId: 'run-1',
   finishedAtMs: NOW,
@@ -20,9 +32,11 @@ const snap = (over: Partial<RunSnapshot> = {}): RunSnapshot => ({
   cacheHits: 1600,
   cacheMisses: 200,
   tokensUsed: 80_000,
-  rappenSpent: 0,
+  usdMicrosSpent: ZERO,
+  spendNearCeiling: false,
+  spendUnguarded: false,
   durationMs: 8 * 60_000,
-  benchmarkMacroF1: 0.86,
+  benchmarkMacroF1: measured(0.86),
   publishedDataCoverage: { denner: 1.0, lidl: 1.0 },
   halted: null,
   ...over,
@@ -31,12 +45,47 @@ const snap = (over: Partial<RunSnapshot> = {}): RunSnapshot => ({
 const codes = (a: ReturnType<typeof evaluateAlerts>) => a.map((x) => x.code)
 
 describe('a healthy run is silent', () => {
-  it('raises nothing when everything is normal', () => {
+  it('raises nothing when everything is normal, including a real benchmark', () => {
     expect(evaluateAlerts(snap(), snap(), NOW)).toEqual([])
   })
 
   it('does not fail CI', () => {
     expect(shouldFailRun(evaluateAlerts(snap(), snap(), NOW))).toBe(false)
+  })
+})
+
+// WP-P7 (RCA item 2, root cause): "✅ no alerts" used to be the output of both
+// a healthy run and a BLIND one — `benchmarkMacroF1` was a hardcoded `null`
+// that the regression rule silently skipped. `Measured<T>` closes that: a run
+// is only silent about the benchmark when it genuinely has one.
+describe('an instrument that could not be read says so — it is not silent', () => {
+  it('reports benchmarkMacroF1 as not-measured instead of skipping the regression check quietly', () => {
+    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: notMeasured('benchmark not wired (AP-6)') }), snap(), NOW)
+    expect(codes(alerts)).toContain('instrument-missing')
+    expect(alerts.find((a) => a.code === 'instrument-missing')?.message).toContain('benchmarkMacroF1')
+    expect(shouldFailRun(alerts)).toBe(false)
+  })
+
+  it('never runs the regression/drift check on a not-measured benchmark', () => {
+    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: notMeasured('benchmark not wired') }), snap({ benchmarkMacroF1: measured(0.99) }), NOW)
+    expect(codes(alerts)).not.toContain('classifier-regression')
+    expect(codes(alerts)).not.toContain('classifier-drift')
+  })
+
+  it('a run with real cache traffic and no previous run says it could not compare, rather than nothing', () => {
+    const alerts = evaluateAlerts(snap({ cacheHits: 900, cacheMisses: 900 }), null, NOW)
+    expect(codes(alerts)).toContain('instrument-missing')
+    expect(alerts.find((a) => a.code === 'instrument-missing')?.message).toContain('cache-hit-rate')
+  })
+
+  it('a run with real cache traffic and a previous run does not repeat the "no comparison" warning', () => {
+    const alerts = evaluateAlerts(snap({ cacheHits: 900, cacheMisses: 900 }), snap(), NOW)
+    expect(alerts.filter((a) => a.message.includes('cache-hit-rate comparison'))).toHaveLength(0)
+  })
+
+  it('stays silent about the cache below the volume threshold, previous run or not', () => {
+    const alerts = evaluateAlerts(snap({ cacheHits: 50, cacheMisses: 40 }), null, NOW)
+    expect(codes(alerts)).not.toContain('instrument-missing')
   })
 })
 
@@ -59,13 +108,13 @@ describe('the pipeline stopped — the failure that actually happened', () => {
 
 describe('classifier regression vs noise', () => {
   it('is critical when macro-F1 falls past the regression threshold', () => {
-    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: 0.70 }), snap({ benchmarkMacroF1: 0.86 }), NOW)
+    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: measured(0.70) }), snap({ benchmarkMacroF1: measured(0.86) }), NOW)
     expect(codes(alerts)).toContain('classifier-regression')
     expect(shouldFailRun(alerts)).toBe(true)
   })
 
   it('warns, but does not fail, on drift above the noise floor', () => {
-    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: 0.81 }), snap({ benchmarkMacroF1: 0.86 }), NOW)
+    const alerts = evaluateAlerts(snap({ benchmarkMacroF1: measured(0.81) }), snap({ benchmarkMacroF1: measured(0.86) }), NOW)
     expect(codes(alerts)).toContain('classifier-drift')
     expect(shouldFailRun(alerts)).toBe(false)
   })
@@ -74,12 +123,22 @@ describe('classifier regression vs noise', () => {
     // Measured 2026-09-10: same model, same prompt, temperature 0, produced 16
     // errors one run and 18 the next. An alarm tighter than that fires weekly
     // and then gets ignored — which is how the original bug survived.
-    const jitter = snap({ benchmarkMacroF1: 0.86 - (MACRO_F1_NOISE_FLOOR - 0.005) })
-    expect(evaluateAlerts(jitter, snap({ benchmarkMacroF1: 0.86 }), NOW)).toEqual([])
+    const jitter = snap({ benchmarkMacroF1: measured(0.86 - (MACRO_F1_NOISE_FLOOR - 0.005)) })
+    expect(evaluateAlerts(jitter, snap({ benchmarkMacroF1: measured(0.86) }), NOW)).toEqual([])
   })
 
-  it('says nothing without a previous run to compare against', () => {
-    expect(codes(evaluateAlerts(snap({ benchmarkMacroF1: 0.4 }), null, NOW))).not.toContain('classifier-regression')
+  it('says nothing about regression without a previous run to compare against', () => {
+    expect(codes(evaluateAlerts(snap({ benchmarkMacroF1: measured(0.4) }), null, NOW))).not.toContain('classifier-regression')
+  })
+
+  it('says nothing about regression when the PREVIOUS run never measured a benchmark either', () => {
+    const alerts = evaluateAlerts(
+      snap({ benchmarkMacroF1: measured(0.4) }),
+      snap({ benchmarkMacroF1: notMeasured('benchmark not wired') }),
+      NOW,
+    )
+    expect(codes(alerts)).not.toContain('classifier-regression')
+    expect(codes(alerts)).not.toContain('classifier-drift')
   })
 })
 
@@ -101,6 +160,17 @@ describe('a source changing shape — invisible in offer counts', () => {
     const alerts = evaluateAlerts(
       snap({ publishedDataCoverage: { coop: 0 } }),
       snap({ publishedDataCoverage: { coop: 0 } }),
+      NOW,
+    )
+    expect(codes(alerts)).not.toContain('source-shape-changed')
+  })
+
+  // WP-P7: "not due" (ALDI/Volg's twice-weekly cadence) must never read as
+  // "shape changed" just because this run never collected that retailer.
+  it('does not fire for a retailer this run never collected at all', () => {
+    const alerts = evaluateAlerts(
+      snap({ publishedDataCoverage: { denner: 1.0 } }), // aldi absent — not due today
+      snap({ publishedDataCoverage: { denner: 1.0, aldi: 1.0 } }),
       NOW,
     )
     expect(codes(alerts)).not.toContain('source-shape-changed')
@@ -133,7 +203,7 @@ describe('quality and cost signals', () => {
   })
 
   it('says nothing about money on an ordinary run — the judge is paid by design', () => {
-    const c = codes(evaluateAlerts(snap({ rappenSpent: 250 }), snap(), NOW))
+    const c = codes(evaluateAlerts(snap({ usdMicrosSpent: 250_000 as UsdMicros }), snap(), NOW))
     expect(c).not.toContain('spend-near-ceiling')
     expect(c).not.toContain('spend-unguarded')
   })
@@ -153,8 +223,8 @@ describe('quality and cost signals', () => {
 describe('every alert says what to do about it', () => {
   it('carries a non-empty action — an alert without one is noise', () => {
     const alerts = evaluateAlerts(
-      snap({ halted: 'budget', uncertain: 900, rappenSpent: 300, invalidCategoryRejected: 200 }),
-      snap({ benchmarkMacroF1: 0.9 }),
+      snap({ halted: 'budget', uncertain: 900, spendNearCeiling: true, invalidCategoryRejected: 200 }),
+      snap({ benchmarkMacroF1: measured(0.9) }),
       NOW,
     )
     expect(alerts.length).toBeGreaterThan(2)

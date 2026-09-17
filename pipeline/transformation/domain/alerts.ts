@@ -13,8 +13,21 @@
 //   16 wrong one run, 18 the next      temperature 0 is NOT deterministic, so a
 //                                      regression alarm needs a noise band or it
 //                                      cries wolf every week
+//   8 of 9 rules fed literals          `run.ts` hardcoded invalidCategoryRejected,
+//                                      tokensUsed, rappenSpent, benchmarkMacroF1,
+//                                      publishedDataCoverage and halted, and
+//                                      always passed `previous: null` — so
+//                                      "✅ no alerts" was the output of a run
+//                                      that was healthy AND of one that was
+//                                      blind (RCA 2026-09-15, item 2; WP-P7).
+//
+// WP-P7's own fix has a shape worth naming: `Measured<T>` (below) exists
+// because a rule fed a LITERAL zero and a rule that genuinely MEASURED zero
+// were, before this file, indistinguishable. A field that has never been
+// wired must say so, not silently read as "measured and fine".
 
 import type { Retailer } from '../../collection/domain/offer'
+import type { UsdMicros } from './spend'
 import { RUN_TIMEOUT_MS } from './resilience'
 
 export type AlertSeverity = 'critical' | 'warning' | 'info'
@@ -25,6 +38,30 @@ export type Alert = {
   readonly message: string
   /** What to do about it. An alert without an action is noise. */
   readonly action: string
+}
+
+/**
+ * A field that either was genuinely read, or says why it was not.
+ *
+ * THE INVARIANT THIS EXISTS TO ENFORCE: an alert rule that could not evaluate
+ * must announce that, rather than sitting silent — silence is what let a run
+ * that stored 400 deals log "✅ no alerts" while four of its rules were fed
+ * hardcoded literals (RCA 2026-09-15, item 2). `null`, `0` and `{}` are all
+ * valid MEASURED values, so a caller that forgot to wire an instrument could
+ * pass one and the type system would not notice. `Measured<T>` makes "I did
+ * not measure this" a distinct, named state instead of a value that happens
+ * to look like zero.
+ */
+export type Measured<T> =
+  | { readonly kind: 'measured'; readonly value: T }
+  | { readonly kind: 'not-measured'; readonly reason: string }
+
+export function measured<T>(value: T): Measured<T> {
+  return { kind: 'measured', value }
+}
+
+export function notMeasured<T>(reason: string): Measured<T> {
+  return { kind: 'not-measured', reason }
 }
 
 export type RunSnapshot = {
@@ -38,13 +75,28 @@ export type RunSnapshot = {
   readonly cacheHits: number
   readonly cacheMisses: number
   readonly tokensUsed: number
-  readonly rappenSpent: number
+  /**
+   * WP-P8 moved spend to USD (OpenRouter meters and caps in USD; see
+   * `spend.ts`). Renamed from `rappenSpent`, which no production caller had
+   * ever fed a real value — CHF rappen described a ceiling
+   * (`guardrails.ts`'s `Budget.maxRappen`) that nothing paid into. A field
+   * with no producer is exactly the shape this WP exists to close, so it is
+   * not carried forward under its old name.
+   */
+  readonly usdMicrosSpent: UsdMicros
   /** WP-P8: this run crossed SPEND_CEILING_WARN_SHARE of the monthly allowance. */
-  readonly spendNearCeiling?: boolean
+  readonly spendNearCeiling: boolean
   /** WP-P8 (AP-10): a paid model was reachable with no provider-side cap, so the judge was skipped. */
-  readonly spendUnguarded?: boolean
+  readonly spendUnguarded: boolean
   readonly durationMs: number
-  readonly benchmarkMacroF1: number | null
+  /**
+   * `not-measured` until AP-6 (what this metric should measure) is decided by
+   * the PM — see `docs/rca/2026-09-15-architect-items-1-2-5.md` §2.4. Kept as
+   * `Measured<number>`, not `number | null`, so a run that has not wired a
+   * benchmark says so on every run instead of silently skipping the
+   * regression/drift rules below.
+   */
+  readonly benchmarkMacroF1: Measured<number>
   readonly publishedDataCoverage: Partial<Record<Retailer, number>>
   readonly halted: string | null
 }
@@ -67,13 +119,13 @@ export const UNCERTAIN_RATE_ALARM = 0.20
 /** A source publishing nothing while still yielding offers has changed shape. */
 export const COVERAGE_COLLAPSE = 0.01
 
-/** GitHub disables scheduled workflows after 60 days idle. 8 days catches it. */
 /**
  * WP-P8 (AP-8). Warn once a run has consumed this share of the month's paid
  * allowance — early enough to act, late enough not to fire every week.
  */
 export const SPEND_CEILING_WARN_SHARE = 0.8
 
+/** GitHub disables scheduled workflows after 60 days idle. 8 days catches it. */
 export const STALE_RUN_MS = 8 * 24 * 60 * 60 * 1000
 
 /**
@@ -82,6 +134,22 @@ export const STALE_RUN_MS = 8 * 24 * 60 * 60 * 1000
  * second hardcoded number — F6, code review of the first WP-P3 submission.
  */
 export const RUN_SLOW_THRESHOLD_MS = RUN_TIMEOUT_MS * 0.8
+
+/**
+ * The uniform shape for "a rule could not run". Named `instrument-missing`,
+ * not `<field>-missing`, because the field it names is in `message` — one
+ * code an operator can filter on, whatever is unmeasured this run.
+ */
+function instrumentMissing(field: string, reason: string): Alert {
+  return {
+    severity: 'warning',
+    code: 'instrument-missing',
+    message: `${field} could not be evaluated: ${reason}`,
+    action:
+      'Expected until the instrument is wired or a baseline exists (one run after the first successful save). ' +
+      'If it never clears, something upstream stopped producing it.',
+  }
+}
 
 export function evaluateAlerts(
   current: RunSnapshot,
@@ -111,13 +179,21 @@ export function evaluateAlerts(
   }
 
   // ── The classifier regressed ──────────────────────────────────────────────
-  if (current.benchmarkMacroF1 !== null && previous?.benchmarkMacroF1 != null) {
-    const drop = previous.benchmarkMacroF1 - current.benchmarkMacroF1
+  //
+  // `not-measured` announces itself INSTEAD OF the regression/drift check,
+  // never alongside it — there is nothing to compare while the instrument is
+  // unwired, so trying both would just be a second way to say nothing.
+  if (current.benchmarkMacroF1.kind === 'not-measured') {
+    alerts.push(instrumentMissing('benchmarkMacroF1', current.benchmarkMacroF1.reason))
+  } else if (previous !== null && previous.benchmarkMacroF1.kind === 'measured') {
+    const currentF1 = current.benchmarkMacroF1.value
+    const previousF1 = previous.benchmarkMacroF1.value
+    const drop = previousF1 - currentF1
     if (drop >= MACRO_F1_REGRESSION_THRESHOLD) {
       alerts.push({
         severity: 'critical',
         code: 'classifier-regression',
-        message: `macro-F1 fell ${drop.toFixed(3)} (${previous.benchmarkMacroF1.toFixed(3)} → ${current.benchmarkMacroF1.toFixed(3)})`,
+        message: `macro-F1 fell ${drop.toFixed(3)} (${previousF1.toFixed(3)} → ${currentF1.toFixed(3)})`,
         action: 'Compare prompt_version and model between the two runs. A provider may have changed the model behind a stable name.',
       })
     } else if (drop >= MACRO_F1_NOISE_FLOOR) {
@@ -131,6 +207,11 @@ export function evaluateAlerts(
   }
 
   // ── A source changed shape ────────────────────────────────────────────────
+  //
+  // Compares only retailers COLLECTED IN BOTH runs. A retailer absent from
+  // `current.publishedDataCoverage` is not "due" this run (ALDI/Volg's
+  // twice-weekly cadence, WP-J1) — that is a scheduling fact, not a shape
+  // change, so it must never read as one.
   for (const [retailer, coverage] of Object.entries(current.publishedDataCoverage)) {
     const was = previous?.publishedDataCoverage?.[retailer as Retailer]
     if (coverage <= COVERAGE_COLLAPSE && was !== undefined && was > 0.5) {
@@ -168,13 +249,22 @@ export function evaluateAlerts(
 
   // ── The cache stopped working ─────────────────────────────────────────────
   const looked = current.cacheHits + current.cacheMisses
-  if (looked > 100 && current.cacheHits / looked < 0.5 && previous !== null) {
-    alerts.push({
-      severity: 'warning',
-      code: 'cache-hit-rate-low',
-      message: `cache hit rate ${((current.cacheHits / looked) * 100).toFixed(0)}% — expected 85–95% after the first month`,
-      action: 'A version was probably bumped (taxonomy, prompt or schema), invalidating every key. Expected once; not weekly.',
-    })
+  if (looked > 100) {
+    if (previous === null) {
+      // WP-P7: this used to be silent — the `previous !== null` gate below
+      // meant "no history yet" and "measured and fine" produced the identical
+      // empty alert list. A run with real cache traffic and no baseline says
+      // so, once, until `RunHistory` has a first successful save to compare
+      // against.
+      alerts.push(instrumentMissing('cache-hit-rate comparison', 'no previous run to compare against yet'))
+    } else if (current.cacheHits / looked < 0.5) {
+      alerts.push({
+        severity: 'warning',
+        code: 'cache-hit-rate-low',
+        message: `cache hit rate ${((current.cacheHits / looked) * 100).toFixed(0)}% — expected 85–95% after the first month`,
+        action: 'A version was probably bumped (taxonomy, prompt or schema), invalidating every key. Expected once; not weekly.',
+      })
+    }
   }
 
   // ── The run is too slow ───────────────────────────────────────────────────
