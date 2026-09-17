@@ -32,6 +32,10 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     expect(classification.judge).toBeNull()
     expect(classification.reflector).toBeNull()
     expect(classification.enricher).toBeNull()
+    // WP-P7: nothing paid was ever possible (no key at all) — guarded by
+    // construction, and nothing was ever reserved to report.
+    expect(classification.judgeSpend.guarded).toBe(true)
+    expect(classification.judgeSpend.spendSnapshot()).toBeNull()
   })
 
   // WP-P8 (AP-10) changed this rule: an OPENROUTER_API_KEY is no longer
@@ -41,15 +45,26 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
   const account = (reading: SpendAccountReading) => ({ remaining: async () => reading })
 
   it('wires the OpenRouter judge when the key has a readable credit limit — reflector and enricher still need the Google key', async () => {
+    // WP-P7 code review, F3: remainingMicros and limitMicros are DIFFERENT
+    // here on purpose (a partially-spent month) — a fixture where they
+    // happen to be equal cannot tell "carries the real limit" apart from
+    // "carries remaining twice".
     const deps = createProductionDeps(
       { OPENROUTER_API_KEY: 'test-key' },
-      { spendAccount: account({ kind: 'capped', remainingMicros: 5_000_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }) },
+      { spendAccount: account({ kind: 'capped', remainingMicros: 3_000_000 as UsdMicros, limitMicros: 5_000_000 as UsdMicros }) },
     )
     const classification = await deps.createClassificationDeps(() => {})
 
     expect(classification.judge).not.toBeNull()
     expect(classification.reflector).toBeNull()
     expect(classification.enricher).toBeNull()
+    // WP-P7: a confirmed provider-side cap is a GUARDED account, and nothing
+    // has been spent yet at the point classification deps are built.
+    expect(classification.judgeSpend.guarded).toBe(true)
+    // WP-P7 code review, F3: carries both remainingMicros (what the GATE
+    // refuses reservations against) and limitMicros (the whole monthly
+    // allowance spendNearCeiling is calibrated against) — not just one.
+    expect(classification.judgeSpend.spendSnapshot()).toEqual({ spentMicros: 0, remainingMicros: 3_000_000, limitMicros: 5_000_000 })
   })
 
   it('runs WITHOUT the judge when the key has no credit limit — AP-10, money fails closed', async () => {
@@ -60,6 +75,10 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     const classification = await deps.createClassificationDeps(() => {})
 
     expect(classification.judge).toBeNull()
+    // WP-P7 (RCA item 2 review): `guarded` was computed here and never read
+    // again — this is the exact value `alerts.ts`'s `spend-unguarded` rule
+    // needs, and it had no producer until this WP wired it into judgeSpend.
+    expect(classification.judgeSpend.guarded).toBe(false)
   })
 
   it('runs WITHOUT the judge when the spend account cannot be read — never guesses what is left', async () => {
@@ -70,6 +89,7 @@ describe('the root wires classifier, reflector, judge and enricher from env — 
     const classification = await deps.createClassificationDeps(() => {})
 
     expect(classification.judge).toBeNull()
+    expect(classification.judgeSpend.guarded).toBe(false)
   })
 })
 
@@ -223,6 +243,17 @@ describe('judges at most 4 at once through the gate — 100 sequential judgement
     // from flaking on a loaded CI runner while still catching a regression
     // to sequential (which would take 4x as long).
     expect(elapsedMs).toBeLessThan(300)
+
+    // WP-P7: `judgeSpend.spendSnapshot()` reads the SAME gate the judge
+    // itself just called through — every one of the 16 calls above spent
+    // something (the fake response carries no `usage`, so each settles at
+    // its own worst case, never at 0), so this must be strictly positive,
+    // not a disconnected second reading of zero.
+    const spend = classification.judgeSpend.spendSnapshot()
+    expect(spend).not.toBeNull()
+    expect(spend!.spentMicros).toBeGreaterThan(0)
+    expect(spend!.spentMicros).toBeLessThanOrEqual(spend!.remainingMicros)
+    expect(spend!.limitMicros).toBe(5_000_000)
   })
 })
 

@@ -124,6 +124,25 @@ export type ClassifyDealsResult = {
      * attempt).
      */
     readonly deadlineHit: boolean
+    /**
+     * WP-P7 (RCA item 2). Why the classify loop stopped early — the circuit
+     * breaker, or the run's own token/call budget — or `null` on a run that
+     * simply finished. Previously produced (`final.halted`, logged) and then
+     * dropped: `run-pipeline.ts`'s `RunSnapshot.halted` was a hardcoded
+     * `null`, so the `run-halted` critical alert could never fire.
+     */
+    readonly halted: string | null
+    /**
+     * WP-P7. The run's own token spend, accumulated across every chunk
+     * (`BudgetState.tokensUsed`, `guardrails.ts`) — carries real judge-token
+     * spend via `settleTokens` (WP-P6). Tier-1 batches still call
+     * `recordSpend(budget, 0)` (classify-graph.ts's `classify` node), so this
+     * does not yet include tier-1 token usage — a known, narrower residual
+     * than the one this field closes: before WP-P7 the number was ALWAYS 0,
+     * dropped at this exact boundary, feeding a `RunSnapshot.tokensUsed` that
+     * had no producer at all.
+     */
+    readonly tokensUsed: number
   }
 }
 
@@ -491,6 +510,13 @@ export async function classifyDeals(
   // through `toClassify` did the loop get", which is exactly what `deferred`
   // needs.
   let attemptedCount = 0
+  // WP-P7: captured so it can be returned, not just logged. `null` covers
+  // both "never entered the loop" (toClassify.length === 0) and "finished
+  // without the circuit or the budget stopping it".
+  let haltedReason: string | null = null
+  // WP-P7: the run's own budget, carried out of the loop below exactly as it
+  // is carried ACROSS chunks inside it — see `budget` further down.
+  let finalBudget = ZERO_SPEND
 
   if (toClassify.length > 0) {
     const graph = buildClassifyGraph({
@@ -599,8 +625,10 @@ export async function classifyDeals(
       if (chunkDurationWarning) log(`[transform] ⚠ ${chunkDurationWarning}`)
 
       attemptedCount += slice.length
+      finalBudget = budget
 
       if (final.halted) {
+        haltedReason = final.halted
         log(`[transform] HALTED: ${final.halted}`)
         break
       }
@@ -805,6 +833,8 @@ export async function classifyDeals(
       deferred,
       isColdStart: plan.isColdStart,
       deadlineHit,
+      halted: haltedReason,
+      tokensUsed: finalBudget.tokensUsed,
     },
   }
 }

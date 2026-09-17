@@ -51,6 +51,17 @@ export { normalizeProductName }
 export type StoreDealsResult = {
   readonly attempted: number
   readonly total: number
+  /**
+   * WP-P7 (RCA item 2). Rows removed by the in-memory dedupe BELOW, before
+   * anything was sent to Postgres — two offers sharing a conflict key
+   * (store + product_name + valid_from), the loser dropped for the higher
+   * discount. This is not a failure: `attempted - collapsed - total` is the
+   * genuine write shortfall (a CHECK constraint, a partial batch failure).
+   * Folding `collapsed` into that arithmetic is what made "48 failed" read
+   * as a write problem when every one of the 48 was a collapse — see
+   * `run-pipeline.ts`'s `logStorageShortfall`.
+   */
+  readonly collapsed: number
   readonly byStore: Map<string, number>
   readonly writtenByWindow: Map<string, Map<string, number>>
 }
@@ -78,7 +89,7 @@ export async function storeDeals(
   deals: Deal[],
   productIds?: Map<string, string>,
 ): Promise<StoreDealsResult> {
-  if (deals.length === 0) return { attempted: 0, total: 0, byStore: new Map(), writtenByWindow: new Map() }
+  if (deals.length === 0) return { attempted: 0, total: 0, collapsed: 0, byStore: new Map(), writtenByWindow: new Map() }
 
   const allRows = deals.map((d) => {
     const row = dealToRow(d, productIds?.get(productLookupKey(d.store, d.productName)))
@@ -99,6 +110,7 @@ export async function storeDeals(
     }
   }
   const rows = [...deduped.values()]
+  const collapsed = allRows.length - rows.length
   let storedCount = 0
   const byStore = new Map<string, number>()
   const writtenRows: WrittenRow[] = []
@@ -144,8 +156,17 @@ export async function storeDeals(
     }
   }
 
-  console.log(`[storage] [INFO] Upserted ${storedCount} of ${deals.length} deals`)
-  return { attempted: deals.length, total: storedCount, byStore, writtenByWindow: writtenCountsByWindow(writtenRows) }
+  console.log(
+    `[storage] [INFO] Upserted ${storedCount} of ${deals.length} deals` +
+      (collapsed > 0 ? ` (${collapsed} collapsed as duplicate conflict keys before the write)` : ''),
+  )
+  return {
+    attempted: deals.length,
+    total: storedCount,
+    collapsed,
+    byStore,
+    writtenByWindow: writtenCountsByWindow(writtenRows),
+  }
 }
 
 export interface PipelineRunInput {
