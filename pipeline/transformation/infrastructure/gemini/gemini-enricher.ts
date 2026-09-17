@@ -8,7 +8,16 @@
 // define, anything of the wrong type, and any enum value outside its list — so
 // a model returning `fatPercent: "whole"` or inventing a `freshness` field
 // cannot reach the database.
+//
+// WP-P9 (item 6, D3): `enrich` reports a per-item OUTCOME, not a bare
+// `Map<string, attributes>`. A product absent from the old map could mean "the
+// retailer's name states nothing" or "Google refused this call" — two facts
+// with opposite costs (the first should never be asked again; the second MUST
+// be) that a missing map entry cannot tell apart. See `EnrichmentOutcome` in
+// `../../domain/classification-cache.ts`.
 
+import type { EnrichmentOutcome } from '../../domain/classification-cache'
+import { classifyFailure } from '../../domain/resilience'
 import type { ClassificationRequest } from '../../domain/classifier'
 import {
   type EnrichRequest,
@@ -17,7 +26,7 @@ import {
   validateAttributes,
 } from '../enrich-prompt'
 import { extractAnswers } from '../classification-prompt'
-import type { ModelGate } from '../model-gate'
+import { ModelHttpError, type ModelGate } from '../model-gate'
 import { postJson, summariseError } from '../model-http'
 
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
@@ -27,9 +36,9 @@ const ENRICH_BATCH = 15
 
 export type Enricher = {
   readonly name: string
-  /** Attributes keyed by product name. A product absent from the map got none. */
+  /** One outcome per item asked about — never a bare map a missing key could mean anything for. */
   enrich(items: readonly EnrichRequest[]): Promise<{
-    attributes: Map<string, Record<string, unknown>>
+    outcomes: Map<string, EnrichmentOutcome>
     tokens: number
   }>
 }
@@ -71,6 +80,26 @@ async function askGemini(apiKey: string, model: string, prompt: string, gate: Mo
   }
 }
 
+/**
+ * Records EVERY item in a batch as `failed`, with the SAME reason and the
+ * SAME `rateLimited` classification — used when the whole batch call itself
+ * threw (a rate limit, a timeout, a 5xx) or returned nothing parseable.
+ *
+ * `rateLimited` is read from the SAME `classifyFailure` the shared
+ * `ModelGate` already uses (`resilience.ts`), not re-derived by regexing the
+ * message here — the domain's rate-limit classification stays in one place.
+ */
+function markBatchFailed(
+  outcomes: Map<string, EnrichmentOutcome>,
+  batch: readonly EnrichRequest[],
+  reason: string,
+  rateLimited: boolean,
+): void {
+  for (const item of batch) {
+    outcomes.set(item.request.productName, { kind: 'failed', reason, rateLimited })
+  }
+}
+
 export function createGeminiEnricher(deps: EnricherDeps): Enricher {
   const ask = deps.ask ?? ((p: string) => askGemini(deps.apiKey, deps.model, p, deps.gate))
   const batchSize = deps.batchSize ?? ENRICH_BATCH
@@ -80,9 +109,9 @@ export function createGeminiEnricher(deps: EnricherDeps): Enricher {
     name: deps.model,
 
     async enrich(items) {
-      const attributes = new Map<string, Record<string, unknown>>()
+      const outcomes = new Map<string, EnrichmentOutcome>()
       let tokens = 0
-      if (items.length === 0) return { attributes, tokens }
+      if (items.length === 0) return { outcomes, tokens }
 
       for (const [subCategory, group] of groupBySubCategory(items)) {
         for (let i = 0; i < group.length; i += batchSize) {
@@ -95,20 +124,28 @@ export function createGeminiEnricher(deps: EnricherDeps): Enricher {
             tokens += r.tokens
           } catch (e) {
             // Enrichment failing costs metadata, never the product. The deal is
-            // already classified and will be stored either way.
+            // already classified and will be stored either way — but EVERY
+            // item in this batch must be recorded `failed`, not silently
+            // dropped, or `needsEnrichment` can never tell "we asked and got
+            // refused" apart from "we never asked" on the next run.
             //
             // ONE short summary line, not the raw error: `ModelGate` already
             // retried this call internally (see model-gate.ts), so what
             // reaches here is the FINAL outcome, and its message can still
             // carry up to ERROR_BODY_CHARS (2,000) of a provider's JSON body.
             // Before WP-P5, 429s alone were 89% of one run's log by byte count.
+            const status = e instanceof ModelHttpError ? e.status : null
+            const message = e instanceof Error ? e.message : String(e)
+            const rateLimited = classifyFailure(status, message).startsWith('rate-limited')
             log(`enrich ${subCategory}: ${summariseError(e)}`)
+            markBatchFailed(outcomes, batch, summariseError(e), rateLimited)
             continue
           }
 
           const answers = extractAnswers(text)
           if (!answers) {
             log(`enrich ${subCategory}: unparseable response`)
+            markBatchFailed(outcomes, batch, 'unparseable response', false)
             continue
           }
 
@@ -120,19 +157,36 @@ export function createGeminiEnricher(deps: EnricherDeps): Enricher {
           }
 
           batch.forEach((item, index) => {
-            const raw = byIndex.get(index)?.attributes
-            if (!raw) return
-            const clean = validateAttributes(subCategory, raw)
-            // An empty result is not worth storing: it says nothing a missing
-            // row does not already say.
-            if (Object.keys(clean).length > 0) attributes.set(item.request.productName, clean)
+            const answer = byIndex.get(index)
+            // The model answered for OTHER items in this batch but skipped
+            // this one entirely — genuinely unknown, not "nothing to state".
+            // Recorded `failed` (not rate-limited: this is a content gap, not
+            // a quota one) so the product is offered again next run rather
+            // than assumed resolved.
+            if (!answer) {
+              outcomes.set(item.request.productName, {
+                kind: 'failed',
+                reason: `no answer echoed for index ${index}`,
+                rateLimited: false,
+              })
+              return
+            }
+
+            const clean = validateAttributes(subCategory, answer.attributes ?? {})
+            // Both are ANSWERS — the retailer's name was read either way.
+            // `statedNothing` is the never-infer rule in practice: honest and
+            // final, not a failure to record again next week.
+            outcomes.set(
+              item.request.productName,
+              Object.keys(clean).length > 0 ? { kind: 'stated', attributes: clean } : { kind: 'statedNothing' },
+            )
           })
         }
       }
 
-      return { attributes, tokens }
+      return { outcomes, tokens }
     },
   }
 }
 
-export type { EnrichRequest, ClassificationRequest }
+export type { EnrichRequest, ClassificationRequest, EnrichmentOutcome }
