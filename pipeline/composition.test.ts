@@ -165,7 +165,23 @@ describe('judges at most 4 at once through the gate — 100 sequential judgement
     // and this test measures the IN-FLIGHT bound alone, not a mix of two
     // mechanisms.
     const PRODUCT_COUNT = 16
-    const deps = createProductionDeps({ OPENROUTER_API_KEY: 'test-key' })
+    // WP-P8 (AP-10): a judge is only built when the key's remaining monthly
+    // allowance can actually be read, so this test has to say what it is —
+    // without it the judge is (correctly) refused and there is no concurrency
+    // left to measure. Generous, because the subject here is the in-flight
+    // bound, not the ledger.
+    const deps = createProductionDeps(
+      { OPENROUTER_API_KEY: 'test-key' },
+      {
+        spendAccount: {
+          remaining: async () => ({
+            kind: 'capped' as const,
+            remainingMicros: 5_000_000 as UsdMicros,
+            limitMicros: 5_000_000 as UsdMicros,
+          }),
+        },
+      },
+    )
     const classification = await deps.createClassificationDeps(() => {})
     expect(classification.judge).not.toBeNull()
 

@@ -82,6 +82,8 @@ describe('every registry entry is a valid policy (would have been silently ungat
     // concurrent attempts, so a regression here silently drops concurrency
     // back to sequential without any test in classify-graph.test.ts failing.
     expect(JUDGE_CHAIN[0]?.maxInFlight).toBe(4)
+  })
+
   // WP-P8: every paid OpenRouter model in the registry declares a price AND a
   // maxOutputTokens — the registry-wide guard "the next paid model cannot
   // arrive the way this one did".
