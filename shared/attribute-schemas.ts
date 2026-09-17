@@ -16,6 +16,27 @@
 // sub-category with no schema yet simply extracts nothing. Coverage grows as
 // real data shows which fields are actually printed on Swiss packaging.
 
+/**
+ * Bump this when the ATTRIBUTE SCHEMA changes — a field added, an enum value
+ * renamed or widened, a field retired — WITHOUT touching the cache key's
+ * `schemaVersion` (`transformation/domain/classification-cache.ts`).
+ *
+ * THE TWO VERSIONS ANSWER DIFFERENT QUESTIONS, on purpose (WP-P9, D3).
+ * `schemaVersion` is IN THE CACHE KEY: bumping it makes every existing row an
+ * unseen product, which re-runs CLASSIFICATION from zero — a cold start
+ * (HANDOVER §5, "never bump taxonomyVersion/promptVersion/schemaVersion
+ * casually"). This version is stored ALONGSIDE the row instead
+ * (`attributes_version`): a bump means "the ATTRIBUTES on this already-settled
+ * classification are stale", not "the classification itself is". A settled
+ * category must never be re-paid for just because a new attribute field was
+ * added.
+ *
+ * Read by `needsEnrichment` — a row whose `attributesVersion` does not equal
+ * this constant still owes the enricher a look, whether it has never been
+ * enriched (`null`) or was enriched under an older schema.
+ */
+export const CURRENT_ATTRIBUTE_SCHEMA_VERSION = 1
+
 export type AttributeType = 'enum' | 'number' | 'boolean' | 'text'
 
 export type AttributeSpec = {

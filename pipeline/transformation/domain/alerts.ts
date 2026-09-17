@@ -27,6 +27,7 @@
 // wired must say so, not silently read as "measured and fine".
 
 import type { Retailer } from '../../collection/domain/offer'
+import type { EnrichmentStats } from './classification-cache'
 import type { UsdMicros } from './spend'
 import { RUN_DEADLINE_MS, WRITE_TAIL_MS } from './resilience'
 
@@ -99,6 +100,15 @@ export type RunSnapshot = {
   readonly benchmarkMacroF1: Measured<number>
   readonly publishedDataCoverage: Partial<Record<Retailer, number>>
   readonly halted: string | null
+  /**
+   * WP-P9 code review MUST-FIX 1. `ClassifyDealsResult.stats.enrichment` had
+   * zero production consumers — computed in `classify-deals.ts`, read only by
+   * tests. Carried into the snapshot for the same reason every other field
+   * here is: a number nobody looks at is not observability (this file's own
+   * header). No alert RULE reads it yet — that is a follow-up, not this fix —
+   * but it is now on the run record an operator (or a future rule) can read.
+   */
+  readonly enrichment: EnrichmentStats
 }
 
 /**
