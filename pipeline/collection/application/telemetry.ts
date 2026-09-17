@@ -12,8 +12,9 @@
 //
 // Time and IDs are injected so traces are deterministic under test.
 
+import type { IsoWeek } from '../domain/iso-week'
 import type { Retailer } from '../domain/offer'
-import type { CollectionFailureReason, IsoWeek } from '../domain/offer-source'
+import type { CollectionFailureReason } from '../domain/offer-source'
 
 export type SourceSpan = {
   readonly retailer: Retailer

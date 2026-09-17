@@ -10,8 +10,8 @@
 // this from the domain.
 
 import type { RunTrace, SourceSpan, Telemetry } from '../../application/telemetry'
+import type { IsoWeek } from '../../domain/iso-week'
 import type { Retailer } from '../../domain/offer'
-import type { IsoWeek } from '../../domain/offer-source'
 
 type Sink = (line: string) => void
 

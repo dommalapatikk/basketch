@@ -12,15 +12,6 @@ import type { Offer, Retailer } from './offer'
 import { isDisplayTruncated } from '../../../shared/types'
 
 /**
- * Re-exported, not redefined — `IsoWeek` is a value object owned by
- * `iso-week.ts` (WP-J1). It still belongs to this port's own vocabulary (the
- * "which week is this run's trace/telemetry labelled with" field on
- * `Telemetry`/`RunTrace`), so callers that only need that keep importing it
- * from here without every one of them being rewired to a second import.
- */
-export type { IsoWeek } from './iso-week'
-
-/**
  * WHY this is not just `Offer[]`:
  *
  * The old pipeline followed "sources return an array or empty, never throw".

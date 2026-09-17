@@ -9,8 +9,9 @@
 //
 // Application layer: may import the domain, never infrastructure.
 
+import type { IsoWeek } from '../domain/iso-week'
 import { type Offer, type Retailer, dedupeOffers } from '../domain/offer'
-import type { CollectionResult, IsoWeek, OfferSource } from '../domain/offer-source'
+import type { CollectionResult, OfferSource } from '../domain/offer-source'
 import { type Clock, type RunTrace, type SourceSpan, type Telemetry, noopTelemetry, systemClock } from './telemetry'
 
 export type CollectOffersOptions = {
