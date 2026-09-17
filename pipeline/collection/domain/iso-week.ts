@@ -15,8 +15,46 @@
 // given weekday on or before a date"; it has no opinion on which weekday any
 // one retailer actually uses. See docs/decisions/2026-09-17-publication-editions.md
 // for the per-retailer evidence.
+//
+// WHY THE ZURICH CALENDAR DAY (code review SF-2). CLAUDE.md states the
+// project's one date rule as the Zurich calendar day, not UTC
+// (`web-next/src/lib/domain/validity.ts`'s `todayInZurich`, for the identical
+// reason). At the pipeline's 05:00 UTC cron this never bites. It bites on a
+// `workflow_dispatch` fired 22:00-24:00 UTC on a cycle-start day: UTC is
+// still the day before, so an edition computed from the UTC date would return
+// the PREVIOUS edition — one stale flyer today, but a wrong row written to
+// WP-J2's `(retailer, publication)` primary key once the ledger exists, which
+// then refuses to fetch the right one. `zurichDateParts` mirrors
+// `todayInZurich`'s own `Intl.DateTimeFormat` technique exactly, so the two
+// date rules in this codebase stay one rule, computed one way.
 
 import { type Result, err, ok } from './result'
+
+const ZURICH_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Zurich',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** The Zurich calendar day `date` falls on, as {year, month (1-indexed), day}. */
+function zurichDateParts(date: Date): { readonly year: number; readonly month: number; readonly day: number } {
+  const parts = ZURICH_DATE_FORMATTER.formatToParts(date)
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? Number.NaN)
+  return { year: part('year'), month: part('month'), day: part('day') }
+}
+
+/**
+ * UTC midnight of the Zurich calendar day `date` falls on. Zurich is always
+ * ahead of UTC (CET UTC+1 or CEST UTC+2), so this is a pure day-boundary
+ * shift, never a change of hour within a day — safe to feed straight into
+ * the UTC-based week arithmetic below, which only ever reads the
+ * year/month/day off it.
+ */
+function zurichMidnightUtc(date: Date): Date {
+  const { year, month, day } = zurichDateParts(date)
+  return new Date(Date.UTC(year, month - 1, day))
+}
 
 export type IsoWeek = string & { readonly __brand: 'IsoWeek' }
 
@@ -42,16 +80,16 @@ function formatIsoWeek(year: number, week: number): IsoWeek {
 }
 
 /**
- * The plain ISO 8601 week (Monday-based) containing `date`. Thursday-of-the-
- * week rule, per ISO 8601: the week containing the year's first Thursday is
- * week 1.
+ * The plain ISO 8601 week (Monday-based) containing the ZURICH calendar day
+ * `date` falls on. Thursday-of-the-week rule, per ISO 8601: the week
+ * containing the year's first Thursday is week 1.
  *
  * Moved here from run-pipeline.ts's own `isoWeekOf` (WP-J1) — one definition,
  * returning the canonical value object instead of a loose {kw, year} pair
  * every caller had to format for itself.
  */
 export function isoWeekOf(date: Date): IsoWeek {
-  const t = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  const t = zurichMidnightUtc(date)
   t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
   const yearStart = Date.UTC(t.getUTCFullYear(), 0, 1)
   const week = Math.ceil(((t.getTime() - yearStart) / 86_400_000 + 1) / 7)
@@ -77,7 +115,8 @@ export function isoWeekOf(date: Date): IsoWeek {
  * week's flyer and does not exist yet (measured: HTTP 404).
  */
 export function isoWeekOfCycle(date: Date, anchorWeekday: number): IsoWeek {
-  const daysSinceAnchor = (date.getUTCDay() - anchorWeekday + 7) % 7
-  const anchorDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceAnchor))
+  const zurichToday = zurichMidnightUtc(date)
+  const daysSinceAnchor = (zurichToday.getUTCDay() - anchorWeekday + 7) % 7
+  const anchorDate = new Date(Date.UTC(zurichToday.getUTCFullYear(), zurichToday.getUTCMonth(), zurichToday.getUTCDate() - daysSinceAnchor))
   return isoWeekOf(anchorDate)
 }

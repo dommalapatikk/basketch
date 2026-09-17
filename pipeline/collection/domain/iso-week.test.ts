@@ -103,4 +103,31 @@ describe('isoWeekOfCycle — the publication in effect for a retailer whose week
     expect(isoWeekOfCycle(new Date('2026-09-14'), MONDAY)).toBe(isoWeekOf(new Date('2026-09-14')))
     expect(isoWeekOfCycle(new Date('2026-09-16'), MONDAY)).toBe(isoWeekOf(new Date('2026-09-14')))
   })
+
+  describe('the Zurich calendar day, not UTC (code review SF-2)', () => {
+    it('a dispatch at 2026-09-16T23:30Z is already Thursday in Zurich (CEST, UTC+2) -- the NEW edition is already in effect', () => {
+      // UTC clock still reads Wednesday 2026-09-16 at this instant, but
+      // Zurich local time is 2026-09-17T01:30 -- past midnight, already
+      // Thursday, the cycle-start day itself. A UTC-only implementation
+      // would compute the OLD edition (2026-W37, stale by one publication);
+      // the correct answer is the one that just started, 2026-W38.
+      expect(isoWeekOfCycle(new Date('2026-09-16T23:30:00Z'), THURSDAY)).toBe('2026-W38')
+    })
+
+    it('the same UTC clock reading one hour earlier is still Wednesday in Zurich -- the OLD edition still holds', () => {
+      // 2026-09-16T21:30Z is 2026-09-16T23:30 in Zurich (CEST) -- still
+      // Wednesday, the last day the OLD edition (2026-W37) is in effect.
+      expect(isoWeekOfCycle(new Date('2026-09-16T21:30:00Z'), THURSDAY)).toBe('2026-W37')
+    })
+
+    it('isoWeekOf itself reads the Zurich day, not the UTC day, across an ISO WEEK boundary', () => {
+      // 2026-09-13 (Sunday, UTC calendar date) is the LAST day of ISO week
+      // 37. At 22:30 UTC, Zurich local time (CEST, +2) is already
+      // 2026-09-14T00:30 -- Monday, the FIRST day of ISO week 38. This is a
+      // genuine week-crossing case, unlike a same-week Wed->Thu shift (the
+      // ISO week algorithm's own "move to this week's Thursday" step masks
+      // that one regardless of which day it starts from).
+      expect(isoWeekOf(new Date('2026-09-13T22:30:00Z'))).toBe('2026-W38')
+    })
+  })
 })
