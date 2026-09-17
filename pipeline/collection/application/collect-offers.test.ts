@@ -15,7 +15,7 @@ const WEEK_ID = unwrap(createIsoWeek('2026-W37'))
 const WEEK = unwrap(createValidityPeriod('2026-09-03', '2026-09-09'))
 const REFERENCE_DATE = new Date('2026-09-08T00:00:00Z')
 
-const offer = (retailer: 'denner' | 'coop' | 'lidl' | 'aldi', name: string, price = 1.95) =>
+const offer = (retailer: 'denner' | 'coop' | 'lidl' | 'aldi' | 'migros', name: string, price = 1.95) =>
   unwrap(
     createOffer({
       retailer,
@@ -285,5 +285,27 @@ describe('collectOffers — WP-J1: editionFor is wired, not a correct unit nothi
 
     expect(editionForCalls).toBe(1)
     expect(o.offers).toHaveLength(1)
+  })
+
+  it('code review MUST-FIX 1: a Monday run\'s trace records Migros at 2026-W37, not the run\'s own W38', async () => {
+    // Before this fix, SourceSpan carried no publication at all — the only
+    // week anywhere in the trace was the run's own (isoWeekOf(runDate)),
+    // which is wrong for a Thursday-anchored retailer on a Monday/Tuesday
+    // run. An operator reading a failed span had no way to know which
+    // publication was actually requested.
+    const runWeek = unwrap(createIsoWeek('2026-W38')) // the run date's own plain ISO week
+    const migrosLikeSource: OfferSource = {
+      retailer: 'migros',
+      expectedMinimumOffers: 1,
+      editionFor: () => edition('migros', unwrap(createIsoWeek('2026-W37'))), // the edition actually in effect
+      fetchOffers: async () => collected('migros', [offer('migros', 'A')]),
+    }
+
+    const o = await collectOffers([migrosLikeSource], runWeek, opts())
+
+    expect(o.trace.runWeek).toBe('2026-W38')
+    const migrosSpan = o.trace.sources.find((s) => s.retailer === 'migros')
+    expect(migrosSpan?.publication).toBe('2026-W37')
+    expect(migrosSpan?.publication).not.toBe(o.trace.runWeek)
   })
 })

@@ -24,8 +24,10 @@ export type CollectOffersOptions = {
    * WP-J1 (D5). The date each source's OWN `editionFor` is asked about —
    * "which publication is in effect right now", never a single ISO week
    * shared across all seven. Defaults to `new Date()`. This is deliberately
-   * separate from the `week: IsoWeek` argument below, which stays a display
-   * label for the trace/telemetry — it is not fed to any adapter any more.
+   * separate from the `runWeek: IsoWeek` argument below, which stays a
+   * display label for the trace/telemetry — it is not fed to any adapter
+   * any more. The per-source fact this actually drives lands on
+   * `SourceSpan.publication` (code review MUST-FIX 1).
    */
   referenceDate?: Date
 }
@@ -65,12 +67,24 @@ async function runOne(
 ): Promise<{ result: CollectionResult; span: SourceSpan }> {
   const startedAt = clock.now()
 
+  // WP-J1 (D5): the enforcement point must know WHICH publication before it
+  // fetches. Each source names its own — never a single week shared across
+  // all seven (item 1 RCA: run.ts used to compute one ISO week and hand it
+  // to every adapter, which is how Migros ended up asking for a flyer that
+  // was not published yet). Computed once, OUTSIDE the try/catch that guards
+  // `fetchOffers`: `editionFor` is contractually pure and never throws
+  // (port-contract.test.ts), so a throw here is a genuine adapter bug the
+  // contract test should already have caught, not a network-shaped failure
+  // this function exists to contain.
+  const edition = source.editionFor(referenceDate)
+
   const finish = (result: CollectionResult): { result: CollectionResult; span: SourceSpan } => {
     const durationMs = clock.now() - startedAt
     const span: SourceSpan =
       result.ok === true
         ? {
             retailer: result.retailer,
+            publication: edition.publication,
             durationMs,
             status: 'ok',
             offerCount: result.offers.length,
@@ -80,6 +94,7 @@ async function runOne(
           }
         : {
             retailer: result.retailer,
+            publication: edition.publication,
             durationMs,
             status: 'failed',
             offerCount: 0,
@@ -93,12 +108,6 @@ async function runOne(
   }
 
   try {
-    // WP-J1 (D5): the enforcement point must know WHICH publication before it
-    // fetches. Each source names its own — never a single week shared across
-    // all seven (item 1 RCA: run.ts used to compute one ISO week and hand it
-    // to every adapter, which is how Migros ended up asking for a flyer that
-    // was not published yet).
-    const edition = source.editionFor(referenceDate)
     return finish(await withTimeout(source.fetchOffers(edition), timeoutMs))
   } catch (e) {
     // An adapter is contractually forbidden from throwing. If one does, that is
@@ -114,7 +123,7 @@ async function runOne(
 
 export async function collectOffers(
   sources: readonly OfferSource[],
-  week: IsoWeek,
+  runWeek: IsoWeek,
   options: CollectOffersOptions = {},
 ): Promise<CollectOffersOutcome> {
   const telemetry = options.telemetry ?? noopTelemetry
@@ -126,7 +135,7 @@ export async function collectOffers(
   const startedAtIso = clock.isoNow()
   const startedAt = clock.now()
   const retailers: Retailer[] = sources.map((s) => s.retailer)
-  telemetry.runStarted(runId, week, retailers)
+  telemetry.runStarted(runId, runWeek, retailers)
 
   // Sources are independent; run them together so one slow retailer does not
   // serialise the whole cron. Never rejects — runOne contains its own errors.
@@ -158,7 +167,7 @@ export async function collectOffers(
 
   const trace: RunTrace = {
     runId,
-    week,
+    runWeek,
     startedAt: startedAtIso,
     durationMs: clock.now() - startedAt,
     sources: spans,

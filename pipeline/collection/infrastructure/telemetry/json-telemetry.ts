@@ -27,8 +27,8 @@ export function createJsonTelemetry(sink: Sink = defaultSink): Telemetry {
   const emit = (event: Record<string, unknown>) => sink(JSON.stringify(event))
 
   return {
-    runStarted(runId: string, week: IsoWeek, retailers: readonly Retailer[]) {
-      emit({ event: 'collection.run.started', runId, week, retailers, sourceCount: retailers.length })
+    runStarted(runId: string, runWeek: IsoWeek, retailers: readonly Retailer[]) {
+      emit({ event: 'collection.run.started', runId, runWeek, retailers, sourceCount: retailers.length })
     },
 
     sourceFinished(runId: string, span: SourceSpan) {
@@ -36,6 +36,11 @@ export function createJsonTelemetry(sink: Sink = defaultSink): Telemetry {
         event: 'collection.source.finished',
         runId,
         retailer: span.retailer,
+        // WP-J1 code review MUST-FIX 1: the publication THIS source was
+        // actually asked for — the run-level `week` above is the same for
+        // all seven and is wrong for the four Thursday-anchored retailers
+        // on a Monday/Tuesday run.
+        publication: span.publication,
         status: span.status,
         offerCount: span.offerCount,
         warningCount: span.warningCount,
@@ -54,12 +59,13 @@ export function createJsonTelemetry(sink: Sink = defaultSink): Telemetry {
       emit({
         event: 'collection.run.finished',
         runId: trace.runId,
-        week: trace.week,
+        runWeek: trace.runWeek,
         status: trace.status,
         totalOffers: trace.totalOffers,
         durationMs: trace.durationMs,
         sources: trace.sources.map((s) => ({
           retailer: s.retailer,
+          publication: s.publication,
           status: s.status,
           offerCount: s.offerCount,
           durationMs: s.durationMs,
@@ -93,18 +99,22 @@ export function combineTelemetry(...backends: readonly Telemetry[]): Telemetry {
 export function formatRunSummary(trace: RunTrace): string {
   const icon = { ok: '✅', degraded: '⚠️', failed: '❌' }[trace.status]
   const lines = [
-    `## ${icon} Collection ${trace.status} — ${trace.week}`,
+    `## ${icon} Collection ${trace.status} — ${trace.runWeek}`,
     '',
     `**${trace.totalOffers}** offers in ${(trace.durationMs / 1000).toFixed(1)}s · run \`${trace.runId}\``,
     '',
-    '| Store | Status | Offers | Warnings | Time |',
-    '|---|---|---:|---:|---:|',
+    // WP-J1 code review MUST-FIX 1: a "Week" column so an operator can see
+    // which publication each retailer was actually asked for, not just the
+    // run's own nominal week in the heading above — those two disagree for
+    // the four Thursday-anchored retailers on a Monday/Tuesday run.
+    '| Store | Week | Status | Offers | Warnings | Time |',
+    '|---|---|---|---:|---:|---:|',
   ]
 
   for (const s of trace.sources) {
     const status = s.status === 'failed' ? `❌ ${s.failureReason}` : s.degraded ? '⚠️ ok (degraded)' : '✅ ok'
     lines.push(
-      `| ${s.retailer} | ${status} | ${s.offerCount} | ${s.warningCount} | ${(s.durationMs / 1000).toFixed(1)}s |`,
+      `| ${s.retailer} | ${s.publication} | ${status} | ${s.offerCount} | ${s.warningCount} | ${(s.durationMs / 1000).toFixed(1)}s |`,
     )
   }
 

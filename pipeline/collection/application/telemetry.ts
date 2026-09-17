@@ -17,6 +17,16 @@ import type { CollectionFailureReason, IsoWeek } from '../domain/offer-source'
 
 export type SourceSpan = {
   readonly retailer: Retailer
+  /**
+   * WP-J1 code review MUST-FIX 1. The publication THIS retailer was actually
+   * asked for (`source.editionFor(referenceDate)`, computed once per source
+   * inside `collectOffers`) — never the run's own nominal week
+   * (`RunTrace.runWeek`), which is the same for all seven and is wrong for
+   * the four Thursday-anchored retailers on a Monday/Tuesday run. This is
+   * the field an operator reads to answer "which week did we actually ask
+   * Migros for", and the field WP-J2's ledger keys the same fact on.
+   */
+  readonly publication: IsoWeek
   readonly durationMs: number
   readonly status: 'ok' | 'failed'
   readonly offerCount: number
@@ -42,7 +52,14 @@ export type SourceSpan = {
 
 export type RunTrace = {
   readonly runId: string
-  readonly week: IsoWeek
+  /**
+   * WP-J1 code review MUST-FIX 1: renamed from `week` because it is NOT a
+   * claim about what any source was asked for — it is the plain ISO week of
+   * the run date, shared across all seven, kept only as a human-readable
+   * grouping label for logs and the step summary. The per-retailer fact
+   * lives on `SourceSpan.publication`.
+   */
+  readonly runWeek: IsoWeek
   readonly startedAt: string
   readonly durationMs: number
   readonly sources: readonly SourceSpan[]
@@ -56,7 +73,7 @@ export type RunTrace = {
 }
 
 export type Telemetry = {
-  runStarted(runId: string, week: IsoWeek, retailers: readonly Retailer[]): void
+  runStarted(runId: string, runWeek: IsoWeek, retailers: readonly Retailer[]): void
   sourceFinished(runId: string, span: SourceSpan): void
   runFinished(trace: RunTrace): void
 }
