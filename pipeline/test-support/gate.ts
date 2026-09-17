@@ -17,5 +17,7 @@ export function createNoopGate(key = 'test:noop'): ModelGate {
   return {
     key,
     request: (attempt) => attempt(),
+    // Free-tier shape: no money, so nothing to report (WP-P8).
+    spendSnapshot: () => null,
   }
 }

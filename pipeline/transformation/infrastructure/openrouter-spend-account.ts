@@ -37,6 +37,7 @@ export type SpendAccount = {
 
 type OpenRouterKeyBody = {
   readonly data?: {
+    readonly limit_reset?: string | null
     readonly limit?: number | null
     readonly limit_remaining?: number | null
     readonly usage_monthly?: number
@@ -93,6 +94,20 @@ export function readingFromBody(body: unknown): SpendAccountReading {
   const data = (body as OpenRouterKeyBody | null | undefined)?.data
   if (!data) return { kind: 'unreadable', reason: 'response carried no `data` field' }
   if (data.limit === null || data.limit === undefined) return { kind: 'uncapped' }
+
+  // AP-8 caps spend per MONTH. OpenRouter's limits are resettable (docs:
+  // /docs/api-reference/limits — `limit_reset` is a string or null), so a key
+  // whose USD 5 limit resets DAILY satisfies "a limit exists" while permitting
+  // ~USD 150 a month. Reading only `limit` would make the cap a fiction, so a
+  // reset we cannot confirm as monthly fails closed: unreadable → AP-10 → the
+  // run continues without the judge and says why.
+  const reset = data.limit_reset ?? null
+  if (reset !== null && reset.toLowerCase() !== 'monthly') {
+    return {
+      kind: 'unreadable',
+      reason: `the key's credit limit resets "${reset}", not monthly — AP-8 caps spend per month, so this limit does not bound it`,
+    }
+  }
 
   const limitMicros = usdToMicros(data.limit)
   if (!limitMicros.ok) return { kind: 'unreadable', reason: `malformed limit: ${limitMicros.error}` }

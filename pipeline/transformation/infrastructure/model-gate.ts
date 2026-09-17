@@ -111,6 +111,20 @@ export type ModelGate = {
    * resolves or rejects exactly once with the final outcome.
    */
   request<T>(attempt: () => Promise<T>): Promise<T>
+  /**
+   * What this gate has actually spent, and out of what.
+   *
+   * `null` for a free-tier model — there is no money to report, and returning
+   * a zeroed reading would invite a caller to divide by a ceiling that does
+   * not exist.
+   *
+   * Exists because `alerts.ts`'s `spend-near-ceiling` rule had NO possible
+   * producer without it (WP-P8 review): the gate owned the only copy of both
+   * numbers and exposed neither, so the rule was unreachable by construction —
+   * the "built, never wired" shape this project keeps rediscovering. WP-P7
+   * reads this when it builds the run snapshot.
+   */
+  spendSnapshot(): { readonly spentMicros: UsdMicros; readonly ceilingMicros: UsdMicros } | null
 }
 
 export type ModelGateDeps = {
@@ -238,6 +252,11 @@ export function createModelGate(policy: ModelCallPolicy, deps: ModelGateDeps = {
 
   return {
     key,
+
+    spendSnapshot() {
+      if (!spendPolicy) return null
+      return { spentMicros: spendLedger.spentMicros, ceilingMicros: spendLedger.ceilingMicros }
+    },
 
     async request<T>(attempt: () => Promise<T>): Promise<T> {
       if (circuit.open) {

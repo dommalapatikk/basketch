@@ -250,6 +250,11 @@ async function buildClassificationDeps(
     judge:
       judgeMayRun && env.OPENROUTER_API_KEY
         ? createOpenRouterJudge({
+            // WP-P8 review: with reasoning effort UNSET, GPT-5 defaults to
+            // medium and can spend ~50% of max_tokens thinking, returning
+            // finish_reason 'length' with EMPTY content — billed in full for
+            // an unusable answer. A one-word verdict needs no reasoning.
+            reasoningEffort: 'minimal',
             apiKey: env.OPENROUTER_API_KEY,
             model: JUDGE_SPEC.id,
             taxonomy: TAXONOMY,

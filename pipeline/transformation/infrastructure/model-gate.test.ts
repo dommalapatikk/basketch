@@ -325,6 +325,34 @@ describe('the spend ledger (WP-P8) — a paid call cannot be made without a rese
       ),
     )
 
+  // WP-P8 review, MUST-FIX 3: the "a paid gate built without a ceiling fails
+  // closed" claim was asserted in a comment and by nothing else — replacing
+  // the ZERO default with MAX_SAFE_INTEGER left all 1,310 tests green. A
+  // default that is load-bearing for money needs a test that dies without it.
+  it('refuses the FIRST paid call when no ceiling was supplied at all — the zero default is fail-closed, not decorative', async () => {
+    const gate = createModelGate(paidPolicy(), { ...fakeClock() }) // no spendCeilingMicros
+    let attempted = false
+
+    await expect(
+      gate.request(async () => {
+        attempted = true
+        return { ok: true }
+      }),
+    ).rejects.toThrow(/spend-exhausted/)
+
+    expect(attempted).toBe(false)
+  })
+
+  it('reports what it has spent and out of what — nothing else can see the ledger (WP-P8 review, spend-near-ceiling had no producer)', async () => {
+    const gate = createModelGate(paidPolicy(), { ...fakeClock(), spendCeilingMicros: unwrap(usdToMicros(5)) })
+    await gate.request(async () => ({ ok: true }))
+
+    const snap = gate.spendSnapshot()
+    expect(snap).not.toBeNull()
+    expect(snap?.ceilingMicros).toBe(unwrap(usdToMicros(5)))
+    expect(snap?.spentMicros).toBeGreaterThan(0)
+  })
+
   it('refuses a paid call outright when the ledger cannot cover the worst case — never even reaches the network', async () => {
     const gate = createModelGate(paidPolicy(), { ...fakeClock(), spendCeilingMicros: unwrap(usdToMicros(0.0005)) }) // 500 micros < 800
     let attempted = false
