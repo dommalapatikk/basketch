@@ -29,15 +29,21 @@ import type { CollectOffersOutcome } from './collection/application/collect-offe
 import { collectOffers } from './collection/application/collect-offers'
 import type { Offer } from './collection/domain/offer'
 import type { IsoWeek, OfferSource } from './collection/domain/offer-source'
+import { createJsonTelemetry } from './collection/infrastructure/telemetry/json-telemetry'
+import { formatRunSummary } from './collection/infrastructure/telemetry/json-telemetry'
 import { filterGrocery } from './grocery-filter'
+import { emitAnnotationsForAlerts } from './observability/github-step-summary'
 import { extractProductMetadata } from './product-metadata'
 import type { AliasMap, UnknownTag } from './resolve-taxonomy'
 import { collectUnknownTags, resolveTaxonomy } from './resolve-taxonomy'
 import type { ClassifyDealsDeps, ClassifyDealsResult } from './transformation/application/classify-deals'
 import { ClassificationCacheUnreadableError, classifyDeals } from './transformation/application/classify-deals'
+import type { JudgeSpendInfo, RunHistory } from './transformation/application/run-snapshot'
+import { buildRunSnapshot } from './transformation/application/run-snapshot'
 import type { Alert, RunSnapshot } from './transformation/domain/alerts'
 import { evaluateAlerts, formatAlerts, shouldFailRun } from './transformation/domain/alerts'
 import { RUN_DEADLINE_MS, checkWriteTailDuration } from './transformation/domain/resilience'
+import { isOk } from './collection/domain/result'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
 import type { DealEnrichment } from './storage/domain/offer-to-unified'
 import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
@@ -54,7 +60,18 @@ import { sweepPlan } from './storage/domain/stale-sweep'
  * `deadlineAtMs`, `now`) `classifyGroceryDeals` supplies itself — the deadline
  * is a property of THIS run, not of the classifier/cache/judge composition.
  */
-export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log' | 'deadlineAtMs' | 'now'>
+export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log' | 'deadlineAtMs' | 'now'> & {
+  /**
+   * WP-P7. What the composition root knows about the judge's own spend
+   * ledger — not part of `ClassifyDealsDeps` because `classifyDeals` never
+   * needs to read it; only the alert snapshot does, once classification has
+   * finished. Kept alongside the classifier/judge/reflector/cache it was
+   * built from, rather than threaded separately, so there is exactly one
+   * place (`composition.ts`) that constructs a run's whole classification
+   * dependency set.
+   */
+  readonly judgeSpend: JudgeSpendInfo
+}
 
 export type V3CutoverStats = {
   readonly concepts_resolved: number
@@ -98,7 +115,20 @@ export type PipelineDeps = {
    */
   readonly createClassificationDeps: (log: (message: string) => void) => Promise<ClassificationDeps>
   readonly storage: StorageDeps
+  /**
+   * WP-P7 (T2). The port every run's `RunSnapshot` is saved through and the
+   * previous one read back from — `RunHistory.save` never touches
+   * `storage.logPipelineRun`'s row; both are independent, append-only
+   * writers to `pipeline_runs`.
+   */
+  readonly runHistory: RunHistory
   readonly revalidate: () => Promise<void>
+  /**
+   * WP-P7. Appends markdown to `$GITHUB_STEP_SUMMARY`, never throws — a
+   * missing env var or a write failure degrades to a logged warning
+   * (`observability/github-step-summary.ts`).
+   */
+  readonly writeStepSummary: (markdown: string) => Promise<void>
 }
 
 // ============================================================
@@ -196,6 +226,13 @@ export type CollectOutcome = {
   readonly storeStatusMap: Map<Store, StoreStatus>
   /** Fields `Offer` carries that `UnifiedDeal` cannot: CropRegion, priceBasis, integer rappen. */
   readonly pendingEnrichment: Map<string, DealEnrichment>
+  /**
+   * WP-P7. The raw offers this run's collection phase actually returned —
+   * kept (not only converted into `UnifiedDeal`) because `buildRunSnapshot`
+   * computes `publishedDataCoverage` from `Offer.sourceAttributes`, a field
+   * `UnifiedDeal` does not carry.
+   */
+  readonly offers: readonly Offer[]
 }
 
 export type RunCollectOptions = {
@@ -240,16 +277,25 @@ function buildCollectOutcome(offers: readonly Offer[]): CollectOutcome {
   }
   console.log(`[pipeline] [INFO] ${pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
 
-  return { storeDealsMap, storeStatusMap, pendingEnrichment }
+  return { storeDealsMap, storeStatusMap, pendingEnrichment, offers }
 }
 
+/**
+ * WP-P7: wires `createJsonTelemetry` — built, tested, and never constructed
+ * in production before this. Structured NDJSON to stdout alongside the
+ * existing human-readable `[pipeline] [INFO]` lines, not instead of them.
+ */
 async function runCollectionModule(deps: PipelineDeps, now: Date): Promise<CollectOutcome> {
   console.log('[pipeline] [INFO] collection module: LIVE')
   const weekParts = isoWeekOf(now)
   const week: IsoWeek = `${weekParts.year}-W${String(weekParts.kw).padStart(2, '0')}`
 
-  const outcome = await collectOffers(deps.sources(weekParts), week, { timeoutMs: 600_000 })
+  const outcome = await collectOffers(deps.sources(weekParts), week, {
+    timeoutMs: 600_000,
+    telemetry: createJsonTelemetry(),
+  })
   logCollectionTrace(outcome)
+  await deps.writeStepSummary(formatRunSummary(outcome.trace))
 
   return buildCollectOutcome(outcome.offers)
 }
@@ -334,17 +380,23 @@ function logClassificationSummary(stats: ClassifyDealsResult['stats']): void {
   }
 }
 
+type ClassifyGroceryDealsOutcome = {
+  readonly result: ClassifyDealsResult
+  /** WP-P7: carried out so `finishRun` can build the alert snapshot's spend fields. */
+  readonly judgeSpend: JudgeSpendInfo
+}
+
 async function classifyGroceryDeals(
   deps: PipelineDeps,
   groceryOnly: readonly UnifiedDeal[],
   runId: string,
   deadlineAtMs: number,
   now: () => number,
-): Promise<ClassifyDealsResult> {
-  const classification = await deps.createClassificationDeps(infoLog)
+): Promise<ClassifyGroceryDealsOutcome> {
+  const { judgeSpend, ...classification } = await deps.createClassificationDeps(infoLog)
   const result = await classifyDeals(groceryOnly, { ...classification, runId, log: infoLog, deadlineAtMs, now })
   logClassificationSummary(result.stats)
-  return result
+  return { result, judgeSpend }
 }
 
 async function resolveTaxonomyStep(deps: PipelineDeps, categorized: readonly Deal[]): Promise<Deal[]> {
@@ -462,11 +514,23 @@ async function sweepStep(deps: PipelineDeps, storeStatusMap: ReadonlyMap<Store, 
   }
 }
 
-function logStorageShortfall(resolvedLength: number, categorizedLength: number, storedCount: number): boolean {
-  const storageShortfall = resolvedLength - storedCount
-  const storagePartialFailure = storedCount < resolvedLength
+/**
+ * WP-P7 (RCA item 2): `collapsed` — rows `storeDeals` merged before anything
+ * reached Postgres, because two offers shared a conflict key (store +
+ * product_name + valid_from) — is NOT a write failure. Before this, "48
+ * failed" could mean 48 genuine rejections or 48 ordinary collapses, and an
+ * operator (and `storageRatioBelowThreshold`, below) could not tell which.
+ */
+function logStorageShortfall(resolvedLength: number, categorizedLength: number, storedCount: number, collapsed: number): boolean {
+  const genuineShortfall = resolvedLength - collapsed - storedCount
+  const storagePartialFailure = genuineShortfall > 0
   if (storagePartialFailure) {
-    console.error(`[pipeline] [ERROR] Storage shortfall: stored ${storedCount} of ${categorizedLength} deals (${storageShortfall} failed)`)
+    console.error(
+      `[pipeline] [ERROR] Storage shortfall: stored ${storedCount} of ${categorizedLength} deals ` +
+        `(${genuineShortfall} failed${collapsed > 0 ? `, ${collapsed} more collapsed as duplicate conflict keys — not a failure` : ''})`,
+    )
+  } else if (collapsed > 0) {
+    console.log(`[pipeline] [INFO] ${collapsed} deals collapsed as duplicate conflict keys — not a write failure`)
   }
   return storagePartialFailure
 }
@@ -482,6 +546,7 @@ type LogRunParams = {
   readonly storeStatusMap: ReadonlyMap<Store, StoreStatus>
   readonly storedCount: number
   readonly resolvedLength: number
+  readonly collapsed: number
   readonly storagePartialFailure: boolean
   readonly durationMs: number
 }
@@ -491,7 +556,8 @@ async function logRunStep(deps: PipelineDeps, params: LogRunParams): Promise<voi
   const failedStores = [...params.storeStatusMap.entries()].filter(([, r]) => r.status === 'failed').map(([store]) => store)
   if (failedStores.length > 0) errors.push(`Sources failed: ${failedStores.join(', ')}`)
   if (params.storagePartialFailure) {
-    errors.push(`Storage: stored ${params.storedCount}/${params.resolvedLength} (${params.resolvedLength - params.storedCount} failed)`)
+    const genuineShortfall = params.resolvedLength - params.collapsed - params.storedCount
+    errors.push(`Storage: stored ${params.storedCount}/${params.resolvedLength} (${genuineShortfall} failed)`)
   }
 
   const storeResults: Record<string, { status: string; count: number }> = {}
@@ -507,40 +573,67 @@ async function logRunStep(deps: PipelineDeps, params: LogRunParams): Promise<voi
   })
 }
 
-// The founding failure of this project: pipeline_runs was written every run
-// for months and nobody read it, so a categorisation regression stayed
-// invisible while the pipeline reported success. Emitting data is not
-// observability — something has to LOOK at it.
-//
-// `now` is injected (defaulting to `Date.now`, so production is unchanged)
-// purely so a test can pin the 'alert-failed' outcome — every OTHER field a
-// critical alert could key on (`halted`, `benchmarkMacroF1`,
-// `publishedDataCoverage`, `previous`) is hardcoded here today (WP-P7 wires
-// them up for real; HANDOVER §8 item 2 records that `shouldFailRun` cannot
-// currently return true any other way).
-function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], durationMs: number, now: () => number = Date.now): boolean {
-  const snapshot: RunSnapshot = {
-    runId,
+export type EvaluateAlertsStepInputs = {
+  readonly runId: string
+  readonly stats: ClassifyDealsResult['stats']
+  readonly durationMs: number
+  readonly collectedOffers: readonly Offer[]
+  readonly judgeSpend: JudgeSpendInfo
+  /** Test-only seam. Production never sets this. Defaults to `Date.now`. */
+  readonly now?: () => number
+}
+
+/**
+ * The founding failure of this project: `pipeline_runs` was written every
+ * run for months and nobody read it, so a categorisation regression stayed
+ * invisible while the pipeline reported success. Emitting data is not
+ * observability — something has to LOOK at it.
+ *
+ * WP-P7 (RCA item 2): every field of the snapshot below now comes from a
+ * REAL output — `buildRunSnapshot`'s whole point is that there is nowhere
+ * left to type a literal. `previous` is read from `deps.runHistory`, not
+ * hardcoded `null` — the comment this replaced ("No previous run to compare
+ * against yet… Passing null is honest") had no end condition, because
+ * nothing ever saved a snapshot for "yet" to end on.
+ *
+ * `now` is injected (defaulting to `Date.now`) purely so a test can pin
+ * `finishedAtMs` and `evaluateAlerts`'s `nowMs` without a real clock — EXACTLY
+ * two calls, preserved from before this WP, so every existing scripted-clock
+ * test in `run-pipeline.test.ts` keeps its call count.
+ */
+async function evaluateAlertsStep(deps: PipelineDeps, inputs: EvaluateAlertsStepInputs): Promise<boolean> {
+  const now = inputs.now ?? Date.now
+
+  const snapshot: RunSnapshot = buildRunSnapshot({
+    runId: inputs.runId,
     finishedAtMs: now(),
-    totalProducts: stats.total,
-    classified: stats.classified,
-    uncertain: stats.uncertain,
-    rejected: stats.rejected,
-    invalidCategoryRejected: 0,
-    cacheHits: stats.cacheHits,
-    cacheMisses: stats.total - stats.cacheHits,
-    tokensUsed: 0,
-    rappenSpent: 0,
-    durationMs,
-    benchmarkMacroF1: null,
-    publishedDataCoverage: {},
-    halted: null,
+    durationMs: inputs.durationMs,
+    stats: inputs.stats,
+    collectedOffers: inputs.collectedOffers,
+    judgeSpend: inputs.judgeSpend,
+  })
+
+  const previousResult = await deps.runHistory.lastSuccessful()
+  if (!isOk(previousResult)) {
+    console.warn(`[pipeline] [WARN] run history unreadable — comparing against no baseline this run: ${previousResult.error}`)
+  }
+  const previous = isOk(previousResult) ? previousResult.value : null
+
+  const alerts: readonly Alert[] = evaluateAlerts(snapshot, previous, now())
+  console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
+  emitAnnotationsForAlerts(alerts)
+  await deps.writeStepSummary(`## Pipeline alerts\n\n${formatAlerts(alerts)}`)
+
+  // Saved regardless of whether this run passed its own alerts — the
+  // regression/drift rules compare consecutive runs, not "the last time
+  // everything was fine" (see `supabase-run-history.ts`'s own header). A
+  // save failure is logged and never fails the run: losing next run's
+  // baseline is a worse outcome than this run's own results.
+  const saveResult = await deps.runHistory.save(snapshot)
+  if (!isOk(saveResult)) {
+    console.warn(`[pipeline] [WARN] could not save this run's snapshot — next run will compare against an older baseline: ${saveResult.error}`)
   }
 
-  // No previous run to compare against yet — regression detection needs two
-  // points. Passing null is honest; inventing a baseline would not be.
-  const alerts: readonly Alert[] = evaluateAlerts(snapshot, null, now())
-  console.log(`\n[pipeline] [INFO] alerts:\n${formatAlerts(alerts)}\n`)
   if (shouldFailRun(alerts)) {
     console.error('[pipeline] [ERROR] a critical alert fired — failing the run so it is visible')
     return true
@@ -550,10 +643,19 @@ function evaluateAlertsStep(runId: string, stats: ClassifyDealsResult['stats'], 
 
 const STORAGE_THRESHOLD = 0.8
 
-/** Fails if stored deals fall below 80% of resolved — significant data loss. */
-function storageRatioBelowThreshold(resolvedLength: number, storedCount: number): boolean {
-  const storageRatio = resolvedLength > 0 ? storedCount / resolvedLength : 1
-  if (resolvedLength > 0 && storageRatio < STORAGE_THRESHOLD) {
+/**
+ * Fails if stored deals fall below 80% of resolved — significant data loss.
+ *
+ * WP-P7: the denominator excludes `collapsed` rows — two offers merged into
+ * one BEFORE anything reached Postgres are not a write that could have
+ * failed, and counting them against the ratio would make an ordinary run
+ * with a lot of legitimate duplicate conflict keys look like a storage
+ * failure it never had.
+ */
+function storageRatioBelowThreshold(resolvedLength: number, storedCount: number, collapsed: number): boolean {
+  const attemptedAfterCollapse = resolvedLength - collapsed
+  const storageRatio = attemptedAfterCollapse > 0 ? storedCount / attemptedAfterCollapse : 1
+  if (attemptedAfterCollapse > 0 && storageRatio < STORAGE_THRESHOLD) {
     console.error(`[pipeline] [ERROR] Storage ratio ${(storageRatio * 100).toFixed(1)}% is below ${STORAGE_THRESHOLD * 100}% threshold — failing pipeline`)
     return true
   }
@@ -585,8 +687,14 @@ export type FinishRunParams = {
   readonly stats: ClassifyDealsResult['stats']
   readonly resolvedLength: number
   readonly storedCount: number
+  /** WP-P7: rows `storeDeals` merged before anything reached Postgres — not a write failure. */
+  readonly collapsed: number
   readonly durationMs: number
   readonly isFinalAttempt: boolean
+  /** WP-P7: feeds `buildRunSnapshot`'s `publishedDataCoverage`. */
+  readonly collectedOffers: readonly Offer[]
+  /** WP-P7: feeds `buildRunSnapshot`'s `usdMicrosSpent`/`spendNearCeiling`/`spendUnguarded`. */
+  readonly judgeSpend: JudgeSpendInfo
   /** Test-only seam — see `evaluateAlertsStep`. Production never sets this. */
   readonly now?: () => number
 }
@@ -631,10 +739,18 @@ export async function finishRun(deps: PipelineDeps, params: FinishRunParams): Pr
     )
   }
 
-  if (evaluateAlertsStep(params.runId, params.stats, params.durationMs, params.now)) {
+  const alertFailed = await evaluateAlertsStep(deps, {
+    runId: params.runId,
+    stats: params.stats,
+    durationMs: params.durationMs,
+    collectedOffers: params.collectedOffers,
+    judgeSpend: params.judgeSpend,
+    now: params.now,
+  })
+  if (alertFailed) {
     return { status: 'alert-failed' }
   }
-  if (storageRatioBelowThreshold(params.resolvedLength, params.storedCount)) {
+  if (storageRatioBelowThreshold(params.resolvedLength, params.storedCount, params.collapsed)) {
     return { status: 'storage-shortfall' }
   }
 
@@ -651,9 +767,13 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
 
   let categorized: Deal[]
   let stats: ClassifyDealsResult['stats']
+  let judgeSpend: JudgeSpendInfo
   try {
     const deadlineAtMs = options.startTime + RUN_DEADLINE_MS
-    ;({ deals: categorized, stats } = await classifyGroceryDeals(deps, groceryOnly, options.runId, deadlineAtMs, clock))
+    const classified = await classifyGroceryDeals(deps, groceryOnly, options.runId, deadlineAtMs, clock)
+    categorized = classified.result.deals
+    stats = classified.result.stats
+    judgeSpend = classified.judgeSpend
   } catch (err) {
     // A cache that cannot be read is a transient Supabase/network problem,
     // not a bug — nothing has been written yet, so there is nothing to
@@ -683,7 +803,7 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   await v3CutoverStep(deps, resolved)
   await sweepStep(deps, collected.storeStatusMap, write, options.startDate)
 
-  const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount)
+  const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount, write.writeResult.collapsed)
   await deactivateExpiredStep(deps)
 
   // F7 (code review of the first WP-P3 submission): `Date.now()` here while
@@ -693,7 +813,14 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   // function, is what makes the deadline tests' `durationMs` a real ~29
   // minutes (RUN_DEADLINE_MS plus a minute) instead of ~9e10ms.
   const durationMs = clock() - options.startTime
-  await logRunStep(deps, { storeStatusMap: collected.storeStatusMap, storedCount, resolvedLength: resolved.length, storagePartialFailure, durationMs })
+  await logRunStep(deps, {
+    storeStatusMap: collected.storeStatusMap,
+    storedCount,
+    resolvedLength: resolved.length,
+    collapsed: write.writeResult.collapsed,
+    storagePartialFailure,
+    durationMs,
+  })
 
   const writeTailMs = clock() - writeTailStart
   console.log(
@@ -710,8 +837,11 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
     stats,
     resolvedLength: resolved.length,
     storedCount,
+    collapsed: write.writeResult.collapsed,
     durationMs,
     isFinalAttempt: options.isFinalAttempt,
+    collectedOffers: collected.offers,
+    judgeSpend,
     now: options.clock,
   })
 }

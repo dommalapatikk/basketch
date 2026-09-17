@@ -26,6 +26,7 @@ import {
 import { supabase } from './supabase-client'
 import { writeEnrichment } from './storage/infrastructure/write-enrichment'
 import { pingRevalidateWebhook } from './observability/revalidate-webhook'
+import { writeStepSummary } from './observability/github-step-summary'
 import { populateV3Layer } from './v3-cutover'
 import { unwrap } from './collection/domain/result'
 import { guardClassifier } from './transformation/domain/classifier'
@@ -43,6 +44,8 @@ import { createGeminiClassifier } from './transformation/infrastructure/gemini/g
 import { createGeminiEnricher } from './transformation/infrastructure/gemini/gemini-enricher'
 import { createModelGate, type ModelGate, type ModelGateDeps } from './transformation/infrastructure/model-gate'
 import { createSupabaseClassificationCache } from './transformation/infrastructure/supabase/supabase-classification-cache'
+import { createSupabaseRunHistory } from './transformation/infrastructure/supabase-run-history'
+import type { RunHistory } from './transformation/application/run-snapshot'
 import { probeModels } from './transformation/infrastructure/model-probe'
 import { type UsdMicros, formatUsd } from './transformation/domain/spend'
 import {
@@ -224,6 +227,16 @@ async function buildClassificationDeps(
   const spendCeiling = await resolveJudgeSpendCeiling(env, log, spendAccount)
   const judgeMayRun = Boolean(env.OPENROUTER_API_KEY) && spendCeiling.ceilingMicros !== null
 
+  // WP-P7: built whenever a key exists, whether or not the judge itself runs
+  // this attempt — `spendSnapshot()` is what `buildRunSnapshot` reads to
+  // produce `spendNearCeiling`, and it must answer `null` honestly (nothing
+  // was ever reserved) rather than not exist at all when `judgeMayRun` is
+  // false. One gate, reused for both the judge itself and this reading —
+  // never a second, disconnected instance.
+  const judgeGate = env.OPENROUTER_API_KEY
+    ? buildGate(JUDGE_SPEC, log, gateDeps, spendCeiling.ceilingMicros ?? undefined)
+    : null
+
   return {
     cache: buildClassificationCache(),
     // Retry, pacing and the circuit breaker live in `tier1Gate`, injected at
@@ -254,7 +267,7 @@ async function buildClassificationDeps(
     // gate — the judge is a different provider and, today, a different model
     // from the classifier, so it never shares tier1Gate.
     judge:
-      judgeMayRun && env.OPENROUTER_API_KEY
+      judgeMayRun && env.OPENROUTER_API_KEY && judgeGate
         ? createOpenRouterJudge({
             // WP-P8 review: with reasoning effort UNSET, GPT-5 defaults to
             // medium and can spend ~50% of max_tokens thinking, returning
@@ -264,7 +277,7 @@ async function buildClassificationDeps(
             apiKey: env.OPENROUTER_API_KEY,
             model: JUDGE_SPEC.id,
             taxonomy: TAXONOMY,
-            gate: buildGate(JUDGE_SPEC, log, gateDeps, spendCeiling.ceilingMicros ?? undefined),
+            gate: judgeGate,
             maxOutputTokens: judgeMaxOutputTokens(JUDGE_SPEC),
             log,
           })
@@ -282,6 +295,15 @@ async function buildClassificationDeps(
     enricher: env.GOOGLE_AI_API_KEY
       ? createGeminiEnricher({ apiKey: env.GOOGLE_AI_API_KEY, model: tier1Model, gate: tier1Gate, log })
       : null,
+    // WP-P7 (RCA item 2): `guarded` was computed by `resolveJudgeSpendCeiling`
+    // and never read again after this function returned — exactly the value
+    // `alerts.ts`'s `spend-unguarded` rule needs and had no producer for.
+    // `spendSnapshot` reads the SAME gate the judge itself calls through, so
+    // what `buildRunSnapshot` reports is never a second, disconnected number.
+    judgeSpend: {
+      guarded: spendCeiling.guarded,
+      spendSnapshot: () => judgeGate?.spendSnapshot() ?? null,
+    },
   }
 }
 
@@ -306,6 +328,11 @@ const PRODUCTION_STORAGE: StorageDeps = {
   logPipelineRun,
 }
 
+const PRODUCTION_RUN_HISTORY: RunHistory = createSupabaseRunHistory({
+  client: supabase,
+  onDegraded: (op, detail) => console.warn(`[pipeline] [WARN] run history ${op}: ${detail}`),
+})
+
 export type ProductionDepsOverrides = {
   /** Test-only seam: the real adapters run against a fake network instead of the real one. */
   readonly transport?: Transport
@@ -322,6 +349,8 @@ export type ProductionDepsOverrides = {
    * unreadable without a network call.
    */
   readonly spendAccount?: SpendAccount
+  /** Test-only seam (WP-P7): an in-memory RunHistory instead of Supabase. */
+  readonly runHistory?: RunHistory
 }
 
 /**
@@ -335,6 +364,10 @@ export function createProductionDeps(env: Env, overrides: ProductionDepsOverride
     sources: (week: IsoWeekParts) => createLiveSources({ kw: week.kw, year: week.year, transport: overrides.transport }),
     createClassificationDeps: (log) => buildClassificationDeps(env, log, overrides.modelClock, overrides.spendAccount),
     storage: PRODUCTION_STORAGE,
+    runHistory: overrides.runHistory ?? PRODUCTION_RUN_HISTORY,
     revalidate: () => pingRevalidateWebhook(env, { fetch, log: (m) => console.log(m) }),
+    writeStepSummary: async (markdown) => {
+      await writeStepSummary(env, markdown, { log: (m) => console.warn(m) })
+    },
   }
 }
