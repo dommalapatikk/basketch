@@ -21,7 +21,7 @@
 import { END, START, StateGraph } from '@langchain/langgraph'
 import { isOk } from '../../collection/domain/result'
 import type { Classification } from '../domain/classification'
-import { type ClassificationRequest, type Classifier, guardClassifier } from '../domain/classifier'
+import { type ClassificationFailure, type ClassificationRequest, type Classifier, guardClassifier } from '../domain/classifier'
 import {
   type Budget,
   type BudgetState,
@@ -29,8 +29,10 @@ import {
   checkBudget,
   mayEscalate,
   recordSpend,
+  reserveCall,
   sanitiseDescriptor,
   sanitiseForPrompt,
+  settleTokens,
 } from '../domain/guardrails'
 import { guardJudge, guardReflector } from './port-guards'
 
@@ -61,6 +63,17 @@ export type Outcome = {
   readonly judgeVerdict: JudgeVerdict | null
   readonly reflected: boolean
   readonly detail?: string
+  /**
+   * Set exactly when this outcome came from something going WRONG — never
+   * for a genuine content disagreement. WP-P6a F1: an 'uncertain' outcome
+   * that is RESOURCE-limited (the escalation budget ran out before this
+   * product's turn; reflection ran and returned nothing) says NOTHING
+   * about whether the category is actually wrong — unlike "the judge
+   * disputed it and reflection still disagrees", which IS the uncertainty
+   * signal D3 exists to capture. `classify-deals.ts`'s cache must tell the
+   * two apart: only the latter is safe to memoise as permanently uncertain.
+   */
+  readonly failure?: ClassificationFailure
 }
 
 export type GraphState = {
@@ -80,6 +93,150 @@ export type GraphDeps = {
   judgeSampleRate?: number
   /** Told when a port breaks its contract and throws. Silence would hide a defect. */
   log?: (message: string) => void
+  /**
+   * Per-call judge token usage — NOT routed through `log`, which every
+   * caller prefixes as a warning (`log` exists for port BREACHES). A
+   * successful judge call reporting its own spend is ordinary operation,
+   * not a defect, so it gets its own hook — the same reason the classifier
+   * has `onUsage` rather than logging through its own breach channel.
+   */
+  onJudgeUsage?: (tokens: number, verdict: JudgeVerdict) => void
+}
+
+/** One disputed item, accepted as classified without ever reaching the judge — sampled out, or the escalation budget is spent. */
+function acceptedWithoutJudging(d: { request: ClassificationRequest; classification: Classification }): Outcome {
+  return { request: d.request, classification: d.classification, status: 'classified', judgeVerdict: null, reflected: false }
+}
+
+/**
+ * Decides, for EVERY disputed item, whether it is judged at all — sampling
+ * and the escalation-budget check both run here, in ONE synchronous pass,
+ * strictly BEFORE any judge call is dispatched. A decision made once a
+ * concurrent call is already in flight would be racing the thing it is
+ * meant to gate, which is not a gate.
+ *
+ * WP-P6 code review, MUST-FIX 1. `budget` is READ ONCE from `mayEscalate`'s
+ * point of view only if it is never updated across the pass — the first
+ * version of this function took a `mayEscalateNow` closure over a budget
+ * that was only reassigned AFTER the judge calls resolved, so every item in
+ * this loop saw the SAME starting state. Measured: `maxCalls: 10` (the 80%
+ * line: 8) admitted 50 of 100 disputed items in one chunk, because nothing
+ * during SELECTION ever moved the needle — either every item passed or none
+ * did. `reserveCall` fixes this by reserving a call slot the moment an item
+ * is ACCEPTED, so the NEXT item's check already accounts for it, in the same
+ * synchronous pass, before any of them has actually run.
+ */
+export function selectForJudging(
+  disputed: GraphState['disputed'],
+  judgeRate: number,
+  budget: BudgetState,
+  policy: Budget,
+): { readonly toJudge: GraphState['disputed']; readonly accepted: Outcome[]; readonly reserved: BudgetState } {
+  const toJudge: GraphState['disputed'] = []
+  const accepted: Outcome[] = []
+  let reserved = budget
+
+  for (const [i, d] of disputed.entries()) {
+    // Sampling keeps the judge affordable; unjudged answers are accepted as
+    // classified rather than held back.
+    const sampledOut = judgeRate < 1 && i % Math.round(1 / judgeRate) !== 0
+    if (sampledOut || !mayEscalate(policy, reserved)) {
+      accepted.push(acceptedWithoutJudging(d))
+      continue
+    }
+    toJudge.push(d)
+    reserved = reserveCall(reserved)
+  }
+
+  return { toJudge, accepted, reserved }
+}
+
+/**
+ * Folds every judge verdict (from a bounded-concurrency `Promise.all`) back
+ * into outcomes and the still-disputed worklist. `judged[i]` answers
+ * `toJudge[i]` — `Promise.all` preserves array order regardless of which
+ * call resolved first, so this never needs its own index bookkeeping.
+ */
+function foldJudgeResults(
+  toJudge: GraphState['disputed'],
+  judged: readonly { verdict: JudgeVerdict; tokens: number }[],
+  onVerdict: (tokens: number, verdict: JudgeVerdict) => void,
+): { readonly outcomes: Outcome[]; readonly stillDisputed: GraphState['disputed'] } {
+  const outcomes: Outcome[] = []
+  const stillDisputed: GraphState['disputed'] = []
+
+  toJudge.forEach((d, i) => {
+    const result = judged[i]
+    if (!result) return // Promise.all guarantees this never happens; defensive, not reachable.
+    onVerdict(result.tokens, result.verdict)
+
+    if (result.verdict === 'wrong') stillDisputed.push(d)
+    else outcomes.push({ request: d.request, classification: d.classification, status: 'classified', judgeVerdict: result.verdict, reflected: false })
+  })
+
+  return { outcomes, stillDisputed }
+}
+
+/**
+ * One disputed item through reflection. Sequential — reflection only ever
+ * runs on what the judge disputed (a small remainder), so concurrency here
+ * has not been measured as worth the complexity the way the judge's own
+ * ~10.3s-per-call cost was.
+ */
+async function reflectOne(
+  d: { request: ClassificationRequest; classification: Classification },
+  reflector: Reflector,
+  budget: BudgetState,
+  policy: Budget,
+): Promise<{ readonly outcome: Outcome; readonly budget: BudgetState }> {
+  // WP-P6a F1: the escalation BUDGET ran out before this product's turn — a
+  // fact about THIS RUN, not about the product. `failure` set so
+  // `classify-deals.ts` never memoises it as a permanent uncertain the way a
+  // genuine judge/reflector disagreement is.
+  if (!mayEscalate(policy, budget)) {
+    return {
+      outcome: {
+        request: d.request, classification: d.classification, status: 'uncertain',
+        judgeVerdict: 'wrong', reflected: false,
+        detail: 'judge disputed; escalation budget exhausted', failure: 'budget-exhausted',
+      },
+      budget,
+    }
+  }
+
+  const { classification, tokens } = await reflector.reflect(d.request, d.classification)
+  const spent = recordSpend(budget, tokens)
+
+  if (!classification) {
+    // WP-P6a F1: the reflector RAN and produced nothing — a resource limit
+    // (a dead provider, an unparseable reply), not a content signal.
+    return {
+      outcome: {
+        request: d.request, classification: d.classification, status: 'uncertain',
+        judgeVerdict: 'wrong', reflected: true,
+        detail: 'reflection produced no answer', failure: 'no-answer',
+      },
+      budget: spent,
+    }
+  }
+
+  // Reflection changed its mind -> accept the revision.
+  // Reflection held its ground against a judge that disputed it -> the two
+  // disagree, and that IS the uncertainty signal. Flag for review rather
+  // than pick a winner. No `failure` here — this is the genuine content
+  // disagreement WP-P6a's cache exists to remember, not a resource limit.
+  const changed = classification.category !== d.classification.category
+  return {
+    outcome: {
+      request: d.request,
+      classification,
+      status: changed ? 'classified' : 'uncertain',
+      judgeVerdict: 'wrong',
+      reflected: true,
+      detail: changed ? 'revised after reflection' : 'judge and classifier disagree',
+    },
+    budget: spent,
+  }
 }
 
 const channels = {
@@ -104,6 +261,7 @@ const channels = {
 export function buildClassifyGraph(deps: GraphDeps) {
   const judgeRate = deps.judgeSampleRate ?? 1
   const log = deps.log ?? (() => {})
+  const onJudgeUsage = deps.onJudgeUsage ?? (() => {})
 
   // The graph defends itself rather than trusting what it was handed. CLAUDE.md
   // says pipeline ports never throw; every adapter we own honours that, and the
@@ -148,6 +306,12 @@ export function buildClassifyGraph(deps: GraphDeps) {
           outcomes: s.pending.map((r) => ({
             request: r, classification: null, status: 'skipped-budget' as const,
             judgeVerdict: null, reflected: false, detail: verdict.reason,
+            // MUST-FIX 2 (WP-P6 code review): the RUN's own token/call/spend
+            // budget, not the escalation one D4 targets — same reported
+            // reason kind, so classify-deals.ts's held-back breakdown does
+            // not need a third bucket for what is, from an operator's view,
+            // the same shape of "budget ran out before this product's turn".
+            failure: 'budget-exhausted' as const,
           })),
           pending: [],
         }
@@ -166,17 +330,27 @@ export function buildClassifyGraph(deps: GraphDeps) {
         // A provider failure is an EDGE, not an exception. The batch is
         // reported as uncertain and the run continues — it never writes a
         // guessed category and never silently drops a product.
+        //
+        // 'provider-unavailable' here: a whole-batch Err from `classify()` is
+        // always a TRANSPORT-level failure (the network threw, or Google
+        // returned an explicit error payload) — never a content failure. D4's
+        // content guards (truncation, unparseable output) are handled INSIDE
+        // the adapter and never surface as a batch-level Err (see
+        // `gemini-classifier.ts`'s `classifyWithGuards`); they reach here, if
+        // at all, as the per-item `!o.ok` branch below, carrying their own
+        // `o.reason`.
         if (!isOk(res)) {
           outcomes.push(...batch.map((r) => ({
             request: r, classification: null, status: 'uncertain' as const,
             judgeVerdict: null, reflected: false, detail: res.error,
+            failure: 'provider-unavailable' as const,
           })))
           continue
         }
 
         for (const o of res.value) {
           if (!o.ok) {
-            outcomes.push({ request: o.request, classification: null, status: 'uncertain', judgeVerdict: null, reflected: false, detail: o.detail })
+            outcomes.push({ request: o.request, classification: null, status: 'uncertain', judgeVerdict: null, reflected: false, detail: o.detail, failure: o.reason })
             continue
           }
           disputed.push({ request: o.request, classification: o.classification })
@@ -190,6 +364,19 @@ export function buildClassifyGraph(deps: GraphDeps) {
     // The escalation trigger. NOT self-reported confidence: measured at 5 of 291
     // below 0.9 while 16 were wrong. The judge had a 0% false-alarm rate, so a
     // "wrong" verdict is trustworthy in a way the model's own score is not.
+    //
+    // WP-P6: judged ONE PRODUCT AT A TIME, sequentially, at ~10.3s each — a
+    // 400-product cold-start miss set took ~69 minutes against a 45-minute
+    // step (`docs/rca/2026-09-15-tech-lead-items-6-9.md` §9.1). Dispatching
+    // through `Promise.all` below and letting the (provider, model) gate's
+    // own semaphore (`model-gate.ts`, `maxInFlight: 4` on `JUDGE_CHAIN[0]` in
+    // `model-registry.ts`) bound the actual concurrency cuts that to ~330s
+    // per 100 products — see `JUDGE_CHAIN[0]`'s own comment for the
+    // corrected arithmetic (the gate's paced 18 req/min ceiling binds
+    // before 4-in-flight latency does, so this is a ~3x win, not 4x).
+    // Nothing about PACING changes: the gate already owns rate, retry and
+    // the circuit — this node only changes how many calls it has
+    // OUTSTANDING at once, never how fast the provider's bucket refills.
     .addNode('judge', async (s: GraphState) => {
       if (!judge) {
         return {
@@ -201,33 +388,30 @@ export function buildClassifyGraph(deps: GraphDeps) {
         }
       }
 
-      const outcomes: Outcome[] = []
-      const stillDisputed: GraphState['disputed'] = []
-      let budget = s.budget
+      // `selectForJudging` reserves a call slot PER ACCEPTED ITEM, in one
+      // synchronous pass, BEFORE any judge call is dispatched — see its own
+      // doc comment (MUST-FIX 1). `reserved` already carries every accepted
+      // item's call slot; `foldJudgeResults` below only has to settle the
+      // REAL token cost once `Promise.all` resolves, via `settleTokens`
+      // (never `recordSpend`, which would count each call a second time).
+      const { toJudge, accepted, reserved } = selectForJudging(s.disputed, judgeRate, s.budget, deps.budget)
+      let budget = reserved
 
-      for (const [i, d] of s.disputed.entries()) {
-        // Sampling keeps the judge affordable; unjudged answers are accepted as
-        // classified rather than held back.
-        if (judgeRate < 1 && i % Math.round(1 / judgeRate) !== 0) {
-          outcomes.push({ request: d.request, classification: d.classification, status: 'classified', judgeVerdict: null, reflected: false })
-          continue
-        }
-        if (!mayEscalate(deps.budget, budget)) {
-          outcomes.push({ request: d.request, classification: d.classification, status: 'classified', judgeVerdict: null, reflected: false })
-          continue
-        }
+      // Bounded concurrency lives in the GATE (`model-gate.ts`'s semaphore,
+      // `policy.maxInFlight`), not here — `Promise.all` dispatches every
+      // remaining item at once, and the SHARED gate behind `judge.judge()`
+      // admits at most `maxInFlight` HTTP attempts at a time, queuing the
+      // rest.
+      const judged = await Promise.all(
+        toJudge.map((d) => judge.judge(d.request, { category: d.classification.category, subCategory: d.classification.subCategory })),
+      )
 
-        const { verdict, tokens } = await judge.judge(d.request, {
-          category: d.classification.category,
-          subCategory: d.classification.subCategory,
-        })
-        budget = recordSpend(budget, tokens)
+      const { outcomes, stillDisputed } = foldJudgeResults(toJudge, judged, (tokens, verdict) => {
+        budget = settleTokens(budget, tokens)
+        onJudgeUsage(tokens, verdict)
+      })
 
-        if (verdict === 'wrong') stillDisputed.push(d)
-        else outcomes.push({ request: d.request, classification: d.classification, status: 'classified', judgeVerdict: verdict, reflected: false })
-      }
-
-      return { disputed: stillDisputed, outcomes, budget }
+      return { disputed: stillDisputed, outcomes: [...accepted, ...outcomes], budget }
     })
 
     // ── reflect ──────────────────────────────────────────────────────────────
@@ -240,32 +424,18 @@ export function buildClassifyGraph(deps: GraphDeps) {
       let budget = s.budget
 
       for (const d of s.disputed) {
-        if (!reflector || !mayEscalate(deps.budget, budget)) {
-          outcomes.push({ request: d.request, classification: d.classification, status: 'uncertain', judgeVerdict: 'wrong', reflected: false, detail: 'judge disputed; no reflection available' })
+        // No reflector configured AT ALL for this run: a standing fact about
+        // THIS DEPLOYMENT, not a per-call resource limit — unchanged from
+        // before WP-P6, and still safe to memoise (`classify-deals.test.ts`'s
+        // WP-P6a suite already locks this behaviour in).
+        if (!reflector) {
+          outcomes.push({ request: d.request, classification: d.classification, status: 'uncertain', judgeVerdict: 'wrong', reflected: false, detail: 'judge disputed; no reflector configured' })
           continue
         }
 
-        const { classification, tokens } = await reflector.reflect(d.request, d.classification)
-        budget = recordSpend(budget, tokens)
-
-        if (!classification) {
-          outcomes.push({ request: d.request, classification: d.classification, status: 'uncertain', judgeVerdict: 'wrong', reflected: true, detail: 'reflection produced no answer' })
-          continue
-        }
-
-        // Reflection changed its mind -> accept the revision.
-        // Reflection held its ground against a judge that disputed it -> the two
-        // disagree, and that IS the uncertainty signal. Flag for review rather
-        // than pick a winner.
-        const changed = classification.category !== d.classification.category
-        outcomes.push({
-          request: d.request,
-          classification,
-          status: changed ? 'classified' : 'uncertain',
-          judgeVerdict: 'wrong',
-          reflected: true,
-          detail: changed ? 'revised after reflection' : 'judge and classifier disagree',
-        })
+        const result = await reflectOne(d, reflector, budget, deps.budget)
+        outcomes.push(result.outcome)
+        budget = result.budget
       }
 
       return { disputed: [], outcomes, budget }

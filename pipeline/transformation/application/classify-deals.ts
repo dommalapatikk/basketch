@@ -88,6 +88,17 @@ export type ClassifyDealsResult = {
      */
     readonly heldBack: number
     /**
+     * WP-P6 code review, MUST-FIX 2. `heldBack` alone folds a truncated
+     * Gemini response, an unparseable one, a dead provider and a plain
+     * cold-start deferral into ONE number — an operator sees "40 held back"
+     * and cannot tell a systemic truncation problem from an ordinary
+     * deferral. Keyed by `Outcome.failure` (classify-graph.ts) where one
+     * exists; `'not-attempted'` covers a product the cold-start plan never
+     * even sent to a model. `Object.values(...).reduce(...)` always equals
+     * `heldBack` — see `classify-deals.test.ts`'s invariant test.
+     */
+    readonly heldBackByFailure: Readonly<Record<string, number>>
+    /**
      * Judge verdicts that never happened.
      *
      * gemini-judge catches every failure — 402 out of credit, 429, a parse
@@ -209,12 +220,27 @@ async function persistChunk(
   // guard), never reaches this filter at all — it is a different `status`
   // value, not 'uncertain'.
   //
+  // F1 (code review carry-forward, WP-P6a — closed here by WP-P6). A SECOND
+  // shape of "not a content signal" slipped through the FIRST filter above:
+  // an outcome CAN carry a real classification (`classification !== null`)
+  // and still be resource-limited rather than disputed — the judge said
+  // "wrong" but this run's escalation BUDGET ran out before reflection got
+  // a turn, or reflection ran and the provider returned nothing usable.
+  // Neither says anything about whether the category is actually wrong; both
+  // are just THIS RUN having less budget or a flakier provider than the
+  // next one. Before this fix both were memoised exactly like "reflection
+  // ran and still disagrees with the judge" — a genuine content signal — and
+  // so became PERMANENTLY uncertain (HANDOVER.md §5: "no run will ever
+  // re-open it"), for a reason that had nothing to do with the product.
+  // `Outcome.failure` (classify-graph.ts) is set on exactly these two cases
+  // and excludes them here.
+  //
   // Deliberately NOT sent to enrichment above (see `enrichable`, F2): an
   // uncertain sub-category is a guess, so its attribute schema is a guess on
   // top of a guess — do not spend enrichment calls on it. Tech Lead ruling,
   // WP-P6a.
   const uncertainWithClassification = chunk.filter(
-    (o) => o.status === 'uncertain' && o.classification !== null,
+    (o) => o.status === 'uncertain' && o.classification !== null && o.failure === undefined,
   )
 
   const toCache = [
@@ -480,6 +506,11 @@ export async function classifyDeals(
       // log is an undiagnosable run. This is the only way a contract breach
       // becomes visible.
       log: (m) => log(`[transform] ⚠ ${m}`),
+      // Per-call judge token usage. The judge makes ONE model call per
+      // escalated product (unlike the classifier's per-25-product batches),
+      // so this is the granularity that actually shows what an OpenRouter
+      // judge run costs — WP-P8's spend guard needs exactly this evidence.
+      onJudgeUsage: (tokens, verdict) => log(`[transform] judge: ${tokens} tokens (verdict ${verdict})`),
     })
     if (plan.judgeSampleRate < 1) {
       log(
@@ -644,6 +675,11 @@ export async function classifyDeals(
   let rejected = 0
   let blocked = 0
   let heldBack = 0
+  const heldBackByFailure = new Map<string, number>()
+  const bumpHeldBack = (reason: string) => {
+    heldBack++
+    heldBackByFailure.set(reason, (heldBackByFailure.get(reason) ?? 0) + 1)
+  }
   const out: Deal[] = []
   const judgeUnavailable = outcomes.filter((o) => o.judgeVerdict === 'unavailable').length
 
@@ -673,8 +709,11 @@ export async function classifyDeals(
     const outcome = byName.get(normaliseForCache(deal.productName))
     if (!outcome) {
       // Deferred by the cold-start plan: never sent to a model, so there is no
-      // category to publish. Returns next run as a cache miss.
-      heldBack++
+      // category to publish. Returns next run as a cache miss. No `Outcome`
+      // exists for this product at all, so there is no `failure` to key on —
+      // 'not-attempted' is a distinct bucket from every reason below, which
+      // DID reach a model or a guardrail.
+      bumpHeldBack('not-attempted')
       return
     }
 
@@ -721,8 +760,25 @@ export async function classifyDeals(
     // ran out before the product was reached, or the provider was down. There
     // is nothing to publish, and inventing a category is the failure mode this
     // whole component exists to remove.
-    heldBack++
+    //
+    // MUST-FIX 2 (WP-P6 code review): keyed on `outcome.failure`
+    // (classify-graph.ts). Every outcome that reaches this branch with
+    // `classification: null` sets one today — 'output-truncated',
+    // 'unparseable', 'no-answer', 'invalid-category', 'provider-unavailable'
+    // or 'budget-exhausted' — so 'unspecified' should be unreachable. Kept
+    // as the honest fallback rather than a non-null assertion: a FUTURE
+    // Outcome-producing branch that forgets to set `failure` must still be
+    // counted, not crash the run.
+    bumpHeldBack(outcome.failure ?? 'unspecified')
   })
+
+  if (heldBackByFailure.size > 0) {
+    const breakdown = [...heldBackByFailure.entries()]
+      .sort(([, a], [, b]) => b - a)
+      .map(([reason, n]) => `${reason}=${n}`)
+      .join(', ')
+    log(`[transform] held back by reason: ${breakdown}`)
+  }
 
   log(
     `[transform] ${classified} classified · ${hits} cached · ${uncertain} uncertain (published, flagged) · ${rejected} rejected · ${blocked} blocked · ${heldBack} held back`,
@@ -744,6 +800,7 @@ export async function classifyDeals(
       rejected,
       blocked,
       heldBack,
+      heldBackByFailure: Object.fromEntries(heldBackByFailure),
       judgeUnavailable,
       deferred,
       isColdStart: plan.isColdStart,

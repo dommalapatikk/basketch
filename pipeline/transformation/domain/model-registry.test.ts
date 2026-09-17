@@ -71,4 +71,13 @@ describe('every registry entry is a valid policy (would have been silently ungat
   it('every Gemini entry in TIER1_CHAIN is maxInFlight 1 (WP-P5 D1 ruling)', () => {
     for (const m of TIER1_CHAIN) expect(m.maxInFlight).toBe(1)
   })
+
+  it('the primary judge is maxInFlight 4 (WP-P6) — this is the seam that raises judge concurrency', () => {
+    // 100 sequential judgements at ~10.3s each took ~1,000s; this is the
+    // ONLY registry field classify-graph.ts's judge node relies on — the
+    // gate's semaphore (model-gate.ts) already admits up to this many
+    // concurrent attempts, so a regression here silently drops concurrency
+    // back to sequential without any test in classify-graph.test.ts failing.
+    expect(JUDGE_CHAIN[0]?.maxInFlight).toBe(4)
+  })
 })

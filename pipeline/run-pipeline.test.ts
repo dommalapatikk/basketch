@@ -526,6 +526,7 @@ function statsOf(total: number): Parameters<typeof finishRun>[1]['stats'] {
     rejected: 0,
     blocked: 0,
     heldBack: 0,
+    heldBackByFailure: {},
     judgeUnavailable: 0,
     deferred: 0,
     isColdStart: false,
