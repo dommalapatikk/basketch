@@ -1,160 +1,256 @@
 # basketch — session summary
 
-**Last updated:** 2026-09-15
-**Live:** https://basketch.vercel.app · **1,523 deals** across 7 retailers · pipeline green
+**Dates:** 2026-09-15 → 2026-09-18
+**State at close:** working tree clean, 0 unpushed commits, `main` = `056b0e0`.
+**Site:** live and healthy — 1,997 active deals across all seven retailers, prices
+rendering, valid through 2026-09-23.
 
 ---
 
-## Current state — all green
+## 1. What this session was
 
-| Thing | State |
+The PM's instruction on 2026-09-15 set the method for everything that followed:
+
+> "fix all, 3 api key is valid move it in right place, 5 update it with limits and
+> gardrails set. 6-9 fix it. before fixing do root cause anylsis and invluce
+> arctect, tech lead and for fix engineer agents and always follow ddd and tdd"
+
+So: RCA first (architect + tech lead, independently, then cross-reviewed), then
+builders, then a code-review loop to zero open findings. Every gate re-measured by
+the coordinator rather than taken from an agent's report.
+
+Authoritative plan: `docs/rca/2026-09-15-final-plan.md` — decisions AP-1…AP-11,
+TP-6…TP-10, Tech Lead rulings D1–D6, 20 work packages in three lanes.
+
+---
+
+## 2. Work packages — 19 of 20 merged and pushed
+
+**Shipped earlier in the session:** #3 starter-pack removal, #4 key move, P1 stale
+sweep, W2 validity + member prices, C1 Migros parser, P2 composition root, W3 views,
+C2 rappen discounts, P3 deadline/exit codes, P4 retire legacy aktionis, P6 judge
+concurrency, P6a cache uncertain, C3 Coop names, P5 ModelGate, C4
+QuantityRequirement, W4 "from 2 items", P7 run journal, P8 spend guard, image fixes.
+
+**Shipped 2026-09-17/18:**
+
+| WP | What | Commit |
+|---|---|---|
+| **P9** | Enrichment completion — `attributes_version` | `c724a5a` |
+| **J1** | Each retailer names its own publication (`editionFor`) | `2181731` |
+| **W5** | The missing German sub-category labels | `056b0e0` |
+
+**Not built:** J2 (fetch ledger), J3 (collect/transform split + daily cron),
+T1 (taxonomy divergence — fully designed and cross-reviewed, ready to build).
+
+---
+
+## 3. Key decisions made by the PM
+
+Recorded in full in `docs/decisions/2026-09-17-pm-taxonomy-decisions.md`.
+
+- **PM-1 — general merchandise is grouped, not promoted.** Fixing the taxonomy gives
+  a browse chip to ~28% of the catalogue (227 toys, 91 clothing, appliances, books,
+  stationery). These go under one `general-merchandise` group rather than becoming
+  top-level chips beside Dairy and Bakery — basketch is a grocery comparison, and
+  equal weighting would change what the product appears to be. **Constraint: the
+  grouping must be expressed in `BROWSE_CATEGORIES` itself, not as a frontend
+  translation layer** — that would be a sixth copy of the vocabulary, which is the
+  bug being fixed.
+- **PM-2 — the German labels ship now, on their own.** Done, `056b0e0`.
+- **PM-3 — the 11,206 historical rows are deferred, not decided.** The Tech Lead's
+  `NOT VALID` ruling removed the need for the decision entirely.
+- **Push the held commits** (2026-09-17): the PM confirmed the OpenRouter USD 5
+  monthly cap was set, and authorised pushing the 41 held commits (P6/P7/P8/P9).
+- **Open, flagged, not decided:** `coffee-tea` ceasing to be a category; category
+  chips being invisible at the default `?type=all`; `body-care`/`personal-care` both
+  rendering "Körperpflege".
+
+---
+
+## 4. Verified data points (all measured against production, not inferred)
+
+| Fact | Value | When |
+|---|---|---|
+| Active deals | 1,169 (1,997 incl. all windows) | 2026-09-17 |
+| Deals with NO `category_slug` | **561 / 1,169 = 48.0%** | 2026-09-17 |
+| `taxonomy_alias` rows vs taxonomy | 28 vs ~90 sub-categories | 2026-09-17 |
+| `taxonomy_category` rows vs code | 17 vs 22, only **7 names in common** | 2026-09-17 |
+| Total deals table | 26,371, of which **11,206 (42.5%)** have no category | 2026-09-17 |
+| Deals under an English heading on `/de` | **585 / 1,169 = 50%** | 2026-09-17 |
+| `attributes_version` backfill | 437 of 2,414 stamped (18.1%), 0 wrongly | 2026-09-17 |
+| Null-category rate by store | coop 57.4%, aldi 48.8%, lidl 35.1%, denner 21.3%, volg 13.6%, spar 13.0%, migros 7.7% | 2026-09-17 |
+
+---
+
+## 5. The bug that defined 2026-09-17: taxonomy divergence
+
+**Two taxonomies exist and have diverged.** `BROWSE_CATEGORIES` in `shared/types.ts`
+(22 categories, ~90 sub-categories) is what the classifier is told to use.
+`taxonomy_category` + `taxonomy_alias` in the database (17 + 28 rows, seeded
+2026-04-25, never touched since) is what actually gets written to `deals.category_slug`.
+Only 7 names appear in both. `coffee-tea` is a *category* in the DB and a
+*sub-category* in code — they disagree about hierarchy, not just names.
+
+**The real root cause is older than it looked.** `classify-deals.ts:372` does
+`category: topCategoryFor(fields.category)` — the classifier's browse category,
+already validated, is collapsed to `fresh`/`long-life`/`non-food` and the browse id
+is **discarded**. `run-pipeline.ts:839` then reconstructs it from the *child*
+(`sub_category`) through the stale alias table. `dealToRow` (`shared/types.ts:961`)
+**already writes `category_slug`** and needs no change. So the fix is to stop
+discarding the answer, not to seed missing rows.
+
+**Two blockers the cross-review caught, both verified against production:**
+1. The planned `DELETE FROM taxonomy_category` would have hard-failed on an FK
+   violation every time — 20 `taxonomy_subcategory` rows still point at the 7 doomed
+   parents, and the same plan elsewhere decided to keep exactly those rows.
+2. A cleanup estimated at "under 50 rows" is **11,206 of 26,371** (224× off). The
+   migration would have halted at its own escalation gate, on migration night.
+
+**A schema drift neither started with:** `deals_category_slug_fkey` is **live in
+production but absent from a database rebuilt from this repo**. `baseline.sql:87`
+declares the column with no FK and sorts first, so `20260425`'s
+`ADD COLUMN IF NOT EXISTS … REFERENCES` is a total no-op — REFERENCES clause
+included. Any design validated against the repo schema was validated against a
+schema production does not have.
+
+**Both sides conceded in writing.** The Tech Lead withdrew the NOT NULL objection and
+the "no cheaper fix" argument; the Architect conceded the FK it had missed and
+redesigned around it. `CHECK (…) NOT VALID` replaces `SET NOT NULL` — it enforces on
+every INSERT/UPDATE without scanning or deleting a historical row, which **removed a
+product decision instead of escalating one**.
+
+Docs: `docs/rca/2026-09-17-architect-taxonomy-divergence.md` (1,138 lines),
+`docs/rca/2026-09-17-tech-lead-taxonomy-divergence.md` (1,119 lines, CR-0…CR-12).
+
+---
+
+## 6. Pipeline run 35207519113 (2026-09-17) — failed, and why
+
+Failed at the 60-minute wall, but **published 1,148 deals first**, so the site was
+never affected.
+
+| Phase | Duration |
 |---|---|
-| Pipeline | **success** (run 34833209176) |
-| Live deals | 1,523 (was 1,213) |
-| Dead links on site | **0** |
-| Cache hit rate | **75%** (1198/1598) — was 46% |
-| Tests | pipeline 1,068 · shared 86 · web-next 182 · e2e 46 |
-| `basketch.vercel.app` | auto-follows production deploys (no manual aliasing) |
+| Collection, all 7 retailers | **49 seconds**, 2,060 offers — healthy |
+| Classify chunk 1 | 1,295.8s (classify+judge 1,172.5s) |
+| Classify chunk 2 | 1,142.0s |
+| **Deadline fires before chunk 3/11** | P3 worked exactly as designed — 837 of 1,037 deferred |
+| **Backfill — 17 minutes, unbounded** | ← the killer, in nobody's arithmetic |
+| Deal upsert | 1,148 of 1,189 written |
+| Killed at the wall | tail never finished |
 
-Every retailer now links OUT to a real destination:
+The deadline fired correctly and then handed control to a phase that ignored it —
+the same defect class as P3's write tail, one layer along. **Closed by WP-P9's
+MUST-FIX 3**, now merged: the backfill breaks on the deadline and sets `deadlineHit`,
+so `finishRun` returns exit 75 instead of exit 0.
 
-| Retailer | Product links point to |
-|---|---|
-| Denner, LIDL, Volg | per-product retailer pages |
-| Migros | `issuu.com` weekly flyer |
-| ALDI | `catalog.aldi-suisse.ch` catalogue |
-| SPAR | `angebote.spar.ch` flyer |
-| Coop | `aktionis.ch` — **correct, not stale** (see below) |
-
----
-
-## ⚠️ Read this before "fixing" aktionis.ch
-
-`coop-aktionis-source.ts` **is** the current Coop collector. Coop's own site is
-behind DataDome, and CLAUDE.md forbids circumventing technical protection
-measures. So aktionis.ch links are the honest provenance of Coop prices, not
-leftover legacy data. Do not "fix" them.
+**Still open:** `MAX_CHUNK_MS` is stale — chunk 1 took 21.6 min against a 19.5 min
+constant, and the code warned about itself in the log. Cannot be honestly re-measured
+until P6's judge concurrency has actually run. **Re-measure after the 2026-09-21 run.**
 
 ---
 
-## The five-run pipeline outage, and the three wrong diagnoses
+## 7. Three tests that could not fail
 
-The `Categorize & Store Deals` step failed five consecutive runs. All eight
-collectors succeeded every time. Worth recording because **three diagnoses were
-wrong**, and the reason each was wrong is the lesson.
+Found and killed during WP-W5, **each by mutation rather than by reading**, and every
+one written while fixing the previous finding:
 
-### Wrong #1 — "it's the Gemini rate limit"
-The log showed `429 RESOURCE_EXHAUSTED`, limit 15/min. But every chunk that ran
-**completed and saved**; the backoff worked. The only fatal line was
-`Timeout of 2700000ms hit`. The rate limit made it slow, it never made it fail.
-Nearly traded away classification accuracy to fit a limit that wasn't the problem.
+1. The unknown-locale test used `'toys'`, whose English label is byte-identical to
+   `titleCase('toys')` — it passed whether the map lookup or the fallback ran. A
+   mutant returning `{}` for unknown locales survived it.
+2. Rewriting test 5 behaviourally gained an arbitrary-fallthrough case and **silently
+   lost the whitespace case**: `'  '` is truthy, so output equals data. A
+   whitespace-only label renders an *invisible chip*.
+3. A dead first assertion in the `/en` test, same tautology as the first.
 
-### Wrong #2 — "it's the 45-minute step timeout"
-Closer, but the timeout is correctly sized. `pipeline.yml` says warm runs take
-~2 minutes. This *was* a warm run. The real question was why a warm run behaved
-like a cold start.
+Also found in WP-J1: `iso-week.test.ts:119` is a control, not a discriminator — it
+cannot fail against the UTC mutation it sits beside. Now labelled.
 
-### Wrong #3 — "URL length, disproven"
-Measured a synthetic 400-key request at 18,492 chars → HTTP 200, and declared
-length ruled out. **The probe was invalid**: ASCII-only synthetic keys, through
-`urllib` not undici, against a different table, from a laptop. Nothing like a
-real chunk of Swiss product names from a GitHub runner.
-
-### The actual root cause
-
-```
-[WARN] classification cache lookup: TypeError: fetch failed   ×3
-[transform] cache: 742/1598 hits        ← 46%, should be ~75%
-```
-
-Lookups went out in chunks of `LOOKUP_CHUNK = 200` **keys**. But `cacheKeyFor`
-returns the raw lowercased product name, and Swiss names carry `ü`, `%`, `&`
-and spaces that percent-encode to 3–6 bytes each. So two chunks of "200 keys"
-differ by kilobytes — and the three that failed, every time, were the three
-holding the longest names. ~600 cached products were reported as uncached and
-re-sent to Gemini at 15 req/min, which is what blew the 45-minute budget.
-
-**A network blip silently impersonated a cold start.**
-
-### Why it took five runs: we were blind, by our own hand
-
-Verified in `pipeline/node_modules/@supabase/postgrest-js/src/PostgrestBuilder.ts`:
-
-```
-:367  res = res.catch((fetchError) => {...})   ← CATCHES, does not throw
-:422    message: `${fetchError?.name}: ${fetchError?.message}`   ← always "TypeError: fetch failed"
-:423    details: errorDetails    ← the real cause
-:424    hint: hint               ← the remedy
-:141  this.urlLengthLimit = builder.urlLengthLimit ?? 8000
-:415  "If filtering with large arrays (e.g., .in('id', [200+ IDs])),
-       consider using an RPC function instead."
-```
-
-postgrest-js **returns** network errors rather than throwing. Our `catch` never
-fired, and we logged `.message` only — discarding `.details` and `.hint`. Four
-runs produced identical, uninformative logs. The library literally names our
-call shape in its hint.
-
-**The lesson: read the library source, not its documentation, on failure #1.**
+**The systems lesson, recorded:** a green suite is evidence that nothing is broken,
+not that anything is guarded. Only breaking the code on purpose distinguishes them.
+`shared/types.test.ts:36`'s count tripwire *fired* at `dc9a0a4` and was updated in
+the same commit — which is why set assertions replaced count assertions.
 
 ---
 
-## Standing rules (hard-won — do not regress)
+## 8. Other findings worth keeping
 
-- **`deals.category` takes the TOP-LEVEL group**, never the browse category.
-  Use `topCategoryFor`. The column names suggest the reverse.
-- **Anything matching a row BY NAME must use `normalizeProductName`** — it is
-  part of the upsert key.
-- **Request size must be bounded by BYTES, not counts**, wherever user data
-  enters a URL. `chunkByEncodedSize`.
-- **A guard must be expressed in a real-world unit.** `MAX_UNREADABLE_SHARE`
-  (0.25 of *chunks*) would have silently broken the moment chunks got smaller:
-  the same 3 failures go from 3/8 = 0.38 (fails, right) to ~3/30 = 0.10
-  (degrades silently, the original bug). Now `MAX_UNREADABLE_KEYS = 200`
-  *products*, calibrated from the budget: 200 ≈ 13 min (fits), 440 ≈ 30 min
-  (what killed it).
-- **An error returned is not an error handled.** `classify-deals.ts` had
-  `if (isOk(lookup))` with no `else`, so the cache fix alone would have been
-  inert. Recurring shape here: *a correct unit nothing wires up.*
-- **Never assert a hypothesis disproven from a probe that doesn't match
-  production** — same client library, same table, same host.
-- **Do not bump `taxonomyVersion`/`promptVersion`/`schemaVersion`** casually;
-  any bump discards every cached row and forces a cold start.
-
----
-
-## Known issues / next steps
-
-1. **Retry re-fetches everything.** `pipeline.yml:216` — each attempt re-runs
-   collection before reaching the transform, so attempt 2 re-fetches all seven
-   retailers. **Breaches CLAUDE.md's "one fetch per store per week".** Fix:
-   split into two steps so only categorise+store retries. Also
-   `retry_wait_seconds: 300` → `60`; five idle minutes buys nothing.
-2. **Alerting layer is dead.** 7 of 9 rules fed hardcoded literals;
-   `shouldFailRun` can never return true; `process.exit(1)` unreachable.
-3. **Cold-start CTA copy mismatch.** `WorthPickingUp.tsx` says "Pick a starter
-   pack"; there is no starter-pack route, so it points at `/deals`. **PM
-   decision needed:** change the copy, or build the feature.
-4. **Migros yields few deals** (OCR-limited).
-5. **Enrichment 429s** are non-fatal but leave attributes sparse; enrichment
-   only fills on warm runs.
-6. **Coop ACL truncation** — 19.3% of cache keys end in `...`.
-7. **`OPENAI_API_KEY`** in the archived `.env` backup may still be live —
-   rotate or confirm.
-8. **CLAUDE.md:162 "Zero paid services" is stale** — OpenRouter is a paid
-   deliberate PM decision. Caused a wrong agent finding once.
+- **The documented type-check command never worked.** `npx tsc --noEmit -p
+  pipeline/tsconfig.json` from the repo root fetches an unrelated package that prints
+  a joke and exits 0 — no root `node_modules`. Every "tsc clean" report using it
+  verified nothing. Fixed in `CLAUDE.md` (`68393f9`); use the folder-local binary,
+  and never pipe in a way that swallows the exit code.
+- **Credential audit (2026-09-18).** `.env` was never committed; the Sept-10 backup
+  files are gone; `.claude/worktrees` and `web-next/.env.local` are gitignored. The
+  only key-shaped string in git history is a Google Maps key inside a captured Coop
+  page fixture — not the PM's.
+- **`GOOGLE_AI_API_KEY` in GitHub was dead.** The PM had rotated it at Google after
+  it was pasted into a CLI session, but GitHub still held the Sept-10 value. Updated
+  2026-09-18 09:03 from `.env`; local key verified HTTP 200. **Without this, Monday's
+  run would have degraded silently, not crashed.**
+- **`OPENAI_API_KEY` sits in `.env` and nothing reads it** — not the pipeline, not
+  the frontend, not the workflows. A second paid-service credential outside the
+  one-paid-service rule. The two `VITE_*` vars are dead (archived frontend).
+- **`OPENROUTER_API_KEY` in GitHub is still dated 2026-09-10.** If it was ever
+  rotated, it has the same silent-failure problem the Google key had. Unverified.
 
 ---
 
-## Project agents — why they stopped working
+## 9. PM actions completed this session
 
-All 19 live in `basketch/.claude/agents/`. They **only register when Claude Code
-is launched from `basketch/`**, not from a subfolder. A session started in
-`basketch/web-next/` sees none of them, and `Agent type 'architect' not found`
-is the symptom. Copies now also exist in `web-next/.claude/agents/` so either
-launch directory works — but the registry is built at startup, so a **restart is
-required**; copying mid-session does nothing.
+- ✅ OpenRouter USD 5 **monthly** cap set (auto top-up off)
+- ✅ `HEALTHCHECK_PING_URL` added to GitHub secrets (2026-09-18 08:40)
+- ✅ Google AI key rotated at Google; GitHub secret updated 2026-09-18 09:03
 
-## Never commit
+## 10. Still pending
 
-`.env.bak-20260910`, `transcript-backup.jsonl` — gitignored, contain API keys.
+**For the PM:**
+1. **Verify `OPENROUTER_API_KEY` matches** what's at openrouter.ai — GitHub's copy is
+   from 2026-09-10 and unverified. Same one-command fix as the Google key.
+2. **AP-6 decision — recommendation given, awaiting go-ahead:** score
+   `benchmarkMacroF1` against **Denner's live data** (free, every run, self-updating)
+   rather than the 291-row benchmark. Until then two alerts stay wired-but-silent and
+   `instrument-missing` fires every run.
+3. Consider dropping `delete_repo` from the GitHub token scopes — nothing here needs it.
+4. `COLLECTION_MODE` repo variable is inert — delete whenever, or never.
+5. Optional: remove the unused `OPENAI_API_KEY` and the two `VITE_*` lines from `.env`.
+
+**Work packages:**
+- **T1 — taxonomy divergence.** Designed, cross-reviewed, blockers resolved, PM
+  decisions taken. Biggest remaining change: touches a live DB with a migration.
+  Build order is in the two RCA docs; steps 0–2 fix the site before any pipeline code
+  ships. **Recommended to start with fresh context, not at the tail of a session.**
+- **J2** fetch ledger → **J3** collect/transform split + daily cron. Tech Lead's
+  ruling: order is `J1 → T1 → J2 → T2 → J3`; J3 does not lose its slot to T1, because
+  availability outranks browsability.
+
+**Carry-forwards:** AP-11 judge re-benchmark; the nine self-skipping e2e assertions;
+~11 built-but-never-wired units from the audit; README staleness; `collectOffers`
+rejects rather than contains on an Invalid Date (guard before J3 adds a caller that
+can supply one); ALDI's dual-cycle bundling is not fixture-backed; `shared/` has no
+type-check or lint gate; retarget the W5 guard at T1's generated `.sql`.
+
+---
+
+## 11. The next thing that matters
+
+**Monday 2026-09-21, 07:00 UTC** — first run carrying everything: the funded judge,
+the spend guard, bounded backfill, per-retailer publication weeks, and a valid Google
+key. If it publishes cleanly the five-run outage is closed. The healthcheck will
+email if it never runs at all.
+
+After it: **re-measure `MAX_CHUNK_MS`** against the real judge-concurrency numbers.
+
+---
+
+## 12. File paths
+
+- Plan: `docs/rca/2026-09-15-final-plan.md`
+- Taxonomy RCA: `docs/rca/2026-09-17-architect-taxonomy-divergence.md`,
+  `docs/rca/2026-09-17-tech-lead-taxonomy-divergence.md`
+- PM decisions: `docs/decisions/2026-09-17-pm-taxonomy-decisions.md`
+- ADRs: `docs/decisions/2026-09-17-attributes-version.md`,
+  `docs/decisions/2026-09-17-publication-editions.md`
+- Audit/QA: `docs/rca/2026-09-16-ddd-tdd-audit.md`, `docs/qa/2026-09-16-live-data-qa.md`
+- Longer-term context: `HANDOVER.md`
