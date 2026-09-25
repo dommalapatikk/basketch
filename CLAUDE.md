@@ -4,7 +4,8 @@ Swiss grocery deal comparison across **seven retailers** — Migros, Coop, LIDL,
 Built with Next.js 16 (frontend, in `web-next/`), TypeScript + Python (pipeline), Supabase (database), Vercel (hosting).
 The legacy React + Vite frontend has been archived to `archive/web-vite/` — see `archive/web-vite/RETIRED.md`. Do not modify.
 
-> **Current direction (2026-09).** The data source is being replaced: aktionis.ch is dropped, offers come **direct from each retailer**, and categorisation moves to our own model. Design method is **domain-driven**, development is **test-driven**, structure is **modular**.
+> **Current direction (2026-09).** The data source is being replaced: aktionis.ch is dropped for six of seven retailers, offers come **direct from each retailer**, and categorisation moves to our own model. Design method is **domain-driven**, development is **test-driven**, structure is **modular**.
+> **Exception: Coop is still collected via aktionis.ch** (`createCoopAktionisSource`, `pipeline/collection/infrastructure/coop-aktionis-source.ts`). This is deliberate, not a leftover — coop.ch sits behind DataDome (see "Legal Constraints" below: an honest client is blocked there, and that is a refusal, not something to work around), and Coop's own epaper covers only ~11% of what aktionis carries. Decision recorded 2026-09-09; reconfirmed in the 2026-09-25 tech-lead cross-review (`docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md` §2.6).
 > **Read `docs/collection-module-design.md` and `docs/data-source-research-2026-09-07.md` before touching collection code.** They carry every verified endpoint, the legal position, and the per-field source matrix.
 
 ## Folder Structure (Flat -- No npm Workspaces)

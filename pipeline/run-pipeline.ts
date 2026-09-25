@@ -74,7 +74,12 @@ export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log' | 'dead
   readonly judgeSpend: JudgeSpendInfo
 }
 
-export type V3CutoverStats = {
+/**
+ * WP-1a: replaces `V3CutoverStats`/`populateV3Layer`. Same shape, new name —
+ * `v3-cutover.ts` is deleted; `pipeline/catalogue/` is the module that owns
+ * this now (ARCH-X §2.2-2.4, tech-lead cross-review §7).
+ */
+export type CatalogueRunStats = {
   readonly concepts_resolved: number
   readonly skus_upserted: number
   readonly deals_linked: number
@@ -92,7 +97,7 @@ export type StorageDeps = {
   readonly activeCountsByWindow: () => Promise<ActiveCountsResult>
   readonly storeDeals: (deals: Deal[], productIds?: Map<string, string>) => Promise<StoreDealsResult>
   readonly writeEnrichment: (items: readonly DealEnrichment[]) => Promise<number>
-  readonly populateV3Layer: (deals: Deal[]) => Promise<V3CutoverStats>
+  readonly runCatalogueStep: (deals: Deal[]) => Promise<CatalogueRunStats>
   readonly deactivateStaleForStores: (runStartedAt: Date, plan: Map<string, StoreSweepPlan>) => Promise<number>
   readonly deactivateExpiredDeals: () => Promise<number>
   readonly logPipelineRun: (input: PipelineRunInput) => Promise<void>
@@ -467,14 +472,16 @@ async function writeEnrichmentStep(deps: PipelineDeps, pendingEnrichment: Readon
   console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with crop/price-basis/rappen`)
 }
 
-async function v3CutoverStep(deps: PipelineDeps, resolved: Deal[]): Promise<void> {
+/** WP-1a: was `v3CutoverStep` / `populateV3Layer` — batched now (pipeline/catalogue/), same call site shape. */
+async function catalogueStep(deps: PipelineDeps, resolved: Deal[]): Promise<void> {
   try {
-    const v3Stats = await deps.storage.populateV3Layer(resolved)
-    console.log(`[pipeline] [INFO] v3 cutover — concepts:${v3Stats.concepts_resolved}, skus:${v3Stats.skus_upserted}, linked:${v3Stats.deals_linked}`)
+    const stats = await deps.storage.runCatalogueStep(resolved)
+    console.log(`[pipeline] [INFO] catalogue — concepts:${stats.concepts_resolved}, skus:${stats.skus_upserted}, linked:${stats.deals_linked}`)
   } catch (err) {
-    // Don't fail the pipeline if v3 cutover hits an issue — legacy columns are
-    // still populated. Log loud so the operator can fix in Supabase Studio.
-    console.error('[pipeline] [ERROR] v3 cutover failed (legacy data still saved):', err)
+    // Don't fail the pipeline if catalogue resolution hits an issue — legacy
+    // columns are still populated. Log loud so the operator can fix in
+    // Supabase Studio.
+    console.error('[pipeline] [ERROR] catalogue step failed (legacy data still saved):', err)
   }
 }
 
@@ -840,7 +847,7 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   const storedCount = write.writeResult.total
 
   await writeEnrichmentStep(deps, collected.pendingEnrichment)
-  await v3CutoverStep(deps, resolved)
+  await catalogueStep(deps, resolved)
   await sweepStep(deps, collected.storeStatusMap, write, options.startDate)
 
   const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount, write.writeResult.collapsed)

@@ -99,8 +99,8 @@ function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { read
       calls.push('writeEnrichment')
       return items.length
     },
-    async populateV3Layer() {
-      calls.push('populateV3Layer')
+    async runCatalogueStep() {
+      calls.push('runCatalogueStep')
       return { concepts_resolved: 0, skus_upserted: 0, deals_linked: 0 }
     },
     async deactivateStaleForStores() {
