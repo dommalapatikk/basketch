@@ -255,3 +255,91 @@ Order follows risk: the write tail first (unretried-kill exposure), then the bud
 - Every number above comes from a log line, a file:line, or a read-only DB count run on 2026-09-25. The only inference is the per-call latency in §2.4, and it is labelled as unattributed.
 - No product decision is taken. D-5 is flagged, not decided.
 - Where the Architect was right (18 min; storage expiry; durability; generic refresh; enrichment timing; review-only fixture rule), this document says so and withdraws my position.
+
+---
+
+## 10. Rulings after PM decisions
+
+**Date:** 2026-09-25 (later the same day) · **Inputs:** `docs/decisions/2026-09-25-pm-decisions.md` (PM-DEC), `docs/design/2026-09-25-architect-pm-decisions-design.md` (ARCH-PM, §4.7 and §6), `docs/reviews/2026-09-25-review-wp0-1a-and-wp11.md` (REV). No code edited, nothing committed, no DB writes. The grep evidence below was run on branches `main` (8cc8beb), WP-11 `worktree-agent-a20642a16603d7f26` (5c8e49a) and WP-1a `worktree-agent-a0847c75109246f46` (a9a2958, plus the builder's uncommitted edit to `resolve-catalogue.ts`).
+
+### 10.1 Verification of "nothing reads the concept/sku layer"
+
+| Reader looked for | Where | Result |
+|---|---|---|
+| `concept_cheapest_now` | `web-next/src`, `web-next/e2e` on the WP-11 branch | **0 hits.** The only reader was `server/data/worth-picking-up.ts:185` (+ test), which WP-11 deletes |
+| `sku`, `deals.sku_id` | `web-next/src`, `web-next/e2e` | **0 hits** on any branch |
+| `concept`, `concept_family` | `web-next/src/server/data/concepts.ts:13,27` | The module exists, but **nothing imports it**. `getConceptFamily`, `getConceptsForFamily` and `getDefaultTilesForFamily` have no caller in `web-next/src` or `e2e`. The only other mention is a comment in `filter-deals.ts:206` saying the concept layer "is not populated". Dead code, not a reader |
+| Pipeline readers | `pipeline/*.ts`, `pipeline/observability`, `composition.ts` | Only the writer itself (`v3-cutover.ts` on main, `catalogue/` on WP-1a) and two one-shot scripts in `pipeline/migrate/` (`seed-v3-from-deals.ts`, `fix-dairy-miscategorisation.ts`). **`concept_resolver` rules feed only the concept mapping.** The cutover runs after `storeDeals` (`run-pipeline.ts:849-850` on WP-1a), so it never changes a deal's category |
+| Alerts, run snapshot, metrics | `alerts`, `json-telemetry.ts`, `run-snapshot.ts`, `20260917130000_pipeline_run_metrics.sql` | **0 references.** The catalogue counts reach only one `console.log` (`run-pipeline.ts:479`) |
+| Database views and functions | `supabase/migrations/*.sql` | `concept_cheapest_now` (latest definition `20260917120000_mv_price_basis.sql`, `JOIN deals d ON d.sku_id = s.id` at :150) and `worth_picking_up_candidates`, which reads it. `exec_refresh_mv` is generic. There is no trigger or function that reads `sku` or `deals.sku_id`. `deals.sku_id` is a nullable FK (`20260427_v3_concept_layer.sql:239`), so leaving it unwritten breaks nothing |
+
+**Conclusion:** the Code Reviewer's claim holds, and it goes further. After WP-11, **no code path in the product reads anything the catalogue step writes.** The step costs ~667 s of the write tail on R3 (§2.4). After WP-1a it would still cost an estimated ~200–230 s (REV S-3, the per-deal `sku_id` UPDATE). All of that time buys nothing.
+
+### 10.2 Ruling 1: retire the concept/sku write path now — **YES**
+
+- **Classification: two-way door.** No table, column or view is dropped by this ruling. `concept`, `concept_family`, `concept_resolver`, `sku`, `sku_alias`, `user_interest` and `deals.sku_id` stay. The writer can come back by reverting one commit, and its batched design is kept in history at `a9a2958` (`pipeline/catalogue/`).
+- **Why now, not after WP-1b:** "Finish what you start" applies to work that ships value. Finishing a writer with no reader is preening (Larson). The PM's P-7 ("Cheapest" = lowest price) is designed on `deals` alone (ARCH-PM §4.3 C-1), and P-8 ("do not build per-item routing now") removes the only future reader that cross-store identity would serve. The concept key makes concepts per-store anyway (§2.5, ARCH-PM §4.2), so `concept_cheapest_now` compares a store with itself.
+- **What it means for each piece:**
+
+| Item | Effect |
+|---|---|
+| **WP-1a (in flight)** | **Replaced** by **WP-1a′ "retire catalogue writes"** (§10.3). The builder stops the current M-1/M-2/S-1/S-2 fixes. Those fixes harden code that is being removed |
+| **WP-1b** | **Retired in full.** Its only subject was `sku_id` on the main upsert, plus column-set grouping to protect it (P2a). Without `sku_id`, every column on a deal row is an offer fact, so the rows are uniform and no grouping is needed. C-8 is moot. If a long-lived entity column is ever added to `deals`, P2a applies again at that time |
+| **`concept_cheapest_now` refresh** | **Stops** (it only ran inside the catalogue step). The view freezes, with no reader. Both MVs are **dropped in WP-11's drop migration**: `worth_picking_up_candidates` first (it depends on `concept_cheapest_now`), then `concept_cheapest_now`. That migration still waits for the WP-0(c) capture. Both definitions are in the repo (`20260917120000_mv_price_basis.sql`), which makes the drop reversible. Tables are not dropped |
+| **Write-tail budget** | The catalogue term drops from ~667 s (R3, measured) to **0**. The write tail becomes `taxonomy → resolveProducts → storeDeals → enrichment (until WP-1e) → sweep → deactivate → logRun`. **Do not lower `WRITE_TAIL_MS` by hand.** A budget set too high is safe, and WP-2 still derives it from the first measured run after WP-1c/1d/1e. §3's P1 no longer lists `sku_id`, and the ~60-call estimate loses its catalogue share |
+| **§2.5 churn / follow-up ADR** | The ADR becomes **"Concept layer: retire or rebuild"**, and it is written only if the PM ever asks for per-item routing (P-8). Its scope: cross-store identity keyed without any classifier output, what to do with the 10,152 concepts, 10,422 skus and 511 churned identities, and whether to drop the tables, `concepts.ts`, `lib/v3-types.ts`, `concept-family-defaults.ts` and the two `pipeline/migrate/` v3 scripts. Until then those files are **not touched**. Note: after the MV drop, `fix-dairy-miscategorisation.ts:135` refreshes views that no longer exist. It is a one-shot script, and it must not be run again as is |
+
+### 10.3 Ruling 2: exact instruction for the WP-1a builder
+
+**Stop the current review fixes.** On the same branch, add **one new commit** on top of `a9a2958`. Do not rewrite history, so the batched catalogue design stays recoverable.
+
+**Keep (WP-0 part of a9a2958):**
+- the `CLAUDE.md` Coop exception;
+- the index migration (REV S-5 still applies: the PM runs the `pg_indexes` query before it is applied, and the migration reuses the live index name);
+- the SPAR comment in `live-sources.ts`;
+- the "unique index declared" architecture test;
+- deleting `v3-cutover.ts` (+test);
+- dropping the `worth_picking_up_candidates` refresh.
+
+**Remove:**
+- `pipeline/catalogue/` in full (domain, application, infrastructure and tests; it has never been on `main`);
+- `catalogueStep` and its call (`run-pipeline.ts:475-486`, `:850`);
+- `CatalogueRunStats` (`run-pipeline.ts:82`) and `runCatalogueStep` from the storage port;
+- the `composition.ts:30,343` wiring;
+- `catalogue/domain` from the domain-import architecture test.
+
+**Add:** a comment above the write-tail sequence saying the concept/sku writer was retired on 2026-09-25 (§10), naming the commit to revert.
+
+**Also fix:** REV S-4. The `CLAUDE.md` folder tree loses the `v3-cutover.ts` line, with no `catalogue/` entry added.
+
+**First failing test (TDD), written before any removal:**
+1. `pipeline/architecture.test.ts`: *"2026-09-25 §10: no pipeline write path touches the retired concept/sku layer"*. It greps every non-test `.ts` under `pipeline/`, excluding `migrate/` and `archive/`, for `from('sku')`, `from('concept`, `concept_resolver`, `sku_id` and `concept_cheapest_now`. It expects 0 hits. It is **red today** (the catalogue store has them all). This is the system fix: it stops the writer from creeping back unnoticed.
+2. `run-pipeline.test.ts`: *"the write tail is taxonomy → products → storeDeals → enrichment → sweep → deactivate → logRun, with no catalogue step"*. It uses a recording fake storage and asserts the exact call order.
+
+**Review findings:**
+- **Closed as moot** (code removed): REV M-1, M-2, S-1, S-2, S-3 and the catalogue NITs.
+- **Still open:** S-4 (fixed in this commit) and S-5 (PM pre-check).
+- **S-6 gets stronger:** WP-11 must merge **before or together with** WP-1a′.
+
+**Blast radius:** `pipeline/` only. The files are `run-pipeline.ts`, `run-pipeline.test.ts`, `composition.ts`, the 2 architecture tests, `CLAUDE.md`, and the removal of `catalogue/` (10 files). No `web-next` change, no schema change, no DB write. Gates: the folder-local `tsc` in `pipeline/`, `npm test`, then the Code Reviewer re-checks only this commit.
+
+### 10.4 Ruling 3: updated sequencing
+
+**Builder A (pipeline write tail, finish before start):**
+WP-0 + **WP-1a′** → WP-1c (products by key set; this is where the batching that still matters lives) → WP-1d → WP-1e (D-5 is now a technical decision per PM-DEC, so it is no longer gated) → **one production run, measured** → WP-2 (the budgets now include ALDI's third fetch and, once WP-8b lands, SPAR crop time: ARCH-PM §1.6) → WP-3 (severity = **warn, still publish**, per D-4) → WP-4 → WP-5 (the ALDI capture is allowed, per D-1) → WP-6 → WP-8a (photo locator, shared SPAR/ALDI) → WP-8b (after 1d, 4 and 8a) → WP-7c (the daily Volg workflow, after 7a/7b and 1d) → WP-1f.
+
+**Builder B (parallel, no shared files with Builder A until WP-4):**
+1. WP-11: fix REV M-1 (restore `page.test.tsx`). Merge **first**.
+2. **WP-8c**: the SPAR Friends member-price label. This is a legal-accuracy fix and it touches `spar-flyer-source.ts` only.
+3. WP-7a/7b: Volg promo identity and the no-picture card.
+4. WP-10: Migros names.
+5. **WP-12**: Cheapest = lowest unit price. Step 0 is the read-only coverage query, then the PM answers ARCH-PM §4.6 (A or B), then the build.
+6. **WP-13**: contact form, after the PM's Resend steps (ARCH-PM §8).
+
+Items 2 and 3 **must merge before Builder A starts WP-4**, because WP-4 touches all seven adapters.
+
+**Docs:** the D-3/D-6 notes (the `product-image.tsx` URG comment and `CLAUDE.md` § Legal) go into Builder B's WP-8c commit as WP-0b. They are not added to the in-flight WP-1a′ branch, which keeps it small. WP-9 is closed with no code change (D-6).
+
+**Removed from the plan:** WP-1b, and the concept-identity ADR as a scheduled item (it becomes conditional; see §10.2).
+
+**Cost:** unchanged at CHF 0. The write tail gets shorter by the whole catalogue step.

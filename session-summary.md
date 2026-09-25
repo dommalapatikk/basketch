@@ -1,5 +1,84 @@
 # basketch — session summary
 
+## ⏸ LATEST: 2026-09-25 — PAUSED mid-cross-review (read this first)
+
+**State:** no code changed, nothing committed or pushed. Five new report files are
+untracked (listed below). Work paused by the PM to free tokens for another project.
+
+**PM instruction (2026-09-25):** "fix all ... first root cause analysis by tech lead and
+finding investigation by architect and tech lead and find solution and fix properly, no
+quick and ugly fix, use DDD, TDD." Process: Tech Lead RCA + Architect investigation
+(done) → cross-review (STOPPED before writing anything) → agreed plan → Builder
+(test first) → Code Reviewer loop → coordinator verifies on live site → ask PM before push.
+
+**How agents were run this session:** the session started outside the project, so
+project agents were run as general-purpose subagents told to read
+`.claude/agents/<name>.md` first, on that file's model. Starting Claude Code inside
+`basketch/` registers them natively.
+
+
+**Standing process (PM, 2026-09-25 — applies to every change):**
+Tech Lead RCA + Architect investigation → cross-review → agreed plan (DDD) → Builder,
+failing test first (TDD) → Code Reviewer loop to zero MUST-FIX, fixes proven by mutation →
+**QA Tester** (shopper-style, local build against live data) → coordinator verifies →
+PM approves before anything is pushed/goes live.
+
+PM decisions 2026-09-25: `docs/decisions/2026-09-25-pm-decisions.md`.
+
+### Findings (all verified by the coordinator against code/logs)
+Pipeline: runs 09-21 / 09-22 / 09-24 all published (1,313 / 1,366 / 1,562 deals); all 7
+retailers ok; site healthy (1,623 active deals). 1h19m/1h38m = two 60-min attempts
+(`timeout_minutes: 60` is per attempt on nick-fields/retry, pipeline.yml:135) — by design.
+
+| # | Problem | Status |
+|---|---|---|
+| 1 | ALDI: 211/211 deals no picture; **never worked** (0/517 rows ever). `findPageImageUrls` reads `data.json`, real page images are in `spreads.json`. Tests used Publitas-docs JSON, not a captured response | RCA done, both agree |
+| 2 | Volg: all 17 image URLs 404 — Volg regenerates file hashes (~15h after capture). 7 no-URL deals are genuine | RCA done |
+| 3 | SPAR: page images DO exist on iPaper but need a signed token (~23-24h) → 403 without | RCA done |
+| 4 | Write tail growing 588→983s, over WRITE_TAIL_MS (9.5 min) every run; v3 cutover one DB call per deal (`v3-cutover.ts:260-289`) dominates. ~2,100 deals ⇒ unretried kill | RCA done |
+| 5 | Coop: "Created 528 new coop products" then 720 in the same run, only 38-40 existing matched (run 35589218267) — likely duplicates | **RCA NOT done** |
+| 6 | MAX_CHUNK_MS 19.5 min ~2x too high (max chunk 10.3 min), WRITE_TAIL_MS too low; config test passes only because errors cancel. Only used in `config.test.ts:218` + a warning | RCA done |
+| 7 | Drift warnings invisible; warnings capped at 20 (`json-telemetry.ts:51`) hid ALDI's warning #35; no image-coverage alert exists | RCA done |
+| 8 | `|` in product name breaks enrichment key; lossless `offerToRow` built but unwired; image written in two halves by two DB writes (4 loss modes) | Found |
+
+Architect proposal: write image in the main upsert only (no schema change/backfill);
+"no picture" carries a reason; ALDI from `spreads.json`; per-source absolute
+image-coverage floor + alert. 5 ADRs, 14 failing tests. Tech Lead timing proposal:
+derive MAX_CHUNK_MS from rate limits, WRITE_TAIL_MS ~18 min, batch the write tail.
+
+### PM decisions pending (the team must not decide these)
+1. ALDI: third fetch (`spreads.json`) per week OK under AP-1?
+2. Volg: daily image refresh, or accept empty cards?
+3. SPAR: stay imageless, or ask SPAR permission? (signed-token route needs a legal view)
+4. Image-coverage alert severity: warning, or fail the run?
+5. Move the Lidl Plus member-price label into the single upsert too?
+6. Legal: Coop/Denner/LIDL/Volg photos go through `next/image` (re-hosted on Vercel),
+   contradicting the URG "never reproduced on basketch infrastructure" rule.
+
+Also still pending from before: verify `OPENROUTER_API_KEY`; AP-6 decision; T1.
+
+### Next steps when resuming
+1. Re-run the **cross-review** (stopped, produced nothing):
+   - Tech Lead: review the Architect doc; **RCA the Coop duplicates (#5)**; unify #4/#5/#6/#7
+     into one design; draft the work plan marking blocked-on-PM vs can-proceed →
+     `docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md`
+   - Architect: review Tech Lead + SRE docs; challenge the zero-slack budget (28+12+18+2=60);
+     design batched v3 write; rule against non-captured test fixtures →
+     `docs/rca/2026-09-25-architect-cross-review.md`
+2. Get PM answers to the six decisions.
+3. Builder (TDD) → Code Reviewer loop → verify live → ask PM before push.
+
+### Files
+- `docs/qa/2026-09-25-missing-images.md`
+- `docs/rca/2026-09-25-sre-post-monday-runs.md`
+- `docs/rca/2026-09-25-tech-lead-max-chunk-ms.md`
+- `docs/rca/2026-09-25-tech-lead-missing-images.md`
+- `docs/rca/2026-09-25-architect-missing-images.md`
+
+---
+
+# Previous session (2026-09-15 → 2026-09-18)
+
 **Dates:** 2026-09-15 → 2026-09-18
 **State at close:** working tree clean, 0 unpushed commits, `main` = `056b0e0`.
 **Site:** live and healthy — 1,997 active deals across all seven retailers, prices
