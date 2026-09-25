@@ -486,6 +486,24 @@ export interface UnifiedDeal {
   sourceUrl: string | null      // link to deal on source site
 
   /**
+   * WP-1e (retiring the enrichment pass, ARCH-X §2.5). Rappen, price basis
+   * and the loyalty programme now ride `dealToRow` too, the same as the
+   * image (WP-1d) — the enrichment pass that used to carry them on a second,
+   * natural-key-matched write is deleted. Optional, like `minQuantity`
+   * below: a fixture that predates this WP keeps compiling, and `dealToRow`
+   * derives `salePriceRappen`/`originalPriceRappen` from the francs fields
+   * when absent (exact — `toFrancs` is `rappen / 100`, so `Math.round(francs
+   * * 100)` round-trips) and defaults `priceBasis` to `'everyone'`. In
+   * production `offerToUnifiedDeal` always sets all four directly from the
+   * domain's integer `Money` and `PriceBasis` — this is a compatibility
+   * fallback, not the normal path.
+   */
+  salePriceRappen?: number
+  originalPriceRappen?: number | null
+  priceBasis?: 'everyone' | 'member-only'
+  loyaltyProgramme?: string | null
+
+  /**
    * How many items must be bought for `salePrice` to apply (WP-C4, TP-7a) —
    * Migros "ab 2 Stück". `null`/absent means the single-item price, the
    * ordinary case. NOT the same concept as `quantity` below, which is a
@@ -601,6 +619,12 @@ export interface DealRow {
   crop_y: number | null
   crop_w: number | null
   crop_h: number | null
+  // WP-1e: rappen, price basis and the loyalty programme, written by the
+  // main upsert now — see `dealToRow` and `UnifiedDeal.salePriceRappen`.
+  sale_price_rappen: number
+  original_price_rappen: number | null
+  price_basis: 'everyone' | 'member-only'
+  loyalty_programme: string | null
   source_category: string | null
   source_url: string | null
   product_id: string | null
@@ -997,6 +1021,16 @@ export function dealToRow(
     // when there is no image — so every row in a batch upsert agrees on its
     // column set. See shared/product-image.ts.
     ...imageColumns(deal.image),
+    // WP-1e: the enrichment pass is retired — rappen, price basis and the
+    // loyalty programme ride this same statement. `toFrancs` is `rappen /
+    // 100` (collection/domain/money.ts), so `Math.round(francs * 100)`
+    // round-trips exactly; used only when a fixture predates this WP and
+    // never set the integer field directly (see UnifiedDeal's own comment).
+    sale_price_rappen: deal.salePriceRappen ?? Math.round(deal.salePrice * 100),
+    original_price_rappen:
+      deal.originalPriceRappen ?? (deal.originalPrice !== null ? Math.round(deal.originalPrice * 100) : null),
+    price_basis: deal.priceBasis ?? 'everyone',
+    loyalty_programme: deal.loyaltyProgramme ?? null,
     source_category: deal.sourceCategory,
     source_url: deal.sourceUrl,
     product_id: productId ?? null,

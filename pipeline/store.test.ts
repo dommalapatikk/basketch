@@ -649,6 +649,71 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
     expect(upsertedRows[0]).toMatchObject({ image_url: 'https://a.test/x.jpg' })
   })
+
+  // WP-1e (tech-lead cross-review §10.4, ARCH-X §2.5): the enrichment pass is
+  // retired. Rappen, price basis and loyalty programme now ride the SAME
+  // upsert as the price, the discount and the image (WP-1d) — C-9.
+  it('C-9: rappen, price basis and crop ride the main upsert — the enrichment pass is gone', async () => {
+    mockUpsert.mockImplementation((batch: { store: string; valid_from: string }[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: r.store, valid_from: r.valid_from })),
+          error: null,
+        }),
+    }))
+    const image = { kind: 'crop-region', region: { pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 } } as Deal['image']
+
+    await storeDeals([
+      deal('lidl', 'Milbona Frischkäse', {
+        salePrice: 1.39,
+        image,
+        priceBasis: 'member-only',
+        loyaltyProgramme: 'Lidl Plus',
+      } as Partial<Deal>),
+    ])
+
+    expect(mockUpsert).toHaveBeenCalledTimes(1)
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows[0]).toMatchObject({
+      sale_price_rappen: 139,
+      price_basis: 'member-only',
+      loyalty_programme: 'Lidl Plus',
+      page_image_url: 'https://x.test/p.jpg',
+    })
+  })
+
+  // The UWG Art. 3(1)(e) exposure the enrichment pass created: a Lidl Plus
+  // price written in an EARLIER run (or held back and written for the first
+  // time in a LATER one) must never lose its member-only label. With the
+  // label riding the same row as the price, there is no separate pass, no
+  // separate key and no run-to-run state for it to depend on — whichever run
+  // finally calls storeDeals with this deal writes the label in the same
+  // statement as the price, atomically.
+  it('a Lidl Plus member price keeps its label when held back one run', async () => {
+    mockUpsert.mockImplementation((batch: { store: string; valid_from: string }[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: r.store, valid_from: r.valid_from })),
+          error: null,
+        }),
+    }))
+
+    // Run 1: the classifier holds this deal back — storeDeals is never called
+    // for it, so nothing is written and nothing to lose. (Modelled by simply
+    // not calling storeDeals; there is no separate enrichment table to miss.)
+
+    // Run 2: the same deal is finally classified and written for the first time.
+    await storeDeals([
+      deal('lidl', 'Pilos Griechischer Joghurt', {
+        salePrice: 1.79,
+        priceBasis: 'member-only',
+        loyaltyProgramme: 'Lidl Plus',
+      } as Partial<Deal>),
+    ])
+
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows[0]).toMatchObject({ price_basis: 'member-only', loyalty_programme: 'Lidl Plus' })
+  })
 })
 
 describe('activeCountsByWindow — live counts read BEFORE this run writes anything (F1/N2)', () => {
