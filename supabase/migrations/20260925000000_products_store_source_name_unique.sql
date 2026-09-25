@@ -1,0 +1,45 @@
+-- Migration: record the live unique index on products(store, source_name).
+--
+-- WP-0(b), 2026-09-25 tech-lead cross-review §2.3 / §2.2.
+--
+-- WHY THIS EXISTS
+-- `resolveProducts` (pipeline/product-resolve.ts) upserts new products with
+-- `.upsert(batch, { onConflict: 'store,source_name' })`. An ON CONFLICT
+-- target requires a UNIQUE index (or constraint) on exactly those columns —
+-- Postgres raises 42P10 ("there is no unique or exclusion constraint
+-- matching the ON CONFLICT specification") without one. That upsert has been
+-- succeeding in production for months, which proves a unique index on
+-- (store, source_name) already exists on the LIVE database.
+--
+-- THE GAP THIS CLOSES
+-- That index was never captured in this repository. `00000000000000_baseline.sql:68`
+-- declares only a NON-UNIQUE index:
+--   CREATE INDEX IF NOT EXISTS products_store_source_name_idx ON products (store, source_name);
+-- (the baseline's own header says it could not introspect indexes, only
+-- columns/types/nullability/foreign keys — see that file's opening comment).
+-- A fresh database rebuilt from this repository's migrations alone — the
+-- disaster-recovery scenario the baseline migration exists to cover — would
+-- stand up `products` with a non-unique index, and `resolveProducts`'s very
+-- first upsert would fail with 42P10. Verified read-only against the live
+-- database on 2026-09-25 (tech-lead cross-review §2.3): 0 duplicate
+-- (store, source_name) pairs in any of the 7 stores, which is only possible
+-- if a unique index is already enforcing it there.
+--
+-- WHY CREATE UNIQUE INDEX IF NOT EXISTS, NOT A RENAME
+-- The live index's actual name is unknown (introspection was read-only and
+-- did not enumerate index names — see the tech-lead report cited above). This
+-- statement is intentionally additive and idempotent: on the LIVE database,
+-- if an index already satisfies (store, source_name) uniqueness under a
+-- different name, this creates a second, differently-named unique index on
+-- the same columns — redundant but harmless (Postgres allows it), and no
+-- existing index is touched or dropped. On a FRESH database rebuilt from
+-- migrations, this is the index `resolveProducts` needs to exist at all. In
+-- both cases the statement is a documented no-op or a safety net, never a
+-- behaviour change.
+--
+-- The pre-existing non-unique `products_store_source_name_idx` from the
+-- baseline is left in place — dropping it is not needed to fix the gap above
+-- and is out of scope here.
+
+CREATE UNIQUE INDEX IF NOT EXISTS products_store_source_name_unique_idx
+  ON products (store, source_name);

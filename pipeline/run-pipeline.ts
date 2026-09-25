@@ -74,12 +74,6 @@ export type ClassificationDeps = Omit<ClassifyDealsDeps, 'runId' | 'log' | 'dead
   readonly judgeSpend: JudgeSpendInfo
 }
 
-export type V3CutoverStats = {
-  readonly concepts_resolved: number
-  readonly skus_upserted: number
-  readonly deals_linked: number
-}
-
 /**
  * Every Supabase-touching operation `runTransform` needs, bundled into one
  * port so a test can substitute an in-memory fake for the whole storage layer
@@ -92,7 +86,6 @@ export type StorageDeps = {
   readonly activeCountsByWindow: () => Promise<ActiveCountsResult>
   readonly storeDeals: (deals: Deal[], productIds?: Map<string, string>) => Promise<StoreDealsResult>
   readonly writeEnrichment: (items: readonly DealEnrichment[]) => Promise<number>
-  readonly populateV3Layer: (deals: Deal[]) => Promise<V3CutoverStats>
   readonly deactivateStaleForStores: (runStartedAt: Date, plan: Map<string, StoreSweepPlan>) => Promise<number>
   readonly deactivateExpiredDeals: () => Promise<number>
   readonly logPipelineRun: (input: PipelineRunInput) => Promise<void>
@@ -467,17 +460,6 @@ async function writeEnrichmentStep(deps: PipelineDeps, pendingEnrichment: Readon
   console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with crop/price-basis/rappen`)
 }
 
-async function v3CutoverStep(deps: PipelineDeps, resolved: Deal[]): Promise<void> {
-  try {
-    const v3Stats = await deps.storage.populateV3Layer(resolved)
-    console.log(`[pipeline] [INFO] v3 cutover — concepts:${v3Stats.concepts_resolved}, skus:${v3Stats.skus_upserted}, linked:${v3Stats.deals_linked}`)
-  } catch (err) {
-    // Don't fail the pipeline if v3 cutover hits an issue — legacy columns are
-    // still populated. Log loud so the operator can fix in Supabase Studio.
-    console.error('[pipeline] [ERROR] v3 cutover failed (legacy data still saved):', err)
-  }
-}
-
 // ⚠️ COLLECTING IS NOT REFRESHING. A store that fetched successfully but wrote
 // nothing must not be swept — see item #5 in HANDOVER.md §4.
 async function sweepStep(deps: PipelineDeps, storeStatusMap: ReadonlyMap<Store, StoreStatus>, write: WriteOutcome, startDate: Date): Promise<void> {
@@ -831,6 +813,16 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   // (`WRITE_TAIL_MS`, `resilience.ts`). Logged as its own line every run so
   // it stays measurable instead of rotting into folklore; WP-P7 will feed it
   // into the stored run metrics.
+  //
+  // RETIRED 2026-09-25 (tech-lead ruling after PM decisions, §10 of
+  // docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md): a catalogue step
+  // used to run here, resolving every deal to a concept + sku and setting
+  // deals.sku_id. It was verified that nothing in the product reads that
+  // layer (web-next, the pipeline and the database) — a writer with no
+  // reader costing ~667s of the write tail for zero product value. The
+  // tables/columns/views are NOT dropped (a two-way door); the batched
+  // writer built for it is kept in git history at commit a9a2958
+  // (`pipeline/catalogue/`) and can be restored by reverting this commit.
   const writeTailStart = clock()
 
   const resolved = await resolveTaxonomyStep(deps, categorized)
@@ -840,7 +832,6 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   const storedCount = write.writeResult.total
 
   await writeEnrichmentStep(deps, collected.pendingEnrichment)
-  await v3CutoverStep(deps, resolved)
   await sweepStep(deps, collected.storeStatusMap, write, options.startDate)
 
   const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount, write.writeResult.collapsed)
@@ -864,7 +855,7 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
 
   const writeTailMs = clock() - writeTailStart
   console.log(
-    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → v3 cutover → sweep → deactivate → logRun)`,
+    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → sweep → deactivate → logRun)`,
   )
   // N4 (code review, round 2): WRITE_TAIL_MS scales with deal count — warn
   // the moment a real run exceeds it, rather than trusting a measurement

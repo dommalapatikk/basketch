@@ -27,7 +27,6 @@ import { supabase } from './supabase-client'
 import { writeEnrichment } from './storage/infrastructure/write-enrichment'
 import { pingRevalidateWebhook } from './observability/revalidate-webhook'
 import { writeStepSummary } from './observability/github-step-summary'
-import { populateV3Layer } from './v3-cutover'
 import { unwrap } from './collection/domain/result'
 import { guardClassifier } from './transformation/domain/classifier'
 import { CURRENT_VERSIONS } from './transformation/domain/classification-cache'
@@ -340,7 +339,6 @@ const PRODUCTION_STORAGE: StorageDeps = {
   activeCountsByWindow,
   storeDeals,
   writeEnrichment: (items) => writeEnrichment(supabase, items, (m) => console.log(`[pipeline] [INFO] ${m}`)),
-  populateV3Layer,
   deactivateStaleForStores,
   deactivateExpiredDeals,
   logPipelineRun,

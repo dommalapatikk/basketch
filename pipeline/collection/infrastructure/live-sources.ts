@@ -288,15 +288,22 @@ export function createLiveSources(options: LiveSourceOptions = {}): OfferSource[
     createVolgHtmlSource({ fetchPage: net.volgFetchPage }),
 
     // ── Spar: flyer PDF via a 302 to cdn.ipaper.io ──────────────────────────
-    // NO pageImageUrl. QA 2026-09-16 (defect 3): this used to be
-    // `() => sparPdfUrl(year, kw)` — the flyer's PDF DOWNLOAD endpoint, not a
-    // page image, so all 76 live SPAR crops pointed at a 404 `GetPDF.ashx` a
-    // browser `<img>` cannot render even when it resolves. SPAR's real
-    // per-page image scheme is genuinely unknown: the iPaper Enrichments JSON
-    // that would carry it returned 403 to every probe in
-    // docs/research-raw-2026-09-07/report12_line398.md, "contents unknown" —
-    // not evidence to build a URL from. Omitting pageImageUrl leaves `image`
-    // null (an honest empty card) instead of a src that always fails.
+    // NO pageImageUrl — WITHHELD BY POLICY, NOT BECAUSE SPAR PUBLISHES NONE.
+    // QA 2026-09-16 (defect 3): this used to be `() => sparPdfUrl(year, kw)`
+    // — the flyer's PDF DOWNLOAD endpoint, not a page image, so all 76 live
+    // SPAR crops pointed at a 404 `GetPDF.ashx` a browser `<img>` cannot
+    // render even when it resolves. Corrected 2026-09-25 (tech-lead
+    // cross-review §1.2, amendment 1; architect cross-review §3.2): SPAR DOES
+    // publish per-page images — they sit behind iPaper's signed-token
+    // scheme, which is why the Enrichments JSON that would carry the URL
+    // returned 403 to every probe in
+    // docs/research-raw-2026-09-07/report12_line398.md. That 403 is a policy
+    // gate, not proof the images don't exist, so the pipeline's own reason
+    // for this deal's missing picture must record `withheld-by-policy` —
+    // never `retailer-publishes-none`. Building a token-gated URL is a
+    // separate, PM-gated decision (D-3); until it is approved, omitting
+    // pageImageUrl leaves `image` null (an honest empty card) instead of a
+    // src that always fails.
     //
     // WP-J1: the url is built from the EDITION handed to `fetchOffers`, not
     // from a kw/year captured when this array was built — see
