@@ -53,11 +53,20 @@ function isCoopScopedAktionisMention(path: string, value: string): boolean {
 }
 
 // Independent of the allowlist above: no string may ever say "all"/"every"
-// (or the DE/FR/IT equivalents) within ~30 characters of "aktionis", even if
-// it also happens to mention Coop elsewhere in the same sentence. Defense in
-// depth for the same S-3 finding.
+// (or the DE/FR/IT equivalents) anywhere in the same sentence as "aktionis"
+// (up to 40 non-period characters apart, so it stays inside one sentence),
+// even if it also happens to mention Coop elsewhere in that sentence.
+// Defense in depth for the same S-3 finding.
+//
+// Re-review 2026-09-25 (R-1): the first version used `\W{0,30}`, which only
+// allows NON-WORD characters in the gap — so it matched "all: aktionis" but
+// not "All deal data from aktionis.ch, Coop included" (mutation E), because
+// "deal data from" is all word characters. Both the prefix words and
+// "aktionis" now have `\b` word boundaries so "small"/"cooperation" etc.
+// cannot match by accident, and `[^.]{0,40}` allows any non-period character
+// (words included) in between, so it actually catches a real sentence.
 const CLAIMS_ALL_DATA_IS_AKTIONIS =
-  /(all|alle|jede[rs]?|every|tout(e|es)?|tutt[eoi])\W{0,30}aktionis/i
+  /\b(all|alle|jede[rs]?|every|tout(e|es)?|tutt[eoi])\b[^.]{0,40}aktionis/i
 
 describe('does not claim aktionis.ch as the only source', () => {
   it('no locale string says all/every deal data comes from aktionis', () => {
@@ -126,6 +135,25 @@ describe('does not claim the AI judge checks every answer (code review M-1)', ()
       expect(joined, `${locale}.json claims the judge checks every answer`).not.toMatch(
         /checking every answer|prüft jede Antwort/i,
       )
+    }
+  })
+
+  // R-2 (re-review of b0459cd): mutation F dropped the "usually"/"meist"
+  // qualifier from methodology.step2_d ("AI-assigned, cross-checked"), which
+  // is the same "judge runs unconditionally" overclaim as the sentence above,
+  // just on the homepage strip's short card copy instead of the About page.
+  // Nothing guarded that card specifically before this test.
+  it('methodology.step2_d never claims "cross-checked"/"gegengeprüft" without its "usually"/"meist" qualifier', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const step2d = (LOCALES[locale] as { methodology?: { step2_d?: string } }).methodology
+        ?.step2_d
+      expect(step2d, `${locale}.json missing methodology.step2_d`).toBeTruthy()
+      if (step2d && /cross-checked|gegengeprüft/i.test(step2d)) {
+        expect(
+          step2d,
+          `${locale}.json methodology.step2_d claims cross-checking without the "usually"/"meist" qualifier`,
+        ).toMatch(/\b(usually|meist)\b/i)
+      }
     }
   })
 })
