@@ -9,15 +9,21 @@
     "intro": "basketch vergleicht die wöchentlichen Aktionen von sieben Schweizer Supermärkten — Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg — und zeigt, welcher Laden diese Woche pro Kategorie gewinnt.",
     "how_it_works": {
       "heading": "So funktioniert es",
-      "step1": "Jede Woche holen wir die neusten Aktionen von 7 Schweizer Supermärkten — den genauen Aktualisierungszeitpunkt findest du auf der Aktionen-Seite.",
-      "step2": "Wir ordnen jede Aktion in Frisch, Lange haltbar oder Haushalt ein und berechnen das Wochenfazit.",
-      "step3": "Das Fazit siehst du sofort. Durchstöbere alle Aktionen oder verfolge deine üblichen Artikel für einen persönlichen Vergleich."
+      "step1": "Wir erfassen die aktuellen Aktionen von sieben Schweizer Supermärkten bis zu dreimal pro Woche — das genaue Datum steht auf der Aktionen-Seite.",
+      "step2": "Jedes Produkt wird von einem KI-Modell in Frisch, Lange haltbar oder Haushalt eingeordnet; ein zweites KI-Modell prüft die Antwort in der Regel nach. Bleiben die beiden uneinig, erscheint die Aktion mit dem Hinweis „Kategorie ungeprüft“.",
+      "step3": "Das Fazit steht sofort bereit. Durchstöbere alle Aktionen oder lege eine Liste an und teile sie mit der Person, die einkauft."
     },
     "data_sources": {
       "heading": "Datenquellen",
-      "body": "Alle Aktionsdaten stammen von aktionis.ch, einem öffentlichen Schweizer Angebotsverzeichnis seit 2006.",
-      "stores_label": "Erfasste Läden: Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg.",
-      "note": "Wir nutzen nur öffentlich zugängliche Daten. Kein Scraping geschützter Webseiten. Die Aktionsdaten werden wöchentlich aktualisiert."
+      "body": "Sechs der sieben Läden lesen wir direkt von der Website oder dem Flyer des Anbieters. Coop ist die Ausnahme — coop.ch blockiert automatisierte Zugriffe, darum stammen Coop-Preise von aktionis.ch, einem öffentlichen Schweizer Angebotsverzeichnis.",
+      "source_migros": "der öffentliche Wochenflyer (Issuu, Ausgabe Zürich)",
+      "source_coop": "aktionis.ch, ein öffentliches Angebotsverzeichnis (coop.ch blockiert automatisierte Zugriffe)",
+      "source_lidl": "der öffentliche Wochenflyer",
+      "source_aldi": "der öffentliche Wochenflyer",
+      "source_denner": "denner.ch, die Website des Anbieters selbst",
+      "source_spar": "der öffentliche Wochenflyer",
+      "source_volg": "volg.ch, die Seite mit den Wochenaktionen",
+      "note": "Erfasst am Montag, Dienstag und Donnerstag. Sind die Daten älter als 9 Tage, siehst du das mit einem Hinweis auf der Startseite."
     },
     "what_we_compare": {
       "heading": "Was wir vergleichen",
@@ -27,7 +33,7 @@
       "heading": "Datenschutz",
       "bullet1": "Kein Konto nötig.",
       "bullet2": "Keine Tracking-Cookies.",
-      "bullet3": "E-Mail ist freiwillig und dient nur dazu, deine Liste zu finden."
+      "bullet3": "Deine Liste wird nur in deinem Browser gespeichert — wir speichern sie nicht auf einem Server."
     },
     "contact": {
       "heading": "Kontakt & Feedback",
@@ -55,9 +61,9 @@
   "methodology": {
     "title": "So funktioniert es",
     "step1_t": "Wöchentliche Aktionen",
-    "step1_d": "von aktionis.ch",
-    "step2_t": "Normalisierte Preise",
-    "step2_d": "pro Liter, Kilo, Stück",
+    "step1_d": "von 7 Schweizer Läden",
+    "step2_t": "Kategorie-Prüfung",
+    "step2_d": "KI-zugewiesen, meist gegengeprüft",
     "step3_t": "Kategoriegewinner",
     "step3_d": "nach Ø Rabatt"
   },
@@ -127,7 +133,7 @@
   },
   "footer": {
     "disclaimer": "Nicht mit einem Supermarkt verbunden",
-    "source": "Daten von aktionis.ch"
+    "source": "Daten von 7 Schweizer Läden — Coop via aktionis.ch"
   },
   "variant_picker": {
     "title": "Wähle deine {family}",
@@ -202,7 +208,7 @@
     "copy": "Kopieren",
     "copied": "Kopiert",
     "mail_subject": "basketch — Lebensmittel-Verdict dieser Woche",
-    "share_text": "Diese Wochen-Angebote bei Migros vs Coop, nebeneinander.",
+    "share_text": "Die Aktionen dieser Woche bei 7 Schweizer Läden, im Vergleich.",
     "preview_card": "Share-Bild anzeigen"
   }
 }

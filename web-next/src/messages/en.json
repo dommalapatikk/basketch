@@ -9,15 +9,21 @@
     "intro": "basketch compares the weekly grocery promotions across seven Swiss supermarkets — Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg — and tells you which store wins this week, by category.",
     "how_it_works": {
       "heading": "How it works",
-      "step1": "Every week we fetch the latest promotions from 7 Swiss supermarkets — check the freshness indicator on the deals page for the exact update time.",
-      "step2": "We categorise every deal into Fresh, Long-life, or Household and calculate a weekly verdict.",
-      "step3": "You see the verdict instantly. Browse all deals, or track your regular items for a personal comparison."
+      "step1": "We collect current promotions from seven Swiss supermarkets up to three times a week — the exact date is on the deals page.",
+      "step2": "Each product is sorted into Fresh, Long-life or Household by an AI model, and a second AI model normally double-checks the answer. If the two still disagree, the deal is shown marked 'Category unverified'.",
+      "step3": "The verdict is ready right away. Browse all deals, or add items to a list and share it with whoever's shopping."
     },
     "data_sources": {
       "heading": "Data sources",
-      "body": "All deal data comes from aktionis.ch, a public Swiss deal aggregator since 2006.",
-      "stores_label": "Stores tracked: Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg.",
-      "note": "We only use publicly available data. No scraping of protected websites. Deal data is refreshed weekly."
+      "body": "Six of the seven stores are read straight from the retailer's own website or flyer. Coop is the exception — coop.ch blocks automated access, so Coop's prices come from aktionis.ch, a public Swiss deal site, instead.",
+      "source_migros": "the public weekly flyer (Issuu, Zurich edition)",
+      "source_coop": "aktionis.ch, a public deal site (coop.ch blocks automated access)",
+      "source_lidl": "the public weekly flyer",
+      "source_aldi": "the public weekly flyer",
+      "source_denner": "denner.ch, the store's own site",
+      "source_spar": "the public weekly flyer",
+      "source_volg": "volg.ch, the weekly offers page",
+      "note": "Collected Monday, Tuesday and Thursday. If data is more than 9 days old, a banner on the home page tells you so."
     },
     "what_we_compare": {
       "heading": "What we compare",
@@ -27,7 +33,7 @@
       "heading": "Privacy",
       "bullet1": "No account required.",
       "bullet2": "No tracking cookies.",
-      "bullet3": "Email is optional and only used to find your list."
+      "bullet3": "Your list is saved only in your browser — we don't store it on a server."
     },
     "contact": {
       "heading": "Contact & feedback",
@@ -55,9 +61,9 @@
   "methodology": {
     "title": "How it works",
     "step1_t": "Weekly discounts",
-    "step1_d": "from aktionis.ch",
-    "step2_t": "Normalised prices",
-    "step2_d": "per L, kg, piece",
+    "step1_d": "from 7 Swiss retailers",
+    "step2_t": "Category check",
+    "step2_d": "AI-assigned, usually cross-checked",
     "step3_t": "Category winners",
     "step3_d": "by avg % off"
   },
@@ -127,7 +133,7 @@
   },
   "footer": {
     "disclaimer": "Not affiliated with any store",
-    "source": "Data from aktionis.ch"
+    "source": "Data from 7 Swiss retailers — Coop via aktionis.ch"
   },
   "variant_picker": {
     "title": "Pick your {family}",
@@ -202,7 +208,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "mail_subject": "basketch — this week's grocery verdict",
-    "share_text": "This week's deals at Migros vs Coop, side by side.",
+    "share_text": "This week's grocery deals across 7 Swiss stores, side by side.",
     "preview_card": "Preview the share card"
   }
 }

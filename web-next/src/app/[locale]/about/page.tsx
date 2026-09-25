@@ -1,8 +1,11 @@
+import type { Metadata } from 'next'
 import { useTranslations } from 'next-intl'
 import { getTranslations, setRequestLocale } from 'next-intl/server'
-import type { Metadata } from 'next'
 
 import { siteUrl } from '@/lib/site-url'
+import { STORE_BRAND, STORE_DISPLAY_ORDER, type StoreKey } from '@/lib/store-tokens'
+
+type DataSourceKey = `data_sources.source_${StoreKey}`
 
 const SITE_URL = siteUrl()
 
@@ -40,11 +43,7 @@ export async function generateMetadata({
   }
 }
 
-export default async function AboutPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>
-}) {
+export default async function AboutPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params
   setRequestLocale(locale)
   return <AboutContent />
@@ -59,9 +58,7 @@ function AboutContent() {
         <h1 className="text-4xl font-semibold tracking-tight text-[var(--color-ink)] md:text-5xl">
           {t('title')}
         </h1>
-        <p className="mt-4 text-lg leading-relaxed text-[var(--color-ink-2)]">
-          {t('intro')}
-        </p>
+        <p className="mt-4 text-lg leading-relaxed text-[var(--color-ink-2)]">{t('intro')}</p>
       </header>
 
       <div className="flex max-w-3xl flex-col gap-12">
@@ -79,10 +76,12 @@ function AboutContent() {
                   {String(step).padStart(2, '0')}
                 </span>
                 <p className="text-base leading-relaxed text-[var(--color-ink-2)]">
-                  {t(`how_it_works.step${step}` as
-                    | 'how_it_works.step1'
-                    | 'how_it_works.step2'
-                    | 'how_it_works.step3')}
+                  {t(
+                    `how_it_works.step${step}` as
+                      | 'how_it_works.step1'
+                      | 'how_it_works.step2'
+                      | 'how_it_works.step3',
+                  )}
                 </p>
               </li>
             ))}
@@ -99,10 +98,25 @@ function AboutContent() {
           <p className="mt-5 text-base leading-relaxed text-[var(--color-ink-2)]">
             {t('data_sources.body')}
           </p>
-          <p className="mt-3 text-base leading-relaxed text-[var(--color-ink-2)]">
-            {t('data_sources.stores_label')}
-          </p>
-          <p className="mt-3 text-sm leading-relaxed text-[var(--color-ink-3)]">
+          <ul className="mt-5 flex flex-col gap-3">
+            {STORE_DISPLAY_ORDER.map((store) => (
+              <li key={store} className="flex items-start gap-2">
+                <span
+                  aria-hidden="true"
+                  className="mt-2 h-3 w-3 shrink-0 rounded-full"
+                  style={{ backgroundColor: STORE_BRAND[store].color }}
+                />
+                <p className="text-base leading-relaxed text-[var(--color-ink-2)]">
+                  <span className="font-semibold text-[var(--color-ink)]">
+                    {STORE_BRAND[store].label}
+                  </span>
+                  {' — '}
+                  {t(`data_sources.source_${store}` as DataSourceKey)}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-5 text-sm leading-relaxed text-[var(--color-ink-3)]">
             {t('data_sources.note')}
           </p>
         </section>
