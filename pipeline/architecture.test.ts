@@ -33,3 +33,63 @@ describe('product-resolve depends on a declared unique index', () => {
     expect(matches.length).toBeGreaterThan(0)
   })
 })
+
+// 2026-09-25 §10 (tech-lead ruling after PM decisions:
+// docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md §10). Nothing in the
+// product reads the concept/sku catalogue layer — verified across web-next,
+// the pipeline and the database (§10.1). The batched writer built for WP-1a
+// (commit a9a2958, `pipeline/catalogue/`) was retired the same day it landed,
+// because a writer with no reader buys nothing: it cost ~667s of the write
+// tail for zero product value. The tables, columns and views are NOT
+// dropped — this is a two-way door, reversible by reverting one commit — but
+// no pipeline code may write or read them going forward. `pipeline/migrate/`
+// is excluded: its two one-shot scripts (`seed-v3-from-deals.ts`,
+// `fix-dairy-miscategorisation.ts`) are historical artifacts of the original
+// backfill, not part of any run path, and are explicitly out of scope for
+// ruling 1 (§10.2).
+describe('2026-09-25 §10: no pipeline write path touches the retired concept/sku layer', () => {
+  const RETIRED_LAYER_PATTERNS = ["from('sku')", "from('concept", 'concept_resolver', 'sku_id', 'concept_cheapest_now']
+  const EXCLUDED_DIRS = new Set(['node_modules', 'dist', '__fixtures__', 'migrate', 'archive'])
+
+  function pipelineSourceFiles(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (EXCLUDED_DIRS.has(entry.name)) continue
+        out.push(...pipelineSourceFiles(join(dir, entry.name)))
+      } else if (entry.name.endsWith('.ts') && !entry.name.includes('.test.')) {
+        out.push(join(dir, entry.name))
+      }
+    }
+    return out
+  }
+
+  // Comments are stripped before matching — the same discipline
+  // `collection/domain/architecture.test.ts` uses for retailer vocabulary and
+  // personal-data fields. A comment explaining that this layer was retired
+  // (this very file, or run-pipeline.ts's write-tail note) is documentation,
+  // not a reader.
+  function withoutComments(src: string): string {
+    return src
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n')
+  }
+
+  const files = pipelineSourceFiles(__dirname)
+
+  it('finds pipeline source files to check — guards against a silently empty test', () => {
+    expect(files.length).toBeGreaterThan(20)
+  })
+
+  it('no non-test pipeline file outside migrate/ or archive/ references the retired layer', () => {
+    const violations: string[] = []
+    for (const file of files) {
+      const code = withoutComments(readFileSync(file, 'utf8'))
+      for (const pattern of RETIRED_LAYER_PATTERNS) {
+        if (code.includes(pattern)) violations.push(`${file.slice(file.indexOf('/pipeline/') + 1)} references '${pattern}'`)
+      }
+    }
+    expect(violations).toEqual([])
+  })
+})

@@ -18,7 +18,6 @@ basketch/
 │   ├── product-resolve.ts # Product identity resolution (find/create in products table)
 │   ├── categorize.ts      # Category + sub-category assignment
 │   ├── store.ts           # Supabase upsert + logPipelineRun
-│   ├── v3-cutover.ts      # concept/sku layer population
 │   └── run.ts             # Pipeline entry point
 ├── web-next/              # Next.js 16 frontend (LIVE at basketch.vercel.app). Own package.json.
 │   └── src/

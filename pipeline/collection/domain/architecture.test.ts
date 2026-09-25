@@ -24,14 +24,7 @@ const APPLICATION_DIR = join(__dirname, '..', 'application')
  * a new one must be added here — otherwise it silently escapes enforcement,
  * which is how transformation/domain went unchecked when it was first created.
  */
-const DOMAIN_DIRS = [
-  __dirname,
-  join(__dirname, '..', '..', 'transformation', 'domain'),
-  // WP-1a, 2026-09-25: the batched catalogue-identity module obeys the same
-  // layering rules — added here per this file's own comment above ("a new
-  // one must be added here — otherwise it silently escapes enforcement").
-  join(__dirname, '..', '..', 'catalogue', 'domain'),
-].filter((d) => {
+const DOMAIN_DIRS = [__dirname, join(__dirname, '..', '..', 'transformation', 'domain')].filter((d) => {
   try {
     readdirSync(d)
     return true
@@ -73,7 +66,7 @@ describe('the domain layer imports no infrastructure', () => {
 
   it('finds domain files to check — guards against a silently empty test', () => {
     expect(domainFiles.length).toBeGreaterThan(8)
-    expect(DOMAIN_DIRS.length).toBe(3) // collection + transformation + catalogue
+    expect(DOMAIN_DIRS.length).toBe(2) // collection + transformation
   })
 
   it('never imports from infrastructure/', () => {

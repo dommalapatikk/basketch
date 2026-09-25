@@ -99,10 +99,6 @@ function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { read
       calls.push('writeEnrichment')
       return items.length
     },
-    async runCatalogueStep() {
-      calls.push('runCatalogueStep')
-      return { concepts_resolved: 0, skus_upserted: 0, deals_linked: 0 }
-    },
     async deactivateStaleForStores() {
       calls.push('deactivateStaleForStores')
       return 0
@@ -642,6 +638,36 @@ describe('the write tail is monitored, not just trusted (N4, code review round 2
     } finally {
       warnSpy.mockRestore()
     }
+  })
+})
+
+// 2026-09-25 §10 (tech-lead ruling after PM decisions): the catalogue step
+// (concept/sku resolution, batched for WP-1a in commit a9a2958) was retired
+// the same day it landed — nothing in the product reads that layer. This
+// pins the write tail's exact call order with it gone, so a reintroduction
+// (a revert, a rebase, a copy-paste from history) shows up as a changed
+// array here rather than silently rejoining the tail.
+describe('2026-09-25 §10: the write tail has no catalogue step', () => {
+  it('is exactly taxonomy → products → storeDeals → enrichment → sweep → deactivate → logRun', async () => {
+    const deps = fakeDeps({ sources: () => [dennerOfferSource('Bio Vollmilch 1l')] })
+
+    const outcome = await runPipeline(deps, baseOptions)
+
+    expect(outcome.status).toBe('ok')
+    expect(deps.storage.calls).toEqual([
+      'loadAliases', // taxonomy
+      'reportUnknownTags', // taxonomy (unmapped sub_category tags reported this run)
+      'resolveProducts', // products
+      'activeCountsByWindow', // storeDeals (sweep-guard pre-read)
+      'storeDeals', // storeDeals
+      'writeEnrichment', // enrichment
+      'deactivateStaleForStores', // sweep
+      'deactivateExpiredDeals', // deactivate
+      'logPipelineRun', // logRun
+    ])
+    expect(deps.storage.calls).not.toContain('runCatalogueStep')
+    expect(deps.storage.calls).not.toContain('catalogueStep')
+    expect(deps.storage.calls).not.toContain('populateV3Layer')
   })
 })
 
