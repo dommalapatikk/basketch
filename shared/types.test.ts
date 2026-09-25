@@ -11,6 +11,17 @@ import {
   topCategoryFor,
 } from './types'
 import type { Deal } from './types'
+import { PRODUCT_IMAGE_BRAND } from './product-image'
+import type { ProductImage } from './product-image'
+
+// Built directly, not through the collection-domain constructors: this
+// package must not depend on pipeline. See product-image.test.ts's own note.
+const sourceUrlImage = (url: string): ProductImage => ({ kind: 'source-url', url, [PRODUCT_IMAGE_BRAND]: true })
+const cropRegionImage = (region: { pageImageUrl: string; x: number; y: number; width: number; height: number }): ProductImage => ({
+  kind: 'crop-region',
+  region,
+  [PRODUCT_IMAGE_BRAND]: true,
+})
 
 describe('BROWSE_CATEGORIES', () => {
   // The original grocery sub-categories. The taxonomy has grown well past these
@@ -133,7 +144,7 @@ describe('dealToRow', () => {
     discountPercent: 25,
     validFrom: '2026-04-09',
     validTo: '2026-04-15',
-    imageUrl: null,
+    image: null,
     sourceCategory: 'Dairy',
     sourceUrl: 'https://example.com',
     category: 'fresh',
@@ -198,6 +209,130 @@ describe('dealToRow', () => {
   it('defaults attributes to an empty object, never null', () => {
     const row = dealToRow(deal)
     expect(row.attributes).toEqual({})
+  })
+})
+
+// WP-1d (ADR-IMG-1, tech-lead cross-review §1.1). Before this, `dealToRow`
+// wrote `image_url` only — a CropRegion had no home on the main row and was
+// recovered by a second write (`writeEnrichment`) keyed on a natural-key
+// string. T-7 (ARCH-IMG §7): dealToRow now writes the WHOLE image, either
+// direction, in one statement.
+describe('dealToRow — the image rides the main row (T-7)', () => {
+  const deal: Deal = {
+    store: 'migros',
+    productName: 'Test Product',
+    originalPrice: 10.0,
+    salePrice: 7.5,
+    discountPercent: 25,
+    validFrom: '2026-04-09',
+    validTo: '2026-04-15',
+    image: null,
+    sourceCategory: 'Dairy',
+    sourceUrl: 'https://example.com',
+    category: 'fresh',
+    subCategory: 'dairy',
+  }
+
+  it('writes a crop-region image: the page url and all four fractions, image_url null', () => {
+    const image = cropRegionImage({ pageImageUrl: 'https://image.isu.pub/rev/jpg/page_5.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 })
+    const row = dealToRow({ ...deal, image })
+    expect(row.image_url).toBeNull()
+    expect(row.page_image_url).toBe('https://image.isu.pub/rev/jpg/page_5.jpg')
+    expect(row.crop_x).toBe(0.1)
+    expect(row.crop_y).toBe(0.2)
+    expect(row.crop_w).toBe(0.3)
+    expect(row.crop_h).toBe(0.4)
+  })
+
+  it('the reverse: writes a source-url image to image_url, all four fractions null', () => {
+    const image = sourceUrlImage('https://denner.imgix.net/x.jpg')
+    const row = dealToRow({ ...deal, image })
+    expect(row.image_url).toBe('https://denner.imgix.net/x.jpg')
+    expect(row.page_image_url).toBeNull()
+    expect(row.crop_x).toBeNull()
+    expect(row.crop_y).toBeNull()
+    expect(row.crop_w).toBeNull()
+    expect(row.crop_h).toBeNull()
+  })
+
+  it('writes all five columns null when there is no image', () => {
+    const row = dealToRow({ ...deal, image: null })
+    expect(row.image_url).toBeNull()
+    expect(row.page_image_url).toBeNull()
+    expect(row.crop_x).toBeNull()
+    expect(row.crop_y).toBeNull()
+    expect(row.crop_w).toBeNull()
+    expect(row.crop_h).toBeNull()
+  })
+})
+
+// The §1.1 property test (tech-lead cross-review, ADR-IMG-1 condition 3):
+// "every row dealToRow emits satisfies deals_crop_fractions,
+// deals_one_image_kind and deals_crop_complete". The three predicates below
+// mirror the SQL CHECK constraints verbatim, cited by migration line number,
+// so a change to either side of the mirror is visible as a diff, not a
+// silent drift. `deals_crop_complete` (WP-1f) is not yet a live CHECK, but
+// `imageColumns` must already satisfy it by construction.
+describe('dealToRow — every row satisfies the image CHECK constraints (§1.1 property test)', () => {
+  type ImageRow = {
+    image_url: string | null
+    page_image_url: string | null
+    crop_x: number | null
+    crop_y: number | null
+    crop_w: number | null
+    crop_h: number | null
+  }
+
+  /** 20260911_offer_fields.sql:89-95 */
+  function satisfiesDealsCropFractions(row: ImageRow): boolean {
+    const allNull = row.crop_x === null && row.crop_y === null && row.crop_w === null && row.crop_h === null
+    const allFractions =
+      row.crop_x !== null && row.crop_y !== null && row.crop_w !== null && row.crop_h !== null &&
+      row.crop_x >= 0 && row.crop_x <= 1 &&
+      row.crop_y >= 0 && row.crop_y <= 1 &&
+      row.crop_w > 0 && row.crop_w <= 1 &&
+      row.crop_h > 0 && row.crop_h <= 1
+    return allNull || allFractions
+  }
+
+  /** 20260911_offer_fields.sql:100-102 */
+  function satisfiesDealsOneImageKind(row: ImageRow): boolean {
+    return !(row.image_url !== null && row.page_image_url !== null)
+  }
+
+  /** ARCH-IMG §4.3 / WP-1f — not yet a live CHECK, but imageColumns must already hold it. */
+  function satisfiesDealsCropComplete(row: ImageRow): boolean {
+    const flags = [row.page_image_url === null, row.crop_x === null, row.crop_y === null, row.crop_w === null, row.crop_h === null]
+    return flags.every((f) => f === flags[0])
+  }
+
+  const deal: Deal = {
+    store: 'migros',
+    productName: 'Test Product',
+    originalPrice: null,
+    salePrice: 7.5,
+    discountPercent: null,
+    validFrom: '2026-04-09',
+    validTo: '2026-04-15',
+    image: null,
+    sourceCategory: null,
+    sourceUrl: null,
+    category: 'fresh',
+    subCategory: 'dairy',
+  }
+
+  const images: (ProductImage | null)[] = [
+    null,
+    sourceUrlImage('https://a.test/x.jpg'),
+    cropRegionImage({ pageImageUrl: 'https://b.test/p.jpg', x: 0, y: 0, width: 1, height: 1 }),
+    cropRegionImage({ pageImageUrl: 'https://c.test/p.jpg', x: 0.25, y: 0.5, width: 0.5, height: 0.25 }),
+  ]
+
+  it.each(images)('holds for %o', (image) => {
+    const row = dealToRow({ ...deal, image })
+    expect(satisfiesDealsCropFractions(row)).toBe(true)
+    expect(satisfiesDealsOneImageKind(row)).toBe(true)
+    expect(satisfiesDealsCropComplete(row)).toBe(true)
   })
 })
 
@@ -290,7 +425,7 @@ describe('dealToRow rounds discount_percent for its INTEGER column', () => {
     discountPercent: 33.33333333333333,
     validFrom: '2026-09-12',
     validTo: '2026-09-18',
-    imageUrl: null,
+    image: null,
     sourceCategory: null,
     sourceUrl: null,
     category: 'fresh',

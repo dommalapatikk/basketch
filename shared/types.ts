@@ -2,6 +2,8 @@
 // Consumed by pipeline (TypeScript) and frontend (React).
 // Python Coop scraper outputs JSON matching UnifiedDeal shape (camelCase).
 
+import { type ProductImage, imageColumns } from './product-image'
+
 // ============================================================
 // Core union types
 // ============================================================
@@ -470,7 +472,16 @@ export interface UnifiedDeal {
   discountPercent: number | null // null only when originalPrice is null
   validFrom: string             // ISO date: '2026-04-09'
   validTo: string | null
-  imageUrl: string | null
+  /**
+   * WP-1d (ADR-IMG-1). Carries the WHOLE `ProductImage` — a plain source url
+   * OR a flyer-page CropRegion — through to `dealToRow`, which writes all
+   * five image columns in the SAME upsert as the price. Before this it was
+   * `imageUrl: string | null`, which could only hold a source-url and threw
+   * a CropRegion away; a second write recovered it, on its own key, and
+   * every boundary between the two writes was a place the picture could be
+   * lost. See `shared/product-image.ts` for the type and its invariants.
+   */
+  image: ProductImage | null
   sourceCategory: string | null // original category from source
   sourceUrl: string | null      // link to deal on source site
 
@@ -581,6 +592,15 @@ export interface DealRow {
   valid_from: string
   valid_to: string | null
   image_url: string | null
+  // WP-1d (ADR-IMG-1): the CropRegion half of ProductImage, written in the
+  // SAME upsert as image_url — see `shared/product-image.ts` `imageColumns`.
+  // deals_one_image_kind (20260911_offer_fields.sql) forbids image_url and
+  // page_image_url both being non-null on one row.
+  page_image_url: string | null
+  crop_x: number | null
+  crop_y: number | null
+  crop_w: number | null
+  crop_h: number | null
   source_category: string | null
   source_url: string | null
   product_id: string | null
@@ -973,7 +993,10 @@ export function dealToRow(
     discount_percent: Math.round(deal.discountPercent ?? 0),
     valid_from: deal.validFrom,
     valid_to: deal.validTo,
-    image_url: deal.imageUrl,
+    // WP-1d (ADR-IMG-1): total by construction — always all five keys, nulls
+    // when there is no image — so every row in a batch upsert agrees on its
+    // column set. See shared/product-image.ts.
+    ...imageColumns(deal.image),
     source_category: deal.sourceCategory,
     source_url: deal.sourceUrl,
     product_id: productId ?? null,

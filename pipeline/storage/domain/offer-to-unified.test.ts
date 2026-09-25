@@ -48,12 +48,19 @@ describe('offerToUnifiedDeal — the shared path', () => {
 
   it('passes a plain image url straight through', () => {
     const d = offerToUnifiedDeal(offer({ image: unwrap(sourceUrlImage('https://denner.imgix.net/x.jpg')) }))
-    expect(d.imageUrl).toContain('imgix')
+    expect(d.image?.kind).toBe('source-url')
+    expect(d.image?.kind === 'source-url' && d.image.url).toContain('imgix')
   })
 
-  it('drops a CropRegion — it has no single url, so the enrichment pass carries it', () => {
+  // WP-1d (ADR-IMG-1): the mapper used to drop a CropRegion here — "it has no
+  // single url" — and rely on a second write (dealStoreEnrichment) to carry
+  // it on its own key. That gave the image two owners and a boundary where a
+  // held-back deal, a `|` in the product name, or a Map-vs-dedupe mismatch
+  // could silently lose the picture. Now it travels through whole.
+  it('carries a CropRegion through losslessly — it rides the main upsert now', () => {
     const image = unwrap(cropRegionImage({ pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 }))
-    expect(offerToUnifiedDeal(offer({ image })).imageUrl).toBeNull()
+    const d = offerToUnifiedDeal(offer({ image }))
+    expect(d.image).toEqual(image)
   })
 
   it('leaves minQuantity null for the ordinary single-item price (WP-C4)', () => {
@@ -79,14 +86,6 @@ describe('dealStoreEnrichment — recovering what the mapper drops', () => {
     expect(e?.sale_price_rappen).toBe(30)
   })
 
-  it('recovers the CropRegion the mapper dropped', () => {
-    const image = unwrap(cropRegionImage({ pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 }))
-    const e = dealStoreEnrichment(offer({ retailer: 'spar', image }))
-    expect(e?.page_image_url).toContain('p.jpg')
-    expect(e?.crop_w).toBe(0.3)
-    expect(e?.crop_h).toBe(0.4)
-  })
-
   it('records a member price and its programme — the LIDL rule', () => {
     const e = dealStoreEnrichment(offer({ retailer: 'lidl', priceBasis: { kind: 'member-only', programme: 'Lidl Plus' } }))
     expect(e?.price_basis).toBe('member-only')
@@ -99,17 +98,14 @@ describe('dealStoreEnrichment — recovering what the mapper drops', () => {
     expect(e?.loyalty_programme).toBeNull()
   })
 
-  it('writes no crop columns for a source-url image', () => {
-    const e = dealStoreEnrichment(offer({ image: unwrap(sourceUrlImage('https://a.test/x.jpg')) }))
-    expect(e?.page_image_url).toBeNull()
-    expect(e?.crop_x).toBeNull()
-  })
 })
 
 describe('the two halves fit back together', () => {
   it('loses nothing between the mapper and the enrichment', () => {
-    // The mapper is lossy BY DESIGN; this asserts the loss is recovered. If a
-    // field is added to Offer and only to one half, this is what should fail.
+    // The mapper is lossy BY DESIGN for what is still left (price basis,
+    // rappen); this asserts that loss is recovered. If a field is added to
+    // Offer and only to one half, this is what should fail. The image is no
+    // longer part of this split — WP-1d carries it through the mapper whole.
     const image = unwrap(cropRegionImage({ pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 }))
     const o = offer({
       retailer: 'lidl',
@@ -121,10 +117,9 @@ describe('the two halves fit back together', () => {
     const d = offerToUnifiedDeal(o)
     const e = dealStoreEnrichment(o)
 
-    // Dropped by the mapper…
-    expect(d.imageUrl).toBeNull()
-    // …recovered by the enrichment.
-    expect(e?.page_image_url).toContain('p.jpg')
+    // Carried by the mapper…
+    expect(d.image).toEqual(image)
+    // …recovered by the enrichment (what is still split off).
     expect(e?.price_basis).toBe('member-only')
     expect(e?.sale_price_rappen).toBe(139)
   })

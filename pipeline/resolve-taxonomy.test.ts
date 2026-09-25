@@ -15,7 +15,7 @@ function fakeDeal(subCategory: string | null, store = 'coop', productName = 'tes
     discountPercent: 50,
     validFrom: '2026-01-01',
     validTo: '2026-12-31',
-    imageUrl: null,
+    image: null,
     sourceCategory: null,
     sourceUrl: null,
     taxonomyConfidence: 0.9,

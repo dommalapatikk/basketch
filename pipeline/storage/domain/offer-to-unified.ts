@@ -1,20 +1,26 @@
 // offerToUnifiedDeal — feeds `Offer`s into the existing pipeline unchanged.
 //
 // WHY NOT REPLACE UnifiedDeal OUTRIGHT
-// `run.ts` runs seven steps after collection: grocery filter, classification,
-// taxonomy aliasing, product resolution, storage, the v3 concept layer and the
-// revalidate ping. All of them speak `UnifiedDeal`. Rewriting every one in the
-// same change as switching the data source would mean a cutover where, if
-// anything broke, nobody could tell which half caused it.
+// `run.ts` runs several steps after collection: grocery filter,
+// classification, taxonomy aliasing, product resolution and storage. All of
+// them speak `UnifiedDeal`. Rewriting every one in the same change as
+// switching the data source would mean a cutover where, if anything broke,
+// nobody could tell which half caused it.
 //
-// So `Offer` is mapped into `UnifiedDeal` for the shared path, and the fields
-// UnifiedDeal cannot hold — priceBasis, CropRegion, integer rappen, published
-// attributes — are written by a second pass keyed on the natural key. Two
-// writes, but every existing behaviour is preserved and each half fails
-// independently.
+// So `Offer` is mapped into `UnifiedDeal` for the shared path. Until WP-1d
+// (ADR-IMG-1), the fields UnifiedDeal could not hold — priceBasis,
+// CropRegion, integer rappen — were written by a SECOND pass keyed on a
+// string built from (store, product_name, valid_from): see
+// `dealStoreEnrichment` below and `storage/infrastructure/write-enrichment.ts`.
+// That gave the ProductImage value object two owners, two keys and a
+// cross-statement database CHECK, and every boundary between the two writes
+// was a place a picture could silently become null (a held-back deal, a `|`
+// in the product name, a Map-vs-dedupe mismatch over which offer "won").
 //
-// This mapper is LOSSY BY DESIGN, and the loss is recovered by
-// `dealStoreEnrichment` below. If you add a field to `Offer`, add it there too.
+// WP-1d moves the image onto `UnifiedDeal` itself (`image: ProductImage |
+// null`), so it rides the SAME upsert as the price — no second write, no
+// second key, no boundary to lose it at. `dealStoreEnrichment` still exists
+// for what is left: rappen, price basis and the loyalty programme (WP-1e).
 
 import type { UnifiedDeal } from '../../../shared/types'
 import { toFrancs } from '../../collection/domain/money'
@@ -28,8 +34,6 @@ export function naturalKey(store: string, productName: string, validFrom: string
 }
 
 export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
-  const image = offer.image
-
   return {
     store: offer.retailer,
     productName: offer.productName,
@@ -39,9 +43,10 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     discountPercent: offer.discount?.percent ?? null,
     validFrom: offer.validity.from,
     validTo: offer.validity.to,
-    // A CropRegion has no single url, so it cannot travel through UnifiedDeal.
-    // It is written by the enrichment pass instead.
-    imageUrl: image?.kind === 'source-url' ? image.url : null,
+    // WP-1d (ADR-IMG-1): the WHOLE image travels through now — a source-url
+    // or a CropRegion — because `dealToRow` writes all five image columns in
+    // one statement. Nothing is dropped here any more.
+    image: offer.image,
     sourceCategory: offer.sourceCategory,
     sourceUrl: offer.sourceUrl,
     // Unlike priceBasis/CropRegion/rappen, `minQuantity` (WP-C4) travels
@@ -59,29 +64,29 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
   } as UnifiedDeal
 }
 
-/** Columns that exist on `deals` but not on `UnifiedDeal`. */
+/**
+ * Columns that exist on `deals` but not on `UnifiedDeal`.
+ *
+ * WP-1d (ADR-IMG-1) moved the five image columns off this type and onto
+ * `UnifiedDeal.image` — they ride the main upsert now. What is left (rappen,
+ * price basis, loyalty programme) is WP-1e's turn.
+ */
 export type DealEnrichment = {
   readonly key: string
   readonly sale_price_rappen: number
   readonly original_price_rappen: number | null
   readonly price_basis: 'everyone' | 'member-only'
   readonly loyalty_programme: string | null
-  readonly page_image_url: string | null
-  readonly crop_x: number | null
-  readonly crop_y: number | null
-  readonly crop_w: number | null
-  readonly crop_h: number | null
 }
 
 /**
  * The fields the main path drops, ready for the second write.
  *
  * Returns null when an offer has nothing extra to say — most Denner and Coop
- * offers, which have a plain image url and an everyone-price. Only the rows that
- * need a second write generate one.
+ * offers, which have an everyone-price. Only the rows that need a second
+ * write generate one.
  */
 export function dealStoreEnrichment(offer: Offer): DealEnrichment | null {
-  const crop = offer.image?.kind === 'crop-region' ? offer.image.region : null
   const member = isMemberOnly(offer.priceBasis)
 
   // Rappen are always worth writing: the domain models money as integers and
@@ -92,10 +97,5 @@ export function dealStoreEnrichment(offer: Offer): DealEnrichment | null {
     original_price_rappen: offer.originalPrice?.rappen ?? null,
     price_basis: member ? 'member-only' : 'everyone',
     loyalty_programme: member ? offer.priceBasis.programme : null,
-    page_image_url: crop?.pageImageUrl ?? null,
-    crop_x: crop?.x ?? null,
-    crop_y: crop?.y ?? null,
-    crop_w: crop?.width ?? null,
-    crop_h: crop?.height ?? null,
   }
 }

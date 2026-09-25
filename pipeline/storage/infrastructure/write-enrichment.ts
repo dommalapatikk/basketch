@@ -1,15 +1,20 @@
 // writeEnrichment — the second write, for columns `UnifiedDeal` cannot carry.
 //
 // The main storage step writes through UnifiedDeal, which has no room for a
-// CropRegion, a price basis, or integer rappen. Those are written here, keyed on
-// the constraint the table already enforces: unique_deal
+// price basis or integer rappen. Those are written here, keyed on the
+// constraint the table already enforces: unique_deal
 // (store, product_name, valid_from).
 //
-// WHY A SEPARATE WRITE RATHER THAN A BIGGER ONE
+// WP-1d (ADR-IMG-1) moved the image (CropRegion or source-url) OFF this pass
+// and onto `UnifiedDeal.image`, so it now rides the main upsert instead —
+// see `storage/domain/offer-to-unified.ts`. What is left here (rappen, price
+// basis, loyalty programme) is scheduled to move too, in WP-1e, at which
+// point this file is deleted.
+//
+// WHY A SEPARATE WRITE RATHER THAN A BIGGER ONE (for what is still here)
 // Splitting means the two halves fail independently. If this pass breaks, the
-// deals are already stored — the site loses flyer images and price-basis flags,
-// not its prices. Folding it into the main write would put every deal at risk
-// to gain a crop rectangle.
+// deals are already stored — the site loses price-basis flags, not its
+// prices.
 //
 // It is also idempotent: re-running updates the same rows by natural key.
 //
@@ -98,11 +103,6 @@ export async function writeEnrichment(
             original_price_rappen: e.original_price_rappen,
             price_basis: e.price_basis,
             loyalty_programme: e.loyalty_programme,
-            page_image_url: e.page_image_url,
-            crop_x: e.crop_x,
-            crop_y: e.crop_y,
-            crop_w: e.crop_w,
-            crop_h: e.crop_h,
           })
           .eq('store', store)
           .eq('product_name', productName)

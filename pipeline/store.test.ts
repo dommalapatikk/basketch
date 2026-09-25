@@ -84,7 +84,7 @@ const {
   normalizeProductName,
 } = await import('./store')
 
-function makeDeal(index: number): Deal {
+function makeDeal(index: number, overrides: Partial<Deal> = {}): Deal {
   return {
     store: 'migros',
     productName: `product ${index}`,
@@ -93,11 +93,12 @@ function makeDeal(index: number): Deal {
     discountPercent: 20,
     validFrom: '2026-04-09',
     validTo: '2026-04-16',
-    imageUrl: null,
+    image: null,
     sourceCategory: null,
     sourceUrl: null,
     category: 'fresh',
     taxonomyConfidence: 0.7,
+    ...overrides,
   }
 }
 
@@ -448,7 +449,7 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     vi.clearAllMocks()
   })
 
-  const deal = (store: Deal['store'], name: string): Deal =>
+  const deal = (store: Deal['store'], name: string, overrides: Partial<Deal> = {}): Deal =>
     ({
       store,
       productName: name,
@@ -459,10 +460,11 @@ describe('storeDeals reports what the database accepted, not what it was handed'
       discountPercent: 25,
       validFrom: '2026-09-09',
       validTo: '2026-09-15',
-      imageUrl: null,
+      image: null,
       sourceCategory: null,
       sourceUrl: null,
       taxonomyConfidence: 0.9,
+      ...overrides,
     }) as Deal
 
   it('reports zero when the database accepted nothing', async () => {
@@ -575,6 +577,77 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     })
     const result = await storeDeals([deal('coop', 'Emmi Milch')])
     expect(result.collapsed).toBe(0)
+  })
+
+  // WP-1d (ADR-IMG-1). The image used to ride a SECOND write
+  // (writeEnrichment), keyed by a Map that kept the LAST offer for a given
+  // natural key, while THIS function's own dedupe keeps the offer with the
+  // HIGHEST discount. When those two disagreed, the stored row could end up
+  // wearing a DIFFERENT offer's picture — worse than no picture at all. Now
+  // the image is just another column on the same row dealToRow already
+  // builds, so there is no second "winner" to disagree with.
+  it('T-8: a deal is written with its image in the SAME statement as everything else — no second write to lose it at', async () => {
+    mockUpsert.mockImplementation((batch: { store: string; valid_from: string }[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: r.store, valid_from: r.valid_from })),
+          error: null,
+        }),
+    }))
+    const image = { kind: 'crop-region', region: { pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 } } as Deal['image']
+
+    await storeDeals([deal('migros', 'CoffeeB Kaffeemaschine', { image })])
+
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows[0]).toMatchObject({
+      page_image_url: 'https://x.test/p.jpg',
+      crop_x: 0.1,
+      crop_w: 0.3,
+      crop_h: 0.4,
+      image_url: null,
+      sale_price: 1.5, // the price rode the SAME row
+    })
+  })
+
+  it('T-9: two offers colliding on (store, product_name, valid_from) — the stored row carries the WINNER\'s own picture', async () => {
+    mockUpsert.mockImplementation((batch: { store: string; valid_from: string }[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: r.store, valid_from: r.valid_from })),
+          error: null,
+        }),
+    }))
+    const loserImage = { kind: 'source-url', url: 'https://loser.test/x.jpg' } as Deal['image']
+    const winnerImage = { kind: 'source-url', url: 'https://winner.test/x.jpg' } as Deal['image']
+
+    await storeDeals([
+      deal('coop', 'Fleischkäse', { discountPercent: 10, image: loserImage }),
+      deal('coop', 'Fleischkäse', { discountPercent: 25, image: winnerImage }),
+    ])
+
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows).toHaveLength(1)
+    expect(upsertedRows[0]).toMatchObject({ discount_percent: 25, image_url: 'https://winner.test/x.jpg' })
+  })
+
+  // Task D (tech-lead plan §4): the `|`-split defect lived in
+  // writeEnrichment's natural-key string (`store|productName|validFrom`).
+  // With the image on the main row, storeDeals never splits any key at all —
+  // a `|` in the product name has nothing to corrupt.
+  it('T-10: 2026-09-24: a product name containing \'|\' keeps its picture', async () => {
+    mockUpsert.mockImplementation((batch: { store: string; valid_from: string }[]) => ({
+      select: () =>
+        Promise.resolve({
+          data: batch.map((r) => ({ id: 'x', store: r.store, valid_from: r.valid_from })),
+          error: null,
+        }),
+    }))
+    const image = { kind: 'source-url', url: 'https://a.test/x.jpg' } as Deal['image']
+
+    await storeDeals([deal('lidl', 'disney stitch plüschtier | 15 cm', { image })])
+
+    const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
+    expect(upsertedRows[0]).toMatchObject({ image_url: 'https://a.test/x.jpg' })
   })
 })
 

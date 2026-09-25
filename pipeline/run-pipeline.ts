@@ -209,7 +209,11 @@ export type StoreStatus = { readonly status: 'success' | 'failed' | 'skipped'; r
 export type CollectOutcome = {
   readonly storeDealsMap: Map<Store, UnifiedDeal[]>
   readonly storeStatusMap: Map<Store, StoreStatus>
-  /** Fields `Offer` carries that `UnifiedDeal` cannot: CropRegion, priceBasis, integer rappen. */
+  /**
+   * Fields `Offer` carries that `UnifiedDeal` cannot: priceBasis, integer
+   * rappen. WP-1d (ADR-IMG-1) moved the image OFF this map and onto
+   * `UnifiedDeal.image` — it rides the main upsert now.
+   */
   readonly pendingEnrichment: Map<string, DealEnrichment>
   /**
    * WP-P7. The raw offers this run's collection phase actually returned —
@@ -457,7 +461,7 @@ async function writeDealsWithSweepGuard(deps: PipelineDeps, resolved: Deal[], pr
 async function writeEnrichmentStep(deps: PipelineDeps, pendingEnrichment: ReadonlyMap<string, DealEnrichment>): Promise<void> {
   if (pendingEnrichment.size === 0) return
   const enriched = await deps.storage.writeEnrichment([...pendingEnrichment.values()])
-  console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with crop/price-basis/rappen`)
+  console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with price-basis/rappen`)
 }
 
 // ⚠️ COLLECTING IS NOT REFRESHING. A store that fetched successfully but wrote

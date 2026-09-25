@@ -16,7 +16,7 @@ function makeDeal(overrides: Partial<Deal> = {}): Deal {
     discountPercent: 20,
     validFrom: '2026-04-22',
     validTo: '2026-04-29',
-    imageUrl: null,
+    image: null,
     sourceCategory: null,
     sourceUrl: null,
     category: 'long-life',

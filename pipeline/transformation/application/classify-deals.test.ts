@@ -25,7 +25,7 @@ const deal = (productName: string, store = 'denner'): UnifiedDeal =>
     discountPercent: 25,
     validFrom: '2026-09-09',
     validTo: '2026-09-15',
-    imageUrl: null,
+    image: null,
     sourceCategory: null,
     sourceUrl: null,
   }) as UnifiedDeal

@@ -28,11 +28,6 @@ describe('an update that matches nothing is a failure, not a success', () => {
     original_price_rappen: 195,
     price_basis: 'member-only' as const,
     loyalty_programme: 'Lidl Plus',
-    page_image_url: 'https://image.isu.pub/rev/jpg/page_5.jpg',
-    crop_x: 0.1,
-    crop_y: 0.2,
-    crop_w: 0.3,
-    crop_h: 0.25,
   })
 
   /** A client whose update matches no rows — the exact production condition. */
