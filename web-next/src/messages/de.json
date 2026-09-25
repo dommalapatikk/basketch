@@ -10,7 +10,7 @@
     "how_it_works": {
       "heading": "So funktioniert es",
       "step1": "Wir erfassen die aktuellen Aktionen von sieben Schweizer Supermärkten bis zu dreimal pro Woche — das genaue Datum steht auf der Aktionen-Seite.",
-      "step2": "Jedes Produkt wird von einem KI-Modell in Frisch, Lange haltbar oder Haushalt eingeordnet; ein zweites KI-Modell prüft jede Antwort. Bei Uneinigkeit wird die Aktion trotzdem angezeigt, aber als „Kategorie ungeprüft\" markiert.",
+      "step2": "Jedes Produkt wird von einem KI-Modell in Frisch, Lange haltbar oder Haushalt eingeordnet; ein zweites KI-Modell prüft die Antwort in der Regel nach. Bleiben die beiden uneinig, erscheint die Aktion mit dem Hinweis „Kategorie ungeprüft“.",
       "step3": "Das Fazit steht sofort bereit. Durchstöbere alle Aktionen oder lege eine Liste an und teile sie mit der Person, die einkauft."
     },
     "data_sources": {
@@ -23,7 +23,7 @@
       "source_denner": "denner.ch, die Website des Anbieters selbst",
       "source_spar": "der öffentliche Wochenflyer",
       "source_volg": "volg.ch, die Seite mit den Wochenaktionen",
-      "note": "Erfasst am Montag, Dienstag und Donnerstag. Sind die Daten älter als 9 Tage, siehst du das mit einem Hinweis auf der Aktionen-Seite."
+      "note": "Erfasst am Montag, Dienstag und Donnerstag. Sind die Daten älter als 9 Tage, siehst du das mit einem Hinweis auf der Startseite."
     },
     "what_we_compare": {
       "heading": "Was wir vergleichen",
@@ -33,7 +33,7 @@
       "heading": "Datenschutz",
       "bullet1": "Kein Konto nötig.",
       "bullet2": "Keine Tracking-Cookies.",
-      "bullet3": "Deine Liste wird nur in deinem Browser gespeichert — es wird nichts an einen Server gesendet."
+      "bullet3": "Deine Liste wird nur in deinem Browser gespeichert — wir speichern sie nicht auf einem Server."
     },
     "contact": {
       "heading": "Kontakt & Feedback",
@@ -63,7 +63,7 @@
     "step1_t": "Wöchentliche Aktionen",
     "step1_d": "von 7 Schweizer Läden",
     "step2_t": "Kategorie-Prüfung",
-    "step2_d": "KI-zugewiesen, gegengeprüft",
+    "step2_d": "KI-zugewiesen, meist gegengeprüft",
     "step3_t": "Kategoriegewinner",
     "step3_d": "nach Ø Rabatt"
   },

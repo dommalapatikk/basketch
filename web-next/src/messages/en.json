@@ -10,7 +10,7 @@
     "how_it_works": {
       "heading": "How it works",
       "step1": "We collect current promotions from seven Swiss supermarkets up to three times a week — the exact date is on the deals page.",
-      "step2": "Each product is sorted into Fresh, Long-life or Household by an AI model, with a second AI checking every answer. When they disagree, the deal is still shown, marked 'Category unverified.'",
+      "step2": "Each product is sorted into Fresh, Long-life or Household by an AI model, and a second AI model normally double-checks the answer. If the two still disagree, the deal is shown marked 'Category unverified'.",
       "step3": "The verdict is ready right away. Browse all deals, or add items to a list and share it with whoever's shopping."
     },
     "data_sources": {
@@ -23,7 +23,7 @@
       "source_denner": "denner.ch, the store's own site",
       "source_spar": "the public weekly flyer",
       "source_volg": "volg.ch, the weekly offers page",
-      "note": "Collected Monday, Tuesday and Thursday. If data is more than 9 days old, a banner tells you so on the deals page."
+      "note": "Collected Monday, Tuesday and Thursday. If data is more than 9 days old, a banner on the home page tells you so."
     },
     "what_we_compare": {
       "heading": "What we compare",
@@ -33,7 +33,7 @@
       "heading": "Privacy",
       "bullet1": "No account required.",
       "bullet2": "No tracking cookies.",
-      "bullet3": "Your list is saved only in your browser — nothing is sent to a server."
+      "bullet3": "Your list is saved only in your browser — we don't store it on a server."
     },
     "contact": {
       "heading": "Contact & feedback",
@@ -63,7 +63,7 @@
     "step1_t": "Weekly discounts",
     "step1_d": "from 7 Swiss retailers",
     "step2_t": "Category check",
-    "step2_d": "AI-assigned, cross-checked",
+    "step2_d": "AI-assigned, usually cross-checked",
     "step3_t": "Category winners",
     "step3_d": "by avg % off"
   },

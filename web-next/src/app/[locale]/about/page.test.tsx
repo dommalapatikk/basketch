@@ -4,9 +4,18 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { NextIntlClientProvider } from 'next-intl'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { STORE_BRAND, STORE_DISPLAY_ORDER } from '@/lib/store-tokens'
+import { STORE_BRAND, STORE_DISPLAY_ORDER, type StoreKey } from '@/lib/store-tokens'
 import de from '@/messages/de.json'
 import en from '@/messages/en.json'
+
+function sourceDescription(messages: typeof en | typeof de, store: StoreKey): string {
+  const dataSources = messages.about.data_sources as Record<string, string>
+  const description = dataSources[`source_${store}`]
+  if (!description) {
+    throw new Error(`about.data_sources.source_${store} is missing from the fixture messages`)
+  }
+  return description
+}
 
 // `setRequestLocale` (next-intl/server) throws "not supported in Client
 // Components" outside a real `react-server` condition, which vitest never
@@ -49,10 +58,18 @@ describe.each([
     expect(section).not.toBeNull()
     const sectionText = section?.textContent ?? ''
 
+    // Regression for code review M-3/S-1 (425e43c): a mutation that dropped
+    // the description (leaving only the bold store name) previously slipped
+    // through, because the old assertion only checked for the store label.
+    // This checks the full rendered row — name, separator, and its own
+    // source description — so removing either half fails here.
     for (const store of STORE_DISPLAY_ORDER) {
+      const label = STORE_BRAND[store].label
+      const description = sourceDescription(messages, store)
+      const expectedRow = `${label} — ${description}`
       expect(
-        sectionText.includes(STORE_BRAND[store].label),
-        `expected the data-sources section to mention ${STORE_BRAND[store].label}`,
+        sectionText.includes(expectedRow),
+        `expected the data-sources section to render "${expectedRow}"`,
       ).toBe(true)
     }
 

@@ -40,15 +40,24 @@ const LOCALES: Record<string, JsonValue> = {
 }
 
 // The only place "aktionis" may legitimately appear: Coop's own source
-// description, or a combined "N retailers / Coop via aktionis" line. A path
-// is allowlisted by name (data_sources.source_coop) or by content pattern
-// (mentions Coop or a retailer count alongside aktionis).
+// description (allowlisted by key name), or a line that explicitly names
+// Coop alongside aktionis (e.g. "Data from 7 Swiss retailers — Coop via
+// aktionis.ch"). A retailer-count word ("7", "seven") is NOT sufficient on
+// its own — code review 2026-09-25 (S-3) found "All 7 stores: data from
+// aktionis.ch" slipped past a count-only allowlist, and that sentence is
+// exactly the sole-source claim this suite exists to catch. "Coop" must be
+// named, with a word boundary so "cooperation" etc. cannot match by accident.
 function isCoopScopedAktionisMention(path: string, value: string): boolean {
   if (/source_coop$/i.test(path)) return true
-  const mentionsCoop = /coop/i.test(value)
-  const mentionsCountOrMajority = /\b7\b|seven|sieben|sept|sette/i.test(value)
-  return mentionsCoop || mentionsCountOrMajority
+  return /\bcoop\b/i.test(value)
 }
+
+// Independent of the allowlist above: no string may ever say "all"/"every"
+// (or the DE/FR/IT equivalents) within ~30 characters of "aktionis", even if
+// it also happens to mention Coop elsewhere in the same sentence. Defense in
+// depth for the same S-3 finding.
+const CLAIMS_ALL_DATA_IS_AKTIONIS =
+  /(all|alle|jede[rs]?|every|tout(e|es)?|tutt[eoi])\W{0,30}aktionis/i
 
 describe('does not claim aktionis.ch as the only source', () => {
   it('no locale string says all/every deal data comes from aktionis', () => {
@@ -62,14 +71,28 @@ describe('does not claim aktionis.ch as the only source', () => {
     }
   })
 
-  it('every mention of aktionis anywhere in any rendered locale names Coop or the multi-retailer split', () => {
+  it('every mention of aktionis anywhere in any rendered locale explicitly names Coop', () => {
     for (const [locale, messages] of Object.entries(LOCALES)) {
       const offenders = leafStrings(messages)
         .filter((l) => /aktionis/i.test(l.value))
         .filter((l) => !isCoopScopedAktionisMention(l.path, l.value))
       expect(
         offenders,
-        `${locale}.json: "aktionis" mentioned without Coop/retailer-count context:\n${offenders
+        `${locale}.json: "aktionis" mentioned without naming Coop:\n${offenders
+          .map((o) => `${o.path}: ${o.value}`)
+          .join('\n')}`,
+      ).toEqual([])
+    }
+  })
+
+  it('no locale string frames aktionis as "all"/"every" retailer\'s source, even one that also mentions Coop', () => {
+    for (const [locale, messages] of Object.entries(LOCALES)) {
+      const offenders = leafStrings(messages).filter((l) =>
+        CLAIMS_ALL_DATA_IS_AKTIONIS.test(l.value),
+      )
+      expect(
+        offenders,
+        `${locale}.json frames aktionis as the source for "all"/"every" retailer:\n${offenders
           .map((o) => `${o.path}: ${o.value}`)
           .join('\n')}`,
       ).toEqual([])
@@ -84,6 +107,25 @@ describe('does not claim aktionis.ch provenance since 2006', () => {
         .map((l) => l.value)
         .join(' \n ')
       expect(joined, `${locale}.json claims "since 2006"`).not.toMatch(/since 2006|seit 2006/i)
+    }
+  })
+})
+
+describe('does not claim the AI judge checks every answer (code review M-1)', () => {
+  // Evidence (review §M-1): `judgeMayRun` can be false for the whole run (no
+  // API key / no credit ceiling), a judge call can fail or be rate-limited
+  // (`port-guards.ts` -> verdict: 'unavailable'), cold-start sampling can
+  // skip an item (`judgeSampleRate < 1`), or the escalation budget can run
+  // out — in all four cases the product ships classified but UNFLAGGED, not
+  // checked and not marked. "A second AI checking every answer" is false.
+  it('no locale string claims every answer is checked by a second AI', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const joined = leafStrings(LOCALES[locale])
+        .map((l) => l.value)
+        .join(' \n ')
+      expect(joined, `${locale}.json claims the judge checks every answer`).not.toMatch(
+        /checking every answer|prüft jede Antwort/i,
+      )
     }
   })
 })
@@ -116,11 +158,16 @@ describe('does not promise the unshipped "track regular items" or email-for-list
     }
   })
 
-  it('about.privacy.bullet3 does not tie e-mail to the list (no e-mail-for-list feature is live)', () => {
-    for (const [locale, messages] of Object.entries(LOCALES)) {
-      const about = (messages as { about?: { privacy?: { bullet3?: string } } }).about
-      const bullet3 = about?.privacy?.bullet3
-      if (bullet3 === undefined) continue // fr/it have no `about` namespace yet — not live
+  it('about.privacy.bullet3 exists for en/de and does not tie e-mail to the list (no e-mail-for-list feature is live)', () => {
+    // fr/it have no `about` namespace at all yet (not routed — see spec §2
+    // "fr / it — not live") so they are skipped entirely, not just an absent
+    // bullet3. en/de MUST have the key: silently deleting it here would pass
+    // unnoticed under a broader "skip if undefined" check (review N-3).
+    const LOCALES_WITH_ABOUT = ['en', 'de'] as const
+    for (const locale of LOCALES_WITH_ABOUT) {
+      const bullet3 = (LOCALES[locale] as { about?: { privacy?: { bullet3?: string } } }).about
+        ?.privacy?.bullet3
+      expect(bullet3, `${locale}.json about.privacy.bullet3 is missing`).toBeTruthy()
       expect(bullet3, `${locale}.json about.privacy.bullet3 still mentions e-mail`).not.toMatch(
         /e-?mail/i,
       )
@@ -128,25 +175,69 @@ describe('does not promise the unshipped "track regular items" or email-for-list
   })
 })
 
+describe('does not restore the retired "refreshed weekly" / "no scraping" freshness note (code review S-2)', () => {
+  // Fact sheet §5a item 4: runs are Mon/Tue/Thu (not weekly), and basketch
+  // does collect automatically from public pages/flyers (it just never
+  // circumvents a block) — "no scraping" denies that. Mutation proof (S-2)
+  // showed the pre-fix suite let this stale sentence back in unnoticed.
+  it('no locale string reintroduces "refreshed weekly" or "no scraping"', () => {
+    for (const [locale, messages] of Object.entries(LOCALES)) {
+      const joined = leafStrings(messages)
+        .map((l) => l.value)
+        .join(' \n ')
+      expect(
+        joined,
+        `${locale}.json reintroduces the retired "refreshed weekly"/"no scraping" claim`,
+      ).not.toMatch(/refreshed weekly|wöchentlich aktualisiert|no scraping|kein scraping/i)
+    }
+  })
+})
+
+describe('the stale-data banner is attributed to the home page, not the deals page (code review M-2)', () => {
+  // Evidence: `StaleBanner` is rendered only in `app/[locale]/page.tsx`
+  // (home). `grep -rln StaleBanner app components` finds nothing under
+  // `deals/`; `DealsClient.tsx` shows only a neutral "Updated {date}" line.
+  it('about.data_sources.note does not attribute the freshness banner to the deals page', () => {
+    for (const locale of ['en', 'de'] as const) {
+      const note = (LOCALES[locale] as { about?: { data_sources?: { note?: string } } }).about
+        ?.data_sources?.note
+      expect(note, `${locale}.json missing about.data_sources.note`).toBeTruthy()
+      expect(
+        note,
+        `${locale}.json about.data_sources.note wrongly places the banner on the deals page`,
+      ).not.toMatch(/banner.*deals page|hinweis.*aktionen-seite/i)
+    }
+  })
+})
+
 describe('footer and homepage strip never name aktionis.ch as the sole source', () => {
-  it('footer.source omits aktionis entirely, or also names the 7-store / Coop split', () => {
+  // S-3: the count-word alternative (`\b7\b`) let "All 7 stores: data from
+  // aktionis.ch" pass — that sentence names a count but is still a
+  // sole-source claim. Require an explicit, word-bounded "Coop" instead.
+  it('footer.source omits aktionis entirely, or also explicitly names Coop', () => {
     for (const [locale, messages] of Object.entries(LOCALES)) {
       const source = (messages as { footer?: { source?: string } }).footer?.source
       expect(source, `${locale}.json missing footer.source`).toBeTruthy()
       if (source && /aktionis/i.test(source)) {
-        expect(source, `${locale}.json footer.source names only aktionis.ch`).toMatch(/\b7\b|coop/i)
+        expect(source, `${locale}.json footer.source names aktionis without Coop`).toMatch(
+          /\bcoop\b/i,
+        )
       }
+      expect(
+        source,
+        `${locale}.json footer.source overstates aktionis as "all"/"every"`,
+      ).not.toMatch(CLAIMS_ALL_DATA_IS_AKTIONIS)
     }
   })
 
-  it('methodology.step1_d (en/de — the only rendered locales) omits aktionis entirely, or also names the 7-store / Coop split', () => {
+  it('methodology.step1_d (en/de — the only rendered locales) omits aktionis entirely, or also explicitly names Coop', () => {
     for (const locale of ['en', 'de'] as const) {
       const step1d = LOCALES[locale] as { methodology?: { step1_d?: string } }
       const value = step1d.methodology?.step1_d
       expect(value, `${locale}.json missing methodology.step1_d`).toBeTruthy()
       if (value && /aktionis/i.test(value)) {
-        expect(value, `${locale}.json methodology.step1_d names only aktionis.ch`).toMatch(
-          /\b7\b|coop/i,
+        expect(value, `${locale}.json methodology.step1_d names aktionis without Coop`).toMatch(
+          /\bcoop\b/i,
         )
       }
     }
@@ -193,22 +284,6 @@ describe('share_verdict.share_text names more than a two-store comparison', () =
   })
 })
 
-describe('locale key parity holds after this rework (no orphaned key left in one file only)', () => {
-  it('en.json and de.json expose the same key set', () => {
-    function leafPaths(obj: JsonValue, prefix = ''): string[] {
-      if (obj === null || typeof obj !== 'object') return [prefix]
-      if (Array.isArray(obj)) return obj.flatMap((v, i) => leafPaths(v, `${prefix}[${i}]`))
-      return Object.entries(obj).flatMap(([k, v]) => leafPaths(v, prefix ? `${prefix}.${k}` : k))
-    }
-    const enPaths = new Set(leafPaths(en as JsonValue))
-    const dePaths = new Set(leafPaths(de as JsonValue))
-    const missingInEn = [...dePaths].filter((p) => !enPaths.has(p))
-    const missingInDe = [...enPaths].filter((p) => !dePaths.has(p))
-    expect(missingInEn, `Keys in de.json missing from en.json:\n${missingInEn.join('\n')}`).toEqual(
-      [],
-    )
-    expect(missingInDe, `Keys in en.json missing from de.json:\n${missingInDe.join('\n')}`).toEqual(
-      [],
-    )
-  })
-})
+// Key-parity (en.json <-> de.json) is already covered by
+// `messages/messages.test.ts` ("i18n key parity") — spec §4.8 said "extend,
+// don't duplicate" (review N-2), so it is not repeated here.

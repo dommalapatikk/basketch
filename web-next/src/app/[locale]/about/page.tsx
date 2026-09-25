@@ -109,7 +109,8 @@ function AboutContent() {
                 <p className="text-base leading-relaxed text-[var(--color-ink-2)]">
                   <span className="font-semibold text-[var(--color-ink)]">
                     {STORE_BRAND[store].label}
-                  </span>{' '}
+                  </span>
+                  {' — '}
                   {t(`data_sources.source_${store}` as DataSourceKey)}
                 </p>
               </li>
