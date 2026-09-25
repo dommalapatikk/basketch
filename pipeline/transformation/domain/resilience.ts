@@ -310,7 +310,8 @@ export const MAX_CHUNK_MS = 19.5 * 60_000
 /**
  * The WRITE TAIL: everything AFTER the last classification chunk returns —
  * taxonomy resolution, product resolution, `storeDeals`, enrichment, v3
- * cutover, the sweep, expiring old deals, `logRun`. THE PART THE FIRST
+ * cutover (since retired, 2026-09-25), the sweep, expiring old deals,
+ * `logRun`. THE PART THE FIRST
  * WP-P3 SUBMISSION LEFT OUT OF THE ARITHMETIC (code review F1): T1 bounds
  * the START of a classification chunk, never the process as a whole, so a
  * deadline placed with only `MAX_CHUNK_MS` of headroom can still let the

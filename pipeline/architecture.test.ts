@@ -48,7 +48,16 @@ describe('product-resolve depends on a declared unique index', () => {
 // backfill, not part of any run path, and are explicitly out of scope for
 // ruling 1 (§10.2).
 describe('2026-09-25 §10: no pipeline write path touches the retired concept/sku layer', () => {
-  const RETIRED_LAYER_PATTERNS = ["from('sku')", "from('concept", 'concept_resolver', 'sku_id', 'concept_cheapest_now']
+  // 2026-09-25 re-review (docs/reviews/2026-09-25-review-wp0-1a-and-wp11.md,
+  // "Grep gaps (C, D)"): a literal substring search for `from('sku')` missed
+  // two realistic rewrites of the exact same call — `from("sku")` (double
+  // quotes, plausible from a copy-paste in a codebase with no formatter) and
+  // a wrapped call with the table name on its own line. `\s` inside the
+  // regex matches a newline, so this catches both — proven by scratch
+  // mutations (not committed) before this fix and after; see the commit
+  // message.
+  const FROM_RETIRED_TABLE = /\.from\(\s*['"`](sku|concept[a-z_]*)['"`]/
+  const BARE_TOKEN_PATTERNS = ['concept_resolver', 'sku_id', 'concept_cheapest_now']
   const EXCLUDED_DIRS = new Set(['node_modules', 'dist', '__fixtures__', 'migrate', 'archive'])
 
   function pipelineSourceFiles(dir: string): string[] {
@@ -86,8 +95,11 @@ describe('2026-09-25 §10: no pipeline write path touches the retired concept/sk
     const violations: string[] = []
     for (const file of files) {
       const code = withoutComments(readFileSync(file, 'utf8'))
-      for (const pattern of RETIRED_LAYER_PATTERNS) {
-        if (code.includes(pattern)) violations.push(`${file.slice(file.indexOf('/pipeline/') + 1)} references '${pattern}'`)
+      const rel = file.slice(file.indexOf('/pipeline/') + 1)
+      const fromMatch = code.match(FROM_RETIRED_TABLE)
+      if (fromMatch) violations.push(`${rel} matches '${fromMatch[0].replace(/\s+/g, ' ')}'`)
+      for (const token of BARE_TOKEN_PATTERNS) {
+        if (code.includes(token)) violations.push(`${rel} references '${token}'`)
       }
     }
     expect(violations).toEqual([])

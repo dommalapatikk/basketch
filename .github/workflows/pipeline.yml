@@ -124,7 +124,7 @@ jobs:
           # original 35-minute RUN_DEADLINE_MS only budgeted for the slowest
           # CHUNK (~19.5 min, p99, run 34833209176), never the ~9m15s WRITE
           # TAIL after the last chunk (taxonomy → resolve → storeDeals →
-          # enrichment → v3 cutover → sweep → deactivate → logRun, same run,
+          # enrichment → v3 cutover (since retired, 2026-09-25) → sweep → deactivate → logRun, same run,
           # attempt 2). 35 + 19.5 + 9.5 would have overshot the OLD 45-minute
           # timeout by 19 minutes, turning an in-process deadline meant to
           # PREVENT an unretried timeout into the very timeout it was built to
