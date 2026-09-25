@@ -25,6 +25,53 @@ vi.mock('next-intl/server', () => ({
   setRequestLocale: () => {},
 }))
 
+/**
+ * Code review of 760a8b4 (re-review, optional note): the first version of
+ * this test proved "no worth_picking_up_candidates query" only by
+ * accident — a full revert of `page.tsx` re-adds an import of the deleted
+ * `server/data/worth-picking-up.ts`, which fails on module resolution
+ * before any assertion runs. A revert that *also* restored a working,
+ * non-crashing data module would sail through unnoticed.
+ *
+ * Mocking the shared Supabase client factory directly — the same one
+ * `server/data/supabase-provider.ts` and the deleted `worth-picking-up.ts`
+ * both built on — lets the assertion below catch that: any code reachable
+ * from `HomePage` that calls `createAnonClient().from(...)` runs through
+ * this fake, whether or not it crashes, and the fake's `from` calls are
+ * inspectable directly.
+ */
+const fromMock = vi.fn((_table: string) => fakeQueryChain())
+vi.mock('@/lib/supabase/anon-server', () => ({
+  createAnonClient: vi.fn(() => ({ from: fromMock })),
+}))
+
+type FakeQueryChain = {
+  select: () => FakeQueryChain
+  eq: () => FakeQueryChain
+  gte: () => FakeQueryChain
+  order: () => FakeQueryChain
+  range: () => FakeQueryChain
+  then: (resolve: (value: { data: unknown[]; error: null }) => void) => void
+}
+
+// A chainable, always-empty-success fake — mirrors supabase-provider.test.ts's
+// fakeDealsClient. It exists so a reintroduced query resolves instead of
+// throwing, which is exactly the case the accidental pass above missed.
+function fakeQueryChain(): FakeQueryChain {
+  const chain: FakeQueryChain = {
+    select: () => chain,
+    eq: () => chain,
+    gte: () => chain,
+    order: () => chain,
+    range: () => chain,
+    // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake — mirrors a real Supabase query builder
+    then(resolve) {
+      resolve({ data: [], error: null })
+    },
+  }
+  return chain
+}
+
 const mockSnapshot: WeeklySnapshot = {
   updatedAt: '2026-09-15T00:00:00Z',
   totalDeals: 0,
@@ -80,12 +127,16 @@ describe('HomePage renders without the Worth Picking Up section', () => {
     expect(screen.queryByText(/hidden suggestions/i)).toBeNull()
     expect(document.querySelector('a[href="/settings/hidden"]')).toBeNull()
 
-    // The only data call HomePage makes is the snapshot. There is no
-    // `getWorthPickingUpCandidates` mock in this file any more — if
-    // `page.tsx` imported it again, the real module would load unmocked
-    // and either throw (no Supabase env in tests) or silently reintroduce
-    // a second data source, either of which this call-count assertion on
-    // the one remaining call pins against.
+    // The only data call HomePage makes through the snapshot layer is the
+    // one snapshot fetch.
     expect(getWeeklySnapshotMock).toHaveBeenCalledTimes(1)
+
+    // And underneath any data layer, the shared Supabase client never
+    // queries `worth_picking_up_candidates` — this holds regardless of
+    // whether a reintroduced caller crashes, throws, or resolves cleanly,
+    // because it inspects the fake client's own call log rather than
+    // relying on an unmocked import failing first.
+    const queriedTables = fromMock.mock.calls.map(([table]) => table)
+    expect(queriedTables).not.toContain('worth_picking_up_candidates')
   })
 })
