@@ -34,7 +34,7 @@ function fakeDealsClient(response: QueryResponse) {
     gte: () => chain,
     order: () => chain,
     range: () => chain,
-    // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake, mirrors worth-picking-up.test.ts's fakeDealsClient
+    // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake — the chain is `await`ed like a real Supabase query builder, so it needs its own `then`
     then(resolve: (value: QueryResponse) => void) {
       resolve(response)
     },
