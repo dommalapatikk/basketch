@@ -259,7 +259,7 @@ pipeline/collection/infrastructure/live-sources.ts                              
 web-next/src/lib/share-target.ts                                                   share destinations
 web-next/src/lib/use-origin.ts                                                     hydration-safe origin
 web-next/src/lib/no-dead-links.test.ts                                             repo-wide guard
-web-next/src/components/{deals/BottomBar,list/ListDrawer,landing/WorthPickingUp}.tsx
+web-next/src/components/{deals/BottomBar,list/ListDrawer}.tsx
 web-next/e2e/v2-acceptance.spec.ts                                                 tag-agnostic locators
 ```
 
@@ -291,7 +291,7 @@ cd /Users/kiran/ClaudeCode/basketch && claude    # ← launch from here
 |---|---|---|
 | 1 | **Retry re-fetches every retailer.** `pipeline.yml:216` re-runs collection before the transform, so attempt 2 re-fetches all seven. **Breaches CLAUDE.md's "one fetch per store per week."** Split into two steps; also `retry_wait_seconds: 300` → `60`. | **high** |
 | 2 | **Alerting layer is dead.** 7 of 9 rules fed hardcoded literals; `shouldFailRun` can never return true; `process.exit(1)` unreachable. | **high** |
-| 3 | **Cold-start CTA copy mismatch.** `WorthPickingUp.tsx` says "Pick a starter pack"; no such route exists, so it points at `/deals`. **PM decision: change the copy, or build the feature?** | **needs you** |
+| 3 | ~~Cold-start CTA copy mismatch.~~ **Closed (WP-11, 760a8b4):** the Worth Picking Up section, including `WorthPickingUp.tsx`, was removed from the homepage entirely — the mismatched CTA no longer exists. | **closed** |
 | 4 | `OPENAI_API_KEY` in the archived `.env` backup may still be live — rotate or confirm. | **needs you** |
 | 5 | CLAUDE.md:162 "Zero paid services" is stale — OpenRouter is a deliberate paid decision. Caused one wrong agent finding. | medium |
 | 6 | Enrichment 429s are non-fatal but leave attributes sparse; only fills on warm runs. | medium |
