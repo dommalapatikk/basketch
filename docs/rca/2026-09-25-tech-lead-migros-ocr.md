@@ -137,3 +137,77 @@ Harness scripts (`bench.py`, `eval.ts`, `truth.py`, `croptest.py`) are included 
 - **For the PM (product, not technical):** none are blocking. For information, production has been showing wrong product names on about 1 in 4 Migros deals. Fix B addresses it, and nothing needs deciding.
 - **Flag (not blocking):** a new flyer layout can break Fix B's rule. Refresh the ground-truth fixture when a layout change shows up. The `possiblyFusedName` counter and a new `wrongPairingSuspected` counter (price and name in different grid columns) are the tripwires.
 - **Scratch hygiene:** `.claude/worktrees/tl-ocr-exp` is a detached scratch worktree holding the pairing prototype, uncommitted. Remove it with `git worktree remove` once the builder has read the diff.
+
+---
+
+## § Review rulings (2026-09-25, on code review `docs/reviews/2026-09-25-review-wp10-migros.md`, branch `worktree-agent-a93682c65ace6ef3d` @ d873fee)
+
+### R1 — MF-1: pytest placement. **Reviewer is right; my §5.4 wording was wrong. Amended.**
+
+- **Rule.** Tests gate the **merge**, never the **publish**. A test in the scheduled job makes a modelscope.cn outage, a PyPI blip or a flaky crop into an outage for all 7 retailers. That breaks the pipeline's first rule: one source failing is a `CollectionResult`, never a dead run.
+- **§5.4 now reads:**
+  1. Add a `pipeline-python` job to **`ci.yml`**: Python 3.12, the pinned `requirements.txt` plus the SF-6 constraints file, pinned `pytest`, the same model cache, and `python3 -m pytest pipeline/collection/infrastructure/migros`.
+  2. In **`pipeline.yml`**, remove the pytest step. At most keep a model warm-up/verify step with `continue-on-error: true`.
+- **The pre-existing "Install Migros OCR dependencies" and "Verify the OCR runtime imports" steps:** fix them **now, in WP-10**, not as a follow-up. They are in the same file, the same failure class, and a two-line change, and WP-10 is already editing those lines. (Fix the system, not the instance: a follow-up ticket for a known all-retailer blast radius is how it stays.)
+  - Both steps get `continue-on-error: true`.
+  - **Why this is safe:** a missing or broken OCR runtime already degrades to a Migros-only `source-unavailable`. `ocr.py` prints an error record, `execFile` rejects, and `fetchOffers` returns `collectionFailed('migros', …)`. The reviewer verified this with the network blocked.
+  - **Required with it:** SF-5, so that *every* engine-construction failure is a structured `{"error": …}` record with its own exit code, not a traceback.
+- **SF-4 (cache) accepted as written:** restore/save split, and a key from `hashFiles(ocr.py, requirements.txt)`.
+
+### R2 — SF-1: page 19. **Done by the truth owner (me), commit `8d60163` on the builder branch.**
+
+- **How it was read.** By eye, from the native-resolution KW39 page 19 (rendered from the fetched `page_19.jpg`), not derived from any algorithm output. Six statt offers:
+
+  | Product | Sale | Statt |
+  |---|---|---|
+  | Nivea Gesichtspflege | 8.10 | 11.60 |
+  | Tempo Taschentücher | 9.70 | 16.24 |
+  | pH Balance Duschen | 5.60 | 7.– |
+  | Haarpflege- oder Styling-Produkte | 4.05 | 5.85 |
+  | I am- oder I am Men-Duschen | 4.– | 5.40 |
+  | Gesamtes Ceylor-, Cosano- und Feelgood-Sortiment | 3.71 | 4.95 |
+
+- **What changed.** The truth table goes from 127 to **133** entries. The false note ("Page 19 carries no statt-priced offer") is corrected.
+- **Test-only edits in the same commit (no production code):** the fixture-count assertion goes 127 → 133. The by-name page-19 wrong-price exception is replaced by **"zero wrong prices"**. The file header is corrected. Migros suite: **119/119 green.**
+- **Score on the branch with the corrected truth:** **88 published / 86 correct / 2 wrong name / 0 wrong price.**
+
+### R3 — MF-3: "2.80 statt 3.50". **Not accepted as a residual. Fix required, together with the other two.**
+
+- **Mechanism.** The three residuals share one cause: KW39 alternates 2-up and 3-up rows, so page-level column clustering chains the middle and right columns. In that chained tile:
+  - p4 1.65/2.15 is named "Rindssiedfleisch mager,". This is a **published wrong name.**
+  - p6 1.80/2.35 is named "Wyländer Rauchmöckli". This is also a **published wrong name.**
+  - p4 2.80/3.50 takes the neighbour's 23% badge and is withheld.
+- **Why these are not accepted.** Two of the three put a false product name next to a real price (UWG Art. 3(1)(e)), and the PM instruction is "fix properly".
+- **Evidence that a proper fix exists (probe, reverted, nothing committed).** I added **per-offer local geometry** on top of the column tiles:
+  - the name must start 0–6% of page width to the **right** of its own sale box;
+  - the badge must be **x-aligned** with its own statt line (centre within 5% of page width).
+
+  On the KW39 fixture that fixes **all three**: 1.65 becomes Schweinshalssteaks, 1.80 becomes Bratspeck, and 2.80 is published as Rindssiedfleisch. The score becomes **90 published / 88 correct**.
+- **It also exposed two defects in adjacent paths.** Once offers stop being wrongly withheld, these become visible:
+  - p5 3.50/3.95 is named "Migros Kalbs-". The continuation line was not joined; it should read "Migros Kalbs-geschnetzeltes".
+  - p11 3.90/4.93 (Gran Pavesi, multi-buy) is named "Gesamte Ponti- und". The multi-buy name path picks the neighbour.
+
+  Both are **in scope** for this fix, because they are the same "pair by the offer's own geometry" rule.
+- **One existing synthetic unit test** ("a badge-inconsistent tile is rejected…") places its badge 400 px right of its own price, a layout that does not occur on real pages. Move that badge to be x-aligned with its price so the test still proves the invariant rejects a wrong printed badge.
+- **The probe is a direction, not the design.** The builder implements it test-first, with unit tests per rule (MF-5), and must keep KW36 green.
+
+### R4 — MF-2: the ratchet. **Exact, not floors.**
+
+The ground-truth test asserts the **exact** result.
+
+- **Target after R3:** `wrongNames` = **[]**, `wrongPrices` = **[]**, `correct` **=== published**, and published **≥ 90**. Pin the exact published count in the test with a one-line comment.
+- **If R3 lands partially:** assert the **exact residual set by key**. For example, today's set is `[(4,1.65,2.15), (6,1.80,2.35)]` plus `correct === 86`, `published === 88` and `wrongPrices === []`. The set may only shrink. Any change to it or to the counts is a deliberate edit in the same commit, with a reason.
+- **2.80/3.50 in the meantime.** It is listed as a named residual ("withheld: cross-column badge"). The test that asserts its withholding as *correct* is **deleted** (MF-3 as the reviewer wrote it).
+- **Mutation check.** The builder re-runs the reviewer's M2 (`PROMO_BADGE` disabled) and M6 (en dash removed). Both must now turn a test red, via MF-2's exact assertions and MF-5's unit tests.
+
+### R5 — the other findings (for completeness; the builder applies them, and the reviewer re-checks only these)
+
+- **MF-4** (read the real `rapidocr`/`onnxruntime` versions and the *verified* digests): accepted.
+- **MF-5** (unit tests for `detectColumnBoundaries`, `PROMO_BADGE`, the `–.90` inline token, and now the R3 local-geometry rules): accepted.
+- **SF-2** (honest limit text, plus the `wrongPairingSuspected` funnel counter from §8): accepted. The counter is the tripwire for the next layout.
+- **SF-3** (a single group falls back to the half split): accepted.
+- **SF-5, SF-6, SF-7:** accepted.
+- **SF-8:** rebase onto main before the re-review.
+- **SF-9:** tell the story once, in the `ocr.py` header, and elsewhere keep one line plus a pointer here.
+- **NITs 1–8:** accepted. NIT-8: pass `max_side_len` and `use_cls` explicitly, as the benchmark measured them.
+- **Merge gate:** zero open MUST-FIX, R3 implemented or its residual set pinned exactly per R4, CI green including the new `pipeline-python` job, and the reviewer's re-check of the fixed items only.
