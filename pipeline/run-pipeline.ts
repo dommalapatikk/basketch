@@ -46,8 +46,7 @@ import { evaluateAlerts, formatAlerts, measured, notMeasured, shouldFailRun } fr
 import { RUN_DEADLINE_MS, checkWriteTailDuration } from './transformation/domain/resilience'
 import { isOk } from './collection/domain/result'
 import type { ActiveCountsResult, PipelineRunInput, StoreDealsResult } from './store'
-import type { DealEnrichment } from './storage/domain/offer-to-unified'
-import { dealStoreEnrichment, offerToUnifiedDeal } from './storage/domain/offer-to-unified'
+import { offerToUnifiedDeal } from './storage/domain/offer-to-unified'
 import { productLookupKey } from './storage/domain/product-key'
 import type { StoreSweepPlan } from './storage/domain/stale-sweep'
 import { sweepPlan } from './storage/domain/stale-sweep'
@@ -85,7 +84,6 @@ export type StorageDeps = {
   readonly resolveProducts: (deals: readonly Deal[], store: Store) => Promise<Map<string, { productId: string }>>
   readonly activeCountsByWindow: () => Promise<ActiveCountsResult>
   readonly storeDeals: (deals: Deal[], productIds?: Map<string, string>) => Promise<StoreDealsResult>
-  readonly writeEnrichment: (items: readonly DealEnrichment[]) => Promise<number>
   readonly deactivateStaleForStores: (runStartedAt: Date, plan: Map<string, StoreSweepPlan>) => Promise<number>
   readonly deactivateExpiredDeals: () => Promise<number>
   readonly logPipelineRun: (input: PipelineRunInput) => Promise<void>
@@ -210,12 +208,6 @@ export type CollectOutcome = {
   readonly storeDealsMap: Map<Store, UnifiedDeal[]>
   readonly storeStatusMap: Map<Store, StoreStatus>
   /**
-   * Fields `Offer` carries that `UnifiedDeal` cannot: priceBasis, integer
-   * rappen. WP-1d (ADR-IMG-1) moved the image OFF this map and onto
-   * `UnifiedDeal.image` — it rides the main upsert now.
-   */
-  readonly pendingEnrichment: Map<string, DealEnrichment>
-  /**
    * WP-P7. The raw offers this run's collection phase actually returned —
    * kept (not only converted into `UnifiedDeal`) because `buildRunSnapshot`
    * computes `publishedDataCoverage` from `Offer.sourceAttributes`, a field
@@ -249,7 +241,6 @@ function logCollectionTrace(outcome: CollectOffersOutcome): void {
 function buildCollectOutcome(offers: readonly Offer[]): CollectOutcome {
   const storeDealsMap = new Map<Store, UnifiedDeal[]>()
   const storeStatusMap = new Map<Store, StoreStatus>()
-  const pendingEnrichment = new Map<string, DealEnrichment>()
 
   for (const offer of offers) {
     const store = offer.retailer as Store
@@ -260,13 +251,8 @@ function buildCollectOutcome(offers: readonly Offer[]): CollectOutcome {
   for (const [store, list] of storeDealsMap) {
     storeStatusMap.set(store, { status: list.length > 0 ? 'success' : 'failed', count: list.length })
   }
-  for (const offer of offers) {
-    const enrichment = dealStoreEnrichment(offer)
-    if (enrichment) pendingEnrichment.set(enrichment.key, enrichment)
-  }
-  console.log(`[pipeline] [INFO] ${pendingEnrichment.size} offers carry fields UnifiedDeal cannot hold`)
 
-  return { storeDealsMap, storeStatusMap, pendingEnrichment, offers }
+  return { storeDealsMap, storeStatusMap, offers }
 }
 
 /**
@@ -456,12 +442,6 @@ async function writeDealsWithSweepGuard(deps: PipelineDeps, resolved: Deal[], pr
   const writeResult = await deps.storage.storeDeals(resolved, productIds)
 
   return { writeResult, liveByWindowBeforeWrite, liveCountsOk: liveCountsResult.ok }
-}
-
-async function writeEnrichmentStep(deps: PipelineDeps, pendingEnrichment: ReadonlyMap<string, DealEnrichment>): Promise<void> {
-  if (pendingEnrichment.size === 0) return
-  const enriched = await deps.storage.writeEnrichment([...pendingEnrichment.values()])
-  console.log(`[pipeline] [INFO] enriched ${enriched}/${pendingEnrichment.size} deals with price-basis/rappen`)
 }
 
 // ⚠️ COLLECTING IS NOT REFRESHING. A store that fetched successfully but wrote
@@ -835,7 +815,6 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
   const write = await writeDealsWithSweepGuard(deps, resolved, productIds)
   const storedCount = write.writeResult.total
 
-  await writeEnrichmentStep(deps, collected.pendingEnrichment)
   await sweepStep(deps, collected.storeStatusMap, write, options.startDate)
 
   const storagePartialFailure = logStorageShortfall(resolved.length, categorized.length, storedCount, write.writeResult.collapsed)
@@ -859,7 +838,7 @@ export async function runTransform(deps: PipelineDeps, collected: CollectOutcome
 
   const writeTailMs = clock() - writeTailStart
   console.log(
-    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → enrichment → sweep → deactivate → logRun)`,
+    `[pipeline] [INFO] write tail: ${writeTailMs}ms (taxonomy → resolve → storeDeals → sweep → deactivate → logRun)`,
   )
   // N4 (code review, round 2): WRITE_TAIL_MS scales with deal count — warn
   // the moment a real run exceeds it, rather than trusting a measurement

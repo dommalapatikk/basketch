@@ -24,7 +24,6 @@ import {
   storeDeals,
 } from './store'
 import { supabase } from './supabase-client'
-import { writeEnrichment } from './storage/infrastructure/write-enrichment'
 import { pingRevalidateWebhook } from './observability/revalidate-webhook'
 import { writeStepSummary } from './observability/github-step-summary'
 import { unwrap } from './collection/domain/result'
@@ -338,7 +337,6 @@ const PRODUCTION_STORAGE: StorageDeps = {
   resolveProducts: resolveProductsForPort,
   activeCountsByWindow,
   storeDeals,
-  writeEnrichment: (items) => writeEnrichment(supabase, items, (m) => console.log(`[pipeline] [INFO] ${m}`)),
   deactivateStaleForStores,
   deactivateExpiredDeals,
   logPipelineRun,

@@ -6,7 +6,7 @@ import { cropRegionImage, sourceUrlImage } from '../../collection/domain/product
 import { minimumQuantity } from '../../collection/domain/quantity-requirement'
 import { unwrap } from '../../collection/domain/result'
 import { createValidityPeriod } from '../../collection/domain/validity-period'
-import { dealStoreEnrichment, naturalKey, offerToUnifiedDeal } from './offer-to-unified'
+import { offerToUnifiedDeal } from './offer-to-unified'
 
 const WEEK = unwrap(createValidityPeriod('2026-09-10', '2026-09-16'))
 
@@ -67,77 +67,46 @@ describe('offerToUnifiedDeal — the shared path', () => {
     expect(offerToUnifiedDeal(offer()).minQuantity).toBeNull()
   })
 
-  it('carries a multi-buy quantity requirement through the MAIN write, not the enrichment pass', () => {
+  it('carries a multi-buy quantity requirement through the main write', () => {
     const d = offerToUnifiedDeal(offer({ quantityRequirement: unwrap(minimumQuantity(2)) }))
     expect(d.minQuantity).toBe(2)
   })
 })
 
-describe('dealStoreEnrichment — recovering what the mapper drops', () => {
-  it('keys on the constraint the table actually enforces', () => {
-    // Verified against the live schema: unique_deal is
-    // (store, product_name, valid_from).
-    const e = dealStoreEnrichment(offer())
-    expect(e?.key).toBe(naturalKey('denner', 'Emmi Milch', '2026-09-10'))
-  })
-
+// WP-1e: rappen, price basis and the loyalty programme used to be split off
+// into a second, natural-key-matched write (dealStoreEnrichment). They now
+// ride the main mapper, so the same guarantees are asserted here, on it.
+describe('offerToUnifiedDeal — what the enrichment pass used to carry', () => {
   it('always carries integer rappen — the NUMERIC columns are the lossy copy', () => {
-    const e = dealStoreEnrichment(offer({ salePrice: unwrap(createMoney(0.3)) }))
-    expect(e?.sale_price_rappen).toBe(30)
+    const d = offerToUnifiedDeal(offer({ salePrice: unwrap(createMoney(0.3)) }))
+    expect(d.salePriceRappen).toBe(30)
+    expect(d.originalPriceRappen).toBeNull()
   })
 
   it('records a member price and its programme — the LIDL rule', () => {
-    const e = dealStoreEnrichment(offer({ retailer: 'lidl', priceBasis: { kind: 'member-only', programme: 'Lidl Plus' } }))
-    expect(e?.price_basis).toBe('member-only')
-    expect(e?.loyalty_programme).toBe('Lidl Plus')
+    const d = offerToUnifiedDeal(offer({ retailer: 'lidl', priceBasis: { kind: 'member-only', programme: 'Lidl Plus' } }))
+    expect(d.priceBasis).toBe('member-only')
+    expect(d.loyaltyProgramme).toBe('Lidl Plus')
   })
 
   it('marks an ordinary price as available to everyone', () => {
-    const e = dealStoreEnrichment(offer())
-    expect(e?.price_basis).toBe('everyone')
-    expect(e?.loyalty_programme).toBeNull()
+    const d = offerToUnifiedDeal(offer())
+    expect(d.priceBasis).toBe('everyone')
+    expect(d.loyaltyProgramme).toBeNull()
   })
 
-})
-
-describe('the two halves fit back together', () => {
-  it('loses nothing between the mapper and the enrichment', () => {
-    // The mapper is lossy BY DESIGN for what is still left (price basis,
-    // rappen); this asserts that loss is recovered. If a field is added to
-    // Offer and only to one half, this is what should fail. The image is no
-    // longer part of this split — WP-1d carries it through the mapper whole.
+  it('carries image, rappen and price basis together in one value — nothing is split off', () => {
     const image = unwrap(cropRegionImage({ pageImageUrl: 'https://x.test/p.jpg', x: 0.1, y: 0.2, width: 0.3, height: 0.4 }))
-    const o = offer({
-      retailer: 'lidl',
-      salePrice: unwrap(createMoney(1.39)),
-      image,
-      priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
-    })
-
-    const d = offerToUnifiedDeal(o)
-    const e = dealStoreEnrichment(o)
-
-    // Carried by the mapper…
+    const d = offerToUnifiedDeal(
+      offer({
+        retailer: 'lidl',
+        salePrice: unwrap(createMoney(1.39)),
+        image,
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+      }),
+    )
     expect(d.image).toEqual(image)
-    // …recovered by the enrichment (what is still split off).
-    expect(e?.price_basis).toBe('member-only')
-    expect(e?.sale_price_rappen).toBe(139)
-  })
-
-  it('produces a key both halves agree on', () => {
-    const o = offer({ retailer: 'spar', productName: 'Fleischkäse' })
-    const d = offerToUnifiedDeal(o)
-    expect(dealStoreEnrichment(o)?.key).toBe(naturalKey(d.store, d.productName, d.validFrom))
-  })
-
-  it('minQuantity (WP-C4) is carried by the MAIN mapper alone — dealStoreEnrichment never mentions it', () => {
-    // Deliberate, not an oversight: see offerToUnifiedDeal's own comment.
-    // Routing it through the enrichment pass's natural key
-    // (store|productName|validFrom) would put it on the one identity that
-    // does NOT distinguish a multi-buy offer from its single-item sibling.
-    const o = offer({ quantityRequirement: unwrap(minimumQuantity(2)) })
-    expect(offerToUnifiedDeal(o).minQuantity).toBe(2)
-    expect(dealStoreEnrichment(o)).not.toHaveProperty('minQuantity')
-    expect(dealStoreEnrichment(o)).not.toHaveProperty('min_quantity')
+    expect(d.priceBasis).toBe('member-only')
+    expect(d.salePriceRappen).toBe(139)
   })
 })
