@@ -336,6 +336,76 @@ describe('dealToRow — every row satisfies the image CHECK constraints (§1.1 p
   })
 })
 
+// S-4 (review of WP-1c/1d/1e): with the enrichment pass gone, a row that
+// breaks a price CHECK now rejects its whole upsert batch, so dealToRow's
+// output must satisfy these too. Predicates mirror the SQL verbatim.
+describe('dealToRow — every row satisfies the price CHECK constraints (S-4)', () => {
+  type PriceRow = {
+    price_basis: string
+    loyalty_programme: string | null
+    sale_price_rappen: number | null
+    original_price_rappen: number | null
+  }
+
+  /** 20260911_offer_fields.sql:65-66 */
+  const satisfiesMemberPriceNamesProgramme = (row: PriceRow): boolean =>
+    row.price_basis !== 'member-only' || row.loyalty_programme !== null
+
+  /** 20260911_offer_fields.sql:120-121 */
+  const satisfiesRappenPositive = (row: PriceRow): boolean =>
+    row.sale_price_rappen === null || row.sale_price_rappen > 0
+
+  /** 20260911_offer_fields.sql:127-128 */
+  const satisfiesAldiRule = (row: PriceRow): boolean =>
+    row.original_price_rappen === null ||
+    (row.sale_price_rappen !== null && row.original_price_rappen > row.sale_price_rappen)
+
+  const base: Deal = {
+    store: 'lidl',
+    productName: 'Test Product',
+    originalPrice: null,
+    salePrice: 1.39,
+    discountPercent: null,
+    validFrom: '2026-04-09',
+    validTo: '2026-04-15',
+    image: null,
+    sourceCategory: null,
+    sourceUrl: null,
+    category: 'fresh',
+    subCategory: 'dairy',
+  }
+
+  const bases: Deal['priceBasis'][] = [
+    undefined,
+    { kind: 'everyone' },
+    { kind: 'member-only', programme: 'Lidl Plus' },
+  ]
+  // Domain-valid price pairs: no reference price, or one above the sale price.
+  // Each is tried with explicit rappen (the production path) and without
+  // (dealToRow's fallback derivation from francs).
+  const prices: Partial<Deal>[] = [
+    { salePrice: 0.3, originalPrice: null },
+    { salePrice: 1.39, originalPrice: 1.99 },
+    { salePrice: 0.3, originalPrice: null, salePriceRappen: 30, originalPriceRappen: null },
+    { salePrice: 1.39, originalPrice: 1.99, salePriceRappen: 139, originalPriceRappen: 199 },
+    { salePrice: 12.95, originalPrice: 12.96 },
+  ]
+  const cases = bases.flatMap((priceBasis) => prices.map((p) => ({ ...base, ...p, priceBasis })))
+
+  it.each(cases)('holds for %o', (deal) => {
+    const row = dealToRow(deal) as unknown as PriceRow
+    expect(satisfiesMemberPriceNamesProgramme(row)).toBe(true)
+    expect(satisfiesRappenPositive(row)).toBe(true)
+    expect(satisfiesAldiRule(row)).toBe(true)
+  })
+
+  it('writes the programme name for a member-only price', () => {
+    const row = dealToRow({ ...base, priceBasis: { kind: 'member-only', programme: 'Lidl Plus' } }) as unknown as PriceRow
+    expect(row.price_basis).toBe('member-only')
+    expect(row.loyalty_programme).toBe('Lidl Plus')
+  })
+})
+
 describe('isStorageState', () => {
   it('accepts every value the database CHECK constraint allows', () => {
     for (const s of ['fresh', 'chilled', 'frozen', 'ambient']) {
