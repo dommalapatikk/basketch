@@ -97,6 +97,42 @@ function existingRow(over: Partial<{ id: string; source_name: string; product_gr
   }
 }
 
+// S-1 (2026-09-26 review). The regression fake below used to return every
+// match UNCAPPED and never modeled URL length, so it could not catch the
+// production failure this whole file is about: real PostgREST caps EVERY
+// response — `.in()` included — at `max-rows` (1,000), and a `.in()` whose
+// key set is too long is rejected outright by postgrest-js's own
+// `urlLengthLimit` (8,000 bytes) BEFORE the request even reaches Postgres.
+// A fake missing either behaviour would pass a `CHUNK_SIZE` above what
+// production could actually survive.
+const POSTGREST_MAX_ROWS = 1_000
+const POSTGREST_URL_LENGTH_LIMIT = 8_000
+
+/** How postgrest-js builds the request URL for `.in(col, values)` — enough to size it realistically. */
+function inRequestUrlLength(col: string, values: readonly string[]): number {
+  const base = 'https://project.supabase.co/rest/v1/products?select=id,source_name,product_group,canonical_name,category&store=eq.migros&'
+  return base.length + `${col}=in.(${values.map((v) => encodeURIComponent(v)).join(',')})`.length
+}
+
+/**
+ * A `.in()` fake that behaves like real PostgREST: caps at 1,000 rows and
+ * rejects (as postgrest-js does, client-side, before ever calling Postgres)
+ * a request whose built URL would exceed the 8,000-byte limit.
+ */
+function realisticIn(table: readonly ReturnType<typeof existingRow>[]) {
+  return vi.fn((col: string, values: string[]) => {
+    const urlLength = inRequestUrlLength(col, values)
+    if (urlLength > POSTGREST_URL_LENGTH_LIMIT) {
+      return Promise.resolve({
+        data: null,
+        error: { message: `Bad Request: request URL (${urlLength} bytes) exceeds urlLengthLimit (${POSTGREST_URL_LENGTH_LIMIT})` },
+      })
+    }
+    const matches = table.filter((p) => values.includes(p.source_name))
+    return Promise.resolve({ data: matches.slice(0, POSTGREST_MAX_ROWS), error: null })
+  })
+}
+
 describe('resolveProducts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -246,9 +282,9 @@ describe('resolveProducts', () => {
     const targetName = 'Coop Product 1150' // beyond the cap
     const target = FULL_TABLE.find((p) => p.source_name === targetName)!
 
-    const inSpy = vi.fn((_col: string, values: string[]) =>
-      Promise.resolve({ data: FULL_TABLE.filter((p) => values.includes(p.source_name)), error: null }),
-    )
+    // S-1: a realistic fake — caps at 1,000 rows and models URL length —
+    // not one that returns every match uncapped.
+    const inSpy = realisticIn(FULL_TABLE)
     const upsertSpy = vi.fn()
 
     mockFrom.mockImplementation((_table: string) => ({
@@ -293,6 +329,31 @@ describe('resolveProducts', () => {
       ),
     )
     expect(insertShapedTarget).toBe(false)
+  })
+
+  // S-1 (2026-09-26 review), proving the fake itself. Without these two
+  // behaviours, `realisticIn` above would be no stronger than the old
+  // uncapped fake — it has to actually reject an oversized `.in()` and
+  // actually cap a response, or it could not catch a `CHUNK_SIZE` regression.
+  it("S-1: realisticIn caps a response at PostgREST's 1,000-row max-rows", async () => {
+    // Short keys, well under the URL-length limit even at this count — this
+    // test isolates the ROW cap from the URL-length rejection (the next test).
+    const bigTable = Array.from({ length: 1_100 }, (_, i) => existingRow({ id: `p${i}`, source_name: `k${i}` }))
+    const fake = realisticIn(bigTable)
+    const values = bigTable.map((r) => r.source_name)
+    expect(inRequestUrlLength('source_name', values)).toBeLessThan(POSTGREST_URL_LENGTH_LIMIT)
+
+    const { data } = (await fake('source_name', values)) as { data: unknown[] | null }
+    expect(data).toHaveLength(1_000)
+  })
+
+  it("S-1: realisticIn rejects a .in() whose built URL would exceed postgrest-js's 8,000-byte urlLengthLimit", async () => {
+    // 200 long, umlaut-heavy keys — exactly the CHUNK_SIZE=200 shape M-1 replaced.
+    const longNames = Array.from({ length: 200 }, (_, i) => `Denner Schweinsnierstück Aktion ${i} mit Umlauten äöü und Prozent %`)
+    const fake = realisticIn([])
+    const { data, error } = (await fake('source_name', longNames)) as { data: unknown; error: { message: string } | null }
+    expect(data).toBeNull()
+    expect(error?.message).toMatch(/urlLengthLimit/)
   })
 })
 
