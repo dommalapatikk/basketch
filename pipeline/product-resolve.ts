@@ -15,15 +15,34 @@
 // when 147 were actually new.
 //
 // The fix (P2, "resolve identity by key set, in batches"): look up ONLY the
-// source_names THIS RUN needs, chunked through `.in()` — the same shape
-// `supabase-classification-cache.ts` already uses for the same reason. A
-// filtered read never depends on how many rows the table holds.
+// source_names THIS RUN needs, chunked through `.in()`.
+//
+// M-1 (2026-09-26 review). The first version of this fix chunked by KEY
+// COUNT (`CHUNK_SIZE = 200`), which the review comment above once claimed was
+// "the same shape `supabase-classification-cache.ts` already uses" — it was
+// not: that file chunks by BYTES (`LOOKUP_BUDGET_BYTES = 5_000`), precisely
+// because it already hit this exact failure in production (run
+// 34703713179): `source_name` is a raw retailer string carrying umlauts, `%`,
+// `&` and spaces that percent-encode to 3-6 bytes each, so a 200-key chunk of
+// long Coop names can silently overflow postgrest-js's 8,000-byte
+// `urlLengthLimit` while a chunk of short ones would not — "exactly 3 of 8
+// chunks failed on every attempt, the chunks holding the longest names."
+//
+// The fix now: `chunkByEncodedSize` (`pipeline/shared-kernel/`), the SAME
+// function the classification cache uses, imported rather than duplicated so
+// the two contexts cannot drift back into two different chunking rules. A
+// failed chunk is retried (bounded) and, if still unreadable, degrades ONLY
+// that chunk's names to "unreadable" — never the whole store. The old
+// `fetchExistingByKeySet` returned `null` (never an empty map) the moment ANY
+// chunk failed, which zeroed EVERY Coop deal's product_id on a single
+// oversized chunk. See `fetchExistingByKeySet` below.
 
 import 'dotenv/config'
 
 import { createClient } from '@supabase/supabase-js'
 
 import type { Deal, ProductMetadata, Store } from '../shared/types'
+import { chunkByEncodedSize, encodedSize } from './shared-kernel/chunk-by-encoded-size'
 import { extractProductMetadata } from './product-metadata'
 import { assignProductGroup } from './product-group-assign'
 
@@ -32,15 +51,23 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+/** How many rows ride in one grouped insert or offer-date upsert (a request BODY, not a `.in()` URL — no byte-budget concern). */
 const BATCH_SIZE = 100
 
 /**
- * How many `source_name`s ride in one `.in()` lookup or one grouped upsert.
- * Chosen well under any PostgREST/HTTP query-length limit — a store's whole
- * weekly run (a few hundred to ~2,000 names) becomes a handful of requests
- * instead of one unpaged, uncapped-in-principle read.
+ * How many times one `.in()` lookup chunk is attempted before it counts as
+ * unreadable. Bounded, same shape as `supabase-classification-cache.ts`'s
+ * `LOOKUP_ATTEMPTS` — most read failures here are transient (a dropped
+ * connection, a momentary timeout) and clear on retry.
  */
-const CHUNK_SIZE = 200
+const LOOKUP_ATTEMPTS = 3
+
+/** Backoff between lookup attempts. Short: a run has up to seven stores to get through. */
+const LOOKUP_BACKOFF_MS = [100, 400] as const
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 interface ResolvedProduct {
   productId: string
@@ -73,41 +100,117 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return chunks
 }
 
-/**
- * Looks up existing products by (store, source_name) key set — chunked,
- * never a whole-table read.
- *
- * Returns `null` (never an empty map) when a chunk could not be read, so the
- * caller can tell "no existing products" from "some are unknown" and refuses
- * to treat an unreadable name as new — creating one on a guess would mint a
- * duplicate that a later run can never undo.
- */
-async function fetchExistingByKeySet(
-  store: Store,
-  sourceNames: readonly string[],
-): Promise<Map<string, ExistingProductRow> | null> {
-  const existing = new Map<string, ExistingProductRow>()
+/** The outcome of one (store, source_name) key-set lookup, chunked by byte budget. */
+type KeySetLookup = {
+  readonly existing: Map<string, ExistingProductRow>
+  /**
+   * source_names whose chunk stayed unreadable after every retry (M-1). A
+   * name in here is NEVER resolved and NEVER treated as new this run —
+   * creating one on a guess would mint a duplicate a later run can never
+   * undo. Deliberately per-NAME, not per-store: a bad chunk must degrade
+   * only the names it carried, not every deal for the store.
+   */
+  readonly unreadable: ReadonlySet<string>
+}
 
-  for (const namesChunk of chunk(sourceNames, CHUNK_SIZE)) {
+/**
+ * One `.in()` lookup chunk, retried up to `LOOKUP_ATTEMPTS` times. Returns
+ * `null` only once every attempt has failed — the caller then degrades
+ * EXACTLY THIS CHUNK's names to unreadable, never the whole store (M-1).
+ */
+async function readLookupChunk(
+  store: Store,
+  namesChunk: readonly string[],
+  chunkIndex: number,
+): Promise<ExistingProductRow[] | null> {
+  let lastMessage = 'unknown error'
+
+  for (let attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await sleep(LOOKUP_BACKOFF_MS[attempt - 1] ?? LOOKUP_BACKOFF_MS[LOOKUP_BACKOFF_MS.length - 1] ?? 400)
+    }
+
     const { data, error } = await supabase
       .from('products')
       .select('id, source_name, product_group, canonical_name, category')
       .eq('store', store)
       .in('source_name', namesChunk)
 
-    if (error) {
-      console.error(
-        `[product-resolve] [ERROR] Failed to look up existing ${store} products by key set:`,
-        error.message,
-      )
-      return null
-    }
-    for (const row of (data ?? []) as ExistingProductRow[]) {
-      existing.set(row.source_name, row)
-    }
+    if (!error) return (data ?? []) as ExistingProductRow[]
+    lastMessage = error.message
   }
 
-  return existing
+  console.error(
+    `[product-resolve] [ERROR] Lookup chunk ${chunkIndex} for ${store} (${namesChunk.length} names, ` +
+      `${encodedSize(namesChunk)} encoded bytes) unreadable after ${LOOKUP_ATTEMPTS} attempts: ${lastMessage}`,
+  )
+  return null
+}
+
+/**
+ * Looks up existing products by (store, source_name) key set — chunked by
+ * BYTE BUDGET (`chunkByEncodedSize`), never by key count and never a
+ * whole-table read (M-1, see file header).
+ *
+ * A chunk that stays unreadable after retry degrades ONLY ITS OWN names to
+ * `unreadable`, never the whole store's map to `null` — the earlier version
+ * of this function did exactly that, and one oversized Coop chunk zeroed
+ * every Coop deal's product_id, deterministically, every run.
+ */
+async function fetchExistingByKeySet(store: Store, sourceNames: readonly string[]): Promise<KeySetLookup> {
+  const existing = new Map<string, ExistingProductRow>()
+  const unreadable = new Set<string>()
+
+  let chunkIndex = 0
+  for (const namesChunk of chunkByEncodedSize(sourceNames)) {
+    chunkIndex++
+    const rows = await readLookupChunk(store, namesChunk, chunkIndex)
+    if (rows === null) {
+      for (const name of namesChunk) unreadable.add(name)
+      continue
+    }
+    for (const row of rows) existing.set(row.source_name, row)
+  }
+
+  return { existing, unreadable }
+}
+
+/** One queued offer-date update. Exported nowhere — see `dedupeOfferDateUpdates` for the shape's only other consumer. */
+type OfferDateUpdate = {
+  id: string
+  store: Store
+  source_name: string
+  canonical_name: string
+  category: string
+  offer_valid_from: string
+  offer_valid_to: string | null
+}
+
+/**
+ * M-2 (2026-09-26 review). Two deals that resolve to the SAME existing
+ * product (a duplicate parse, or two promotion windows landing in one run)
+ * used to push TWO entries here, both carrying the same `id`. The single
+ * grouped `ON CONFLICT (id) DO UPDATE` upsert then proposed the same
+ * conflict key twice, and Postgres rejects the WHOLE STATEMENT for that
+ * (SQLSTATE 21000) — losing up to a whole batch (100) products' offer dates,
+ * not just the duplicate pair.
+ *
+ * Dedupe by `id` before the upsert. THE RULE, documented here because it is
+ * the only place it is decided: the entry with the LATEST `offer_valid_from`
+ * wins — the most recently-starting promotion window is the one worth
+ * keeping current on the product row. Ties (identical `offer_valid_from`)
+ * keep whichever is encountered LAST, matching the old per-row
+ * `Promise.all` behaviour (last write won).
+ */
+function dedupeOfferDateUpdates(updates: readonly OfferDateUpdate[]): OfferDateUpdate[] {
+  const byId = new Map<string, OfferDateUpdate>()
+  for (const update of updates) {
+    const current = byId.get(update.id)
+    if (!current || update.offer_valid_from >= current.offer_valid_from) {
+      byId.set(update.id, update)
+    }
+  }
+  return [...byId.values()]
 }
 
 /**
@@ -115,11 +218,12 @@ async function fetchExistingByKeySet(
  * For each deal: look up or create a product row, then return the product_id mapping.
  *
  * Strategy:
- * 1. Look up existing products by THIS RUN's key set (chunked `.in()`)
+ * 1. Look up existing products by THIS RUN's key set (chunked by byte budget, M-1)
  * 2. Match deals to existing products; queue offer-date updates for matches
  * 3. Insert ONLY the missing products (ignoreDuplicates — never rewrites an
  *    existing row's canonical_name or product_group)
- * 4. Grouped-upsert offer dates onto existing rows, one request per batch
+ * 4. Dedupe offer-date updates by product id (M-2), then grouped-upsert them
+ *    onto existing rows, one request per batch
  */
 export async function resolveProducts(
   deals: Deal[],
@@ -130,25 +234,17 @@ export async function resolveProducts(
 
   // Step 1: look up only the keys THIS RUN needs.
   const distinctNames = [...new Set(deals.map((d) => d.productName))]
-  const existing = await fetchExistingByKeySet(store, distinctNames)
+  const { existing, unreadable } = await fetchExistingByKeySet(store, distinctNames)
 
-  if (existing === null) {
-    // A chunk was unreadable — we cannot tell new from existing for ANY name
-    // in this run. The deals are still stored (without a product_id; see
-    // run-pipeline.ts resolveProductIds), and the next run tries again.
-    return result
+  if (unreadable.size > 0) {
+    console.warn(
+      `[product-resolve] [WARN] ${unreadable.size} of ${distinctNames.length} ${store} product names were ` +
+        `unreadable this run — their deals get no product_id and are skipped, never guessed as new`,
+    )
   }
 
   // Step 2: match deals to existing products, collect new ones + offer date updates
-  const offerDateUpdates: {
-    id: string
-    store: Store
-    source_name: string
-    canonical_name: string
-    category: string
-    offer_valid_from: string
-    offer_valid_to: string | null
-  }[] = []
+  const offerDateUpdates: OfferDateUpdate[] = []
   const newProducts: {
     canonical_name: string
     brand: string | null
@@ -164,6 +260,11 @@ export async function resolveProducts(
 
   for (const deal of deals) {
     const sourceName = deal.productName
+    // M-1: a name whose lookup chunk was unreadable is NEVER resolved and
+    // NEVER treated as new — we genuinely do not know which it is, and
+    // guessing "new" would mint a duplicate a later run can never undo.
+    if (unreadable.has(sourceName)) continue
+
     const existingProduct = existing.get(sourceName)
 
     if (existingProduct) {
@@ -272,12 +373,18 @@ export async function resolveProducts(
   // never one request per row. `onConflict: 'id'` is the same idiom
   // `store.ts` uses for deals: a single statement that updates N rows with N
   // different values, matched on the primary key.
-  if (offerDateUpdates.length > 0) {
+  //
+  // M-2: deduped by id FIRST. Two deals resolving to the same existing
+  // product would otherwise put the same conflict key into one upsert twice,
+  // and Postgres rejects the WHOLE grouped statement for that (SQLSTATE
+  // 21000) — losing every OTHER product's offer date in the same batch too.
+  const dedupedOfferDateUpdates = dedupeOfferDateUpdates(offerDateUpdates)
+  if (dedupedOfferDateUpdates.length > 0) {
     let updatedDates = 0
     let failedDates = 0
     let firstFailure: string | null = null
 
-    for (const batch of chunk(offerDateUpdates, BATCH_SIZE)) {
+    for (const batch of chunk(dedupedOfferDateUpdates, BATCH_SIZE)) {
       // ⚠️ A Supabase query builder RESOLVES with `{ error }` on a PostgREST
       // failure — it does not reject. The old `Promise.all` over one
       // `.update().eq('id', id)` per row threw the settled values away and
@@ -311,7 +418,7 @@ export async function resolveProducts(
 
     if (failedDates > 0) {
       console.error(
-        `[product-resolve] [ERROR] Failed to update offer dates on ${failedDates} of ${offerDateUpdates.length} ${store} products (first error: ${firstFailure})`,
+        `[product-resolve] [ERROR] Failed to update offer dates on ${failedDates} of ${dedupedOfferDateUpdates.length} ${store} products (first error: ${firstFailure})`,
       )
     }
     if (updatedDates > 0) {
