@@ -85,14 +85,12 @@ describe('offerToUnifiedDeal — what the enrichment pass used to carry', () => 
 
   it('records a member price and its programme — the LIDL rule', () => {
     const d = offerToUnifiedDeal(offer({ retailer: 'lidl', priceBasis: { kind: 'member-only', programme: 'Lidl Plus' } }))
-    expect(d.priceBasis).toBe('member-only')
-    expect(d.loyaltyProgramme).toBe('Lidl Plus')
+    expect(d.priceBasis).toEqual({ kind: 'member-only', programme: 'Lidl Plus' })
   })
 
   it('marks an ordinary price as available to everyone', () => {
     const d = offerToUnifiedDeal(offer())
-    expect(d.priceBasis).toBe('everyone')
-    expect(d.loyaltyProgramme).toBeNull()
+    expect(d.priceBasis).toEqual({ kind: 'everyone' })
   })
 
   it('carries image, rappen and price basis together in one value — nothing is split off', () => {
@@ -106,7 +104,7 @@ describe('offerToUnifiedDeal — what the enrichment pass used to carry', () => 
       }),
     )
     expect(d.image).toEqual(image)
-    expect(d.priceBasis).toBe('member-only')
+    expect(d.priceBasis).toEqual({ kind: 'member-only', programme: 'Lidl Plus' })
     expect(d.salePriceRappen).toBe(139)
   })
 })

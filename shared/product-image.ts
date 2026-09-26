@@ -12,7 +12,7 @@
 // (`deals_one_image_kind`), and every boundary between the two writes was a
 // place the picture could silently become null (a held-back deal, a `|` in
 // the product name, a Map-vs-dedupe mismatch on which offer "won"). Writing
-// all five image columns from ONE function, in the SAME upsert as the price,
+// all six image columns from ONE function, in the SAME upsert as the price,
 // removes every one of those boundaries at once.
 //
 // BRANDED, ON PURPOSE. The tech lead's condition on ADR-IMG-1 (§1.1): once
@@ -63,9 +63,9 @@ export type ImageColumns = {
 }
 
 /**
- * Maps a `ProductImage | null` onto the five `deals` image columns.
+ * Maps a `ProductImage | null` onto the six `deals` image columns.
  *
- * TOTAL, ON PURPOSE (ADR-IMG-1 condition 2): every branch returns all five
+ * TOTAL, ON PURPOSE (ADR-IMG-1 condition 2): every branch returns all six
  * keys, with nulls when there is no image of that kind. A batch upsert sends
  * one column set for every row in the statement — PostgREST rejects a batch
  * whose rows disagree on which keys are present — so a partial object here

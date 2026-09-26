@@ -45,7 +45,7 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     validFrom: offer.validity.from,
     validTo: offer.validity.to,
     // WP-1d (ADR-IMG-1): the WHOLE image travels through now — a source-url
-    // or a CropRegion — because `dealToRow` writes all five image columns in
+    // or a CropRegion — because `dealToRow` writes all six image columns in
     // one statement. Nothing is dropped here any more.
     image: offer.image,
     // WP-1e: rappen are the domain's own integer form (`Money.rappen`), not
@@ -55,9 +55,11 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     originalPriceRappen: offer.originalPrice?.rappen ?? null,
     // THE LIDL RULE. A member price that reached this point without naming
     // its programme would be rejected by the database — but createOffer
-    // already forbids constructing one, so this is belt and braces.
-    priceBasis: member ? 'member-only' : 'everyone',
-    loyaltyProgramme: member ? offer.priceBasis.programme : null,
+    // already forbids constructing one, so this is belt and braces. S-5: one
+    // discriminated field (matching `UnifiedDeal.priceBasis`'s own shape, and
+    // the domain's `PriceBasis` this is built from) so a member-only value
+    // with no programme cannot even be constructed here.
+    priceBasis: member ? { kind: 'member-only', programme: offer.priceBasis.programme } : { kind: 'everyone' },
     sourceCategory: offer.sourceCategory,
     sourceUrl: offer.sourceUrl,
     // Unlike the fields above before WP-1e, `minQuantity` (WP-C4) always
@@ -65,5 +67,9 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     // shape as `quantity` above — that fits UnifiedDeal's flat shape with no
     // loss.
     minQuantity: isMinimumQuantity(offer.quantityRequirement) ? offer.quantityRequirement.count : null,
-  } as UnifiedDeal
+  }
+  // S-6 (2026-09-26 review): no `as UnifiedDeal`. The function's own return
+  // type annotation above already checks this object literal — including its
+  // excess-property check, which `as` would have muted — so the cast added
+  // nothing. Verified: `tsc --noEmit` is clean without it.
 }

@@ -15,7 +15,7 @@ const cropRegion = (region: { pageImageUrl: string; x: number; y: number; width:
 })
 
 describe('imageColumns — total by construction (ADR-IMG-1 condition 2)', () => {
-  it('emits all five keys as null when there is no image', () => {
+  it('emits all six keys as null when there is no image', () => {
     expect(imageColumns(null)).toEqual({
       image_url: null,
       page_image_url: null,

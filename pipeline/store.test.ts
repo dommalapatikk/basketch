@@ -667,9 +667,8 @@ describe('storeDeals reports what the database accepted, not what it was handed'
       deal('lidl', 'Milbona Frischkäse', {
         salePrice: 1.39,
         image,
-        priceBasis: 'member-only',
-        loyaltyProgramme: 'Lidl Plus',
-      } as Partial<Deal>),
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+      }),
     ])
 
     expect(mockUpsert).toHaveBeenCalledTimes(1)
@@ -706,9 +705,8 @@ describe('storeDeals reports what the database accepted, not what it was handed'
     await storeDeals([
       deal('lidl', 'Pilos Griechischer Joghurt', {
         salePrice: 1.79,
-        priceBasis: 'member-only',
-        loyaltyProgramme: 'Lidl Plus',
-      } as Partial<Deal>),
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+      }),
     ])
 
     const upsertedRows = mockUpsert.mock.calls[0]![0] as Record<string, unknown>[]
