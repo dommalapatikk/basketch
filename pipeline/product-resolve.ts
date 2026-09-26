@@ -77,14 +77,27 @@ interface ResolvedProduct {
 /**
  * One row of the existing-products lookup.
  *
- * `canonical_name`, `store` and `category` are NOT NULL with no default
- * (`00000000000000_baseline.sql`) — they ride, UNCHANGED, on the offer-date
- * grouped upsert below purely so Postgres's own row-validation does not
- * reject the statement. Postgres validates NOT NULL on the candidate row
- * BEFORE it even looks at `ON CONFLICT`, so a partial-column upsert that
+ * `canonical_name`, `store`, `category` AND `source_name` are ALL NOT NULL
+ * with no default (`00000000000000_baseline.sql`) — they ride, UNCHANGED, on
+ * the offer-date grouped upsert below purely so Postgres's own row-validation
+ * does not reject the statement. Postgres validates NOT NULL on the candidate
+ * row BEFORE it even looks at `ON CONFLICT`, so a partial-column upsert that
  * omits them fails outright, conflict or not. Echoing back the value already
  * in the database is not a rewrite — the offer-date upsert never has a
  * different value to put there.
+ *
+ * S-3 (2026-09-26 review) asked whether this upsert could send ONLY `id` plus
+ * the offer-date columns. It cannot, without one of: (a) an RPC
+ * (`UPDATE … FROM (VALUES …)`) — a new migration and a different call shape,
+ * out of proportion to a SHOULD-FIX on a worktree with no DB access to verify
+ * it against, or (b) reverting to a per-row `.update().eq('id', id)` — which
+ * is the exact N-request shape M-2/WP-1c replaced with this grouped upsert.
+ * DECISION (documented per the review's own "or accept this and write it
+ * down" alternative): keep echoing the four NOT NULL columns. The window for
+ * a hand curation to be reverted is the time between THIS RUN's key-set
+ * lookup and its own offer-date upsert — seconds, within one run — not
+ * between runs; accepted as a known, narrow risk rather than solved with an
+ * RPC this change cannot exercise.
  */
 interface ExistingProductRow {
   id: string
