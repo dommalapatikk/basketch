@@ -6,9 +6,13 @@ export type FreshnessAge = { value: number; unit: 'days' | 'weeks' | 'months' | 
 export function ageFromTimestamp(iso: string | null, now: Date = new Date()): FreshnessAge | null {
   if (!iso) return null
   const seenAt = new Date(iso).getTime()
+  // An unparseable timestamp is "unknown", not "3+ months ago".
+  if (Number.isNaN(seenAt)) return null
   const days = Math.floor((now.getTime() - seenAt) / (1000 * 60 * 60 * 24))
   if (days <= 6) return { value: Math.max(1, days), unit: 'days' }
-  if (days <= 27) return { value: Math.floor(days / 7), unit: 'weeks' }
+  // Weeks run to day 29 so months start at floor(30/30) = 1: days 28–29 read
+  // "4 weeks", never "0 months".
+  if (days <= 29) return { value: Math.floor(days / 7), unit: 'weeks' }
   if (days <= 89) return { value: Math.floor(days / 30), unit: 'months' }
   return { value: 3, unit: '3plus' }
 }

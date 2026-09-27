@@ -183,7 +183,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
           <p className="mt-1 text-sm text-[var(--color-ink-2)]">
             {t('subline', {
               date: formatShortDate(snapshot.updatedAt, locale),
-              count: filtered.length.toLocaleString(locale),
+              count: filtered.length,
             })}
           </p>
         </div>
