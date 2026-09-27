@@ -108,7 +108,12 @@ export function ShareVerdictButton({ locale, today }: Props) {
         </button>
       </div>
       <p className="mt-3 text-xs text-[var(--color-ink-3)]">
-        <a href={cardUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">
+        <a
+          href={cardUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline-offset-4 hover:underline"
+        >
           {t('preview_card')}
         </a>
       </p>

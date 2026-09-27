@@ -1,5 +1,5 @@
-import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
+import { connection } from 'next/server'
 
 import { todayInZurich } from '@/lib/domain/validity'
 import type { SnapshotInput, WeeklySnapshot } from '@/lib/types'

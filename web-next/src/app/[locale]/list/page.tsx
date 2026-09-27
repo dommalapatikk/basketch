@@ -1,20 +1,21 @@
 import type { Metadata } from 'next'
-import { setRequestLocale } from 'next-intl/server'
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
-
+import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
 import { parseListIds } from '@/lib/share-url'
 import { getWeeklySnapshot } from '@/server/data/snapshot'
 import type { ListItem } from '@/stores/list-store'
-
-import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
 
 type Props = {
   params: Promise<{ locale: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}): Promise<Metadata> {
   const { locale } = await params
   const t = await getTranslations({ locale, namespace: 'list' })
   return {
@@ -48,7 +49,8 @@ async function ListShareBody({
   searchParamsP: Promise<Record<string, string | string[] | undefined>>
 }) {
   const sp = await searchParamsP
-  const itemsRaw = typeof sp.items === 'string' ? sp.items : Array.isArray(sp.items) ? sp.items[0] : ''
+  const itemsRaw =
+    typeof sp.items === 'string' ? sp.items : Array.isArray(sp.items) ? sp.items[0] : ''
   const ids = parseListIds(itemsRaw ?? null)
 
   const snapshot = await getWeeklySnapshot({ locale })
@@ -78,7 +80,10 @@ async function ListShareBody({
         {t('title')}
       </p>
       <h1 className="text-2xl font-semibold text-[var(--color-ink)]">
-        {t('split_summary', { items: items.length, stores: new Set(items.map((i) => i.store)).size })}
+        {t('split_summary', {
+          items: items.length,
+          stores: new Set(items.map((i) => i.store)).size,
+        })}
       </h1>
       <HydrateAndRedirect items={items} />
     </section>

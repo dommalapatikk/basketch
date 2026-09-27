@@ -23,8 +23,8 @@ vi.mock('@/lib/domain/validity', async (importOriginal) => {
   return { ...actual, todayInZurich: vi.fn(actual.todayInZurich) }
 })
 
-import { createAnonClient } from '@/lib/supabase/anon-server'
 import { todayInZurich } from '@/lib/domain/validity'
+import { createAnonClient } from '@/lib/supabase/anon-server'
 import { type DealRow, SELECT_COLUMNS, supabaseDealsProvider } from './supabase-provider'
 
 type QueryResponse = { data: unknown[] | null; error: { message: string } | null }
@@ -36,7 +36,10 @@ type QueryResponse = { data: unknown[] | null; error: { message: string } | null
  * case breaks out of the paging loop on its first page (supabase-
  * provider.ts), and the success case here never has more than one page.
  */
-function fakeDealsClient(response: QueryResponse, onGte?: (column: string, value: unknown) => void) {
+function fakeDealsClient(
+  response: QueryResponse,
+  onGte?: (column: string, value: unknown) => void,
+) {
   const chain = {
     from: () => chain,
     select: () => chain,

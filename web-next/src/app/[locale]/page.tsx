@@ -1,15 +1,13 @@
 import { setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
-
-import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { getWeeklySnapshot } from '@/server/data/snapshot'
-
 import { CategoryVerdictCard } from '@/components/landing/CategoryVerdictCard'
 import { MethodologyStrip } from '@/components/landing/MethodologyStrip'
 import { ShareVerdictButton } from '@/components/landing/ShareVerdictButton'
 import { StaleBanner } from '@/components/landing/StaleBanner'
 import { VerdictHero } from '@/components/landing/VerdictHero'
 import { MidnightGuard } from '@/components/shared/MidnightGuard'
+import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
+import { getWeeklySnapshot } from '@/server/data/snapshot'
 
 // D2, RCA docs/rca/2026-09-27-tech-lead-stale-expired-deals.md §3.1 / §6 and
 // docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D2: the homepage
@@ -22,11 +20,7 @@ import { MidnightGuard } from '@/components/shared/MidnightGuard'
 // on 2026-09-27. `HomeBody` below is the dynamic hole — exactly the pattern
 // `/deals` and `/list` already use — so the snapshot is read at request time
 // and never baked into the prerendered page.
-export default async function HomePage({
-  params,
-}: {
-  params: Promise<{ locale: string }>
-}) {
+export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params
   setRequestLocale(locale)
 

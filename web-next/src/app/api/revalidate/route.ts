@@ -21,10 +21,7 @@ import { captureMessage } from '@/lib/observability'
 export async function POST(request: Request) {
   const secret = process.env.REVALIDATE_SECRET
   if (!secret) {
-    return NextResponse.json(
-      { error: 'REVALIDATE_SECRET not configured' },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'REVALIDATE_SECRET not configured' }, { status: 500 })
   }
   const auth = request.headers.get('authorization')
   if (auth !== `Bearer ${secret}`) {

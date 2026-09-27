@@ -1,13 +1,12 @@
-import { createAnonClient } from '@/lib/supabase/anon-server'
+import { ACTIVE_CATEGORIES } from '@/lib/category-rules'
 import { type CropRegion, createCropRegion } from '@/lib/domain/crop-region'
 import { createPriceBasis } from '@/lib/domain/price-basis'
 import { isOk } from '@/lib/domain/result'
 import { parseStorageState } from '@/lib/domain/storage-state'
 import { todayInZurich } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
+import { createAnonClient } from '@/lib/supabase/anon-server'
 import type { Deal, DealCategory, SnapshotInput, WeeklySnapshot } from '@/lib/types'
-
-import { ACTIVE_CATEGORIES } from '@/lib/category-rules'
 
 import { computeAllVerdicts } from '../verdict/algorithm'
 
