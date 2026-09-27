@@ -209,6 +209,7 @@
     "copied": "Copied",
     "mail_subject": "basketch — this week's grocery verdict",
     "share_text": "This week's grocery deals across 7 Swiss stores, side by side.",
-    "preview_card": "Preview the share card"
+    "preview_card": "Preview the share card",
+    "card_stat": "{deals, plural, one {# deal} other {# deals}} across {stores, plural, one {# Swiss store} other {# Swiss stores}}"
   }
 }

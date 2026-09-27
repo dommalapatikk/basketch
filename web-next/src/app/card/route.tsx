@@ -1,9 +1,12 @@
 import { ImageResponse } from 'next/og'
+import { createTranslator } from 'next-intl'
 
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { formatShortDate } from '@/lib/format'
 import { STORE_BRAND } from '@/lib/store-tokens'
 import type { CategoryVerdict, DealCategory } from '@/lib/types'
+import de from '@/messages/de.json'
+import en from '@/messages/en.json'
 import { getWeeklySnapshot } from '@/server/data/snapshot'
 
 // Inter at two weights — fetched once per cold start, then cached in module
@@ -19,8 +22,10 @@ let interRegularPromise: Promise<ArrayBuffer> | null = null
 let interSemiboldPromise: Promise<ArrayBuffer> | null = null
 
 async function loadFonts() {
-  if (!interRegularPromise) interRegularPromise = fetch(FONT_INTER_REGULAR).then((r) => r.arrayBuffer())
-  if (!interSemiboldPromise) interSemiboldPromise = fetch(FONT_INTER_SEMIBOLD).then((r) => r.arrayBuffer())
+  if (!interRegularPromise)
+    interRegularPromise = fetch(FONT_INTER_REGULAR).then((r) => r.arrayBuffer())
+  if (!interSemiboldPromise)
+    interSemiboldPromise = fetch(FONT_INTER_SEMIBOLD).then((r) => r.arrayBuffer())
   const [regular, semibold] = await Promise.all([interRegularPromise, interSemiboldPromise])
   return [
     { name: 'Inter', data: regular, weight: 400 as const, style: 'normal' as const },
@@ -49,10 +54,8 @@ export async function GET(request: Request) {
 
   const fonts = await loadFonts()
   const sentences = snapshot.categories.map((v) => sentenceFor(v, labels, locale))
-  const stat =
-    locale === 'de'
-      ? `${snapshot.totalDeals.toLocaleString('de')} Aktionen aus ${activeStores} Schweizer Läden`
-      : `${snapshot.totalDeals.toLocaleString('en')} deals across ${activeStores} Swiss stores`
+  const t = createTranslator({ locale, messages: locale === 'de' ? de : en })
+  const stat = t('share_verdict.card_stat', { deals: snapshot.totalDeals, stores: activeStores })
 
   return new ImageResponse(
     <div
@@ -172,9 +175,7 @@ function sentenceFor(
   }
   if (v.state === 'tied') return locale === 'de' ? `${cat} ist unentschieden.` : `${cat} is tied.`
   if (v.state === 'single-store') {
-    return locale === 'de'
-      ? `Nur ein Anbieter für ${cat}.`
-      : `Only one store offering ${cat}.`
+    return locale === 'de' ? `Nur ein Anbieter für ${cat}.` : `Only one store offering ${cat}.`
   }
   return locale === 'de' ? `Keine Daten für ${cat}.` : `No data for ${cat}.`
 }

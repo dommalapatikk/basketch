@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest'
 // Regression (code review MF-1, 2026-09-27): a count passed to t() as a
 // pre-formatted string (`count: n.toLocaleString(locale)`) breaks ICU plural
 // rules — "NaN deals" at 1,000+. Counts must be passed as numbers.
-const COUNT_ARG = /\b(count|n|items|stores|deals|days|weeks|months)\s*:\s*[^,}\n]*\.toLocaleString\(/
+const COUNT_ARG =
+  /\b(count|n|items|stores|deals|days|weeks|months)\s*:\s*[^,}\n]*\.toLocaleString\(/
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

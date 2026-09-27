@@ -211,12 +211,36 @@ describe('no count placeholder is used without a plural rule (EN, DE)', () => {
 // Counts must reach t() as numbers; ICU adds the thousands separator itself.
 describe('large counts render with a thousands separator, never NaN', () => {
   it('home.stat at 1623 deals', () => {
-    expect(en_('home.stat', { deals: 1623, stores: 7 })).toBe('Based on 1,623 deals across 7 Swiss stores.')
-    expect(de_('home.stat', { deals: 1623, stores: 7 })).toBe('Basierend auf 1.623 Aktionen aus 7 Schweizer Läden.')
+    expect(en_('home.stat', { deals: 1623, stores: 7 })).toBe(
+      'Based on 1,623 deals across 7 Swiss stores.',
+    )
+    expect(de_('home.stat', { deals: 1623, stores: 7 })).toBe(
+      'Basierend auf 1.623 Aktionen aus 7 Schweizer Läden.',
+    )
   })
 
   it('deals.subline at 1234 deals', () => {
-    expect(en_('deals.subline', { date: '27 Sep', count: 1234 })).toBe('Updated 27 Sep · 1,234 deals')
-    expect(de_('deals.subline', { date: '27 Sep', count: 1234 })).toBe('Aktualisiert 27 Sep · 1.234 Aktionen')
+    expect(en_('deals.subline', { date: '27 Sep', count: 1234 })).toBe(
+      'Updated 27 Sep · 1,234 deals',
+    )
+    expect(de_('deals.subline', { date: '27 Sep', count: 1234 })).toBe(
+      'Aktualisiert 27 Sep · 1.234 Aktionen',
+    )
+  })
+})
+
+// Review SF-1 (2026-09-27): the share-card image (app/card/route.tsx) built
+// its stat line by hand — "1 Swiss stores". Same wording, now pluralised.
+describe('share_verdict.card_stat', () => {
+  it.each([
+    [{ deals: 1, stores: 1 }, '1 deal across 1 Swiss store', '1 Aktion aus 1 Schweizer Laden'],
+    [
+      { deals: 1623, stores: 7 },
+      '1,623 deals across 7 Swiss stores',
+      '1.623 Aktionen aus 7 Schweizer Läden',
+    ],
+  ])('%o', (args, expectedEn, expectedDe) => {
+    expect(en_('share_verdict.card_stat', args)).toBe(expectedEn)
+    expect(de_('share_verdict.card_stat', args)).toBe(expectedDe)
   })
 })

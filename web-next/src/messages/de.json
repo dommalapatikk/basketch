@@ -209,6 +209,7 @@
     "copied": "Kopiert",
     "mail_subject": "basketch — Lebensmittel-Verdict dieser Woche",
     "share_text": "Die Aktionen dieser Woche bei 7 Schweizer Läden, im Vergleich.",
-    "preview_card": "Share-Bild anzeigen"
+    "preview_card": "Share-Bild anzeigen",
+    "card_stat": "{deals, plural, one {# Aktion} other {# Aktionen}} aus {stores, plural, one {# Schweizer Laden} other {# Schweizer Läden}}"
   }
 }
