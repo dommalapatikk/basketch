@@ -5,6 +5,21 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  experimental: {
+    // 404-shows-500 fix (docs/rca/2026-09-25-tech-lead-404-shows-500.md § "Final
+    // plan" step 5). The root layout is defined by a top-level dynamic segment
+    // ([locale]), which is exactly the shape the Next docs name as the reason
+    // to use global-not-found instead of a [...rest] catch-all page: a
+    // catch-all under a dynamic-segment layout prerenders a PPR fallback shell
+    // under cacheComponents, and that shell's error document ships with its
+    // streaming-metadata rows permanently dangling (never resumed) — the root
+    // cause of every unknown URL rendering "Something went wrong" over an
+    // HTTP 404. global-not-found is handled at the routing level, before any
+    // layout renders, so there is no shell and no dangling rows. Still
+    // `experimental` in 16.2.4; T2 (an HTTP structural test against `next
+    // start`) is the gate that would catch a regression on a Next upgrade.
+    globalNotFound: true,
+  },
   images: {
     // ⚠️ A RETAILER WHOSE HOST IS NOT LISTED RENDERS NOTHING. next/image
     // refuses any host absent from this list, silently — the card shows an

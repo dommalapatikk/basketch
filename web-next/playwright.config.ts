@@ -4,8 +4,17 @@ import { defineConfig, devices } from '@playwright/test'
 // mobile iPhone 13 390x844) cover AC1–AC12 + AC13–AC16. webServer prefers a
 // pre-built `next start` in CI for deterministic timing; falls back to
 // `next dev` locally so the suite is runnable without a build step.
+//
+// regression 2026-09-25: 404 served global-error (500) — the bug lived
+// entirely in build-only behaviour (PPR fallback shells, prerender caching),
+// which `next dev` never exercises (see the RCA § "Why the tests didn't
+// catch it", point 2). `npm run e2e:prod` sets E2E_PROD=1 to force a
+// `next start` server locally too, for the 404-structural / acceptance specs
+// that depend on that behaviour. Never verify build-only behaviour against
+// `next dev` (see web-next/AGENTS.md).
 
 const isCI = !!process.env.CI
+const useProdServer = isCI || !!process.env.E2E_PROD
 
 export default defineConfig({
   testDir: './e2e',
@@ -47,7 +56,7 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: isCI ? 'npm run start' : 'npm run dev',
+    command: useProdServer ? 'npm run start' : 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !isCI,
     timeout: 180_000,

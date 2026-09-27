@@ -13,7 +13,9 @@
     "ladle:build": "ladle build",
     "test": "vitest run",
     "e2e": "playwright test",
-    "e2e:install": "playwright install --with-deps chromium"
+    "e2e:prod": "next build && E2E_PROD=1 playwright test",
+    "e2e:install": "playwright install --with-deps chromium",
+    "verify:404-build": "node scripts/check-404-build-artifacts.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
