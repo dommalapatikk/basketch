@@ -17,6 +17,13 @@ const NOT_FOUND_TITLE = {
   en: 'Page not found',
 } as const
 
+// PM decision P-11 / Designer decision 2026-09-27 (keep existing errors.*
+// keys). Primary button -> deals, secondary -> home, both locale-aware.
+const BROWSE_DEALS = { de: 'Aktionen ansehen', en: 'Browse deals' } as const
+const BACK_TO_HOME = { de: 'Zur Startseite', en: 'Back to home' } as const
+const DEALS_HREF = { de: '/deals', en: '/en/deals' } as const
+const HOME_HREF = { de: '/', en: '/en' } as const
+
 // Hex store palette (v2 §3.1 + lib/store-tokens.ts). Convert to rgb() for
 // computed-style comparison — browsers always serialise backgrounds as rgb().
 const STORE_HEX = [
@@ -182,19 +189,21 @@ test.describe('AC3 — about pages exist per locale', () => {
 // of which is actually shown to the user.
 // ---------------------------------------------------------------------------
 const UNKNOWN_URLS = [
-  { url: '/en/does-not-exist', locale: 'en' },
-  { url: '/en/settings/hidden', locale: 'en' },
-  { url: '/does-not-exist', locale: 'de' },
-  { url: '/xx/foo', locale: 'de' },
-  { url: '/en/deals/x/y', locale: 'en' },
-  { url: '/de/nope', locale: 'de' },
-  { url: '/en/nope/', locale: 'en' },
+  { url: '/en/does-not-exist', locale: 'en', hasBrandBar: true },
+  { url: '/en/settings/hidden', locale: 'en', hasBrandBar: true },
+  { url: '/does-not-exist', locale: 'de', hasBrandBar: true },
+  { url: '/xx/foo', locale: 'de', hasBrandBar: true },
+  { url: '/en/deals/x/y', locale: 'en', hasBrandBar: true },
+  { url: '/de/nope', locale: 'de', hasBrandBar: true },
+  { url: '/en/nope/', locale: 'en', hasBrandBar: true },
   // /foo.bar: a dotted single segment the next-intl proxy skips, reaching
   // [locale]/layout.tsx with an invalid locale. parseLocale rejects it, and
   // that notFound() bubbles to the root app/not-found.tsx (always German —
-  // see that file's own comment), NOT to global-not-found.
-  { url: '/foo.bar', locale: 'de' },
-  { url: '/en/foo.bar', locale: 'en' },
+  // see that file's own comment), NOT to global-not-found. That file has no
+  // brand bar (code review 2026-09-27 MUST-FIX 2: assert only its /deals and
+  // / links).
+  { url: '/foo.bar', locale: 'de', hasBrandBar: false },
+  { url: '/en/foo.bar', locale: 'en', hasBrandBar: true },
 ] as const
 
 test.describe('AC4 / T1 — every unmatched URL is a real, localized 404 (never global-error)', () => {
@@ -210,7 +219,7 @@ test.describe('AC4 / T1 — every unmatched URL is a real, localized 404 (never 
   // browser locale.
   test.use({ locale: 'de-CH' })
 
-  for (const { url, locale } of UNKNOWN_URLS) {
+  for (const { url, locale, hasBrandBar } of UNKNOWN_URLS) {
     const other = locale === 'de' ? 'en' : 'de'
 
     test(`${url} is a visible, localized 404 in ${locale}`, async ({ page }) => {
@@ -238,6 +247,36 @@ test.describe('AC4 / T1 — every unmatched URL is a real, localized 404 (never 
 
       const bodyText = (await page.locator('body').innerText()).toLowerCase()
       expect(bodyText).not.toContain('something went wrong')
+
+      // MUST-FIX 2 (code review 2026-09-27): P-11 assertions. Plan step 6
+      // required these; they were missing even though the behaviour was
+      // already correct — nothing protected it from regressing.
+      const primary = page.getByRole('link', { name: BROWSE_DEALS[locale] })
+      await expect(
+        primary,
+        `${url} should have a visible "${BROWSE_DEALS[locale]}" link`,
+      ).toBeVisible()
+      await expect(primary).toHaveAttribute('href', DEALS_HREF[locale])
+
+      const secondary = page.getByRole('link', { name: BACK_TO_HOME[locale] })
+      await expect(
+        secondary,
+        `${url} should have a visible "${BACK_TO_HOME[locale]}" link`,
+      ).toBeVisible()
+      await expect(secondary).toHaveAttribute('href', HOME_HREF[locale])
+
+      if (hasBrandBar) {
+        const brandLink = page.getByRole('link', { name: 'basketch — home' })
+        await expect(brandLink, `${url} should have a visible brand-bar home link`).toBeVisible()
+        await expect(brandLink).toHaveAttribute('href', HOME_HREF[locale])
+      }
+
+      // No main-site chrome: the real <Header> renders a <nav aria-label
+      //="Primary"> (Deals/About/My list) and <Footer> is a <footer>
+      // (implicit "contentinfo" landmark). Neither exists on this minimal
+      // brand-bar page (PM decision P-11).
+      await expect(page.locator('nav[aria-label="Primary"]')).toHaveCount(0)
+      await expect(page.getByRole('contentinfo')).toHaveCount(0)
     })
   }
 
