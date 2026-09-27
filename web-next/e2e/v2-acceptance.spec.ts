@@ -281,31 +281,43 @@ test.describe('AC4 / T1 — every unmatched URL is a real, localized 404 (never 
   }
 
   // Client-side navigation to an unmatched path (architect cross-review § 4,
-  // amendment A2: "soft navigation takes a separate RSC path"). There is no
-  // in-app link to an unknown page to click, so this uses the browser back
-  // button, which Next's App Router normally intercepts via its own
-  // popstate listener and resolves client-side.
+  // amendment A2: "soft navigation takes a separate RSC path"; plan's exact
+  // scenario: "from /en/deals, navigate client-side to /en/nope"). There is
+  // no in-app link to an unknown page to click, so this drives the real App
+  // Router directly via `window.next.router.push()` — a debugging API Next
+  // itself exposes in production (code review 2026-09-27 SHOULD-FIX 2:
+  // `node_modules/next/dist/client/components/app-router-instance.js:387-388`,
+  // "Exists for debugging purposes. Don't use in application code" — fine
+  // for a test to reach through, since it drives the exact router path a
+  // real `<Link>` click would).
   //
-  // FINDING, recorded rather than asserted as fact: a `window.__softNav`
-  // marker set before `page.goBack()` here does NOT survive — evidence that
-  // Next falls back to a full document navigation for this specific case.
-  // That is consistent with how global-not-found is documented to work
-  // ("handled at the routing level... Next.js skips rendering" — it never
-  // enters the client-side route tree at all, unlike an in-segment
-  // `notFound()`), so a client transition to a WHOLLY unmatched path
-  // arguably cannot be soft by construction. This app has no dynamic segment
-  // that can 404 from within a matched route today (architect cross-review
-  // § 3) to test the alternative, in-tree case. What this test DOES prove,
-  // and what actually matters for the user: a client-side history
-  // transition to an unknown URL still lands on the correct localized 404,
-  // not a crash or a blank screen, regardless of which navigation mechanism
-  // Next chooses.
-  test('browser-back navigation to /en/nope shows the not-found UI, not global-error', async ({
+  // FINDING, recorded rather than re-asserted here as a requirement: a
+  // `window.__softNav` marker set before a router.push() into an unmatched
+  // path does NOT survive (verified independently by both the Builder's
+  // earlier goBack() probe and the reviewer's own router.push() probe) —
+  // evidence that Next falls back to a full document (MPA) navigation for a
+  // transition into `global-not-found`, whichever way it is triggered. That
+  // is consistent with how global-not-found is documented to work ("handled at
+  // the routing level... Next.js skips rendering" — it never enters the
+  // client-side route tree at all, unlike an in-segment `notFound()`), so a
+  // client transition to a WHOLLY unmatched path arguably cannot be soft by
+  // construction. This app has no dynamic segment that can 404 from within a
+  // matched route today (architect cross-review § 3) to test the
+  // alternative, in-tree case. What this test DOES prove, and what actually
+  // matters for the user: a client-side router.push to an unknown URL still
+  // lands on the correct localized 404, not a crash or a blank screen,
+  // regardless of which navigation mechanism Next chooses underneath.
+  test('client-side router.push to /en/nope shows the not-found UI, not global-error', async ({
     page,
   }) => {
-    await gotoStable(page, '/en/nope') // hard nav — establishes a real history entry
-    await gotoStable(page, '/en/deals') // hard nav — pushes a second history entry
-    await page.goBack({ waitUntil: 'networkidle' })
+    await gotoStable(page, '/en/deals')
+    await Promise.all([
+      page.waitForLoadState('networkidle'),
+      page.evaluate(() => {
+        // @ts-expect-error window.next.router is Next's own debugging API
+        window.next.router.push('/en/nope')
+      }),
+    ])
 
     await expect(page.getByRole('heading', { level: 1, name: NOT_FOUND_TITLE.en })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.lang)).toBe('en')
