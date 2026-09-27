@@ -1,12 +1,12 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { formatShortDate, isStale } from '@/lib/format'
 
 type Props = {
   updatedAt: string
-  locale: string
+  locale: Locale
   /**
    * `WeeklySnapshot.isDegraded` — true only when the deals query itself
    * errored (server/data/supabase-provider.ts), not "zero deals matched".

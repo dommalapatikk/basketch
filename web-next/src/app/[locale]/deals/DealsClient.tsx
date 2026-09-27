@@ -1,10 +1,16 @@
 'use client'
 
-import { ChevronDown } from 'lucide-react'
-import { useDeferredValue, useMemo, useRef, useState, useTransition } from 'react'
-import { useTranslations } from 'next-intl'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-
+import { ChevronDown } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { useDeferredValue, useMemo, useRef, useState, useTransition } from 'react'
+import { BottomBar } from '@/components/deals/BottomBar'
+import { DealCard } from '@/components/deals/DealCard'
+import { DealsSearch } from '@/components/deals/DealsSearch'
+import { FilterRail } from '@/components/deals/FilterRail'
+import { TypeSegmented } from '@/components/deals/TypeSegmented'
+import { IconHeading } from '@/components/ui/IconHeading'
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { usePathname } from '@/i18n/navigation'
 import { visibleAttributes } from '@/lib/deal-attributes'
 import { startsAfterToday } from '@/lib/domain/validity'
@@ -29,17 +35,10 @@ import {
   subCategoryCounts,
 } from '@/server/data/filter-deals'
 
-import { BottomBar } from '@/components/deals/BottomBar'
-import { DealCard } from '@/components/deals/DealCard'
-import { DealsSearch } from '@/components/deals/DealsSearch'
-import { FilterRail } from '@/components/deals/FilterRail'
-import { TypeSegmented } from '@/components/deals/TypeSegmented'
-import { IconHeading } from '@/components/ui/IconHeading'
-
 type Props = {
   snapshot: WeeklySnapshot
   initialFilters: DealsFilters
-  locale: string
+  locale: Locale
 }
 
 // Patch C HR10 (proper fix): the snapshot lands on the client once. Every
@@ -88,10 +87,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
     () => filterDeals(snapshot.deals, deferredFilters),
     [snapshot.deals, deferredFilters],
   )
-  const counts = useMemo(
-    () => storeCounts(snapshot.deals, filters),
-    [snapshot.deals, filters],
-  )
+  const counts = useMemo(() => storeCounts(snapshot.deals, filters), [snapshot.deals, filters])
   // Static per-Type totals for the rail counter — independent of category /
   // sub / store filters so the user can see "Long-life has 1,004 deals"
   // before clicking, without the chip re-counting against their narrowing.
@@ -110,18 +106,12 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   // Patch F: 4-level facets — categories (mid-level) + sub-cats. Both honour
   // the "list-includes-everything, only counts react" rule so chips dim to
   // zero rather than disappear when other filters narrow.
-  const cats = useMemo(
-    () => categoryCounts(snapshot.deals, filters),
-    [snapshot.deals, filters],
-  )
+  const cats = useMemo(() => categoryCounts(snapshot.deals, filters), [snapshot.deals, filters])
   const subCats = useMemo(
     () => subCategoryCounts(snapshot.deals, filters),
     [snapshot.deals, filters],
   )
-  const storages = useMemo(
-    () => storageCounts(snapshot.deals, filters),
-    [snapshot.deals, filters],
-  )
+  const storages = useMemo(() => storageCounts(snapshot.deals, filters), [snapshot.deals, filters])
   const sections = useMemo(
     () => buildSections(filtered, snapshot.today),
     [filtered, snapshot.today],
@@ -502,6 +492,8 @@ function OtherStoresBlock({
 }
 
 function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
 }
-

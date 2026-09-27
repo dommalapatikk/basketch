@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { getTranslations, setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
 
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { parseLocale } from '@/i18n/parse-locale'
 import { routing } from '@/i18n/routing'
 import { parseFilters } from '@/lib/filters'
@@ -54,7 +55,7 @@ async function DealsBody({
   locale,
   searchParamsP,
 }: {
-  locale: string
+  locale: Locale
   searchParamsP: Promise<Record<string, string | string[] | undefined>>
 }) {
   const sp = await searchParamsP

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { getTranslations, setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
 import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { parseLocale } from '@/i18n/parse-locale'
 import { routing } from '@/i18n/routing'
 import { parseListIds } from '@/lib/share-url'
@@ -47,7 +48,7 @@ async function ListShareBody({
   locale,
   searchParamsP,
 }: {
-  locale: string
+  locale: Locale
   searchParamsP: Promise<Record<string, string | string[] | undefined>>
 }) {
   const sp = await searchParamsP
@@ -91,7 +92,7 @@ async function ListShareBody({
   )
 }
 
-function HydratingFallback({ locale: _locale }: { locale: string }) {
+function HydratingFallback({ locale: _locale }: { locale: Locale }) {
   return (
     <section className="mx-auto max-w-[600px] px-4 py-24">
       <div className="h-6 w-48 animate-pulse rounded-[var(--radius-sm)] bg-[var(--color-line)]" />

@@ -7,6 +7,8 @@ export type { CropRegion } from './domain/crop-region'
 export type { PriceBasis } from './domain/price-basis'
 export type { StorageState } from './domain/storage-state'
 
+import type { Locale } from '@/i18n/locale-from-pathname'
+
 import type { CropRegion } from './domain/crop-region'
 import type { PriceBasis } from './domain/price-basis'
 import type { StorageState } from './domain/storage-state'
@@ -146,5 +148,5 @@ export type WeeklySnapshot = {
 
 export type SnapshotInput = {
   region?: string
-  locale?: string
+  locale?: Locale
 }

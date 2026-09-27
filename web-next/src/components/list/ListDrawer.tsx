@@ -1,26 +1,24 @@
 'use client'
 
 import { Copy, Mail, Share2, ShoppingBag, Trash2, X } from 'lucide-react'
-import { useTranslations } from 'next-intl'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import { useEffect, useState } from 'react'
 import { Drawer as Vaul } from 'vaul'
-
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { todayInZurich } from '@/lib/domain/validity'
-import { CATEGORY_ACCENT } from '@/lib/store-tokens'
-import { STORE_BRAND } from '@/lib/store-tokens'
 import { groupByStore } from '@/lib/share'
 import { createShareTarget } from '@/lib/share-target'
+import { CATEGORY_ACCENT, STORE_BRAND } from '@/lib/store-tokens'
 import { useIsDesktop } from '@/lib/use-is-desktop'
 import { useOrigin } from '@/lib/use-origin'
-import { useListStore, type ListItem } from '@/stores/list-store'
+import { type ListItem, useListStore } from '@/stores/list-store'
 import { useUiStore } from '@/stores/ui-store'
-
 import { ItemNote } from './ItemNote'
 
-type Props = { locale: string }
+type Props = { locale: Locale }
 
 // Right-anchored on desktop (420px wide), bottom sheet on mobile (90vh max).
 // Open state lives in useUiStore so any trigger anywhere in the tree can flip it.
@@ -188,7 +186,7 @@ function ItemsByCategory({
 }: {
   items: ListItem[]
   onRemove: (id: string) => void
-  locale: string
+  locale: Locale
 }) {
   const t = useTranslations('list')
   const today = todayInZurich()
@@ -266,7 +264,7 @@ function WhereToBuy({
   locale,
 }: {
   groups: ReturnType<typeof groupByStore>
-  locale: string
+  locale: Locale
 }) {
   const t = useTranslations('list')
   const total = groups.reduce((acc, g) => acc + g.total, 0)
@@ -308,7 +306,7 @@ function WhereToBuy({
   )
 }
 
-function EmptyState({ locale: _locale, onClose }: { locale: string; onClose: () => void }) {
+function EmptyState({ locale: _locale, onClose }: { locale: Locale; onClose: () => void }) {
   const t = useTranslations('list')
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 py-12 text-center">
@@ -326,7 +324,7 @@ function EmptyState({ locale: _locale, onClose }: { locale: string; onClose: () 
   )
 }
 
-function fmt(n: number, locale: string): string {
+function fmt(n: number, locale: Locale): string {
   return new Intl.NumberFormat(locale === 'de' ? 'de-CH' : 'en-CH', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

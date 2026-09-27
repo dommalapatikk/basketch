@@ -3,10 +3,9 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { NextIntlClientProvider } from 'next-intl'
 import { afterEach, describe, expect, it } from 'vitest'
-
+import type { Locale } from '@/i18n/locale-from-pathname'
 import messages from '@/messages/en.json'
 import type { ListItem } from '@/stores/list-store'
-
 import { ItemNote } from './ItemNote'
 
 /**
@@ -34,7 +33,7 @@ const item = (over: Partial<ListItem> = {}): ListItem => ({
   ...over,
 })
 
-const renderNote = (props: { item: ListItem; locale?: string; today?: string }) =>
+const renderNote = (props: { item: ListItem; locale?: Locale; today?: string }) =>
   render(
     <NextIntlClientProvider locale="en" messages={messages}>
       <ItemNote item={props.item} locale={props.locale ?? 'en'} today={props.today ?? TODAY} />
