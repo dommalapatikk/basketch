@@ -17,3 +17,8 @@ from the PM's own words.
 | P-9 | `hello@basketch.app` | **Not used.** Replace with a **contact form** that emails the PM's Gmail (the PM told the coordinator which address; it is set only as a secret), address held in a secret setting, never in the page or repo. Must stay on free tiers. |
 | P-10 | Order within each section: cheapest-per-kg first (A) or biggest discount first (B) | **B — biggest discount stays first.** PM: "the simplest one is bigger discount… the more the discount, then that's the better one." The "Cheapest" tag (lowest price per kg / l / piece among comparable offers, P-7) is shown on whichever card earns it, wherever it sits. |
 | P-11 | Global 404 page: full Header/Footer, or a minimal page (Architect cross-review D4) | **Simple page.** basketch brand bar, "Page not found", and two localized buttons ("See this week's deals", "Home"), in DE or EN to match the link. |
+| P-12 | Coop source (2026-09-26 Architect research) | **Stay on aktionis.ch.** Coop's own flyer is only a ~20% subset; aktionis carries ~1,000/week. Coop flyer recorded as the fallback only if aktionis becomes unavailable. |
+| P-13 | "Fairtrade" in Migros names (name-truncation RCA) | **Drop it** from the name, like the other certification labels (kept in `labels`). |
+| P-14 | Shared list vs recipient's own list | **Keep them separate — never replace or merge.** A shared link opens as its own view (new tab/window); Architect designs it. |
+| P-15 | 404 button wording | **Designer decides** the best option. |
+| P-16 | Go-live 2026-09-27 | Wording/plurals/freshness fix (review + QA passed) and pipeline WP-1c/1d/1e: **go live now.** Hourly DB expiry job (Architect D4): PM questions efficiency — prefer event-triggered; Architect + Tech Lead to re-evaluate. |

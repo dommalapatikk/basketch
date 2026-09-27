@@ -1,3 +1,21 @@
+# ⏸ LATEST: 2026-09-26
+
+**Live (verified on basketch.vercel.app):** data-source copy rework (e09f9ab/f117b36) — footer, homepage strip, About page now say "6 retailers direct, Coop via aktionis.ch"; CI + Vercel green. (Earlier: WP-11 "Worth a look" removal + catalogue retirement, eeb2a0e.)
+
+**Ready, awaiting PM go-live:** pipeline WP-1c/1d/1e — branch worktree-agent-a515051bebfd72d2c @ 09dde74. Review approved (docs/reviews/2026-09-26-review-wp1c-1d-1e.md), QA PASS (docs/qa/2026-09-26-qa-pipeline-wp1c-1d-1e.md, includes next-run SQL checklist). Takes effect at the next Mon/Tue/Thu run.
+
+**In progress — Migros WP-10:** branch worktree-agent-a93682c65ace6ef3d @ 62144d7. Pairing/prices approved (91 published / 91 correct KW39), QA PASS for pairing. Open: 31 of 91 names differ from the printed title (truncation/hyphen/badges). RCA + Architect cross-review + resolution: docs/rca/2026-09-26-tech-lead-migros-name-truncation.md, docs/rca/2026-09-26-architect-migros-name-cross-review.md. Next: Tech Lead writes expectedName into kw39-zh-truth.json (blocked on PM permission) → QA spot-checks truth → Builder (TDD) → holdout edition hand-check → review → QA → PM.
+
+**404 bug:** plan agreed (docs/rca/2026-09-25-tech-lead-404-shows-500.md § Cross-review resolution + architect cross-review); /foo.bar is a real 500. PM chose the simple 404 page (P-11). Waiting on button wording.
+
+**Coop direct source:** researched (docs/design/2026-09-26-architect-coop-direct-source.md) — recommend stay on aktionis.ch (Coop-owned channels ≤ ~20-24% coverage). Awaiting PM yes/no.
+
+**Open PM questions:** (1) put WP-1c/1d/1e live? (2) allow truth-file edit + commit on the Migros branch? (3) Coop: stay on aktionis + flyer as documented fallback? (4) 404 buttons: "Browse deals / Back to home" vs "See this week's deals / Home"? (5) "Fairtrade" in names: drop or keep?
+
+**Not started:** WP-2..6, 7a-c (Volg), 8a-c (SPAR/ALDI pictures), "Cheapest" = lowest per-kg, contact form (needs PM Resend setup), URG note update, S-5 index migration.
+
+**Session note:** subagents stalled repeatedly (service-side); coordinator finished several steps directly and verified everything.
+
 # basketch — session summary
 
 ## ⏸ LATEST: 2026-09-25 — PAUSED mid-cross-review (read this first)

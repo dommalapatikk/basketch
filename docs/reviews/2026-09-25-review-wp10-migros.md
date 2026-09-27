@@ -266,3 +266,77 @@ M1 and M3 show the ground-truth gate catches gross regressions. M2 and M6 show t
 
 - MF-1 must be fixed before this touches the scheduled workflow, because it trades a Migros-only risk for an all-retailer outage.
 - MF-2 through MF-5 are small and test-side, about an hour of work, and they make the gate actually hold.
+
+---
+
+# Re-review (2026-09-26): commits `fd24f81..cfd4148`, plus the Tech Lead's `00ed37f` and the § Review rulings
+
+**Verdict: Approved.** Every must-fix is resolved: **0 open MUST-FIX.** Every should-fix is resolved (one with a small residual, SF-4). There are 3 new NITs, none of them blocking. The Tech Lead's merge gate (RCA § Review rulings, R5) is met, except that the new `pipeline-python` CI job has not yet run on GitHub. Confirm it goes green on the PR.
+
+## What I ran (branch at `cfd4148`, rebased on `eeb2a0e`)
+
+- **Rebase.** `git merge-base HEAD eeb2a0e` = `eeb2a0e`, so SF-8 is done.
+- **TypeScript.** `tsc` exits 0, and the full pipeline vitest suite passes: **76 files, 1598 tests.**
+- **KW39 score,** from my own scorer against the 133-entry truth: **91 published / 91 correct / 0 wrong name / 0 wrong price.** The builder's claim reproduces exactly.
+- **The old-engine OCR fixture,** through the new parser: **59 / 59 / 0 / 0.**
+- **Funnel:** 137 anchors, 91 accepted, 8 from a chained tile, 0 possibly fused.
+- **Python.** A fresh Python 3.12 venv installed with `-r requirements.txt -r requirements-dev.txt -c constraints.txt`. `pip freeze` then matches `constraints.txt` exactly, and pytest gives **32 passed.**
+- **Fixtures.** No fixture changed in `b9c809f..cfd4148`. `00ed37f` touches only `kw39-zh-truth.json` and the ground-truth test, as the Tech Lead ruled in R2.
+- **Mutations.** 7 mutations, each applied and then restored with `git checkout -- <file>`. `git status` is clean at the end.
+
+## Mutation proof (guards now hold)
+
+| # | Mutation | KW39 score | Tests |
+|---|---|---|---|
+| M2 | `PROMO_BADGE` disabled | 91/91/0 (R3 geometry now covers KW39) | **6 fail** (the `isPromoBadge` unit tests catch it; was 0) |
+| M6 | en dash removed from `PRICE_TOKEN_SRC` | 91/91/0 | **1 fails** (was 0) |
+| M7 | R3 badge x-align filter removed | 88/88/0 | **6 fail** (exact count 91, tripwire 8, the 2.80/3.50 regression) |
+| M8 | SF-3 half-split fallback removed | 91/91/0 | **2 fail** |
+| M9 | R3 "name right of its own price" filter removed | 91 / 88 / **3 wrong** | **6 fail** |
+| P1 | `engine_provenance` version reverted to the constant | n/a | **2 pytest fail** |
+| P2 | `ocr.py` with the network blocked and an empty model dir | n/a | structured `{"error": "OCR engine unavailable: DownloadFileException: …"}`, **exit 5** (was a traceback, exit 1) |
+
+## Item by item
+
+| Finding | Status | Evidence |
+|---|---|---|
+| MF-1 pytest blast radius | **Resolved** | `pipeline.yml` has no pytest step. Install, verify, restore, warm-up and save all run with `continue-on-error: true` (warm-up at `:94-100`). pytest now lives in the `ci.yml` `pipeline-python` job. The pre-existing install and verify steps were also fixed (R1). |
+| MF-2 exact ratchet | **Resolved** | `ground-truth.test.ts:95-123`: published `=== 91`, wrong names `[]`, wrong prices `[]`, `correct === published`, tripwire `=== 8`. |
+| MF-3 test pinning a defect | **Resolved properly** | R3 was implemented rather than parked as a residual. 2.80/3.50 is now published as Rindssiedfleisch (`:154`). 1.65/2.15 is Schweinshalssteaks, and 1.80/2.35 is Bratspeck. p5 Kalbsgeschnetzeltes and p11 Gran Pavesi are fixed as well. |
+| MF-4 provenance | **Resolved** | `ocr.py` reads `importlib.metadata` versions (rapidocr and onnxruntime) and the verified on-disk digests (`actual_model_digests`). The TS type gains an optional `onnxruntime`. Proven by P1. |
+| MF-5 unit tests | **Resolved** | The `detectColumnBoundaries` and `isPromoBadge` tests and the en-dash test are present (proven by M2, M6, M8, and M7 and M9 for R3). |
+| SF-1 page 19 | **Resolved** | By the truth owner (`00ed37f`): 133 entries, and "zero wrong prices" is asserted. |
+| SF-2 limit text + tripwire | **Resolved** | See deviation (b). |
+| SF-3 single-group fallback | **Resolved** | Proven by M8. |
+| SF-4 cache | **Resolved, with a small residual** | Restore and save are split, and the key is `hashFiles(ocr.py, requirements.txt)`. See deviation (a) and NIT-R1. |
+| SF-5 structured engine errors | **Resolved** | Proven by P2 (exit 5). Checksum failures keep exit 4, and both are unit-tested. |
+| SF-6 transitive pins | **Resolved** | See deviation (c). `pytest==8.4.2` is pinned in `requirements-dev.txt`. |
+| SF-7 gitignore | **Resolved** | `.gitignore` covers `…/migros/.rapidocr-models/`. |
+| SF-8 rebase | **Resolved** | Rebased onto `eeb2a0e`. |
+| SF-9 comment duplication | **Resolved** | `requirements.txt` is down to 4 comment lines, and the `EXPECTED_MIGROS_OCR_ENGINE`, `possiblyFusedName` and column headers are condensed, each with a pointer to the `ocr.py` header and the RCA. |
+| NIT-1…8 | **Resolved** | Stale message fixed (`live-sources.ts:104`); test title fixed; tautological Python tests replaced; "before inference" wording; `PROMO_BADGE` comment names the packshot text; p17 `–.90` withholding explained; `max_side_len` and `use_cls` passed explicitly (verified as `Global.*` keys in rapidocr 3.9.2's `config.yaml`). NIT-7 (Two Hats) is moot now that the work is split across 6 commits. |
+
+## The four noted deviations
+
+- **(a) CI cache path `${{ github.workspace }}/../rapidocr-migros-models` instead of `runner.temp`. Accepted.**
+  - The path is declared in job-level `env:`, where the `runner` context is not available (only `github`, `needs`, `strategy`, `matrix`, `vars`, `secrets` and `inputs` are). `github.workspace` is, and the path stays outside the checkout.
+  - Consequence: the cache version hashes the path, so `ci.yml` and `pipeline.yml` keep separate cache entries under the same key. That is harmless: roughly 32 MB each, well under the 10 GB limit.
+  - Confirm on the first CI run that "Cache saved" appears, since I did not run it on GitHub.
+- **(b) `wrongPairingSuspected` defined as "accepted from a chained tile", not "name in a different column". Accepted.**
+  - It counts exposure to the risky geometry rather than a detected mispairing. That is the right tripwire, because a detected mispairing would already be fixed by R3.
+  - It is pinned `=== 8` on KW39, so a new layout changes the number, and it is labelled honestly in `formatFunnel` ("from a chained tile").
+- **(c) `constraints.txt` frozen on Python 3.12 only. Accepted.**
+  - I ran a `pip install --dry-run` with the same `-r … -c constraints.txt` on **Python 3.14** in a scratch venv, and it resolves (exit 0). The pinned wheels exist for both CI and local dev.
+- **(d) `IP-SUISSE` in `DESCRIPTOR` narrowed to a standalone line. Accepted.**
+  - This is needed for the p6 fix: the real printed OCR line is "Bratspeck, IP-SUISSE". The standalone badge is still caught by both `DESCRIPTOR` and `PROMO_BADGE`, the KW36 golden master stays green, and KW39 has 0 wrong names.
+  - Side effect: the published name is now "Bratspeck, IP-SUISSE" (NIT-R2).
+
+## New NITs (non-blocking)
+
+- **NIT-R1.** `ci.yml`'s "Save Migros OCR models" step runs `if: always() && cache-miss`. It can therefore save a model dir that holds a truncated download from a failed run. That file self-heals at runtime (rapidocr re-downloads a mismatched file), but the exact key then never re-saves, so the job re-downloads every time. Gate the save on pytest success, as `pipeline.yml` does with `steps.ocr-warmup.outcome == 'success'`.
+- **NIT-R2.** Names can now carry a trailing programme label ("Bratspeck, IP-SUISSE"). It is truthful, printed text, but it may fragment product identity against a plain "Bratspeck" in later weeks. Consider stripping a trailing `, IP-SUISSE` in name normalisation (a follow-up, not WP-10).
+- **NIT-R3.** `ocr.py` hashes all three models twice per run: once in `verify_pinned_models`, then again in `actual_model_digests` (about 32 MB, well under 1 s). You could return the digests from the verify pass instead. Cosmetic.
+
+## Final verdict (re-review)
+
+**Approved: ready to merge,** subject to the `pipeline-python` CI job going green on GitHub. That is part of the Tech Lead's R5 merge gate, and I cannot observe it locally.
