@@ -129,7 +129,8 @@
     "browse_deals": "Aktionen ansehen",
     "server_error_title": "Da ist etwas schiefgegangen",
     "server_error_body": "Wir haben den Fehler protokolliert. Versuche es in einem Moment erneut.",
-    "try_again": "Erneut versuchen"
+    "try_again": "Erneut versuchen",
+    "error_reference": "Referenz"
   },
   "footer": {
     "disclaimer": "Nicht mit einem Supermarkt verbunden",

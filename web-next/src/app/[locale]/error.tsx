@@ -48,7 +48,9 @@ export default function LocaleError({ error, reset }: Props) {
         {t('server_error_body')}
       </p>
       {error.digest ? (
-        <p className="font-mono text-xs text-[var(--color-ink-3)]">Reference: {error.digest}</p>
+        <p className="font-mono text-xs text-[var(--color-ink-3)]">
+          {t('error_reference')}: {error.digest}
+        </p>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-3">
         <Button variant="primary" size="lg" onClick={reset}>
