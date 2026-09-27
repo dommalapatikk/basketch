@@ -47,13 +47,13 @@
     "verdict_tied": "{category} is tied.",
     "verdict_single_store": "Only one store offering {category} this week.",
     "verdict_no_data": "No data for {category}.",
-    "stat": "Based on {deals} deals across {stores} Swiss stores.",
+    "stat": "Based on {deals, plural, one {# deal} other {# deals}} across {stores, plural, one {# Swiss store} other {# Swiss stores}}.",
     "cta_browse": "Browse all deals",
     "cta_share": "Share this week's verdict",
     "stale_banner": "Showing data from {date} — this week's update is delayed."
   },
   "category_card": {
-    "avg_off": "avg {pct}% off · {count} deals",
+    "avg_off": "avg {pct}% off · {count, plural, one {# deal} other {# deals}}",
     "tied": "Tied",
     "single_store": "Only store",
     "no_data": "No data"
@@ -69,7 +69,7 @@
   },
   "deals": {
     "headline": "This week's deals",
-    "subline": "Updated {date} · {count} deals",
+    "subline": "Updated {date} · {count, plural, =0 {no deals} one {# deal} other {# deals}}",
     "search_placeholder": "Search deals…",
     "section_others": "Other stores",
     "no_deals_for_filters": "No deals match these filters. Try removing a filter.",
@@ -111,7 +111,7 @@
     "item_one": "item",
     "item_other": "items",
     "where_to_buy": "Where to buy",
-    "split_summary": "Your {items} items split best across {stores} stores:",
+    "split_summary": "{items, plural, =0 {No items yet} one {Your item is cheapest here:} other {{stores, plural, one {Your {items} items are cheapest at one store:} other {Your {items} items split best across # stores:}}}}",
     "estimated_total": "Estimated total",
     "share_whatsapp": "Share on WhatsApp",
     "copy_link": "Copy link",
@@ -153,7 +153,7 @@
     "no_match_helper": "No store carries this in your region right now.",
     "empty_subtitle": "We haven't tracked any here yet. We'll watch for it.",
     "cancel": "Cancel",
-    "stale_strip": "Updated {n} days ago",
+    "stale_strip": "{n, plural, one {Updated # day ago} other {Updated # days ago}}",
     "error_inline": "Couldn't load options. Try again"
   },
   "availability": {
@@ -172,9 +172,9 @@
     "age_short_weeks": "wk",
     "age_short_months": "mo",
     "aria_a": "{store}. On deal at CHF {price}, {pct}% off. Tap to see details.",
-    "aria_b_days": "{store}. Last on deal {n} days ago. Tap to see details.",
-    "aria_b_weeks": "{store}. Last on deal {n} weeks ago. Tap to see details.",
-    "aria_b_months": "{store}. Last on deal {n} months ago. Tap to see details.",
+    "aria_b_days": "{store}. Last on deal {n, plural, one {# day ago} other {# days ago}}. Tap to see details.",
+    "aria_b_weeks": "{store}. Last on deal {n, plural, one {# week ago} other {# weeks ago}}. Tap to see details.",
+    "aria_b_months": "{store}. Last on deal {n, plural, =0 {recently} one {# month ago} other {# months ago}}. Tap to see details.",
     "aria_b_3plus": "{store}. Last on deal more than 3 months ago. Tap to see details.",
     "aria_b_never": "{store}. Off deal. Tap to see details.",
     "aria_c": "{store}. Not yet seen here. Tap to see details.",

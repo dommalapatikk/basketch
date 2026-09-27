@@ -47,13 +47,13 @@
     "verdict_tied": "{category} ist unentschieden.",
     "verdict_single_store": "Nur ein Anbieter für {category} diese Woche.",
     "verdict_no_data": "Keine Daten für {category}.",
-    "stat": "Basierend auf {deals} Aktionen aus {stores} Schweizer Läden.",
+    "stat": "Basierend auf {deals, plural, one {# Aktion} other {# Aktionen}} aus {stores, plural, one {# Schweizer Laden} other {# Schweizer Läden}}.",
     "cta_browse": "Alle Aktionen ansehen",
     "cta_share": "Wochenfazit teilen",
     "stale_banner": "Letzte Daten vom {date} – das aktuelle Update verzögert sich."
   },
   "category_card": {
-    "avg_off": "ø {pct}% Rabatt · {count} Aktionen",
+    "avg_off": "ø {pct}% Rabatt · {count, plural, one {# Aktion} other {# Aktionen}}",
     "tied": "Unentschieden",
     "single_store": "Nur Anbieter",
     "no_data": "Keine Daten"
@@ -69,7 +69,7 @@
   },
   "deals": {
     "headline": "Aktionen dieser Woche",
-    "subline": "Aktualisiert {date} · {count} Aktionen",
+    "subline": "Aktualisiert {date} · {count, plural, =0 {keine Aktionen} one {# Aktion} other {# Aktionen}}",
     "search_placeholder": "Aktionen durchsuchen…",
     "section_others": "Andere Anbieter",
     "no_deals_for_filters": "Keine Aktionen passen zu diesen Filtern. Versuche, einen Filter zu entfernen.",
@@ -111,7 +111,7 @@
     "item_one": "Artikel",
     "item_other": "Artikel",
     "where_to_buy": "Wo einkaufen",
-    "split_summary": "Deine {items} Artikel verteilen sich am besten auf {stores} Läden:",
+    "split_summary": "{items, plural, =0 {Noch keine Artikel} one {Dein Artikel ist hier am günstigsten:} other {{stores, plural, one {Deine {items} Artikel sind in einem Laden am günstigsten:} other {Deine {items} Artikel verteilen sich am besten auf # Läden:}}}}",
     "estimated_total": "Geschätzte Summe",
     "share_whatsapp": "Auf WhatsApp teilen",
     "copy_link": "Link kopieren",
@@ -153,7 +153,7 @@
     "no_match_helper": "Aktuell führt kein Laden dies in deiner Region.",
     "empty_subtitle": "Wir haben hier noch nichts erfasst. Wir behalten es im Auge.",
     "cancel": "Abbrechen",
-    "stale_strip": "Aktualisiert vor {n} Tagen",
+    "stale_strip": "{n, plural, one {Aktualisiert vor # Tag} other {Aktualisiert vor # Tagen}}",
     "error_inline": "Optionen konnten nicht geladen werden. Erneut versuchen"
   },
   "availability": {
@@ -172,9 +172,9 @@
     "age_short_weeks": "Wo",
     "age_short_months": "Mo",
     "aria_a": "{store}. Im Angebot zu CHF {price}, {pct}% Rabatt. Tippe für Details.",
-    "aria_b_days": "{store}. Vor {n} Tagen im Angebot. Tippe für Details.",
-    "aria_b_weeks": "{store}. Vor {n} Wochen im Angebot. Tippe für Details.",
-    "aria_b_months": "{store}. Vor {n} Monaten im Angebot. Tippe für Details.",
+    "aria_b_days": "{store}. {n, plural, one {Vor # Tag} other {Vor # Tagen}} im Angebot. Tippe für Details.",
+    "aria_b_weeks": "{store}. {n, plural, one {Vor # Woche} other {Vor # Wochen}} im Angebot. Tippe für Details.",
+    "aria_b_months": "{store}. {n, plural, =0 {Vor kurzem} one {Vor # Monat} other {Vor # Monaten}} im Angebot. Tippe für Details.",
     "aria_b_3plus": "{store}. Vor mehr als 3 Monaten im Angebot. Tippe für Details.",
     "aria_b_never": "{store}. Nicht im Angebot. Tippe für Details.",
     "aria_c": "{store}. Hier noch nicht gesehen. Tippe für Details.",
