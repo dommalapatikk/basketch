@@ -35,4 +35,15 @@ describe('parseLocale', () => {
     expect(typeof digest).toBe('string')
     expect(digest as string).toMatch(/^NEXT_HTTP_ERROR_FALLBACK;404/)
   })
+
+  it('derives its return type from the routing argument, not a hardcoded Locale (code review NIT 1)', () => {
+    // Type-level assertion: under the old `RoutingConfig = { locales: readonly
+    // string[] }` signature, parseLocale's return type was hardcoded to the
+    // app's own `Locale` ('de' | 'en') via an internal cast — a "lying type"
+    // for any other routing shape. This assignment only type-checks (tsc
+    // --noEmit) once parseLocale is generic like localeFromPathname.
+    const frRouting = { locales: ['fr', 'it'] } as const
+    const result: 'fr' | 'it' = parseLocale('fr', frRouting)
+    expect(result).toBe('fr')
+  })
 })

@@ -1,9 +1,7 @@
 import { notFound } from 'next/navigation'
 
-import type { Locale } from './locale-from-pathname'
-
-type RoutingConfig = {
-  locales: readonly string[]
+type RoutingConfig<L extends string> = {
+  locales: readonly L[]
 }
 
 /**
@@ -21,10 +19,15 @@ type RoutingConfig = {
  * Throws Next's `notFound()` — the same `NEXT_HTTP_ERROR_FALLBACK;404` error
  * a page would throw itself — for anything that isn't a known locale, so the
  * segment renders a real 404 instead of crashing on the value further down.
+ *
+ * Generic over the locale union, like `localeFromPathname` (code review
+ * 2026-09-27 NIT 1) — the old hardcoded `Locale` return type was a "lying
+ * type" for any routing shape other than the app's own `{de, en}`. Real call
+ * sites pass the app's `routing` object and get `Locale` back automatically.
  */
-export function parseLocale(raw: string, routing: RoutingConfig): Locale {
-  if (routing.locales.includes(raw)) {
-    return raw as Locale
+export function parseLocale<L extends string>(raw: string, routing: RoutingConfig<L>): L {
+  if (routing.locales.includes(raw as L)) {
+    return raw as L
   }
   notFound()
 }
