@@ -7,7 +7,7 @@
 // structural spec, e2e/404-structural.spec.ts) parses served HTML only, so
 // it stays the primary, version-independent gate; this script is defence in
 // depth against the specific defect this fix removes.
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -116,7 +116,9 @@ for (const htmlPath of htmlFiles) {
   if (meta.status !== 404) continue
 
   if (html.includes('%%drp:')) {
-    fail(`${htmlPath} has status 404 with no postponed state but contains a dangling %%drp: placeholder`)
+    fail(
+      `${htmlPath} has status 404 with no postponed state but contains a dangling %%drp: placeholder`,
+    )
   }
   if (html.includes('id="__next_error__"')) {
     fail(
