@@ -33,6 +33,14 @@ const URLS = [
 // referenced-but-undefined row is exactly the shape of the original defect:
 // React's Flight client rejects the pending row with "Connection closed."
 // when the stream ends before it arrives (RCA §2.4, §2.6).
+// No x-matched-path assertion here (code review 2026-09-27 NIT 3): that
+// header is added by Vercel's edge routing layer, not by Next itself.
+// Confirmed empirically — `curl -sD -` against a local `next start` never
+// emits it, on any URL, matched or not. The plan's actual check ("confirm
+// on the first run that next start sets this header locally too") failed
+// that confirmation, so the assertion correctly stays out of this local,
+// no-browser gate. It is checked post-deploy instead, against the real
+// Vercel edge (ADR-002 "Follow-up", owner: the coordinator).
 function danglingFlightRows(html: string): string[] {
   const pushes = [...html.matchAll(/self\.__next_f\.push\(\[1,"([\s\S]*?)"\]\)/g)].map((m) => m[1])
   const full = pushes.map((p) => p.replaceAll('\\"', '"').replaceAll('\\n', '\n')).join('')
@@ -60,7 +68,10 @@ test.describe('T2 — unknown URLs are structurally sound 404s, never 500', () =
       expect(html, `${url} must not contain a dangling %%drp: placeholder`).not.toContain('%%drp:')
 
       const dangling = danglingFlightRows(html)
-      expect(dangling, `${url} has Flight rows referenced but never defined: ${dangling.join(', ')}`).toEqual([])
+      expect(
+        dangling,
+        `${url} has Flight rows referenced but never defined: ${dangling.join(', ')}`,
+      ).toEqual([])
 
       // KNOWN, EVIDENCE-DOCUMENTED EXCEPTION — flagged for Tech Lead review:
       // /foo.bar is a dotted, single-segment path the next-intl proxy
