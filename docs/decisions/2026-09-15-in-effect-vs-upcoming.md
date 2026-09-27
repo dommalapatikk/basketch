@@ -1,5 +1,7 @@
 # ADR: "In effect" vs "upcoming" — the web validity predicate
 
+> **Caching part superseded 2026-09-27** by `2026-09-27-deals-cache-keyed-by-zurich-date.md` (PM P-17). The in-effect / upcoming rules below are unchanged.
+
 **Status:** Accepted
 **Date:** 2026-09-15
 **Decides:** PM decision #10, tech-lead ruling D2 (TP-10) in `docs/rca/2026-09-15-final-plan.md`

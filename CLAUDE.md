@@ -230,6 +230,7 @@ NEXT     -> Move to next module
 - Do NOT import html2canvas at the top of a file. Lazy-load via `import()` on user action.
 - Do NOT hardcode store brand hexes — import from `store-tokens.ts`. Brand colour is never a background.
 - Do NOT omit the date filter safety net (`.gte('valid_to', today)`) on deal queries.
+- Do NOT read the clock (`todayInZurich()`, `Date.now()`) inside a `'use cache'` function — pass the Zurich date in as an argument so it is part of the cache key (`docs/decisions/2026-09-27-deals-cache-keyed-by-zurich-date.md`).
 - Do NOT treat `.gte('valid_to', today)` as the whole date rule — a deal is only "in effect" when `valid_from ≤ today ≤ valid_to` (Zurich date, `lib/domain/validity.ts`). A not-yet-started deal must still be shown with its "from" label, but excluded from the category verdict and never labelled "Cheapest" — the same "listed but does not vote" rule applies to a member-only price.
 - Do NOT let retailer field names into the domain layer.
 - Do NOT compute a discount for ALDI when no original price is printed — both fields stay null.
