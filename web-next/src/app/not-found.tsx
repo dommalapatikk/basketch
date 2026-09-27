@@ -1,6 +1,13 @@
 import Link from 'next/link'
-
+import deMessages from '../messages/de.json'
 import { NotFoundLocale } from './NotFoundLocale'
+
+// Copy comes from messages/de.json's errors.* keys — the SAME keys
+// global-not-found.tsx and [locale]/not-found.tsx read — so all three 404
+// surfaces cannot drift apart (code review 2026-09-27 SHOULD-FIX 3). Always
+// German: see the file comment below on why this boundary is unreachable
+// via a valid 'en' path.
+const copy = deMessages.errors
 
 // Root-level not-found boundary (D2, docs/rca/2026-09-25-tech-lead-404-shows-500.md
 // § "Final plan" step 7). `global-not-found.tsx` now owns every genuinely
@@ -52,10 +59,8 @@ export default function RootNotFound() {
         >
           404
         </p>
-        <h1 style={{ fontSize: 32, fontWeight: 600, marginTop: 16 }}>Seite nicht gefunden</h1>
-        <p style={{ marginTop: 16, color: '#1F1F25', lineHeight: 1.6 }}>
-          Diese Seite gibt es nicht (oder nicht mehr). Geh zurück zu den Aktionen dieser Woche.
-        </p>
+        <h1 style={{ fontSize: 32, fontWeight: 600, marginTop: 16 }}>{copy.not_found_title}</h1>
+        <p style={{ marginTop: 16, color: '#1F1F25', lineHeight: 1.6 }}>{copy.not_found_body}</p>
         <div style={{ marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link
             href="/deals"
@@ -68,7 +73,7 @@ export default function RootNotFound() {
               textDecoration: 'none',
             }}
           >
-            Aktionen ansehen
+            {copy.browse_deals}
           </Link>
           <Link
             href="/"
@@ -82,7 +87,7 @@ export default function RootNotFound() {
               border: '1px solid #D8D7D1',
             }}
           >
-            Zur Startseite
+            {copy.back_to_home}
           </Link>
         </div>
       </main>
