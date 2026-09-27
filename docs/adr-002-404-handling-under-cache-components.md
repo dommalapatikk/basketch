@@ -67,9 +67,12 @@ what should be a 404.
 
 ## Consequences
 
-**Easier:** unknown URLs are one static, cacheable document per matching CDN edge, with zero
-function invocations; the locale-parsing rule makes any future entry point that skips it a
-type error at every downstream call site typed `Locale`.
+**Easier:** unknown URLs are one static, cacheable document per matching CDN edge. Locally,
+`next start` serves `/_not-found` with `x-nextjs-prerender: 1` and no function invocation. On
+Vercel specifically this is **unverified** (code review 2026-09-27 SHOULD-FIX 4) — step 11's
+post-deploy check is what confirms it in production, not this ADR. The locale-parsing rule
+makes any future entry point that skips it a type error at every downstream call site typed
+`Locale`.
 
 **Harder / accepted costs:** `global-not-found.tsx` cannot render the real `Header`/`Footer`
 (no `NextIntlClientProvider`, no list store) — PM decision P-11 is a minimal brand bar
@@ -84,3 +87,22 @@ root-layout-based boundary to render into cleanly. Verified fully resolved (zero
 Flight rows, single `<html>`, correct 404 status) — not a recurrence of the defect this ADR
 fixes, just a client-rendered-only 404 for this one edge case. See
 `web-next/e2e/404-structural.spec.ts` for the inline evidence and flag for Tech Lead review.
+
+This class has real-world reach, confirmed by the reviewer's own probes: `/favicon.ico` (no
+`public/` dir in this app), and the same shape applies to any dotted-path bot/scanner probe
+such as `/wp-login.php` or `/apple-touch-icon.png`. All of them are now a correct 404 status
+— the only residual cost is the SSR `<body>` for these specific URLs is empty, so a client
+**with JavaScript disabled sees a blank page** instead of the 404 copy, until the Flight
+payload is hydrated. Bots and browsers that only check the status code (the overwhelming
+majority of this traffic) are unaffected. Accepted per the deviation ruling — the only
+cheap structural fix (`generateStaticParams` + `dynamicParams = false` on `[locale]`) is
+unavailable, because `dynamicParams` is documented as removed under Cache Components
+(`node_modules/next/dist/docs/.../dynamicParams.md:22`).
+
+## Follow-up (owner tracked, code review 2026-09-27 SHOULD-FIX 5)
+
+Plan step 1 "Infra" and step 11 call for running T2 against production after deploy and
+checking `x-matched-path` there (it is absent under local `next start` — confirmed — so it
+can only be checked against the real Vercel edge). This is **not** a CI job; it is a manual,
+post-deploy check. **Owner: the coordinator**, run once after this branch deploys to
+`basketch.vercel.app`. Not blocking merge.
