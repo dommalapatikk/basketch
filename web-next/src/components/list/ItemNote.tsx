@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl'
 import { Fragment, type ReactNode } from 'react'
 
-import { startsAfterToday } from '@/lib/domain/validity'
+import { hasExpired, startsAfterToday } from '@/lib/domain/validity'
 import {
   formatMemberPriceLabel,
   formatMinQuantityLabel,
@@ -28,24 +28,27 @@ export function ItemNote({
   locale: string
   today: string
 }) {
+  const t = useTranslations('list')
   const memberLabel = formatMemberPriceLabel(item.priceBasis, locale)
   const minQuantityLabel = formatMinQuantityLabel(item.minQuantity, locale)
   // The `item.validFrom &&` guard is what lets TypeScript narrow it to
   // `string` below — startsAfterToday already returns false for
   // `undefined`, so this never changes which branch runs.
   const showsFromDate = Boolean(item.validFrom) && startsAfterToday(item, today)
-  if (!memberLabel && !minQuantityLabel && !showsFromDate) return null
+  const isExpired = hasExpired(item, today)
+  if (!memberLabel && !minQuantityLabel && !showsFromDate && !isExpired) return null
 
-  // All three facts are independent and can co-occur (a Lidl Plus price
-  // that also has not started yet, for example) — built as a list rather
-  // than a fixed two-slot template so the separator only ever appears
-  // between two facts that are BOTH present.
+  // All facts are independent and can co-occur (a Lidl Plus price that also
+  // has not started yet, for example) — built as a list rather than a fixed
+  // template so the separator only ever appears between two facts that are
+  // BOTH present.
   const parts: ReactNode[] = []
   if (memberLabel) parts.push(memberLabel)
   if (minQuantityLabel) parts.push(minQuantityLabel)
   if (showsFromDate && item.validFrom) {
     parts.push(<FromDate iso={item.validFrom} locale={locale} />)
   }
+  if (isExpired) parts.push(t('expired_label'))
 
   return (
     <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--color-ink-3)]">

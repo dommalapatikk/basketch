@@ -115,6 +115,32 @@ describe('ItemNote', () => {
     expect(container.textContent).toBe('')
   })
 
+  it('shows an "Expired" note for an item whose validTo has passed (WP-D5)', () => {
+    renderNote({ item: item({ validTo: '2026-09-14' }) })
+    expect(screen.getByText('Expired')).toBeTruthy()
+  })
+
+  it('does not show "Expired" for an item still in effect today (validTo === today)', () => {
+    const { container } = renderNote({ item: item({ validTo: TODAY }) })
+    expect(container.textContent).not.toContain('Expired')
+  })
+
+  it('shows "Expired" together with the other independent facts', () => {
+    renderNote({
+      item: item({
+        validTo: '2026-09-14',
+        priceBasis: { kind: 'member-only', programme: 'Lidl Plus' },
+      }),
+    })
+    const text = screen.getByText(/Lidl Plus/).textContent
+    expect(text).toContain('Lidl Plus members only')
+    expect(text).toContain('Expired')
+  })
+
+  it('a list saved before WP-D5 still opens — renders fine with no validTo key', () => {
+    expect(() => renderNote({ item: item() })).not.toThrow()
+  })
+
   it('a list saved before WP-W2 still opens — renders nothing rather than throwing', () => {
     // BLOCKER, code review of 9525601: ListDrawer is mounted in every
     // layout and calls this component for every item. A legacy item with no

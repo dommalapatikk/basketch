@@ -54,6 +54,22 @@ export type ListItem = {
    * requirement.ts) — never a crash.
    */
   minQuantity?: number | null
+  /**
+   * WP-D5, RCA docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5:
+   * snapshotted at add-time, same reasoning as `validFrom`/`priceBasis`/
+   * `minQuantity` above — so `ListDrawer` can tell, days later, whether a
+   * saved item's price is still in effect at all, something it could not do
+   * before (T3 in the architect RCA §2.1: the list drawer's own clock read
+   * had no `validTo` to compare against).
+   *
+   * OPTIONAL, deliberately — same reasoning as every other field on this
+   * type added after v1: this store persists to localStorage across
+   * deploys, and an item added before this field existed rehydrates with the
+   * key simply absent. No STORAGE_VERSION bump needed — `sanitizeItems` only
+   * checks the base v1 shape (`isWellFormedItem`), so an absent `validTo`
+   * passes through unexamined exactly like `minQuantity` already does.
+   */
+  validTo?: string
 }
 
 type ListState = {

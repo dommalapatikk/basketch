@@ -75,3 +75,17 @@ export function isInEffect(deal: { validFrom: string; validTo: string }, today: 
 export function startsAfterToday(deal: { validFrom?: string }, today: string): boolean {
   return deal.validFrom !== undefined && deal.validFrom > today
 }
+
+/**
+ * True once a validity window has genuinely closed, by the Zurich date.
+ *
+ * WP-D5, RCA docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5:
+ * `stores/list-store.ts`'s `ListItem.validTo` is optional for the same
+ * reason `validFrom` is — a list saved before this field existed rehydrates
+ * with the key simply absent. Unknown reads as "not expired" (claims less
+ * than asserting it IS still in effect), the same reasoning `startsAfterToday`
+ * already applies to a missing `validFrom`.
+ */
+export function hasExpired(item: { validTo?: string }, today: string): boolean {
+  return item.validTo !== undefined && item.validTo < today
+}

@@ -208,6 +208,62 @@ describe('list-store persistence — a list saved before WP-W2 still opens', () 
     expect(useListStore.getState().items).toEqual([item])
   })
 
+  it('a list saved before WP-D5 still opens — an item with no validTo key rehydrates fine', async () => {
+    // No STORAGE_VERSION bump was needed for WP-D5: validTo is optional,
+    // exactly like minQuantity was for WP-W4, so a pre-existing v2 item
+    // (which already has validFrom/priceBasis but predates validTo) must
+    // rehydrate without the key at all — not null.
+    const preD5Item = {
+      id: 'd6',
+      store: 'lidl',
+      productName: 'Butter',
+      category: 'fresh',
+      salePrice: 2.5,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-01',
+      priceBasis: { kind: 'everyone' },
+      // No validTo — the exact pre-WP-D5 v2 shape.
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { items: [preD5Item] }, version: 2 }),
+    )
+
+    const { useListStore } = await freshStore()
+    await useListStore.persist.rehydrate()
+
+    const items = useListStore.getState().items
+    expect(items).toHaveLength(1)
+    expect(items[0]?.id).toBe('d6')
+    expect(items[0]?.validTo).toBeUndefined()
+    expect(items[0]?.validFrom).toBe('2026-09-01')
+  })
+
+  it('keeps a well-formed item with validTo exactly as stored (WP-D5)', async () => {
+    const item = {
+      id: 'd7',
+      store: 'volg',
+      productName: 'Rahm',
+      category: 'fresh',
+      salePrice: 1.2,
+      imageUrl: null,
+      sourceUrl: null,
+      validFrom: '2026-09-20',
+      priceBasis: { kind: 'everyone' },
+      validTo: '2026-09-26',
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { items: [item] }, version: 2 }),
+    )
+
+    const { useListStore } = await freshStore()
+    await useListStore.persist.rehydrate()
+
+    expect(useListStore.getState().items).toEqual([item])
+  })
+
   it('keeps a well-formed item with minQuantity exactly as stored (WP-W4)', async () => {
     const item = {
       id: 'd5',

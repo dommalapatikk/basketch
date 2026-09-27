@@ -391,6 +391,7 @@ function SubCategorySection({
           validFrom={primary.validFrom}
           priceBasis={primary.priceBasis}
           minQuantity={primary.minQuantity}
+          validTo={primary.validTo}
           onlyStoreBadge={onlyStoreBadge}
           onlyStoreNote={onlyStoreNote}
           attributes={visibleAttributes(primary.attributes, locale)}
@@ -493,6 +494,7 @@ function OtherStoresBlock({
               validFrom={d.validFrom}
               priceBasis={d.priceBasis}
               minQuantity={d.minQuantity}
+              validTo={d.validTo}
             />
           ))}
         </div>

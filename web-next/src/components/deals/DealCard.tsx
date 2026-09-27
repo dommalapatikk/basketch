@@ -94,6 +94,16 @@ type CommonProps = {
   /** WP-W4 (D2, TP-7a) — the raw value forwarded to AddToListButton; `minQuantityLabel` above is what actually renders on this card. */
   minQuantity?: number | null
   /**
+   * WP-D5 (docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5) —
+   * forwarded to AddToListButton so a saved list item carries its own
+   * expiry, letting ListDrawer mark it once it is no longer in effect. Never
+   * shown on the card itself: a card with an already-expired validTo would
+   * have already been filtered out of the snapshot's `.gte('valid_to',
+   * today)` query, so this is dormant here and only becomes meaningful days
+   * later, in the list.
+   */
+  validTo: string
+  /**
    * Localised "Only at Coop" — shown ONLY together with onlyStoreNote, which
    * states the scope of the claim. The badge on its own would read as "this
    * product is only at Coop", which is not what the data supports.
@@ -146,6 +156,7 @@ function Primary({
   validFrom,
   priceBasis,
   minQuantity,
+  validTo,
   onlyStoreBadge,
   onlyStoreNote,
   attributes,
@@ -251,6 +262,7 @@ function Primary({
             validFrom={validFrom}
             priceBasis={priceBasis}
             minQuantity={minQuantity}
+            validTo={validTo}
           />
         </div>
       </div>
@@ -279,6 +291,7 @@ function Compact({
   validFrom,
   priceBasis,
   minQuantity,
+  validTo,
 }: CommonProps) {
   const brand = STORE_BRAND[store]
   const titleId = titleIdFor(id)
@@ -383,6 +396,7 @@ function Compact({
           validFrom={validFrom}
           priceBasis={priceBasis}
           minQuantity={minQuantity}
+          validTo={validTo}
           size="sm"
         />
       </div>

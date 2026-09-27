@@ -8,7 +8,7 @@ import { Drawer as Vaul } from 'vaul'
 
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { todayInZurich } from '@/lib/domain/validity'
+import { hasExpired, todayInZurich } from '@/lib/domain/validity'
 import { CATEGORY_ACCENT } from '@/lib/store-tokens'
 import { STORE_BRAND } from '@/lib/store-tokens'
 import { groupByStore } from '@/lib/share'
@@ -41,13 +41,24 @@ export function ListDrawer({ locale }: Props) {
   }, [copied])
 
   const direction = isDesktop ? 'right' : 'bottom'
-  const groups = groupByStore(items)
+
+  // WP-D5, RCA docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5:
+  // an expired item's saved price is no longer objectively correct
+  // (CLAUDE.md: price comparisons must be objectively correct, expire
+  // aggressively), so it must not be summed into a total or repeated in an
+  // outbound WhatsApp/email message — the same "expired deals never vote"
+  // rule the category verdict already applies, here applied to money. It
+  // stays VISIBLE in the list itself (ItemsByCategory below, marked via
+  // ItemNote's "Expired" label) so the user can decide to remove it.
+  const today = todayInZurich()
+  const activeItems = items.filter((item) => !hasExpired(item, today))
+  const groups = groupByStore(activeItems)
 
   // Both share destinations are resolved during RENDER. They used to be
   // assigned from inside the click handlers, which left `href="#"` in the DOM
   // at rest — so middle click, Cmd+click and "Copy link address" all went to
   // basketch instead of WhatsApp or the mail client.
-  const shareTarget = createShareTarget({ origin: useOrigin(), locale, items })
+  const shareTarget = createShareTarget({ origin: useOrigin(), locale, items: activeItems })
 
   async function copyLink() {
     if (shareTarget.kind !== 'ready') return
@@ -105,7 +116,7 @@ export function ListDrawer({ locale }: Props) {
             <EmptyState locale={locale} onClose={() => setOpen(false)} />
           ) : (
             <div className="flex-1 overflow-y-auto px-5 py-5">
-              <ItemsByCategory items={items} onRemove={remove} locale={locale} />
+              <ItemsByCategory items={items} onRemove={remove} locale={locale} today={today} />
 
               <WhereToBuy groups={groups} locale={locale} />
             </div>
@@ -185,13 +196,14 @@ function ItemsByCategory({
   items,
   onRemove,
   locale,
+  today,
 }: {
   items: ListItem[]
   onRemove: (id: string) => void
   locale: string
+  today: string
 }) {
   const t = useTranslations('list')
-  const today = todayInZurich()
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN
   const byCat = new Map<string, ListItem[]>()
   for (const it of items) {
