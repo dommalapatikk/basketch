@@ -1,43 +1,97 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// `connection()`/`cacheTag()`/`cacheLife()` all require a real Next.js
+// request/cache runtime (work-unit-async-storage) and throw outside one —
+// see next/dist/server/request/connection.js and .../use-cache/cache-tag.js.
+// `'use cache'` itself is inert under vitest (no SWC transform runs), so the
+// function body below executes as plain JS and would hit those guards. These
+// no-op stand-ins let the regression test exercise the real argument-passing
+// contract (today flows in as a parameter) without needing the runtime that
+// enforces the cache semantics themselves — the same trade-off the file's own
+// pre-existing comment about `'use cache'` being inert under vitest describes.
+vi.mock('next/server', () => ({ connection: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn() }))
 
 /**
- * HIGH, code review of 9525601: `cacheLife('hours')` revalidates in the
- * background hourly but only EXPIRES (forces a synchronous, fresh rebuild)
- * after a day. Under low overnight traffic — 10-50 users, per CLAUDE.md —
- * nobody's request triggers that background revalidation, so the first
- * visitor after a quiet night can be served a `today` up to ~24h stale:
- * Thursday's flyer still reads "from Thu" and is excluded from the verdict,
- * or a deal that ended Wednesday still votes.
- *
- * `cacheLife`/`cacheTag` require the Next.js runtime and cannot be invoked
- * directly in a vitest unit test (there is no cache to inspect outside a
- * real request), so this is a source-level config test — the same pattern
- * CLAUDE.md's own plan uses for the pipeline's
- * `RUN_DEADLINE_MS < timeout_minutes in pipeline.yml` check: read the
- * config, assert its bound, rather than exercise the runtime behaviour.
+ * Replaces the old "expire <= 3600 bounds today's staleness" test (RCA
+ * docs/rca/2026-09-27-tech-lead-stale-expired-deals.md §5.1, §7.2): that
+ * premise was false. `cacheLife.expire` only ever bounded the in-memory
+ * `'use cache'` entry, never the durable, traffic-driven Vercel ISR copy of
+ * a fully-prerendered page — which is what actually stayed stale for hours
+ * on 2026-09-27. The real fix is structural: `today` is a parameter of the
+ * cached function, so it is part of the cache key (source-level assertions
+ * below), and the page that reads it is never allowed to be the static
+ * shell (enforced in `[locale]/page.test.tsx`, not here).
  */
-describe('getWeeklySnapshot cache profile bounds "today" staleness', () => {
+describe('snapshot.ts source shape — the cache key includes the Zurich date', () => {
   const source = readFileSync(join(__dirname, 'snapshot.ts'), 'utf8')
 
-  it('does not use the unbounded-expire "hours" preset (expire: 1 day)', () => {
-    expect(source).not.toMatch(/cacheLife\(\s*['"]hours['"]\s*\)/)
+  it('the cached function takes `today` as a parameter', () => {
+    expect(source).toMatch(/async function getDealRowsForDay\(input:\s*\{\s*today:\s*string\s*\}\)/)
   })
 
-  it('sets an explicit expire of at most one hour, so "today" can never be more than an hour stale', () => {
-    const match = source.match(/expire:\s*(\d+)/)
-    expect(match).not.toBeNull()
-    const expireSeconds = Number(match?.[1])
-    expect(expireSeconds).toBeGreaterThan(0)
-    expect(expireSeconds).toBeLessThanOrEqual(3600)
+  it('the exported, uncached getWeeklySnapshot calls connection() before reading the Zurich date', () => {
+    const connectionIndex = source.indexOf('await connection()')
+    const todayIndex = source.indexOf('todayInZurich()')
+    expect(connectionIndex).toBeGreaterThan(-1)
+    expect(todayIndex).toBeGreaterThan(-1)
+    expect(connectionIndex).toBeLessThan(todayIndex)
   })
 
-  it('keeps a revalidate shorter than expire, so most requests never hit the synchronous rebuild', () => {
-    const revalidateMatch = source.match(/revalidate:\s*(\d+)/)
-    const expireMatch = source.match(/expire:\s*(\d+)/)
-    expect(revalidateMatch).not.toBeNull()
-    expect(expireMatch).not.toBeNull()
-    expect(Number(revalidateMatch?.[1])).toBeLessThan(Number(expireMatch?.[1]))
+  it('the cache tag includes the day, so a pipeline revalidate still reaches every day\'s entry via the plain "deals" tag', () => {
+    expect(source).toMatch(/cacheTag\(\s*['"]deals['"]\s*,\s*`deals:\$\{input\.today\}`\s*\)/)
+  })
+
+  it('never reads the wall clock (todayInZurich or new Date) inside the "use cache" function body', () => {
+    const cachedFnStart = source.indexOf('async function getDealRowsForDay')
+    const cachedFnEnd = source.indexOf('\n}', cachedFnStart)
+    const cachedBody = source.slice(cachedFnStart, cachedFnEnd)
+    expect(cachedBody).not.toMatch(/todayInZurich\(\)/)
+    expect(cachedBody).not.toMatch(/new Date\(/)
+  })
+})
+
+/**
+ * Regression, named after the defect (RCA §7 item 1): a snapshot filled on
+ * 2026-09-26 must never be served on 2026-09-27, because Volg's active deals
+ * all have `valid_to = 2026-09-26`. `'use cache'` is inert under vitest (no
+ * real Next cache to inspect outside a request), so this pins the CONTRACT
+ * that makes the cache key correct instead: the function actually wrapped in
+ * `'use cache'` (`supabaseDealsProvider.fetchDealRows`) must receive `today`
+ * as an explicit argument that changes across the midnight boundary — never
+ * a value it reads from the clock itself.
+ */
+describe('2026-09-27 stale-expired-deals: a snapshot filled on 2026-09-26 is never served on 2026-09-27 (Volg valid_to 2026-09-26)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('passes the day the fetch is keyed on as an argument, not a value read from inside the cache', async () => {
+    const { supabaseDealsProvider } = await import('./supabase-provider')
+    const fetchSpy = vi
+      .spyOn(supabaseDealsProvider, 'fetchDealRows')
+      .mockResolvedValue({ deals: [], error: null })
+
+    const { getWeeklySnapshot } = await import('./snapshot')
+
+    // 2026-09-26T21:50:00Z = 23:50 Zurich (CEST, UTC+2) — still 26 Sep.
+    vi.useFakeTimers().setSystemTime(new Date('2026-09-26T21:50:00Z'))
+    const before = await getWeeklySnapshot({ locale: 'de' })
+    expect(before.today).toBe('2026-09-26')
+    expect(fetchSpy).toHaveBeenLastCalledWith({ today: '2026-09-26' })
+
+    // 2026-09-26T22:10:00Z = 00:10 Zurich, 27 Sep — the day has rolled over.
+    vi.setSystemTime(new Date('2026-09-26T22:10:00Z'))
+    const after = await getWeeklySnapshot({ locale: 'de' })
+    expect(after.today).toBe('2026-09-27')
+    expect(fetchSpy).toHaveBeenLastCalledWith({ today: '2026-09-27' })
+
+    // The two requests hit the fetch with two DIFFERENT keys — never the
+    // same one — which is exactly what makes a 26-Sep entry unreachable on
+    // 27-Sep once this runs through the real Next cache in production.
+    expect(fetchSpy.mock.calls[0]?.[0]).not.toEqual(fetchSpy.mock.calls[1]?.[0])
   })
 })

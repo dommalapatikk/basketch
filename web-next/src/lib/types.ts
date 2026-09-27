@@ -147,4 +147,15 @@ export type WeeklySnapshot = {
 export type SnapshotInput = {
   region?: string
   locale?: string
+  /**
+   * The Zurich calendar date to build the snapshot against — see
+   * `lib/domain/validity.ts`. RCA docs/rca/2026-09-27-tech-lead-stale-
+   * expired-deals.md: passing this explicitly (rather than reading the clock
+   * inside a cached function) is what makes the date part of the cache key,
+   * so a snapshot built for one Zurich day can never be looked up — let
+   * alone served — on another. Optional here only so non-cached callers
+   * (tests, direct provider use) can omit it and fall back to the real
+   * clock; `server/data/snapshot.ts`'s cached path always supplies it.
+   */
+  today?: string
 }

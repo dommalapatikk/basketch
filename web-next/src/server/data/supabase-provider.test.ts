@@ -14,7 +14,17 @@ vi.mock('@/lib/supabase/anon-server', () => ({
   createAnonClient: vi.fn(),
 }))
 
+// Wraps the real `todayInZurich` in a spy (rather than replacing it) so the
+// existing no-`today`-supplied tests below keep their real default behaviour,
+// while the RCA 2026-09-27 tests can assert the wall clock is NOT touched
+// once a caller supplies `today` explicitly.
+vi.mock('@/lib/domain/validity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/domain/validity')>()
+  return { ...actual, todayInZurich: vi.fn(actual.todayInZurich) }
+})
+
 import { createAnonClient } from '@/lib/supabase/anon-server'
+import { todayInZurich } from '@/lib/domain/validity'
 import { type DealRow, SELECT_COLUMNS, supabaseDealsProvider } from './supabase-provider'
 
 type QueryResponse = { data: unknown[] | null; error: { message: string } | null }
@@ -26,12 +36,15 @@ type QueryResponse = { data: unknown[] | null; error: { message: string } | null
  * case breaks out of the paging loop on its first page (supabase-
  * provider.ts), and the success case here never has more than one page.
  */
-function fakeDealsClient(response: QueryResponse) {
+function fakeDealsClient(response: QueryResponse, onGte?: (column: string, value: unknown) => void) {
   const chain = {
     from: () => chain,
     select: () => chain,
     eq: () => chain,
-    gte: () => chain,
+    gte: (column: string, value: unknown) => {
+      onGte?.(column, value)
+      return chain
+    },
     order: () => chain,
     range: () => chain,
     // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake — the chain is `await`ed like a real Supabase query builder, so it needs its own `then`
@@ -84,6 +97,125 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
 
     expect(snapshot.isDegraded).toBeUndefined()
     expect(snapshot.totalDeals).toBe(0)
+  })
+})
+
+/**
+ * RCA docs/rca/2026-09-27-tech-lead-stale-expired-deals.md §7 item 3 /
+ * docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D1: `today` must be
+ * an explicit input the provider is GIVEN, never a value it reads from the
+ * clock itself — that is what lets `server/data/snapshot.ts` make it part of
+ * the cache key. Every active Volg deal in the incident had
+ * `valid_to = '2026-09-26'`; on 2026-09-27 it must contribute zero deals and
+ * drop out of the store count entirely.
+ */
+describe('getWeeklySnapshot — today is an explicit input, not read from the clock', () => {
+  const volgRow = (validTo: string): DealRow => ({
+    id: 'volg-1',
+    store: 'volg',
+    product_name: 'Vollrahm',
+    category: 'fresh',
+    category_slug: null,
+    sub_category: null,
+    sale_price: 1.2,
+    original_price: null,
+    discount_percent: 0,
+    price_per_unit: null,
+    canonical_unit: null,
+    format: null,
+    image_url: null,
+    valid_from: '2026-09-20',
+    valid_to: validTo,
+    source_url: null,
+    product_id: 'p-volg-1',
+    taxonomy_confidence: 1,
+    is_uncertain: false,
+    storage: null,
+    price_basis: null,
+    loyalty_programme: null,
+    page_image_url: null,
+    crop_x: null,
+    crop_y: null,
+    crop_w: null,
+    crop_h: null,
+    attributes: null,
+    is_active: true,
+    updated_at: '2026-09-20T00:00:00Z',
+  })
+
+  it('issues .gte(valid_to, today) with the SUPPLIED today and returns it on the snapshot', async () => {
+    const gteCalls: [string, unknown][] = []
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(
+        fakeDealsClient({ data: [], error: null }, (column, value) =>
+          gteCalls.push([column, value]),
+        ),
+      ),
+    )
+
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2031-06-15',
+    })
+
+    expect(gteCalls).toEqual([['valid_to', '2031-06-15']])
+    expect(snapshot.today).toBe('2031-06-15')
+  })
+
+  it('does not call the wall clock (todayInZurich) when today is supplied', async () => {
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [], error: null })),
+    )
+    vi.mocked(todayInZurich).mockClear()
+
+    await supabaseDealsProvider.getWeeklySnapshot({ locale: 'de', today: '2031-06-15' })
+
+    expect(todayInZurich).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the wall clock only when today is omitted entirely', async () => {
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [], error: null })),
+    )
+    vi.mocked(todayInZurich).mockClear()
+
+    await supabaseDealsProvider.getWeeklySnapshot({ locale: 'de' })
+
+    expect(todayInZurich).toHaveBeenCalledTimes(1)
+  })
+
+  it('a Volg deal whose valid_to is yesterday contributes 0 deals and drops out of the store count today', async () => {
+    // The safety-net filter (.gte('valid_to', today)) is what actually
+    // excludes it — the fake client doesn't apply .gte() itself, so this
+    // fixture only has the ONE Volg row and it is filtered out at the real
+    // Postgres layer in production. Here we assert the shape of the
+    // response the provider builds when the filtered set is empty.
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [], error: null })),
+    )
+
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2031-06-15',
+    })
+
+    expect(snapshot.totalDeals).toBe(0)
+    const volgSummary = snapshot.stores.find((s) => s.store === 'volg')
+    expect(volgSummary?.dealCount ?? 0).toBe(0)
+  })
+
+  it('a row that IS returned by the query (valid_to today or later) is included and mapped', async () => {
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [volgRow('2031-06-15')], error: null })),
+    )
+
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2031-06-15',
+    })
+
+    expect(snapshot.totalDeals).toBe(1)
+    expect(snapshot.stores.find((s) => s.store === 'volg')?.dealCount).toBe(1)
   })
 })
 

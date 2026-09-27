@@ -173,16 +173,82 @@ function toCropRegion(row: DealRow): CropRegion | null {
   return region.value
 }
 
-class SupabaseDealsProvider implements DealsProvider {
-  async getWeeklySnapshot(input: SnapshotInput = {}): Promise<WeeklySnapshot> {
-    const region = input.region ?? 'all'
-    const locale = input.locale ?? 'de'
-    // The Zurich calendar date, not UTC — see lib/domain/validity.ts. Used
-    // both as the `.gte('valid_to', …)` safety net below AND as the "today"
-    // every in-effect check downstream (verdicts here, buildSections and
-    // onlyStoreSubCategories client-side) must agree on.
-    const today = todayInZurich()
+export type FetchDealRowsResult = { deals: Deal[]; error: Error | null }
 
+/**
+ * Pure, cheap assembly of a `WeeklySnapshot` from an already-fetched `Deal[]`
+ * — counts, per-store summaries and category verdicts. Deliberately kept
+ * OUTSIDE any cache boundary (architect RCA docs/rca/2026-09-27-architect-
+ * stale-expired-deals.md §6 D1): the only genuinely expensive, IO-bound step
+ * is the Supabase fetch (`fetchDealRows` below), so that is what gets cached,
+ * keyed by the Zurich date. Counts/verdicts are recomputed on every request —
+ * they are pure functions of (deals, today) and cost microseconds, so caching
+ * them would only add a second, redundant place a stale `today` could hide.
+ */
+export function computeSnapshotFromDeals(
+  deals: Deal[],
+  params: { region: string; locale: string; today: string; isDegraded?: boolean },
+): WeeklySnapshot {
+  const { region, locale, today, isDegraded } = params
+
+  if (isDegraded) {
+    // Fail soft: return an empty snapshot so the page can render a
+    // stale-data banner. `updatedAt: new Date().toISOString()` here is safe
+    // — this function is never called from inside a cached scope — but it
+    // still used to sit inside the one code path that WAS cached (pre-2026-
+    // 09-27), where a snapshot that failed completely read as "0 deals,
+    // updated just now", passing StaleBanner's own age check and hiding a
+    // total outage behind a silently empty page (code review of 422bd51/F1).
+    // `isDegraded: true` is the explicit signal, independent of `updatedAt`'s
+    // age — an outage a moment old is still an outage.
+    return {
+      updatedAt: new Date().toISOString(),
+      totalDeals: 0,
+      region,
+      locale,
+      stores: [],
+      categories: ACTIVE_CATEGORIES.map((category) => ({
+        category,
+        state: 'no-data' as const,
+        winner: null,
+        avgDiscountPct: 0,
+        dealCount: 0,
+        storeScores: [],
+      })),
+      deals: [],
+      today,
+      isDegraded: true,
+    }
+  }
+
+  const storeCounts = new Map<StoreKey, number>()
+  let latestUpdate = ''
+  for (const d of deals) {
+    storeCounts.set(d.store, (storeCounts.get(d.store) ?? 0) + 1)
+    if (d.updatedAt > latestUpdate) latestUpdate = d.updatedAt
+  }
+
+  return {
+    updatedAt: latestUpdate || new Date().toISOString(),
+    totalDeals: deals.length,
+    region,
+    locale,
+    stores: STORE_KEYS.map((store) => ({ store, dealCount: storeCounts.get(store) ?? 0 })),
+    categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES, today),
+    deals,
+    today,
+  }
+}
+
+class SupabaseDealsProvider implements DealsProvider {
+  /**
+   * The one IO-bound, cacheable step: page through Supabase and map rows to
+   * `Deal`s for a given Zurich date. `today` is REQUIRED, never defaulted —
+   * this is the function `server/data/snapshot.ts` wraps in `'use cache'`
+   * keyed on it, so it must never read the wall clock itself (RCA §3.2: a
+   * clock read inside a cached function is invisible to the cache key).
+   */
+  async fetchDealRows({ today }: { today: string }): Promise<FetchDealRowsResult> {
     const supabase = createAnonClient()
     // Pull active, non-expired rows in pages of 1000 (PostgREST max).
     // Region filtering is post-fetch for now; a canton column can replace this
@@ -210,33 +276,8 @@ class SupabaseDealsProvider implements DealsProvider {
     }
 
     if (error) {
-      // Fail soft: return an empty snapshot so the page can render a
-      // stale-data banner. `updatedAt: new Date().toISOString()` used to sit
-      // here — a snapshot that failed completely read as "0 deals, updated
-      // just now", which passed StaleBanner's own age check and hid a total
-      // outage behind a silently empty page (code review of 422bd51/F1: a
-      // live Playwright run against exactly this state reported green).
-      // `isDegraded: true` is the explicit signal now, independent of
-      // `updatedAt`'s age — an outage a moment old is still an outage.
       console.error('[supabase-provider] deals query failed', { error: error.message })
-      return {
-        updatedAt: new Date().toISOString(),
-        totalDeals: 0,
-        region,
-        locale,
-        stores: [],
-        categories: ACTIVE_CATEGORIES.map((category) => ({
-          category,
-          state: 'no-data' as const,
-          winner: null,
-          avgDiscountPct: 0,
-          dealCount: 0,
-          storeScores: [],
-        })),
-        deals: [],
-        today,
-        isDegraded: true,
-      }
+      return { deals: [], error }
     }
 
     const deals: Deal[] = []
@@ -244,25 +285,26 @@ class SupabaseDealsProvider implements DealsProvider {
       const mapped = mapRow(row)
       if (mapped) deals.push(mapped)
     }
+    return { deals, error: null }
+  }
 
-    const storeCounts = new Map<StoreKey, number>()
-    let latestUpdate = ''
-    for (const d of deals) {
-      storeCounts.set(d.store, (storeCounts.get(d.store) ?? 0) + 1)
-      if (d.updatedAt > latestUpdate) latestUpdate = d.updatedAt
-    }
+  /**
+   * Orchestrates `fetchDealRows` + `computeSnapshotFromDeals` for callers
+   * that want a full snapshot directly (tests, and any future non-cached
+   * caller) without going through `server/data/snapshot.ts`'s cache
+   * boundary. `today` comes from `input.today` — the wall clock is read here
+   * ONLY as a default for a caller that omits it entirely; once `today` is
+   * supplied, this function never touches the clock (supabase-
+   * provider.test.ts pins this).
+   */
+  async getWeeklySnapshot(input: SnapshotInput = {}): Promise<WeeklySnapshot> {
+    const region = input.region ?? 'all'
+    const locale = input.locale ?? 'de'
+    const today = input.today ?? todayInZurich()
 
-    return {
-      updatedAt: latestUpdate || new Date().toISOString(),
-      totalDeals: deals.length,
-      region,
-      locale,
-      stores: STORE_KEYS.map((store) => ({ store, dealCount: storeCounts.get(store) ?? 0 })),
-      categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES, today),
-      deals,
-      today,
-    }
+    const { deals, error } = await this.fetchDealRows({ today })
+    return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded: Boolean(error) })
   }
 }
 
-export const supabaseDealsProvider: DealsProvider = new SupabaseDealsProvider()
+export const supabaseDealsProvider = new SupabaseDealsProvider()
