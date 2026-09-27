@@ -120,7 +120,8 @@
     "clear": "Liste leeren",
     "empty_title": "Deine Liste ist leer",
     "empty_body": "Füge Artikel von der Aktionen-Seite hinzu und teile sie mit jemandem zum Einkaufen.",
-    "browse_deals": "Aktionen ansehen"
+    "browse_deals": "Aktionen ansehen",
+    "expired_label": "Abgelaufen"
   },
   "errors": {
     "not_found_title": "Seite nicht gefunden",
@@ -211,5 +212,9 @@
     "share_text": "Die Aktionen dieser Woche bei 7 Schweizer Läden, im Vergleich.",
     "preview_card": "Share-Bild anzeigen",
     "card_stat": "{deals, plural, one {# Aktion} other {# Aktionen}} aus {stores, plural, one {# Schweizer Laden} other {# Schweizer Läden}}"
+  },
+  "midnight_guard": {
+    "refresh": "Es ist ein neuer Tag – die Aktionen könnten sich geändert haben.",
+    "refresh_cta": "Aktualisieren"
   }
 }

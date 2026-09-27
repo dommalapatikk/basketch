@@ -9,9 +9,19 @@ import { useEffect, useState } from 'react'
 
 type Props = {
   locale: string
+  /**
+   * `WeeklySnapshot.today` — the Zurich date the verdict being shared was
+   * computed for. RCA docs/rca/2026-09-27-architect-stale-expired-deals.md
+   * §6 D2: folded into the `/card` OG-image URL as `d=` so a link shared on
+   * one day gets its own URL, and can never be answered by a downstream
+   * social-preview cache's copy of a DIFFERENT day's image — `/card` itself
+   * always recomputes from a fresh `getWeeklySnapshot()` regardless of this
+   * value; it exists purely to vary the URL.
+   */
+  today?: string
 }
 
-export function ShareVerdictButton({ locale }: Props) {
+export function ShareVerdictButton({ locale, today }: Props) {
   const t = useTranslations('share_verdict')
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState<string | null>(null)
@@ -31,7 +41,9 @@ export function ShareVerdictButton({ locale }: Props) {
   }
 
   const homeUrl = `${origin}/${locale === 'de' ? '' : locale}`.replace(/\/$/, '') || origin
-  const cardUrl = `${origin}/card`
+  const cardParams = new URLSearchParams({ locale })
+  if (today) cardParams.set('d', today)
+  const cardUrl = `${origin}/card?${cardParams.toString()}`
   const text = t('share_text')
 
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${text}\n${homeUrl}`)}`
