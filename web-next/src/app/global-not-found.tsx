@@ -25,14 +25,11 @@ import './globals.css'
 import { GeistMono } from 'geist/font/mono'
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
-
-import { NotFoundLocale } from './NotFoundLocale'
-
 import { BasketchMark } from '@/components/BasketchMark'
 import { buttonVariants } from '@/components/ui/button'
-
 import deMessages from '../messages/de.json'
 import enMessages from '../messages/en.json'
+import { NotFoundLocale } from './NotFoundLocale'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -104,10 +101,16 @@ export default function GlobalNotFound() {
                 {block.body}
               </p>
               <div className="mt-2 flex flex-wrap gap-3">
-                <a href={block.dealsHref} className={buttonVariants({ variant: 'primary', size: 'lg' })}>
+                <a
+                  href={block.dealsHref}
+                  className={buttonVariants({ variant: 'primary', size: 'lg' })}
+                >
                   {block.browseDeals}
                 </a>
-                <a href={block.homeHref} className={buttonVariants({ variant: 'secondary', size: 'lg' })}>
+                <a
+                  href={block.homeHref}
+                  className={buttonVariants({ variant: 'secondary', size: 'lg' })}
+                >
                   {block.backToHome}
                 </a>
               </div>
