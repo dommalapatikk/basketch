@@ -1,21 +1,20 @@
 'use client'
 
 import { Copy, Mail, Share2, ShoppingBag, Trash2, X } from 'lucide-react'
-import { useTranslations } from 'next-intl'
 import Image from 'next/image'
+import { useTranslations } from 'next-intl'
 import { useEffect, useState } from 'react'
 import { Drawer as Vaul } from 'vaul'
 
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { hasExpired, todayInZurich } from '@/lib/domain/validity'
-import { CATEGORY_ACCENT } from '@/lib/store-tokens'
-import { STORE_BRAND } from '@/lib/store-tokens'
 import { groupByStore } from '@/lib/share'
 import { createShareTarget } from '@/lib/share-target'
+import { CATEGORY_ACCENT, STORE_BRAND } from '@/lib/store-tokens'
 import { useIsDesktop } from '@/lib/use-is-desktop'
 import { useOrigin } from '@/lib/use-origin'
-import { useListStore, type ListItem } from '@/stores/list-store'
+import { type ListItem, useListStore } from '@/stores/list-store'
 import { useUiStore } from '@/stores/ui-store'
 
 import { ItemNote } from './ItemNote'
@@ -50,8 +49,12 @@ export function ListDrawer({ locale }: Props) {
   // rule the category verdict already applies, here applied to money. It
   // stays VISIBLE in the list itself (ItemsByCategory below, marked via
   // ItemNote's "Expired" label) so the user can decide to remove it.
-  const today = todayInZurich()
-  const activeItems = items.filter((item) => !hasExpired(item, today))
+  // Read the date only after mount: this drawer is mounted in the [locale]
+  // layout, so a render-time clock read breaks every page's prerender.
+  // Saved items live in localStorage and only appear after mount anyway.
+  const [today, setToday] = useState<string | null>(null)
+  useEffect(() => setToday(todayInZurich()), [])
+  const activeItems = today === null ? items : items.filter((item) => !hasExpired(item, today))
   const groups = groupByStore(activeItems)
 
   // Both share destinations are resolved during RENDER. They used to be
@@ -116,7 +119,9 @@ export function ListDrawer({ locale }: Props) {
             <EmptyState locale={locale} onClose={() => setOpen(false)} />
           ) : (
             <div className="flex-1 overflow-y-auto px-5 py-5">
-              <ItemsByCategory items={items} onRemove={remove} locale={locale} today={today} />
+              {today !== null && (
+                <ItemsByCategory items={items} onRemove={remove} locale={locale} today={today} />
+              )}
 
               <WhereToBuy groups={groups} locale={locale} />
             </div>
