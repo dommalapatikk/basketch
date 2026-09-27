@@ -37,7 +37,7 @@ export function VerdictHero({ snapshot, locale }: Props) {
 
       <p className="mt-6 max-w-[44ch] text-base leading-7 text-[var(--color-ink-2)]">
         {t('stat', {
-          deals: snapshot.totalDeals.toLocaleString(locale),
+          deals: snapshot.totalDeals,
           stores: activeStores.length,
         })}
       </p>

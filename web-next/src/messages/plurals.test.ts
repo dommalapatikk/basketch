@@ -204,3 +204,19 @@ describe('no count placeholder is used without a plural rule (EN, DE)', () => {
     for (const key of Object.keys(EXEMPT)) expect(keys.has(key), key).toBe(true)
   })
 })
+
+// Regression (code review MF-1, 2026-09-27): call sites passed
+// `n.toLocaleString(locale)`. ICU plural re-parses the string, so "1,623"
+// became NaN in EN ("NaN deals") and 1.623 in DE ("1,623 Aktionen" misread).
+// Counts must reach t() as numbers; ICU adds the thousands separator itself.
+describe('large counts render with a thousands separator, never NaN', () => {
+  it('home.stat at 1623 deals', () => {
+    expect(en_('home.stat', { deals: 1623, stores: 7 })).toBe('Based on 1,623 deals across 7 Swiss stores.')
+    expect(de_('home.stat', { deals: 1623, stores: 7 })).toBe('Basierend auf 1.623 Aktionen aus 7 Schweizer Läden.')
+  })
+
+  it('deals.subline at 1234 deals', () => {
+    expect(en_('deals.subline', { date: '27 Sep', count: 1234 })).toBe('Updated 27 Sep · 1,234 deals')
+    expect(de_('deals.subline', { date: '27 Sep', count: 1234 })).toBe('Aktualisiert 27 Sep · 1.234 Aktionen')
+  })
+})
