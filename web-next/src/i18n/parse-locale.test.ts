@@ -19,19 +19,20 @@ describe('parseLocale', () => {
     expect(parseLocale('en', routing)).toBe('en')
   })
 
-  it.each(['foo.bar', '', 'EN'])(
-    "throws Next's not-found error for %j instead of returning an unvalidated string",
-    (raw) => {
-      let caught: unknown
-      try {
-        parseLocale(raw, routing)
-      } catch (error) {
-        caught = error
-      }
-      expect(caught).toBeInstanceOf(Error)
-      const digest = (caught as { digest?: unknown }).digest
-      expect(typeof digest).toBe('string')
-      expect(digest as string).toMatch(/^NEXT_HTTP_ERROR_FALLBACK;404/)
-    },
-  )
+  it.each([
+    'foo.bar',
+    '',
+    'EN',
+  ])("throws Next's not-found error for %j instead of returning an unvalidated string", (raw) => {
+    let caught: unknown
+    try {
+      parseLocale(raw, routing)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Error)
+    const digest = (caught as { digest?: unknown }).digest
+    expect(typeof digest).toBe('string')
+    expect(digest as string).toMatch(/^NEXT_HTTP_ERROR_FALLBACK;404/)
+  })
 })

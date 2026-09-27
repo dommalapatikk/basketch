@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
-import { setRequestLocale } from 'next-intl/server'
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
 
+import { parseLocale } from '@/i18n/parse-locale'
+import { routing } from '@/i18n/routing'
 import { parseFilters } from '@/lib/filters'
 import { getWeeklySnapshot } from '@/server/data/snapshot'
 
@@ -13,8 +14,12 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
-  const { locale } = await params
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}): Promise<Metadata> {
+  const locale = parseLocale((await params).locale, routing)
   const t = await getTranslations({ locale, namespace: 'deals' })
   const isDe = locale === 'de'
   return {
@@ -33,7 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 // the snapshot + searchParams resolution lives inside Suspense per Cache
 // Components requirements.
 export default async function DealsPage({ params, searchParams }: Props) {
-  const { locale } = await params
+  const locale = parseLocale((await params).locale, routing)
   setRequestLocale(locale)
 
   return (
@@ -56,13 +61,7 @@ async function DealsBody({
   const initialFilters = parseFilters(sp)
   const snapshot = await getWeeklySnapshot({ locale })
 
-  return (
-    <DealsClient
-      snapshot={snapshot}
-      initialFilters={initialFilters}
-      locale={locale}
-    />
-  )
+  return <DealsClient snapshot={snapshot} initialFilters={initialFilters} locale={locale} />
 }
 
 function BodySkeleton() {
@@ -85,7 +84,10 @@ function BodySkeleton() {
           <div className="h-11 rounded-[var(--radius-md)] bg-[var(--color-line)]" />
           <div className="mt-8 space-y-4">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-[180px] rounded-[var(--radius-lg)] bg-[var(--color-line)]" />
+              <div
+                key={i}
+                className="h-[180px] rounded-[var(--radius-lg)] bg-[var(--color-line)]"
+              />
             ))}
           </div>
         </div>

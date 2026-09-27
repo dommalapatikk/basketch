@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import { useTranslations } from 'next-intl'
 import { getTranslations, setRequestLocale } from 'next-intl/server'
 
+import { parseLocale } from '@/i18n/parse-locale'
+import { routing } from '@/i18n/routing'
 import { siteUrl } from '@/lib/site-url'
 import { STORE_BRAND, STORE_DISPLAY_ORDER, type StoreKey } from '@/lib/store-tokens'
 
@@ -14,7 +16,7 @@ export async function generateMetadata({
 }: {
   params: Promise<{ locale: string }>
 }): Promise<Metadata> {
-  const { locale } = await params
+  const locale = parseLocale((await params).locale, routing)
   const t = await getTranslations({ locale, namespace: 'about' })
   const title = `${t('title')} — basketch`
   const description = t('intro')
@@ -44,7 +46,7 @@ export async function generateMetadata({
 }
 
 export default async function AboutPage({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params
+  const locale = parseLocale((await params).locale, routing)
   setRequestLocale(locale)
   return <AboutContent />
 }

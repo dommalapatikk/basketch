@@ -19,12 +19,15 @@ describe('localeFromPathname', () => {
     expect(localeFromPathname(pathname, routing)).toBe(expected)
   })
 
-  it.each(['/', '/de/x', '/does-not-exist', '/english', '/EN/x'])(
-    '%s gives the default locale (de) — guards against a naive prefix match',
-    (pathname) => {
-      expect(localeFromPathname(pathname, routing)).toBe('de')
-    },
-  )
+  it.each([
+    '/',
+    '/de/x',
+    '/does-not-exist',
+    '/english',
+    '/EN/x',
+  ])('%s gives the default locale (de) — guards against a naive prefix match', (pathname) => {
+    expect(localeFromPathname(pathname, routing)).toBe('de')
+  })
 
   it('derives its answer from routing.locales, not a second hand-typed list', () => {
     const frRouting = { locales: ['fr', 'it'], defaultLocale: 'fr' } as const
