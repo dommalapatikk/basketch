@@ -95,10 +95,6 @@ function fakeStorage(overrides: Partial<StorageDeps> = {}): StorageDeps & { read
       }
       return { attempted: deals.length, total: deals.length, collapsed: 0, byStore, writtenByWindow }
     },
-    async writeEnrichment(items) {
-      calls.push('writeEnrichment')
-      return items.length
-    },
     async deactivateStaleForStores() {
       calls.push('deactivateStaleForStores')
       return 0
@@ -660,12 +656,13 @@ describe('2026-09-25 §10: the write tail has no catalogue step', () => {
       'resolveProducts', // products
       'activeCountsByWindow', // storeDeals (sweep-guard pre-read)
       'storeDeals', // storeDeals
-      'writeEnrichment', // enrichment
       'deactivateStaleForStores', // sweep
       'deactivateExpiredDeals', // deactivate
       'logPipelineRun', // logRun
     ])
     expect(deps.storage.calls).not.toContain('runCatalogueStep')
+    // WP-1e: rappen, price basis and loyalty programme ride storeDeals now.
+    expect(deps.storage.calls).not.toContain('writeEnrichment')
     expect(deps.storage.calls).not.toContain('catalogueStep')
     expect(deps.storage.calls).not.toContain('populateV3Layer')
   })

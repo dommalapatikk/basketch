@@ -1,20 +1,30 @@
 // offerToUnifiedDeal — feeds `Offer`s into the existing pipeline unchanged.
 //
 // WHY NOT REPLACE UnifiedDeal OUTRIGHT
-// `run.ts` runs seven steps after collection: grocery filter, classification,
-// taxonomy aliasing, product resolution, storage, the v3 concept layer and the
-// revalidate ping. All of them speak `UnifiedDeal`. Rewriting every one in the
-// same change as switching the data source would mean a cutover where, if
-// anything broke, nobody could tell which half caused it.
+// `run.ts` runs several steps after collection: grocery filter,
+// classification, taxonomy aliasing, product resolution and storage. All of
+// them speak `UnifiedDeal`. Rewriting every one in the same change as
+// switching the data source would mean a cutover where, if anything broke,
+// nobody could tell which half caused it.
 //
-// So `Offer` is mapped into `UnifiedDeal` for the shared path, and the fields
-// UnifiedDeal cannot hold — priceBasis, CropRegion, integer rappen, published
-// attributes — are written by a second pass keyed on the natural key. Two
-// writes, but every existing behaviour is preserved and each half fails
-// independently.
+// So `Offer` is mapped into `UnifiedDeal` for the shared path. Until WP-1d
+// (ADR-IMG-1) and WP-1e, the fields UnifiedDeal could not hold — priceBasis,
+// CropRegion, integer rappen, the loyalty programme — were written by a
+// SECOND pass (`dealStoreEnrichment`, `storage/infrastructure/write-enrichment.ts`)
+// keyed on a string built from (store, product_name, valid_from). That gave
+// every one of those values two owners, two keys and, for the image, a
+// cross-statement database CHECK — and every boundary between the two
+// writes was a place a value could silently be lost or misattributed (a
+// held-back deal, a `|` in the product name, a Map-vs-dedupe mismatch over
+// which offer "won" a natural-key collision).
 //
-// This mapper is LOSSY BY DESIGN, and the loss is recovered by
-// `dealStoreEnrichment` below. If you add a field to `Offer`, add it there too.
+// WP-1d moved the image onto `UnifiedDeal` (`image: ProductImage | null`).
+// WP-1e (tech-lead cross-review §10.4, ARCH-X §2.5) finishes the job: rappen,
+// price basis and the loyalty programme move onto `UnifiedDeal` too, and the
+// second pass — `dealStoreEnrichment`, `DealEnrichment`,
+// `storage/infrastructure/write-enrichment.ts` — is deleted outright. Every
+// deal-shaped value now rides the SAME statement as the price, assembled
+// once, written once.
 
 import type { UnifiedDeal } from '../../../shared/types'
 import { toFrancs } from '../../collection/domain/money'
@@ -22,13 +32,8 @@ import type { Offer } from '../../collection/domain/offer'
 import { isMemberOnly } from '../../collection/domain/price-basis'
 import { isMinimumQuantity } from '../../collection/domain/quantity-requirement'
 
-/** The natural key `deals` already enforces: unique_deal (store, product_name, valid_from). */
-export function naturalKey(store: string, productName: string, validFrom: string): string {
-  return `${store}|${productName}|${validFrom}`
-}
-
 export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
-  const image = offer.image
+  const member = isMemberOnly(offer.priceBasis)
 
   return {
     store: offer.retailer,
@@ -39,63 +44,32 @@ export function offerToUnifiedDeal(offer: Offer): UnifiedDeal {
     discountPercent: offer.discount?.percent ?? null,
     validFrom: offer.validity.from,
     validTo: offer.validity.to,
-    // A CropRegion has no single url, so it cannot travel through UnifiedDeal.
-    // It is written by the enrichment pass instead.
-    imageUrl: image?.kind === 'source-url' ? image.url : null,
+    // WP-1d (ADR-IMG-1): the WHOLE image travels through now — a source-url
+    // or a CropRegion — because `dealToRow` writes all six image columns in
+    // one statement. Nothing is dropped here any more.
+    image: offer.image,
+    // WP-1e: rappen are the domain's own integer form (`Money.rappen`), not
+    // derived from the francs fields above — the NUMERIC columns are the
+    // lossy copy, not the other way round.
+    salePriceRappen: offer.salePrice.rappen,
+    originalPriceRappen: offer.originalPrice?.rappen ?? null,
+    // THE LIDL RULE. A member price that reached this point without naming
+    // its programme would be rejected by the database — but createOffer
+    // already forbids constructing one, so this is belt and braces. S-5: one
+    // discriminated field (matching `UnifiedDeal.priceBasis`'s own shape, and
+    // the domain's `PriceBasis` this is built from) so a member-only value
+    // with no programme cannot even be constructed here.
+    priceBasis: member ? { kind: 'member-only', programme: offer.priceBasis.programme } : { kind: 'everyone' },
     sourceCategory: offer.sourceCategory,
     sourceUrl: offer.sourceUrl,
-    // Unlike priceBasis/CropRegion/rappen, `minQuantity` (WP-C4) travels
-    // through the MAIN write, not the enrichment pass: it is a plain
-    // nullable number — the same shape as `quantity` above — so it fits
-    // UnifiedDeal's flat shape with no loss. Routing it through the second
-    // write instead would put it on the same natural key
-    // (`store|productName|validFrom`) as every OTHER field the enrichment
-    // pass carries, which is exactly the identity that does NOT distinguish
-    // a multi-buy offer from its single-item sibling (see `offerKey` in
-    // `collection/domain/offer.ts`) — a second, later-processed offer for
-    // the same key would silently overwrite the first's enrichment in
-    // memory, before either ever reaches the database.
+    // Unlike the fields above before WP-1e, `minQuantity` (WP-C4) always
+    // travelled through the MAIN write: a plain nullable number — the same
+    // shape as `quantity` above — that fits UnifiedDeal's flat shape with no
+    // loss.
     minQuantity: isMinimumQuantity(offer.quantityRequirement) ? offer.quantityRequirement.count : null,
-  } as UnifiedDeal
-}
-
-/** Columns that exist on `deals` but not on `UnifiedDeal`. */
-export type DealEnrichment = {
-  readonly key: string
-  readonly sale_price_rappen: number
-  readonly original_price_rappen: number | null
-  readonly price_basis: 'everyone' | 'member-only'
-  readonly loyalty_programme: string | null
-  readonly page_image_url: string | null
-  readonly crop_x: number | null
-  readonly crop_y: number | null
-  readonly crop_w: number | null
-  readonly crop_h: number | null
-}
-
-/**
- * The fields the main path drops, ready for the second write.
- *
- * Returns null when an offer has nothing extra to say — most Denner and Coop
- * offers, which have a plain image url and an everyone-price. Only the rows that
- * need a second write generate one.
- */
-export function dealStoreEnrichment(offer: Offer): DealEnrichment | null {
-  const crop = offer.image?.kind === 'crop-region' ? offer.image.region : null
-  const member = isMemberOnly(offer.priceBasis)
-
-  // Rappen are always worth writing: the domain models money as integers and
-  // the NUMERIC columns are the lossy copy, not the other way round.
-  return {
-    key: naturalKey(offer.retailer, offer.productName, offer.validity.from),
-    sale_price_rappen: offer.salePrice.rappen,
-    original_price_rappen: offer.originalPrice?.rappen ?? null,
-    price_basis: member ? 'member-only' : 'everyone',
-    loyalty_programme: member ? offer.priceBasis.programme : null,
-    page_image_url: crop?.pageImageUrl ?? null,
-    crop_x: crop?.x ?? null,
-    crop_y: crop?.y ?? null,
-    crop_w: crop?.width ?? null,
-    crop_h: crop?.height ?? null,
   }
+  // S-6 (2026-09-26 review): no `as UnifiedDeal`. The function's own return
+  // type annotation above already checks this object literal — including its
+  // excess-property check, which `as` would have muted — so the cast added
+  // nothing. Verified: `tsc --noEmit` is clean without it.
 }

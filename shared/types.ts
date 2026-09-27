@@ -2,6 +2,8 @@
 // Consumed by pipeline (TypeScript) and frontend (React).
 // Python Coop scraper outputs JSON matching UnifiedDeal shape (camelCase).
 
+import { type ProductImage, imageColumns } from './product-image'
+
 // ============================================================
 // Core union types
 // ============================================================
@@ -470,9 +472,46 @@ export interface UnifiedDeal {
   discountPercent: number | null // null only when originalPrice is null
   validFrom: string             // ISO date: '2026-04-09'
   validTo: string | null
-  imageUrl: string | null
+  /**
+   * WP-1d (ADR-IMG-1). Carries the WHOLE `ProductImage` — a plain source url
+   * OR a flyer-page CropRegion — through to `dealToRow`, which writes all
+   * six image columns in the SAME upsert as the price. Before this it was
+   * `imageUrl: string | null`, which could only hold a source-url and threw
+   * a CropRegion away; a second write recovered it, on its own key, and
+   * every boundary between the two writes was a place the picture could be
+   * lost. See `shared/product-image.ts` for the type and its invariants.
+   */
+  image: ProductImage | null
   sourceCategory: string | null // original category from source
   sourceUrl: string | null      // link to deal on source site
+
+  /**
+   * WP-1e (retiring the enrichment pass, ARCH-X §2.5). Rappen and price basis
+   * now ride `dealToRow` too, the same as the image (WP-1d) — the enrichment
+   * pass that used to carry them on a second, natural-key-matched write is
+   * deleted. Optional, like `minQuantity` below: a fixture that predates this
+   * WP keeps compiling, and `dealToRow` derives `salePriceRappen`/
+   * `originalPriceRappen` from the francs fields when absent (exact —
+   * `toFrancs` is `rappen / 100`, so `Math.round(francs * 100)` round-trips)
+   * and defaults `priceBasis` to `{ kind: 'everyone' }`. In production
+   * `offerToUnifiedDeal` always sets these directly from the domain's integer
+   * `Money` and `PriceBasis` — this is a compatibility fallback, not the
+   * normal path.
+   */
+  salePriceRappen?: number
+  originalPriceRappen?: number | null
+  /**
+   * S-5 (2026-09-26 review). Was two independent optionals —
+   * `priceBasis?: 'everyone' | 'member-only'` beside `loyaltyProgramme?:
+   * string | null` — which let `{ priceBasis: 'member-only' }` with no
+   * programme compile. `dealToRow` would then emit `loyalty_programme: null`,
+   * which `deals_member_price_names_programme` (20260911_offer_fields.sql:65)
+   * rejects — taking the whole batch upsert with it, not just that row. ONE
+   * discriminated field makes that state impossible to construct, the same
+   * shape the LIDL rule already takes everywhere else (`collection/domain/
+   * price-basis.ts`'s `PriceBasis`, `web-next`'s `lib/domain/price-basis.ts`).
+   */
+  priceBasis?: { readonly kind: 'everyone' } | { readonly kind: 'member-only'; readonly programme: string }
 
   /**
    * How many items must be bought for `salePrice` to apply (WP-C4, TP-7a) —
@@ -581,6 +620,21 @@ export interface DealRow {
   valid_from: string
   valid_to: string | null
   image_url: string | null
+  // WP-1d (ADR-IMG-1): the CropRegion half of ProductImage, written in the
+  // SAME upsert as image_url — see `shared/product-image.ts` `imageColumns`.
+  // deals_one_image_kind (20260911_offer_fields.sql) forbids image_url and
+  // page_image_url both being non-null on one row.
+  page_image_url: string | null
+  crop_x: number | null
+  crop_y: number | null
+  crop_w: number | null
+  crop_h: number | null
+  // WP-1e: rappen, price basis and the loyalty programme, written by the
+  // main upsert now — see `dealToRow` and `UnifiedDeal.salePriceRappen`.
+  sale_price_rappen: number
+  original_price_rappen: number | null
+  price_basis: 'everyone' | 'member-only'
+  loyalty_programme: string | null
   source_category: string | null
   source_url: string | null
   product_id: string | null
@@ -973,7 +1027,24 @@ export function dealToRow(
     discount_percent: Math.round(deal.discountPercent ?? 0),
     valid_from: deal.validFrom,
     valid_to: deal.validTo,
-    image_url: deal.imageUrl,
+    // WP-1d (ADR-IMG-1): total by construction — always all six keys, nulls
+    // when there is no image — so every row in a batch upsert agrees on its
+    // column set. See shared/product-image.ts.
+    ...imageColumns(deal.image),
+    // WP-1e: the enrichment pass is retired — rappen, price basis and the
+    // loyalty programme ride this same statement. `toFrancs` is `rappen /
+    // 100` (collection/domain/money.ts), so `Math.round(francs * 100)`
+    // round-trips exactly; used only when a fixture predates this WP and
+    // never set the integer field directly (see UnifiedDeal's own comment).
+    sale_price_rappen: deal.salePriceRappen ?? Math.round(deal.salePrice * 100),
+    original_price_rappen:
+      deal.originalPriceRappen ?? (deal.originalPrice !== null ? Math.round(deal.originalPrice * 100) : null),
+    // S-5: one discriminated field, so `loyalty_programme` can only ever be
+    // non-null when `price_basis` is `'member-only'` — the illegal
+    // combination is unrepresentable in `UnifiedDeal` itself now, not just
+    // checked here.
+    price_basis: deal.priceBasis?.kind ?? 'everyone',
+    loyalty_programme: deal.priceBasis?.kind === 'member-only' ? deal.priceBasis.programme : null,
     source_category: deal.sourceCategory,
     source_url: deal.sourceUrl,
     product_id: productId ?? null,

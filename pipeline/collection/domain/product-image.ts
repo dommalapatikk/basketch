@@ -13,22 +13,21 @@
 // cropping in the browser via CSS means the visitor's browser fetches it from the
 // retailer — the same request they would make opening the flyer themselves.
 // See CLAUDE.md § Legal Constraints. Do NOT change this to saved crops.
+//
+// WP-1d (ADR-IMG-1): the TYPE moved into the shared kernel
+// (`shared/product-image.ts`) so `dealToRow` can write it on the main upsert
+// row without an import running pipeline -> shared -> pipeline. This module
+// keeps the constructors and invariants — the ONLY functions that import
+// `PRODUCT_IMAGE_BRAND`, which is what makes a bare object literal elsewhere
+// fail to compile against `ProductImage` (see that file's own comment). The
+// type is re-exported so every existing caller (the seven retailer adapters,
+// `Offer`) keeps importing it from here, unchanged.
 
 import { type Result, err, ok } from './result'
+import { PRODUCT_IMAGE_BRAND } from '../../../shared/product-image'
+import type { CropRegion, ProductImage } from '../../../shared/product-image'
 
-export type CropRegion = {
-  /** Page image the crop applies to. Hotlinked, never copied. */
-  readonly pageImageUrl: string
-  /** All four are fractions of the page, 0..1. */
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
-export type ProductImage =
-  | { readonly kind: 'source-url'; readonly url: string }
-  | { readonly kind: 'crop-region'; readonly region: CropRegion }
+export type { CropRegion, ProductImage }
 
 function isHttpUrl(u: string): boolean {
   try {
@@ -45,7 +44,7 @@ function isFraction(n: number): boolean {
 
 export function sourceUrlImage(url: string): Result<ProductImage> {
   if (!isHttpUrl(url)) return err(`ProductImage url must be an http(s) URL, got '${url}'`)
-  return ok({ kind: 'source-url', url })
+  return ok({ kind: 'source-url', url, [PRODUCT_IMAGE_BRAND]: true })
 }
 
 export function cropRegionImage(region: CropRegion): Result<ProductImage> {
@@ -59,7 +58,7 @@ export function cropRegionImage(region: CropRegion): Result<ProductImage> {
   if (width === 0 || height === 0) return err('CropRegion must have non-zero width and height')
   if (x + width > 1 + 1e-9) return err(`CropRegion exceeds the page horizontally (x + width = ${x + width})`)
   if (y + height > 1 + 1e-9) return err(`CropRegion exceeds the page vertically (y + height = ${y + height})`)
-  return ok({ kind: 'crop-region', region })
+  return ok({ kind: 'crop-region', region, [PRODUCT_IMAGE_BRAND]: true })
 }
 
 /**
