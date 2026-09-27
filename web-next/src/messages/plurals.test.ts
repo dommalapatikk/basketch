@@ -18,9 +18,21 @@ const de_ = (key: string, args: Args) => tDe(key as never, args as never)
 describe('list.split_summary — subject/verb agree for every item/store count', () => {
   it.each([
     [{ items: 0, stores: 0 }, 'No items yet', 'Noch keine Artikel'],
-    [{ items: 1, stores: 1 }, 'Your item is cheapest here:', 'Dein Artikel ist hier am günstigsten:'],
-    [{ items: 3, stores: 1 }, 'Your 3 items are cheapest at one store:', 'Deine 3 Artikel sind in einem Laden am günstigsten:'],
-    [{ items: 3, stores: 2 }, 'Your 3 items split best across 2 stores:', 'Deine 3 Artikel verteilen sich am besten auf 2 Läden:'],
+    [
+      { items: 1, stores: 1 },
+      'Your item is cheapest here:',
+      'Dein Artikel ist hier am günstigsten:',
+    ],
+    [
+      { items: 3, stores: 1 },
+      'Your 3 items are cheapest at one store:',
+      'Deine 3 Artikel sind in einem Laden am günstigsten:',
+    ],
+    [
+      { items: 3, stores: 2 },
+      'Your 3 items split best across 2 stores:',
+      'Deine 3 Artikel verteilen sich am besten auf 2 Läden:',
+    ],
   ])('%o', (args, expectedEn, expectedDe) => {
     expect(en_('list.split_summary', args)).toBe(expectedEn)
     expect(de_('list.split_summary', args)).toBe(expectedDe)
@@ -29,8 +41,16 @@ describe('list.split_summary — subject/verb agree for every item/store count',
 
 describe('home.stat', () => {
   it.each([
-    [{ deals: 1, stores: 1 }, 'Based on 1 deal across 1 Swiss store.', 'Basierend auf 1 Aktion aus 1 Schweizer Laden.'],
-    [{ deals: 2, stores: 2 }, 'Based on 2 deals across 2 Swiss stores.', 'Basierend auf 2 Aktionen aus 2 Schweizer Läden.'],
+    [
+      { deals: 1, stores: 1 },
+      'Based on 1 deal across 1 Swiss store.',
+      'Basierend auf 1 Aktion aus 1 Schweizer Laden.',
+    ],
+    [
+      { deals: 2, stores: 2 },
+      'Based on 2 deals across 2 Swiss stores.',
+      'Basierend auf 2 Aktionen aus 2 Schweizer Läden.',
+    ],
   ])('%o', (args, expectedEn, expectedDe) => {
     expect(en_('home.stat', args)).toBe(expectedEn)
     expect(de_('home.stat', args)).toBe(expectedDe)
@@ -70,14 +90,49 @@ describe('variant_picker.stale_strip', () => {
 
 describe('availability.aria_b_* — "ago" is inside every branch', () => {
   it.each([
-    ['aria_b_days', 1, 'Coop. Last on deal 1 day ago. Tap to see details.', 'Coop. Vor 1 Tag im Angebot. Tippe für Details.'],
-    ['aria_b_days', 3, 'Coop. Last on deal 3 days ago. Tap to see details.', 'Coop. Vor 3 Tagen im Angebot. Tippe für Details.'],
-    ['aria_b_weeks', 1, 'Coop. Last on deal 1 week ago. Tap to see details.', 'Coop. Vor 1 Woche im Angebot. Tippe für Details.'],
-    ['aria_b_weeks', 4, 'Coop. Last on deal 4 weeks ago. Tap to see details.', 'Coop. Vor 4 Wochen im Angebot. Tippe für Details.'],
+    [
+      'aria_b_days',
+      1,
+      'Coop. Last on deal 1 day ago. Tap to see details.',
+      'Coop. Vor 1 Tag im Angebot. Tippe für Details.',
+    ],
+    [
+      'aria_b_days',
+      3,
+      'Coop. Last on deal 3 days ago. Tap to see details.',
+      'Coop. Vor 3 Tagen im Angebot. Tippe für Details.',
+    ],
+    [
+      'aria_b_weeks',
+      1,
+      'Coop. Last on deal 1 week ago. Tap to see details.',
+      'Coop. Vor 1 Woche im Angebot. Tippe für Details.',
+    ],
+    [
+      'aria_b_weeks',
+      4,
+      'Coop. Last on deal 4 weeks ago. Tap to see details.',
+      'Coop. Vor 4 Wochen im Angebot. Tippe für Details.',
+    ],
     // =0 is a safety net only (ageFromTimestamp no longer produces it).
-    ['aria_b_months', 0, 'Coop. Last on deal recently. Tap to see details.', 'Coop. Vor kurzem im Angebot. Tippe für Details.'],
-    ['aria_b_months', 1, 'Coop. Last on deal 1 month ago. Tap to see details.', 'Coop. Vor 1 Monat im Angebot. Tippe für Details.'],
-    ['aria_b_months', 2, 'Coop. Last on deal 2 months ago. Tap to see details.', 'Coop. Vor 2 Monaten im Angebot. Tippe für Details.'],
+    [
+      'aria_b_months',
+      0,
+      'Coop. Last on deal recently. Tap to see details.',
+      'Coop. Vor kurzem im Angebot. Tippe für Details.',
+    ],
+    [
+      'aria_b_months',
+      1,
+      'Coop. Last on deal 1 month ago. Tap to see details.',
+      'Coop. Vor 1 Monat im Angebot. Tippe für Details.',
+    ],
+    [
+      'aria_b_months',
+      2,
+      'Coop. Last on deal 2 months ago. Tap to see details.',
+      'Coop. Vor 2 Monaten im Angebot. Tippe für Details.',
+    ],
   ])('%s n=%i', (key, n, expectedEn, expectedDe) => {
     expect(en_(`availability.${key}`, { store: 'Coop', n })).toBe(expectedEn)
     expect(de_(`availability.${key}`, { store: 'Coop', n })).toBe(expectedDe)
@@ -103,10 +158,12 @@ const EXEMPT: Record<string, string> = {
 function leaves(obj: unknown, prefix = ''): [string, string][] {
   if (typeof obj === 'string') return [[prefix, obj]]
   if (obj === null || typeof obj !== 'object') return []
-  return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) => leaves(v, prefix ? `${prefix}.${k}` : k))
+  return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) =>
+    leaves(v, prefix ? `${prefix}.${k}` : k),
+  )
 }
 
-export function unpluralisedCounts(messages: unknown): string[] {
+function unpluralisedCounts(messages: unknown): string[] {
   const offenders: string[] = []
   for (const [key, value] of leaves(messages)) {
     if (key in EXEMPT) continue
@@ -128,12 +185,18 @@ describe('no count placeholder is used without a plural rule (EN, DE)', () => {
   })
 
   it('flags a bare count and passes the same message once it is pluralised', () => {
-    expect(unpluralisedCounts({ a: { b: 'Updated · {count} deals' } })).toEqual(['a.b uses {count} without a plural rule'])
-    expect(unpluralisedCounts({ a: { b: '{count, plural, one {# deal} other {# deals}}' } })).toEqual([])
+    expect(unpluralisedCounts({ a: { b: 'Updated · {count} deals' } })).toEqual([
+      'a.b uses {count} without a plural rule',
+    ])
+    expect(
+      unpluralisedCounts({ a: { b: '{count, plural, one {# deal} other {# deals}}' } }),
+    ).toEqual([])
   })
 
   it('does not flag non-count placeholders', () => {
-    expect(unpluralisedCounts({ a: '{store} wins {category} at CHF {price}, {pct}% off, {date}' })).toEqual([])
+    expect(
+      unpluralisedCounts({ a: '{store} wins {category} at CHF {price}, {pct}% off, {date}' }),
+    ).toEqual([])
   })
 
   it('every exemption still exists (a stale exemption hides nothing)', () => {

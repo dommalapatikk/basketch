@@ -40,7 +40,9 @@ describe('AvailabilityStrip — off-deal age wording', () => {
   it.each([28, 29])('day %i reads "4 weeks ago", never "0 months"', (days) => {
     renderStrip(days)
     const label = screen.getByLabelText(/Last on deal/)
-    expect(label.getAttribute('aria-label')).toBe('Coop. Last on deal 4 weeks ago. Tap to see details.')
+    expect(label.getAttribute('aria-label')).toBe(
+      'Coop. Last on deal 4 weeks ago. Tap to see details.',
+    )
     expect(document.body.textContent).not.toMatch(/\b0\s*(mo|month)/)
   })
 

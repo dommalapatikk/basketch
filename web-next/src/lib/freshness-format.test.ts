@@ -32,7 +32,10 @@ describe('ageFromTimestamp — bucket boundaries (Tech Lead ruling TL.1)', () =>
 
   it('rounds partial days down: 6d23h is still days, 29d23h is still weeks', () => {
     expect(ageFromTimestamp(ago(6 * DAY + 23 * 3600_000), NOW)).toEqual({ value: 6, unit: 'days' })
-    expect(ageFromTimestamp(ago(29 * DAY + 23 * 3600_000), NOW)).toEqual({ value: 4, unit: 'weeks' })
+    expect(ageFromTimestamp(ago(29 * DAY + 23 * 3600_000), NOW)).toEqual({
+      value: 4,
+      unit: 'weeks',
+    })
   })
 
   it('never produces a zero value outside the 3plus bucket, for any day 0–400', () => {
