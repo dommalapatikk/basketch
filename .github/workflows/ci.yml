@@ -129,6 +129,12 @@ jobs:
           # Public Supabase env — anon key is safe to commit but cleaner here
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      # T4 (regression 2026-09-25: 404 served global-error (500)) — fails
+      # loudly on an unrecognised Next build-output shape. Code review
+      # 2026-09-27 MUST-FIX 1: this script existed only in package.json and
+      # no CI job ever ran it.
+      - name: 404 build-artifact check (T4)
+        run: cd web-next && npm run verify:404-build
 
   e2e-web-next:
     name: web-next · Playwright + axe
@@ -150,6 +156,10 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      # T4 — see build-web-next's identical step. Repeated here because this
+      # job builds its own separate .next on its own runner.
+      - name: 404 build-artifact check (T4)
+        run: cd web-next && npm run verify:404-build
       - name: Run E2E (desktop + mobile)
         run: cd web-next && npx playwright test --reporter=list
         env:
