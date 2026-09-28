@@ -103,7 +103,7 @@ Stated structurally, so it holds without anyone remembering it:
 
 **D3 — webhook expires, not SWRs.** `/api/revalidate`: `revalidateTag(tag, { expire: 0 })` (Next 16 `revalidateTag.md`: "For webhooks … that need immediate expiration, pass `{ expire: 0 }`"). Today's `'hours'` profile lets the first visitor after every pipeline run see the previous run's data for up to a day (L5). Independent of this defect, but the same class.
 
-**D4 — data layer tells the truth daily (defence, fixes T4).** Supabase `pg_cron` (runs in UTC) job, **hourly** to sidestep DST arithmetic: `update deals set is_active = false where is_active and valid_to < (now() at time zone 'Europe/Zurich')::date`. Free tier (verify `pg_cron` is enabled on the project). Makes `is_active` correct on Fri/Sat/Sun when no pipeline runs, for every reader (web, pipeline, future API). Not relied on for web correctness — D1 already filters by date — so a missed tick is harmless.
+**D4 — WITHDRAWN (see §10, PM follow-up). Original text kept for the record:** data layer tells the truth daily (defence, fixes T4). Supabase `pg_cron` (runs in UTC) job, **hourly** to sidestep DST arithmetic: `update deals set is_active = false where is_active and valid_to < (now() at time zone 'Europe/Zurich')::date`. Free tier (verify `pg_cron` is enabled on the project). Makes `is_active` correct on Fri/Sat/Sun when no pipeline runs, for every reader (web, pipeline, future API). Not relied on for web correctness — D1 already filters by date — so a missed tick is harmless.
 
 **D5 — client guard (defence, covers L4 and list).** `DealsClient`: on mount compute `todayInZurich()` in the browser; if it is later than `snapshot.today`, drop `validTo < clientToday` and show "Angebote werden aktualisiert" / refresh. Add `validTo` to `ListItem` so `ListDrawer` (T3) can mark or remove expired items a user saved earlier — today it cannot.
 
@@ -128,3 +128,47 @@ Source: `docs/design/2026-09-25-architect-pm-decisions-design.md` §3 (V-1a, cro
 
 - Approve superseding the 2026-09-15 "rejected for now" alternative (D1) and turning the homepage into PPR (D2). This is a change to an approved architecture, so it needs an explicit yes.
 - Whether to add the `pg_cron` daily deactivation (D4) — adds a second writer to `deals` (a DB-side job, not code in the repo unless the migration is committed).
+
+## 10. PM follow-up: event-driven expiry (2026-09-27)
+
+**PM question:** "Is the hourly `pg_cron` job efficient? It just uses resources — it should be triggered when something happens."
+
+**Answer: the PM is right. Withdraw D4. With D1 + D2 no scheduled job is needed for correctness.**
+
+### 10.1 Why expiry needs no event
+
+"Expired" is not something that *happens* to a row; it is a **pure function of two values we already have**: `valid_to` (stored) and the Zurich date (known at read time). Writing it into a column (`is_active = false`) is a cached copy of that function — and a cached copy of a time-dependent value is exactly the defect in §3. It needs a clock to keep it true, which is why D4 needed polling.
+
+With D1 the "event" is the date changing, and it is observed **at read time, by the reader**: every request computes `today`, `today` is in the cache key, and `.gte('valid_to', today)` (plus `isInEffect`) filters. Nothing has to run at midnight; the first request after midnight simply asks a different question. That is the event-driven design — the read *is* the trigger — and it costs nothing when nobody visits.
+
+### 10.2 Split the two meanings `is_active` currently carries
+
+| Meaning | Nature | Who writes it | Stored? |
+|---|---|---|---|
+| **Withdrawn / superseded** — a newer flyer replaced the row, or the retailer dropped it (`sweepStoreWindows`, `stale-sweep.ts`) | A real **event**, observed by the pipeline | Pipeline, at write time | **Yes** — keep `is_active` for exactly this |
+| **Expired** — `valid_to < Zurich today` | A **derivation** from the date | Nobody needs to | **No** — compute at read time |
+
+Rule to record (ADR-level): *`is_active` means "not withdrawn". It never means "in date". Every read of `deals` applies the date predicate itself.* `deactivateExpiredDeals()` (`pipeline/store.ts:193`) may stay as harmless housekeeping on pipeline runs (it keeps the `(is_active, valid_to)` index lean), but nothing may depend on it.
+
+### 10.3 Who reads `is_active` today, and are they safe without a job?
+
+| Reader | Date predicate at read time? | Safe? |
+|---|---|---|
+| Web snapshot `supabase-provider.ts:198` | Yes, `.gte('valid_to', today)`; with D1 `today` is per request | **Safe** |
+| Pipeline live counts `stale-sweep.ts` `fetchLiveCountsPage` | Yes, `.gte('valid_to', today)` | Safe |
+| Pipeline sweep `sweepStoreWindows` | Writes `is_active` from windows it just refreshed — the event case | Safe |
+| Materialised views `concept_cheapest_now`, `worth_picking_up_candidates` (`20260917120000_mv_price_basis.sql`) | `CURRENT_DATE` frozen **at refresh** (and Postgres `CURRENT_DATE` is the session time zone, UTC by default on Supabase — verify — so 22:00/23:00–24:00 UTC is still "yesterday") | **Not safe on their own.** Their own column comment already says web read paths must re-apply `isInEffect`. No web code reads them today (grep of `web-next/src`), so no live exposure. Whoever wires them must re-filter by Zurich date at read time — do not add a refresh cron. |
+| One-off scripts (`migrate/seed-v3-from-deals.ts`, `migrate/fix-dairy-miscategorisation.ts`, `scripts/recategorize-deals.ts`) | No | Offline maintenance tools, not price displays. They should add `.gte('valid_to', today)` if they ever feed a user-facing surface. |
+
+### 10.4 Optional hardening, still event-free
+
+If we want the rule enforced in one place rather than by every caller remembering it: a plain (non-materialised) Postgres view or SQL function, e.g. `deals_live(p_today date)` returning `is_active AND valid_to >= p_today`. Evaluated per query, so it cannot go stale and needs no schedule. Pass `p_today` from the app (single clock, testable with the injectable `Clock`) rather than computing it in SQL. Not required now — one web query and one pipeline query is small enough to guard with a test (D6) instead. **Recommendation: skip the view for now; add the D6 architecture test "every `from('deals')` read carries a `valid_to` predicate".**
+
+### 10.5 Recommendation
+
+1. **No scheduled job.** D4 withdrawn. Correctness comes from D1 (date in the key, evaluated per request) + D2 (no deal data in path-keyed HTML).
+2. `is_active` = "withdrawn", written only on pipeline events. Expiry is always computed at read time.
+3. D3 stays (webhook uses `{ expire: 0 }`) — that *is* the event trigger for real data changes.
+4. Record the `is_active` meaning and the materialised-view caveat in the ADR that supersedes the 2026-09-15 alternative.
+
+§9's second decision (add `pg_cron`) is therefore no longer needed.

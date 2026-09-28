@@ -115,3 +115,38 @@ In the F3 job, after warming: fetch `/` and `/en`, extract the rendered deal cou
 1. `curl -sI` `/` and `/en`: expect PPR (`x-nextjs-prerender: 1`) with the count now in the streamed hole; view source shows `today":"<Zurich date>"` in both.
 2. Next day boundary: at 00:10 Zurich, `/` and `/en` counts both exclude any deal with `valid_to` = previous day (compare with Supabase read-only count).
 3. `vercel logs` for `/api/revalidate` from the midnight job: 200; subsequent `/` request not `STALE`.
+
+## § Cross-review resolution (2026-09-27, Tech Lead ruling)
+
+Input: PM question "an hourly DB job just uses resources — it should be triggered when something happens"; Architect answer in `docs/rca/2026-09-27-architect-stale-expired-deals.md` §6 and §10.
+
+### Ruling
+**Agree: drop both the `pg_cron` job (Architect D4) and my F3 GitHub cron (00:05 Zurich revalidate + warm).** Reasoning:
+- Expiry is a pure function of `valid_to` and the Zurich date. With the date read per request and part of the cache key (D1) and no deal data in the path-keyed homepage HTML (D2), the first request after midnight asks a different question — the read *is* the trigger. Nothing has to run at midnight, and nothing runs when nobody visits.
+- F3 was only ever a companion (§6 above): its job was to refresh ISR shells that hold deal data and to spare the first visitor a stale copy. After D2 no shell holds deal data, so both reasons disappear. It also carried a known silent-failure mode (GitHub disables schedules after 60 days without commits) — a scheduled job that correctness never depends on is pure cost.
+- `is_active` means "withdrawn/superseded" only (Architect §10.2). It is written by the pipeline on real events; expiry is never stored. Agreed.
+- F5 canary: **not** as a daily job. If wanted, it runs as a post-run step of the existing pipeline (event-triggered). The structural guarantee is enforced by tests (below), not by monitoring.
+
+### Final agreed fix list (Builder)
+1. **D1 — date in the key.** `getWeeklySnapshot` (uncached): `await connection()` → `todayInZurich()` → cached fetch keyed by `{ locale, today }`, `cacheTag('deals', \`deals:${today}\`)`, `cacheLife({ revalidate: 900, expire: 3600 })`. Cache the Supabase row fetch; compute counts/verdicts outside the cache (pure). Provider takes `today` as input and reads no clock. Replaces my F1 (same design).
+2. **D2 — homepage PPR.** `[locale]/page.tsx`: deal-reading body (StaleBanner, VerdictHero, CategoryVerdictCards, share data) in a `<Suspense>` child with a layout-stable skeleton; static shell holds no deal data.
+3. **D3 — webhook expires immediately.** `api/revalidate/route.ts:36` → `revalidateTag(tag, { expire: 0 })`; fix stale comment `:10-12`. This is the event trigger for real data changes (pipeline run, planned Volg image refresh).
+4. **`/card` keyed by day.** OG URL carries `d=<today>` so external social caches key by day too.
+5. **D5 — client guard (accepted).** Covers what D1/D2 cannot: a tab left open across midnight and lists saved in the browser. `DealsClient` compares browser `todayInZurich()` with `snapshot.today`; if later, drops `validTo < clientToday` and prompts refresh. Add `validTo` to `ListItem`; `ListDrawer` marks/removes expired saved items.
+6. **D6 — architecture tests** (see tests 3, 4 below).
+7. **Docs.** ADR superseding `docs/decisions/2026-09-15-in-effect-vs-upcoming.md` (needs the user's explicit yes per Architect §9 — changes approved architecture), recording: date-in-key rule, `is_active` = withdrawn only, materialised views `concept_cheapest_now` / `worth_picking_up_candidates` freeze `CURRENT_DATE` and must be re-filtered by Zurich date at read time if ever wired to web (no refresh cron). Update `snapshot.ts` comment; CLAUDE.md pitfall line: "never read the clock inside `'use cache'`".
+- **Dropped:** D4 `pg_cron`, F3 GitHub cron, F5 as a scheduled job.
+
+### TDD tests (written first, must fail on current main)
+1. **Regression** `snapshot.test.ts`: `'2026-09-27 stale-expired-deals: a snapshot filled on 2026-09-26 is never served on 2026-09-27 (Volg valid_to 2026-09-26)'` — fixed clock 2026-09-26T21:50Z then 2026-09-26T22:10Z; the cached fetch receives `today` `2026-09-26` then `2026-09-27`; with fixture Volg rows (`valid_to 2026-09-26`) the 27-Sep result has Volg deals = 0 and `stores` excludes Volg; `totalDeals`/`stores` differ between the two days on identical rows.
+2. `supabase-provider.test.ts`: with `today` supplied, query uses `.gte('valid_to', today)` and the clock spy is never called.
+3. **Architecture test** (`web-next/src/architecture.test.ts`, grep-level): no `todayInZurich(` / `new Date(` / `Date.now(` inside any function body containing `'use cache'`; `getWeeklySnapshot` calls `connection()` before `todayInZurich()`.
+4. **Architecture test**: every `.from('deals')` read in `web-next/src` and `pipeline/` (excluding `migrate/`, `scripts/`, writes) carries a `valid_to` predicate; `web-next/src` does not reference `concept_cheapest_now` / `worth_picking_up_candidates` (fails loudly when someone wires them, forcing the Zurich re-filter decision).
+5. `[locale]/page.test.tsx`: page default export does not call `getWeeklySnapshot` directly; deal content renders inside `<Suspense>`.
+6. `api/revalidate/route.test.ts`: authorised POST → `revalidateTag('deals', { expire: 0 })`; 401 bad bearer; 500 missing secret.
+7. `validity.test.ts`: `todayInZurich` 2026-09-26T21:59:59Z → `2026-09-26`; 22:00:00Z → `2026-09-27` (CEST); 2026-12-31T23:00:00Z → `2027-01-01` (CET).
+8. D5 client: `DealsClient` with `snapshot.today = 2026-09-26` and browser clock 2026-09-27 hides a `validTo 2026-09-26` deal and shows the refresh prompt; `ListDrawer` marks a saved item with `validTo` < today as expired.
+9. `/card`: generated OG URL includes `d=<today>`.
+10. (Optional, e2e on preview) `/` and `/en` show the same deal and store count at the same instant.
+
+Superseded in §6 above: F3 (dropped), F5 (post-pipeline only, optional); §7 test 7 (workflow guard) removed.

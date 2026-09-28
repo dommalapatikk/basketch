@@ -17,6 +17,8 @@
 
 ## Part A — Shared list link expiry
 
+> **Superseded by 2026-09-27-shared-list-view-spec.md (PM P-14).** Part A below (root cause, case matrix, redirect-and-banner design, and the PM DECISION NEEDED item P1) is replaced by that spec, which implements the Architect's separate-view decision (`docs/design/2026-09-27-architect-shared-list-separate-view.md`). Part B (pluralisation, below) is unaffected — already built and live.
+
 ### A.0 Root cause (why this happens)
 
 `/list?items=<id>,<id>` stores nothing server-side. `ListShareBody` (page.tsx) resolves each id against **this week's** snapshot only (`getWeeklySnapshot`), `.filter(Boolean)`s out anything not found, and hands the survivors to `HydrateAndRedirect`, which seeds the Zustand list store and calls `router.replace('/deals')` inside a `useEffect` — client-side, so it only fires once JS has hydrated. Two structural facts drive every case below:
@@ -230,6 +232,8 @@ Plus:
 - One render test in `AvailabilityStrip` at day 28: the aria-label/short label contains "4" + weeks copy and never "0".
 
 ### TL.4 Duplicate IDs and the 200-id cap — where they belong
+
+> **Superseded in part (coordinator note, 2026-09-27):** the rule that over-cap ids are counted as "not found" / ended is replaced by Design Challenger M4 and the Architect's `2026-09-27-architect-shared-list-separate-view.md` (test 1: "Overflow is not counted as unavailable"). The mechanism below — `parseListIdsDetailed` returning `{ ids, overflow }` — stands. The binding spec is `2026-09-27-shared-list-view-spec.md`.
 
 **Ruling: dedupe + cap in the parser (`lib/share-url.ts`), plus a defensive dedupe in the store. Not in the page.**
 

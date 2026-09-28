@@ -219,3 +219,45 @@ Reviewed: `docs/rca/2026-09-26-architect-migros-name-cross-review.md`. I re-meas
 10. **Follow-up (separate ticket):** `extractProductMetadata` reads `labels` (organic first). After that, organic markers may leave the name.
 
 Open for the PM: Fairtrade in the name or only in labels. Open for later: showing certification labels on the deal card.
+
+## § Build review (2026-09-27)
+
+Reviewed the Builder's commits `503397f`, `7f3d8df`, `de05820` and `a424866` on `worktree-agent-a93682c65ace6ef3d`. The truth JSON has not changed since `deeec21` (coordinator verified: tsc 0, pipeline vitest 1703 pass, KW39 exact-name gate 91/91).
+
+### Ruling 1 — deviations
+
+| # | Deviation | Ruling |
+|---|---|---|
+| 3 | `TITLE_WIDTH_RATIO_MIN = 0.84` instead of 0.85 | **ACCEPT.** KW36 p4 `Migros` / `Kalbsplatzli` is bold on the page and measures 0.845: narrow l/t/i glyphs set against a wide "M", on a line only 6 characters long. Every floor from 0.70 to 0.84 gives identical KW39 and KW36 output apart from that line, so 0.84 costs nothing measurable. The real protection is the AND with pitch/trigger, not the floor itself: KW39 p14 `Milch,` (regular) already measures 0.87, above both floors, and is rejected only by pitch. The constant's header must keep that sentence (it does, `:741-746`). **Condition:** width-per-char is least reliable on very short lines. If a future edition shows a false join or a false stop on a line of 6 characters or fewer, the fix is a minimum-length guard, not another floor tweak. |
+| 4 | p1 `Migros Schweinsnierstück am Stück` added to the G5 label assertions (`['IP-SUISSE']`) | **ACCEPT.** My G5 list missed it. The printed second line is `am Stück, IP-SUISSE` (§2 stack, p1). |
+| 5 | T7/G7 crop test uses p5 Kalbsgeschnetzeltes and p6 Spécialité instead of p6 Wienerli | **ACCEPT.** On Wienerli the taller sale numeral sets the crop's bottom edge, so that offer cannot test either direction. The two chosen offers end their title below the numeral. The margins are small (9px and 8px between the last title line and the first description line), but they are real page geometry, and the test pins them. |
+
+### Ruling 2 — G1 holdout: Migros KW38 ZH (not used for any tuning)
+
+**Edition and method.** KW40 is not yet on issuu (HTTP 404 on 2026-09-27). I used **KW38 ZH** (`migros-wochenflyer-38-2026-d-zh`, revision `260915112023-799241f7…`, 23 pages): a different week with different products, same PP-OCRv6 engine.
+1. Fetched it with the branch's own `fetchFlyerImages`.
+2. Ran it through the branch's `ocr.py`, using the pinned rapidocr 3.9.2 env at `tl-ocr-bench/venv3` (untiled, as in production).
+3. Parsed with the branch's `parseFlyer` (reference date 2026-09-17; the validity window read from the flyer was 17.9.–23.9.).
+
+All scratch files are in the session scratchpad (`hold/kw38zh/`). Nothing was committed and no DB was touched. I checked every published offer by eye against a crop of its page image (name, sale and statt).
+
+| Published | Correct name | Wrong name | Wrong price | Description merged into a name |
+|---|---|---|---|---|
+| **76** | **74** | **2** (both the right product) | **0** | **0** |
+
+Multi-line titles joined correctly on the holdout (the checks that matter for this fix):
+- 3-line: `Petit Bonheur Berliner mit Himbeer-Johannisbeer-Füllung`.
+- 2-line: `Tradition Landjäger geräuchert`, `Don Pollo Trutenbrust hauchdünn geschnitten`, `Spécialité Suisse Appenzeller Mostbröckli` (+`IGP` label), `Trockenfleisch Swiss Black Angus` (+`IP-SUISSE`), `Rindshamburger Swiss Black Angus`, `Rinds-Entrecôte am Stück`, `Migros Poulet Schenkelsteaks gewürzt`, `Frey Napolitains Selection`, `Président Carré Gourmet`, `Le Gruyère Höhlengold` (+`AOP`), `Viola Cornuta und Viola Wittrockiana`, `Gesamtes Crème fraîche- und Schmand-Sortiment`, `Gesamtes Handymatic Supreme Sortiment`, `Migros Bio Tortilla Chips-Nature oder -Chilli`.
+- Hyphen line-break: `M-Classic Kabeljau-`/`rückenfilets` -> `M-Classic Kabeljaurückenfilets` (+`MSC`).
+- Labels lifted: `Edelrosen` (+`Fairtrade`, P-13). Service phrase dropped: `Gelbflossen Thunfischfilets` (`an der Theke`). The `«Aus der Region.»` slogan line is correctly skipped (`Bergmozzarella`, `Kalbfleischkäse`).
+
+**The 2 wrong names (both fail short in the agreed safe direction, and neither merges description text):**
+
+1. **p2 2.70/3.60 `Kürbis Oranger`, printed `Kürbis Oranger Knirps`.** Mechanism: `collectTitleLines` (`:792-793`) rejects a next line whose top is more than 10px *above* the previous box's bottom (`TITLE_MIN_GAP_PX = -10`). `Oranger` [1371,1674,1513,1721] carries a `g` descender, so its box runs 13px past the top of `Knirps` [1371,1708,1491,1754] (gap −13). Width (1.07) and pitch (33px) both say "title". The same descender effect is the one the old `findContinuationLine` comment already noted for `Kalbs-`/`geschnetzeltes` (−7px).
+   **Ruling: fix before merge.** Replace the absolute −10px floor with a centre-ordering rule: accept when `centreY(next) − centreY(last) >= 0.5 × height(line 1)` (the next line sits clearly below, whatever the descenders do). Keep the max-gap bound. TDD: a synthetic stack with a −13px descender overlap must join. The KW39/KW36 gates must stay identical. Add `Kürbis Oranger Knirps` as a named holdout regression only if the KW38 OCR fixture is committed (recommended: 23 pages, same size class as KW39).
+2. **p4 2.35/2.95 `Schweins-Cordonsbleus`, printed `Schweins-Cordons-` / `bleus, IP-SUISSE` -> should be `Schweins-Cordons-bleus`.** This is exactly the residual risk the Architect accepted in A4 (a genuine hyphenated compound whose second part is lowercase, broken at its own hyphen). It is not rare on Migros meat pages: "Cordon(s)-bleu(s)" also appears on KW39 p5, unbroken.
+   **Ruling: fix before merge, with a closed list, not a heuristic.** `KEEP_HYPHEN_LOWERCASE_CONTINUATIONS = ['bleu', 'bleus']`: keep the hyphen with no space when the continuation's first word is in the list. Evaluate it in A4's order after the digit rule and before the letter/lowercase drop rule. TDD: `['Schweins-Cordons-','bleus']` -> `Schweins-Cordons-bleus`; `['Migros Kalbs-','geschnetzeltes']` still -> `Kalbsgeschnetzeltes`. Extend the list only on evidence from a printed page.
+
+**One clarification to R1 from the holdout (no code change):** p14 prints `Alle Crème d'Or Dosen,` / `500 ml und 1000 ml` in bold. The adapter stops before the second line, because `DESCRIPTOR`'s pack-size pattern marks it as never-title, and publishes `Alle Crème d'Or Dosen`. That is the right name: a line that is **only** a pack size is quantity data, not identity (the same reason `g`/`ml` lines are descriptors everywhere else). R1 is amended: "the whole bold title block, **excluding a line that is only a pack size**". Counted as correct above. A pack size printed *inside* a title line (`Alle Delizio Kapseln, 48 Stück`) stays, since the adapter publishes printed text and never rewrites inside a line.
+
+**G1 verdict:** the width+pitch AND generalises. On an unseen edition it produced **0 merged descriptions and 0 wrong prices**, and both misses were fail-short, the direction we chose. G1 is **satisfied once the two small fixes above land** (descender-tolerant ordering, the `bleu(s)` hyphen list), with their tests written first and the existing gates unchanged. Not in scope for this check: recall (priced KW38 offers the adapter did not publish). That is the separate yield/anchor question, unchanged by this fix.

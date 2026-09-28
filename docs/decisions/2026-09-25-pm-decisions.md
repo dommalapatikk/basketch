@@ -22,3 +22,6 @@ from the PM's own words.
 | P-14 | Shared list vs recipient's own list | **Keep them separate — never replace or merge.** A shared link opens as its own view (new tab/window); Architect designs it. |
 | P-15 | 404 button wording | **Designer decides** the best option. |
 | P-16 | Go-live 2026-09-27 | Wording/plurals/freshness fix (review + QA passed) and pipeline WP-1c/1d/1e: **go live now.** Hourly DB expiry job (Architect D4): PM questions efficiency — prefer event-triggered; Architect + Tech Lead to re-evaluate. |
+| P-17 | Stale expired deals (2026-09-27 RCAs) | **Yes — build it.** Replace the 2026-09-15 "today inside the cache, expire 1h" choice with the per-request Zurich date in the cache key (D1) + homepage deals rendered per request (D2) + webhook `expire: 0` (D3) + browser guard (D5) + architecture tests (D6). No scheduled jobs (pg_cron and the midnight cron both dropped). The in-effect/upcoming rules of the 2026-09-15 ADR are unchanged. |
+| P-18 | Migros KW39 truth file | **Yes** — Tech Lead writes the hand-read `expectedName` values into `kw39-zh-truth.json` and commits it on the Migros branch (test data only; nothing goes live). |
+| P-19 | Go-live 2026-09-28 | **Yes** — stale-expired-deals fix (review + QA passed) and 404-shows-500 fix (review + QA passed). |
