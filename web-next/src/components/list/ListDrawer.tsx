@@ -8,13 +8,13 @@ import { Drawer as Vaul } from 'vaul'
 
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { hasExpired, todayInZurich } from '@/lib/domain/validity'
 import { groupByStore } from '@/lib/share'
 import { createShareTarget } from '@/lib/share-target'
 import { CATEGORY_ACCENT, STORE_BRAND } from '@/lib/store-tokens'
 import { useIsDesktop } from '@/lib/use-is-desktop'
 import { useOrigin } from '@/lib/use-origin'
-import { type ListItem, useListStore } from '@/stores/list-store'
+import { useTodayInZurich } from '@/lib/use-today-in-zurich'
+import { type ListItem, useActiveListItems, useListStore } from '@/stores/list-store'
 import { useUiStore } from '@/stores/ui-store'
 
 import { ItemNote } from './ItemNote'
@@ -49,12 +49,17 @@ export function ListDrawer({ locale }: Props) {
   // rule the category verdict already applies, here applied to money. It
   // stays VISIBLE in the list itself (ItemsByCategory below, marked via
   // ItemNote's "Expired" label) so the user can decide to remove it.
-  // Read the date only after mount: this drawer is mounted in the [locale]
-  // layout, so a render-time clock read breaks every page's prerender.
-  // Saved items live in localStorage and only appear after mount anyway.
-  const [today, setToday] = useState<string | null>(null)
-  useEffect(() => setToday(todayInZurich()), [])
-  const activeItems = today === null ? items : items.filter((item) => !hasExpired(item, today))
+  //
+  // MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md:
+  // `useActiveListItems` is the SAME hook `BottomBar` uses for its mobile
+  // share button, so the two can never disagree on what counts as expired.
+  // `useTodayInZurich` is read separately here too — ItemsByCategory needs
+  // the raw Zurich date (not the filtered list) to label an individual
+  // item's ItemNote as "Expired" while still showing it. Both hooks read the
+  // date only after mount: this drawer is mounted in the [locale] layout, so
+  // a render-time clock read breaks every page's prerender (commit 2c39e74).
+  const today = useTodayInZurich()
+  const activeItems = useActiveListItems()
   const groups = groupByStore(activeItems)
 
   // Both share destinations are resolved during RENDER. They used to be

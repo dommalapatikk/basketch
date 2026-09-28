@@ -1,10 +1,13 @@
 'use client'
 
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
+import { hasExpired } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import type { DealCategory, PriceBasis } from '@/lib/types'
+import { useTodayInZurich } from '@/lib/use-today-in-zurich'
 
 // What the user "added" to their shopping list. We snapshot the relevant deal
 // fields at add-time so the list survives even if the upstream snapshot
@@ -167,3 +170,28 @@ export const useListStore = create<ListState>()(
 // store mutation by subscribing only to the slice they care about.
 export const useListCount = () => useListStore((s) => s.items.length)
 export const useIsInList = (id: string) => useListStore((s) => s.has(id))
+
+/**
+ * MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: the single
+ * place "what's still valid in my saved list" is computed. `ListDrawer`
+ * (totals + share) and `BottomBar` (mobile share, components/deals/
+ * BottomBar.tsx) both call this instead of each filtering `items`
+ * themselves — the review's own reproduction (mutation M5) showed that
+ * splitting the rule across two call sites means only one of them has to be
+ * remembered correctly for the other to silently regress.
+ *
+ * `today` is read only after mount, on the same coarse interval
+ * `MidnightGuard` polls at (`useTodayInZurich`) — never during render, since
+ * this list is read by a drawer mounted in the `[locale]` layout (commit
+ * 2c39e74). Before the first effect commits, every item is treated as
+ * active: the same "claims less" reasoning `hasExpired` already applies to
+ * an item with no `validTo` at all.
+ */
+export function useActiveListItems(): ListItem[] {
+  const items = useListStore((s) => s.items)
+  const today = useTodayInZurich()
+  return useMemo(
+    () => (today === null ? items : items.filter((item) => !hasExpired(item, today))),
+    [items, today],
+  )
+}

@@ -1,6 +1,23 @@
 // @vitest-environment jsdom
 
+import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: `ListDrawer`
+ * excluded expired items from its totals and share text; `BottomBar`
+ * (components/deals/BottomBar.tsx) did not, because each computed its own
+ * "active" list independently and only one of them remembered the rule
+ * (mutation M5, the review's own reproduction: swap `activeItems` back for
+ * `items` in ListDrawer and every existing test still passed). One hook, one
+ * place the rule lives, both callers use it — see `useActiveListItems` below.
+ */
+vi.mock('@/lib/domain/validity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/domain/validity')>()
+  return { ...actual, todayInZurich: vi.fn(actual.todayInZurich) }
+})
+
+import type { ListItem } from './list-store'
 
 /**
  * BLOCKER, code review of WP-W2 commit 9525601: `ListItem` gained required
@@ -286,5 +303,73 @@ describe('list-store persistence — a list saved before WP-W2 still opens', () 
     await useListStore.persist.rehydrate()
 
     expect(useListStore.getState().items).toEqual([item])
+  })
+})
+
+/**
+ * MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: `ListDrawer`
+ * excluded expired items from its totals/share, but `BottomBar`
+ * (components/deals/BottomBar.tsx) shared none of that logic and sent the
+ * raw `items` straight to `createShareTarget` — the M5 gap the review names
+ * ("ListDrawer sums/shares `items` again instead of `activeItems`" survived
+ * unnoticed because nothing pinned the rule anywhere a mutation could kill).
+ * One hook, used by both callers, is the fix — this is its base-of-the-
+ * pyramid test; ListDrawer.test.tsx and BottomBar.test.tsx pin the same rule
+ * at the component level, which is what actually kills M5.
+ */
+describe('useActiveListItems — the one place "still valid" is computed (MF-2)', () => {
+  // `useTodayInZurich` (lib/use-today-in-zurich.ts) imports the mocked
+  // `todayInZurich` transitively, so the mock instance a fresh `./list-store`
+  // import actually calls only exists once `vi.resetModules()` has forced
+  // BOTH modules to re-evaluate together — a static top-of-file import of
+  // `todayInZurich` would be a stale reference to the pre-reset mock.
+  async function freshActiveListItems() {
+    vi.resetModules()
+    const validity = await import('@/lib/domain/validity')
+    const store = await import('./list-store')
+    return { ...store, todayInZurich: validity.todayInZurich }
+  }
+
+  beforeEach(() => {
+    installMemoryStorage()
+  })
+
+  const item = (over: Partial<ListItem> & { id: string; validTo?: string }): ListItem => ({
+    store: 'coop',
+    productName: 'Milk',
+    category: 'fresh',
+    salePrice: 1.5,
+    imageUrl: null,
+    sourceUrl: null,
+    ...over,
+  })
+
+  it('drops an item whose validTo has passed the Zurich today, keeps one that has not', async () => {
+    const { useListStore, useActiveListItems, todayInZurich: today } = await freshActiveListItems()
+    vi.mocked(today).mockReturnValue('2026-09-27')
+    act(() => {
+      useListStore.setState({
+        items: [
+          item({ id: 'expired', validTo: '2026-09-26' }),
+          item({ id: 'active', validTo: '2026-09-30' }),
+        ],
+      })
+    })
+
+    const { result } = renderHook(() => useActiveListItems())
+
+    expect(result.current.map((i) => i.id)).toEqual(['active'])
+  })
+
+  it('keeps an item with no validTo at all — unknown reads as not expired, same as hasExpired', async () => {
+    const { useListStore, useActiveListItems, todayInZurich: today } = await freshActiveListItems()
+    vi.mocked(today).mockReturnValue('2026-09-27')
+    act(() => {
+      useListStore.setState({ items: [item({ id: 'pre-wp-d5' })] })
+    })
+
+    const { result } = renderHook(() => useActiveListItems())
+
+    expect(result.current.map((i) => i.id)).toEqual(['pre-wp-d5'])
   })
 })
