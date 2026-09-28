@@ -31,7 +31,11 @@ vi.hoisted(() => {
       return backing.size
     },
   }
-  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true })
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+    writable: true,
+  })
 })
 
 const clock = vi.hoisted(() => ({ calls: 0, today: undefined as string | undefined }))
