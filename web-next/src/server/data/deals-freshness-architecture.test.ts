@@ -255,3 +255,43 @@ describe('deals freshness — architecture guards (D6)', () => {
 // snapshot.test.ts's "getDealRowsForDay — the argument wins over the clock
 // (M9)" test, which calls the real (possibly cross-module) call graph at
 // runtime with the system clock deliberately disagreeing with the argument.
+
+// Review R-1 (2026-09-28, mutation M5b): every share destination must be
+// built from `useActiveListItems()`, so an expired item's saved price is
+// never sent in a WhatsApp/e-mail message (Art. 3(1)(e) UWG). Covers
+// BottomBar, which MF-2 was about, and any future caller.
+function shareItemsSource(text: string): string | null {
+  const call = /createShareTarget\(\{([^}]*)\}/.exec(text)
+  if (!call) return null
+  const itemsArg = /\bitems(?:\s*:\s*([A-Za-z_$][\w$]*))?/.exec(call[1])
+  return itemsArg ? (itemsArg[1] ?? 'items') : null
+}
+
+function comesFromActiveItems(text: string, name: string): boolean {
+  return new RegExp(`\\b(?:const|let)\\s+${name}\\s*=\\s*useActiveListItems\\(\\)`).test(text)
+}
+
+describe('share targets are built from active (non-expired) list items (R-1)', () => {
+  it('every createShareTarget caller passes items from useActiveListItems()', () => {
+    const callers = files.filter(
+      ({ path, text }) => !path.endsWith('share-target.ts') && /createShareTarget\(/.test(text),
+    )
+    expect(callers.length).toBeGreaterThan(0)
+    const offenders = callers
+      .filter(({ text }) => {
+        const name = shareItemsSource(text)
+        return name === null || !comesFromActiveItems(text, name)
+      })
+      .map(({ path }) => path)
+    expect(offenders).toEqual([])
+  })
+
+  it('the guard catches the M5b shape', () => {
+    const bad =
+      'const items = useListStore((s) => s.items)\nconst t = createShareTarget({ origin, locale, items })'
+    const good =
+      'const items = useActiveListItems()\nconst t = createShareTarget({ origin, locale, items })'
+    expect(comesFromActiveItems(bad, shareItemsSource(bad) ?? '')).toBe(false)
+    expect(comesFromActiveItems(good, shareItemsSource(good) ?? '')).toBe(true)
+  })
+})
