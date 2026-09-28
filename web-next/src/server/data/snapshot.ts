@@ -29,8 +29,15 @@ import { computeSnapshotFromDeals, supabaseDealsProvider } from './supabase-prov
  * `/api/revalidate` (which only ever knows the tag name, never which day's
  * key it should target) still reaches every day's cache entry when the
  * pipeline finishes a run.
+ *
+ * Exported (SF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md) so
+ * a test can call it directly and prove the argument wins over the clock —
+ * `'use cache'` itself is inert under vitest, so the only way to catch a
+ * future mutation that reads the day through a helper instead of `input.today`
+ * is to call this function with an explicit `today` while the system clock
+ * disagrees, and assert the day that reaches `fetchDealRows` is the argument.
  */
-async function getDealRowsForDay(input: { today: string }) {
+export async function getDealRowsForDay(input: { today: string }) {
   'use cache'
   cacheTag('deals', `deals:${input.today}`)
   cacheLife({ revalidate: 900, expire: 3600 })
@@ -55,6 +62,6 @@ export async function getWeeklySnapshot(input: SnapshotInput = {}): Promise<Week
   const locale = input.locale ?? 'de'
   const today = input.today ?? todayInZurich()
 
-  const { deals, error } = await getDealRowsForDay({ today })
-  return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded: Boolean(error) })
+  const { deals, isDegraded } = await getDealRowsForDay({ today })
+  return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded })
 }

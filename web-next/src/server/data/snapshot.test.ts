@@ -73,7 +73,7 @@ describe('2026-09-27 stale-expired-deals: a snapshot filled on 2026-09-26 is nev
     const { supabaseDealsProvider } = await import('./supabase-provider')
     const fetchSpy = vi
       .spyOn(supabaseDealsProvider, 'fetchDealRows')
-      .mockResolvedValue({ deals: [], error: null })
+      .mockResolvedValue({ deals: [], isDegraded: false })
 
     const { getWeeklySnapshot } = await import('./snapshot')
 

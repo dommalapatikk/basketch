@@ -3,14 +3,13 @@ import { type CropRegion, createCropRegion } from '@/lib/domain/crop-region'
 import { createPriceBasis } from '@/lib/domain/price-basis'
 import { isOk } from '@/lib/domain/result'
 import { parseStorageState } from '@/lib/domain/storage-state'
-import { todayInZurich } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { createAnonClient } from '@/lib/supabase/anon-server'
-import type { Deal, DealCategory, SnapshotInput, WeeklySnapshot } from '@/lib/types'
+import type { Deal, DealCategory, WeeklySnapshot } from '@/lib/types'
 
 import { computeAllVerdicts } from '../verdict/algorithm'
 
-import type { DealsProvider } from './provider.contract'
+import type { DealsProvider, ProviderSnapshotInput } from './provider.contract'
 
 export type DealRow = {
   id: string
@@ -172,7 +171,15 @@ function toCropRegion(row: DealRow): CropRegion | null {
   return region.value
 }
 
-export type FetchDealRowsResult = { deals: Deal[]; error: Error | null }
+/**
+ * N-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: `isDegraded`
+ * instead of an `Error` value. React Flight turns an `Error` into an opaque
+ * `"$Z"` in production (react-server-dom-webpack-server.node.production.js),
+ * so on a cache hit the message was already gone — and only `Boolean(error)`
+ * was ever read downstream, never the message itself. The real error is
+ * still logged, once, right where it happens, below.
+ */
+export type FetchDealRowsResult = { deals: Deal[]; isDegraded: boolean }
 
 /**
  * Pure, cheap assembly of a `WeeklySnapshot` from an already-fetched `Deal[]`
@@ -276,7 +283,7 @@ class SupabaseDealsProvider implements DealsProvider {
 
     if (error) {
       console.error('[supabase-provider] deals query failed', { error: error.message })
-      return { deals: [], error }
+      return { deals: [], isDegraded: true }
     }
 
     const deals: Deal[] = []
@@ -284,25 +291,31 @@ class SupabaseDealsProvider implements DealsProvider {
       const mapped = mapRow(row)
       if (mapped) deals.push(mapped)
     }
-    return { deals, error: null }
+    return { deals, isDegraded: false }
   }
 
   /**
    * Orchestrates `fetchDealRows` + `computeSnapshotFromDeals` for callers
    * that want a full snapshot directly (tests, and any future non-cached
    * caller) without going through `server/data/snapshot.ts`'s cache
-   * boundary. `today` comes from `input.today` — the wall clock is read here
-   * ONLY as a default for a caller that omits it entirely; once `today` is
-   * supplied, this function never touches the clock (supabase-
-   * provider.test.ts pins this).
+   * boundary.
+   *
+   * SF-3, docs/reviews/2026-09-28-review-stale-expired-deals.md: `today` is
+   * REQUIRED (`ProviderSnapshotInput`) — this method used to default it from
+   * `todayInZurich()` when a caller omitted it, which is exactly the shape a
+   * future `'use cache'` wrapper around this method would silently inherit,
+   * reintroducing the 2026-09-27 defect one level deeper (the review's own
+   * comparison: "same shape as M9"). The one permitted clock read stays in
+   * `server/data/snapshot.ts`'s uncached `getWeeklySnapshot`, which always
+   * supplies `today` explicitly.
    */
-  async getWeeklySnapshot(input: SnapshotInput = {}): Promise<WeeklySnapshot> {
+  async getWeeklySnapshot(input: ProviderSnapshotInput): Promise<WeeklySnapshot> {
     const region = input.region ?? 'all'
     const locale = input.locale ?? 'de'
-    const today = input.today ?? todayInZurich()
+    const { today } = input
 
-    const { deals, error } = await this.fetchDealRows({ today })
-    return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded: Boolean(error) })
+    const { deals, isDegraded } = await this.fetchDealRows({ today })
+    return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded })
   }
 }
 

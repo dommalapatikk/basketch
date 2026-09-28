@@ -68,7 +68,7 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
     )
 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const snapshot = await supabaseDealsProvider.getWeeklySnapshot()
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
     spy.mockRestore()
 
     expect(snapshot.isDegraded).toBe(true)
@@ -82,7 +82,7 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
     )
 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await supabaseDealsProvider.getWeeklySnapshot()
+    await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
 
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
@@ -96,7 +96,7 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
       asSupabaseClient(fakeDealsClient({ data: [], error: null })),
     )
 
-    const snapshot = await supabaseDealsProvider.getWeeklySnapshot()
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
 
     expect(snapshot.isDegraded).toBeUndefined()
     expect(snapshot.totalDeals).toBe(0)
@@ -165,7 +165,15 @@ describe('getWeeklySnapshot — today is an explicit input, not read from the cl
     expect(snapshot.today).toBe('2031-06-15')
   })
 
-  it('does not call the wall clock (todayInZurich) when today is supplied', async () => {
+  // SF-3, docs/reviews/2026-09-28-review-stale-expired-deals.md: this method
+  // used to default `today` from `todayInZurich()` when a caller omitted it
+  // ("falls back to the wall clock only when today is omitted entirely" was
+  // the old test name here). `ProviderSnapshotInput.today` is now required,
+  // so that fallback is gone at the type level — omitting `today` fails to
+  // compile, not just a runtime check a future edit could quietly break. The
+  // one clock read stays in `server/data/snapshot.ts`'s uncached
+  // `getWeeklySnapshot`, which always supplies `today` explicitly.
+  it('never calls the wall clock (todayInZurich) — today always comes from the caller', async () => {
     vi.mocked(createAnonClient).mockReturnValue(
       asSupabaseClient(fakeDealsClient({ data: [], error: null })),
     )
@@ -174,17 +182,6 @@ describe('getWeeklySnapshot — today is an explicit input, not read from the cl
     await supabaseDealsProvider.getWeeklySnapshot({ locale: 'de', today: '2031-06-15' })
 
     expect(todayInZurich).not.toHaveBeenCalled()
-  })
-
-  it('falls back to the wall clock only when today is omitted entirely', async () => {
-    vi.mocked(createAnonClient).mockReturnValue(
-      asSupabaseClient(fakeDealsClient({ data: [], error: null })),
-    )
-    vi.mocked(todayInZurich).mockClear()
-
-    await supabaseDealsProvider.getWeeklySnapshot({ locale: 'de' })
-
-    expect(todayInZurich).toHaveBeenCalledTimes(1)
   })
 
   it('a Volg deal whose valid_to is yesterday contributes 0 deals and drops out of the store count today', async () => {
