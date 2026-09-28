@@ -23,6 +23,22 @@ vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/deals',
 }))
 
+// MF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: D5 was only
+// applied to the homepage. A tab left open on /deals across a Zurich
+// midnight kept showing — and letting people add to their list — deals whose
+// `valid_to` was yesterday. `clock.today` overrides the browser's Zurich date
+// as `DealsClient` reads it (via `useTodayInZurich`); left `undefined`, it
+// falls through to the real clock so the other describe block is unaffected.
+const clock = vi.hoisted(() => ({ today: undefined as string | undefined }))
+
+vi.mock('@/lib/domain/validity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/domain/validity')>()
+  return {
+    ...actual,
+    todayInZurich: () => clock.today ?? actual.todayInZurich(),
+  }
+})
+
 afterEach(cleanup)
 
 const TODAY = '2026-09-15'
@@ -56,7 +72,7 @@ const deal = (over: Partial<Deal> = {}): Deal => ({
   ...over,
 })
 
-const snapshot = (deals: Deal[]): WeeklySnapshot => ({
+const snapshot = (deals: Deal[], today: string = TODAY): WeeklySnapshot => ({
   updatedAt: '2026-09-15T00:00:00Z',
   totalDeals: deals.length,
   region: 'all',
@@ -64,7 +80,7 @@ const snapshot = (deals: Deal[]): WeeklySnapshot => ({
   stores: [],
   categories: [],
   deals,
-  today: TODAY,
+  today,
 })
 
 async function renderDealsClient(deals: Deal[]) {
@@ -97,5 +113,52 @@ describe('DealsClient threads the "from" label to DealCard', () => {
     expect(await screen.findByText('Milk 1L')).toBeTruthy()
     expect(body).not.toContain('From ')
     expect(document.querySelector('time')).toBeNull()
+  })
+})
+
+/**
+ * MF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: D5 (browser
+ * midnight guard) was only wired into the homepage. `DealsClient` is where
+ * people add deals to their list — a tab left open across a Zurich midnight
+ * kept showing (and letting people add) a deal whose `valid_to` was
+ * yesterday, with nothing on `/deals` to notice.
+ */
+describe('DealsClient — midnight rollover excludes expired deals (MF-1, D5 on /deals)', () => {
+  afterEach(() => {
+    clock.today = undefined
+  })
+
+  it('drops a deal whose validTo has passed the client day and shows the refresh prompt', async () => {
+    clock.today = '2026-09-27'
+    const { DealsClient } = await import('./DealsClient')
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <DealsClient
+          snapshot={snapshot([deal({ id: 'expired', validTo: '2026-09-26' })], '2026-09-26')}
+          initialFilters={DEFAULT_FILTERS}
+          locale="en"
+        />
+      </NextIntlClientProvider>,
+    )
+
+    expect(await screen.findByRole('status')).toBeTruthy()
+    expect(screen.queryByText('Milk 1L')).toBeNull()
+  })
+
+  it('keeps the deal and hides the prompt while the client day still matches the snapshot day', async () => {
+    clock.today = '2026-09-26'
+    const { DealsClient } = await import('./DealsClient')
+    render(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <DealsClient
+          snapshot={snapshot([deal({ id: 'live', validTo: '2026-09-30' })], '2026-09-26')}
+          initialFilters={DEFAULT_FILTERS}
+          locale="en"
+        />
+      </NextIntlClientProvider>,
+    )
+
+    expect(await screen.findByText('Milk 1L')).toBeTruthy()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 })

@@ -9,10 +9,11 @@ import { DealCard } from '@/components/deals/DealCard'
 import { DealsSearch } from '@/components/deals/DealsSearch'
 import { FilterRail } from '@/components/deals/FilterRail'
 import { TypeSegmented } from '@/components/deals/TypeSegmented'
+import { MidnightGuard } from '@/components/shared/MidnightGuard'
 import { IconHeading } from '@/components/ui/IconHeading'
 import { usePathname } from '@/i18n/navigation'
 import { visibleAttributes } from '@/lib/deal-attributes'
-import { startsAfterToday } from '@/lib/domain/validity'
+import { hasExpired, startsAfterToday } from '@/lib/domain/validity'
 import { type DealsFilters, serializeFilters } from '@/lib/filters'
 import {
   formatMemberPriceLabel,
@@ -23,6 +24,7 @@ import {
 import { STORE_BRAND, STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import { subCategoryLabel } from '@/lib/sub-category-labels'
 import type { Deal, WeeklySnapshot } from '@/lib/types'
+import { useTodayInZurich } from '@/lib/use-today-in-zurich'
 import {
   buildSections,
   categoryCounts,
@@ -57,6 +59,22 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   // different containing block and drifts to the section's bottom edge).
   const sectionsRef = useRef<HTMLDivElement>(null)
 
+  // MF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: D5 (the
+  // browser midnight guard) was wired into the homepage but not here, even
+  // though /deals is where people add items to their list. `useTodayInZurich`
+  // reads the Zurich date only after mount, on the same coarse interval
+  // MidnightGuard itself polls at — never during render, since this page's
+  // shell prerenders statically. While the client day still matches the
+  // server-computed `snapshot.today`, every deal counts, same as before;
+  // once the day has rolled over, a deal whose `validTo` closed at midnight
+  // drops out of every count and filter below, and `MidnightGuard` offers a
+  // refresh instead of silently keeping yesterday's list addable.
+  const clientToday = useTodayInZurich()
+  const activeDeals = useMemo(() => {
+    if (clientToday === null || clientToday <= snapshot.today) return snapshot.deals
+    return snapshot.deals.filter((d) => !hasExpired(d, clientToday))
+  }, [snapshot.deals, snapshot.today, clientToday])
+
   // window.history.replaceState updates the URL without triggering Next's
   // server re-render (router.replace would do that). Combined with local
   // state above, this gives us a shareable URL plus instant interactivity.
@@ -83,34 +101,31 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   // sub-millisecond on every device we care about, so memoization is for
   // referential stability of the props handed down, not raw perf.
   const filtered = useMemo(
-    () => filterDeals(snapshot.deals, deferredFilters),
-    [snapshot.deals, deferredFilters],
+    () => filterDeals(activeDeals, deferredFilters),
+    [activeDeals, deferredFilters],
   )
-  const counts = useMemo(() => storeCounts(snapshot.deals, filters), [snapshot.deals, filters])
+  const counts = useMemo(() => storeCounts(activeDeals, filters), [activeDeals, filters])
   // Static per-Type totals for the rail counter — independent of category /
   // sub / store filters so the user can see "Long-life has 1,004 deals"
   // before clicking, without the chip re-counting against their narrowing.
   const typeCountsByType = useMemo(() => {
     const acc: Record<string, number> = {
-      all: snapshot.deals.length,
+      all: activeDeals.length,
       fresh: 0,
       longlife: 0,
       household: 0,
     }
-    for (const d of snapshot.deals) {
+    for (const d of activeDeals) {
       acc[d.category] = (acc[d.category] ?? 0) + 1
     }
     return acc as Record<'all' | 'fresh' | 'longlife' | 'household', number>
-  }, [snapshot.deals])
+  }, [activeDeals])
   // Patch F: 4-level facets — categories (mid-level) + sub-cats. Both honour
   // the "list-includes-everything, only counts react" rule so chips dim to
   // zero rather than disappear when other filters narrow.
-  const cats = useMemo(() => categoryCounts(snapshot.deals, filters), [snapshot.deals, filters])
-  const subCats = useMemo(
-    () => subCategoryCounts(snapshot.deals, filters),
-    [snapshot.deals, filters],
-  )
-  const storages = useMemo(() => storageCounts(snapshot.deals, filters), [snapshot.deals, filters])
+  const cats = useMemo(() => categoryCounts(activeDeals, filters), [activeDeals, filters])
+  const subCats = useMemo(() => subCategoryCounts(activeDeals, filters), [activeDeals, filters])
+  const storages = useMemo(() => storageCounts(activeDeals, filters), [activeDeals, filters])
   const sections = useMemo(
     () => buildSections(filtered, snapshot.today),
     [filtered, snapshot.today],
@@ -118,12 +133,12 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
   // Computed over the WHOLE snapshot, never `filtered`: a deal is not "only at
   // Coop" because the visitor deselected the other six stores.
   const onlyStore = useMemo(
-    () => onlyStoreSubCategories(snapshot.deals, snapshot.today),
-    [snapshot.deals, snapshot.today],
+    () => onlyStoreSubCategories(activeDeals, snapshot.today),
+    [activeDeals, snapshot.today],
   )
   const facets = useMemo(
     () =>
-      snapshot.deals.map((d) => ({
+      activeDeals.map((d) => ({
         store: d.store,
         category: d.category,
         categorySlug: d.categorySlug,
@@ -131,7 +146,7 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
         storage: d.storage,
         productName: d.productName,
       })),
-    [snapshot.deals],
+    [activeDeals],
   )
 
   // "From Thu 17.9." for a deal that has not started yet (RCA #10). Closes
@@ -164,6 +179,13 @@ export function DealsClient({ snapshot, initialFilters, locale }: Props) {
 
   return (
     <>
+      {/*
+        MF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: same D5
+        guard the homepage already mounts (`[locale]/page.tsx`), here for the
+        page that lets people add deals to their list.
+      */}
+      <MidnightGuard referenceDay={snapshot.today} />
+
       <header className="mb-8 flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-[var(--color-ink)] md:text-4xl">
