@@ -25,16 +25,28 @@ vi.mock('next/cache', () => ({ cacheTag: vi.fn(), cacheLife: vi.fn() }))
  * below), and the page that reads it is never allowed to be the static
  * shell (enforced in `[locale]/page.test.tsx`, not here).
  */
+// SF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: `source.indexOf`
+// alone is fooled by a comment that happens to contain the same text as the
+// real call — this file's own module doc comment says "`await connection()`
+// defers this function..." BEFORE the real `await connection()` statement, so
+// deleting the real call (mutation M7) left the comment's occurrence sitting
+// at the same (smaller) index and the test kept passing. Stripping comments
+// first means only actual code can satisfy the assertion.
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+}
+
 describe('snapshot.ts source shape — the cache key includes the Zurich date', () => {
   const source = readFileSync(join(__dirname, 'snapshot.ts'), 'utf8')
+  const code = stripComments(source)
 
   it('the cached function takes `today` as a parameter', () => {
     expect(source).toMatch(/async function getDealRowsForDay\(input:\s*\{\s*today:\s*string\s*\}\)/)
   })
 
   it('the exported, uncached getWeeklySnapshot calls connection() before reading the Zurich date', () => {
-    const connectionIndex = source.indexOf('await connection()')
-    const todayIndex = source.indexOf('todayInZurich()')
+    const connectionIndex = code.indexOf('await connection()')
+    const todayIndex = code.indexOf('todayInZurich()')
     expect(connectionIndex).toBeGreaterThan(-1)
     expect(todayIndex).toBeGreaterThan(-1)
     expect(connectionIndex).toBeLessThan(todayIndex)
@@ -93,5 +105,40 @@ describe('2026-09-27 stale-expired-deals: a snapshot filled on 2026-09-26 is nev
     // same one — which is exactly what makes a 26-Sep entry unreachable on
     // 27-Sep once this runs through the real Next cache in production.
     expect(fetchSpy.mock.calls[0]?.[0]).not.toEqual(fetchSpy.mock.calls[1]?.[0])
+  })
+})
+
+/**
+ * SF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: the test
+ * above spies on `fetchDealRows` through `getWeeklySnapshot`, which reads
+ * `today` from the clock itself (by design — it's the one place allowed to).
+ * That can't tell apart a correct `getDealRowsForDay` from one mutated to
+ * read the day through a helper instead of `input.today` (M9: "the D6 guard
+ * only works at grep level and the regression test cannot tell the
+ * difference, because 'use cache' does nothing under vitest"). Calling
+ * `getDealRowsForDay` directly, with the clock set to a DIFFERENT day than
+ * the argument, is the one test that tells them apart.
+ */
+describe('getDealRowsForDay — the argument wins over the clock (M9)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('fetches the day it was called with, not the day the system clock reports', async () => {
+    const { supabaseDealsProvider } = await import('./supabase-provider')
+    const fetchSpy = vi
+      .spyOn(supabaseDealsProvider, 'fetchDealRows')
+      .mockResolvedValue({ deals: [], isDegraded: false })
+
+    const { getDealRowsForDay } = await import('./snapshot')
+
+    // 2026-09-26T22:10:00Z = 00:10 Zurich, 27 Sep — the clock disagrees with
+    // the argument below on purpose.
+    vi.useFakeTimers().setSystemTime(new Date('2026-09-26T22:10:00Z'))
+
+    await getDealRowsForDay({ today: '2026-09-26' })
+
+    expect(fetchSpy).toHaveBeenCalledWith({ today: '2026-09-26' })
   })
 })
