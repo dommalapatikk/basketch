@@ -1,3 +1,22 @@
+# ⏸ LATEST: 2026-09-28 — basketch handed over to SELF-RUNNING (PM moving to an insurance-tech project)
+
+**Live and verified on basketch.vercel.app (main e159e4b):**
+- Stale expired deals fixed: deals cache keyed by the Zurich date, homepage deal data rendered per request, webhook `expire: 0`, MidnightGuard on home + /deals, expired list items excluded from totals/share. Live counts matched the DB (1,537 in effect) after deploy.
+- 404 fix: `experimental.globalNotFound`, locale parsed at every entry point; `/en/nope` → 404 served as static `/404` (x-matched-path /404), `/foo.bar` → 404.
+- Plural-correct wording (EN/DE) + "0 months ago" fix; data-source copy; "Worth a look" removed.
+- Pipeline WP-1c/1d/1e (products by key set, image on main row, enrichment retired) — first run with it is Monday 2026-09-28; check with `docs/qa/2026-09-26-qa-pipeline-wp1c-1d-1e.md` §4 checklist.
+- Pipeline keep-alive: job `workflow-keepalive` re-enables pipeline.yml every run (60-day inactivity rule).
+
+**Self-running checklist (no one needs to watch it):** Mon/Tue/Thu 05:00 UTC cron (starts hours late); healthchecks.io dead-man ping; keep-alive job.
+**Calendar check 2026-11-26:** `gh workflow list --all` → Deal Pipeline must be `active`. If `disabled_inactivity`: `gh workflow enable pipeline.yml`, then switch keep-alive to a PAT marker commit (see HANDOVER.md, docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md).
+
+**Parked (built/approved, NOT live) — resume here:**
+- Migros full-title names (branch `worktree-agent-a93682c65ace6ef3d` @ bb0a6b1): approved by review; KW39 91/91 exact names, KW38 holdout fixed. BLOCKED on PM decision: labels (IP-SUISSE/AOP/Fairtrade) are stripped from names but no DB column stores them — (a) persist labels (recommended) / (b) keep in name / (c) accept loss. ~31 products re-key once on first run.
+- Shared list as its own page (spec `docs/design/2026-09-27-shared-list-view-spec.md`, Design Challenger zero findings) — not built.
+- Not started: ALDI/SPAR/Volg pictures, Volg daily refresh, "Cheapest" = lowest per-kg, contact form (needs PM Resend setup), WP-2..6, S-5 index migration, healthchecks false-alert tuning (review N3).
+
+**Lessons learned for the next project:** `/Users/kiran/ClaudeCode/lessons-learned/basketch-lessons-learned.md` (curated) + `docs/lessons-learned-raw-2026-09-28.md` (88 cited lessons).
+
 # ⏸ LATEST: 2026-09-26
 
 **Live (verified on basketch.vercel.app):** data-source copy rework (e09f9ab/f117b36) — footer, homepage strip, About page now say "6 retailers direct, Coop via aktionis.ch"; CI + Vercel green. (Earlier: WP-11 "Worth a look" removal + catalogue retirement, eeb2a0e.)
