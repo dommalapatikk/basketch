@@ -94,7 +94,17 @@ function HomeSkeleton() {
           ))}
         </div>
       </div>
-      <div className="mt-10 h-28 rounded-[var(--radius-lg)] bg-[var(--color-line)]" />
+      {/*
+        N-5, docs/reviews/2026-09-28-review-stale-expired-deals.md: sized to
+        ShareVerdictButton's actual rendered height (p-5 padding + title +
+        subtitle + the h-11 button row + the preview-card link line, ~172px)
+        rather than an arbitrary h-28 (112px) — the mismatch was a small
+        layout shift every time this Suspense hole resolved. StaleBanner
+        (above, inside HomeBody) is NOT reserved here: it renders nothing on
+        every normal page view, so reserving space for it would itself be
+        the more common shift.
+      */}
+      <div className="mt-10 h-[172px] rounded-[var(--radius-lg)] bg-[var(--color-line)]" />
     </div>
   )
 }
