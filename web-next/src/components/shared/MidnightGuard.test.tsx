@@ -2,6 +2,7 @@
 
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { NextIntlClientProvider } from 'next-intl'
+import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import messages from '@/messages/en.json'
@@ -87,5 +88,26 @@ describe('MidnightGuard', () => {
     })
 
     expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+/**
+ * SF-5, docs/reviews/2026-09-28-review-stale-expired-deals.md: kills mutation
+ * M6 (reading the clock via `useState(() => todayInZurich() > referenceDay)`
+ * during render, rather than in `useEffect`). `MidnightGuard` is mounted at
+ * the top of both the homepage and `/deals`, both of which prerender
+ * statically — a render-time clock read there is exactly the class of bug
+ * commit 2c39e74 fixed for `ListDrawer` (`ListDrawer.test.tsx` pins the same
+ * shape for that component).
+ */
+describe('MidnightGuard — no clock read during server render', () => {
+  it('renders on the server without reading the Zurich date', () => {
+    vi.mocked(todayInZurich).mockClear()
+    renderToString(
+      <NextIntlClientProvider locale="en" messages={messages} timeZone="Europe/Zurich">
+        <MidnightGuard referenceDay="2026-09-26" />
+      </NextIntlClientProvider>,
+    )
+    expect(todayInZurich).not.toHaveBeenCalled()
   })
 })
