@@ -17,8 +17,14 @@ type Props = {
    * social-preview cache's copy of a DIFFERENT day's image — `/card` itself
    * always recomputes from a fresh `getWeeklySnapshot()` regardless of this
    * value; it exists purely to vary the URL.
+   *
+   * REQUIRED (N-4, docs/reviews/2026-09-28-review-stale-expired-deals.md):
+   * this component's one caller (`[locale]/page.tsx`'s `HomeBody`) always
+   * has a snapshot in hand, so it always has a `today` to pass. Optional
+   * here would let a future caller silently drop `d=` and reintroduce the
+   * exact caching hazard D2 exists to prevent.
    */
-  today?: string
+  today: string
 }
 
 export function ShareVerdictButton({ locale, today }: Props) {
@@ -41,9 +47,7 @@ export function ShareVerdictButton({ locale, today }: Props) {
   }
 
   const homeUrl = `${origin}/${locale === 'de' ? '' : locale}`.replace(/\/$/, '') || origin
-  const cardParams = new URLSearchParams({ locale })
-  if (today) cardParams.set('d', today)
-  const cardUrl = `${origin}/card?${cardParams.toString()}`
+  const cardUrl = `${origin}/card?${new URLSearchParams({ locale, d: today }).toString()}`
   const text = t('share_text')
 
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${text}\n${homeUrl}`)}`

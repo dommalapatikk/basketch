@@ -17,7 +17,7 @@ import { ShareVerdictButton } from './ShareVerdictButton'
 
 afterEach(cleanup)
 
-async function renderButton(props: { locale: string; today?: string }) {
+async function renderButton(props: { locale: string; today: string }) {
   await act(async () => {
     render(
       <NextIntlClientProvider locale={props.locale} messages={messages}>
@@ -32,12 +32,6 @@ describe('ShareVerdictButton — /card URL carries the Zurich date', () => {
     await renderButton({ locale: 'de', today: '2026-09-27' })
     const link = screen.getByText(messages.share_verdict.preview_card).closest('a')
     expect(link?.getAttribute('href')).toBe('http://localhost:3000/card?locale=de&d=2026-09-27')
-  })
-
-  it('still works (locale only, no `d`) when today is not supplied', async () => {
-    await renderButton({ locale: 'en' })
-    const link = screen.getByText(messages.share_verdict.preview_card).closest('a')
-    expect(link?.getAttribute('href')).toBe('http://localhost:3000/card?locale=en')
   })
 
   it('two different days produce two different card URLs', async () => {
