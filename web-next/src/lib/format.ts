@@ -1,3 +1,5 @@
+import type { Locale } from '@/i18n/locale-from-pathname'
+
 import { isMemberOnly, type PriceBasis, programmeOf } from './domain/price-basis'
 import { isMultiBuy } from './domain/quantity-requirement'
 
@@ -63,7 +65,7 @@ export function formatMinQuantityLabel(
 
 // Locale-aware short date used in the landing kicker and stale banner.
 // Falls back to the YYYY-MM-DD slice on parse failure (defensive — Intl can throw on bad strings).
-export function formatShortDate(iso: string, locale: string): string {
+export function formatShortDate(iso: string, locale: Locale): string {
   try {
     return new Intl.DateTimeFormat(locale, {
       weekday: 'short',
@@ -83,7 +85,7 @@ export function formatShortDate(iso: string, locale: string): string {
 // are read consistently with each other regardless of which timezone the
 // rendering server happens to run in. Always day.month order (Swiss
 // convention), independent of locale — only the weekday word translates.
-export function formatValidFromShort(iso: string, locale: string): string {
+export function formatValidFromShort(iso: string, locale: Locale): string {
   try {
     const date = new Date(`${iso}T00:00:00Z`)
     if (Number.isNaN(date.getTime())) throw new Error('unparseable date')

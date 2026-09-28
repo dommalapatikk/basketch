@@ -1,21 +1,17 @@
 import { setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
-
-import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
-import { getWeeklySnapshot } from '@/server/data/snapshot'
-
 import { CategoryVerdictCard } from '@/components/landing/CategoryVerdictCard'
 import { MethodologyStrip } from '@/components/landing/MethodologyStrip'
 import { ShareVerdictButton } from '@/components/landing/ShareVerdictButton'
 import { StaleBanner } from '@/components/landing/StaleBanner'
 import { VerdictHero } from '@/components/landing/VerdictHero'
+import { parseLocale } from '@/i18n/parse-locale'
+import { routing } from '@/i18n/routing'
+import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
+import { getWeeklySnapshot } from '@/server/data/snapshot'
 
-export default async function HomePage({
-  params,
-}: {
-  params: Promise<{ locale: string }>
-}) {
-  const { locale } = await params
+export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
+  const locale = parseLocale((await params).locale, routing)
   setRequestLocale(locale)
   const snapshot = await getWeeklySnapshot({ locale })
   const labels = locale === 'de' ? CATEGORY_LABELS_DE : CATEGORY_LABELS_EN

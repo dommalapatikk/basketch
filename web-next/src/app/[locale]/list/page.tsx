@@ -1,21 +1,25 @@
 import type { Metadata } from 'next'
-import { setRequestLocale } from 'next-intl/server'
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, setRequestLocale } from 'next-intl/server'
 import { Suspense } from 'react'
-
+import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
+import type { Locale } from '@/i18n/locale-from-pathname'
+import { parseLocale } from '@/i18n/parse-locale'
+import { routing } from '@/i18n/routing'
 import { parseListIds } from '@/lib/share-url'
 import { getWeeklySnapshot } from '@/server/data/snapshot'
 import type { ListItem } from '@/stores/list-store'
-
-import { HydrateAndRedirect } from '@/components/list/HydrateAndRedirect'
 
 type Props = {
   params: Promise<{ locale: string }>
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
-  const { locale } = await params
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}): Promise<Metadata> {
+  const locale = parseLocale((await params).locale, routing)
   const t = await getTranslations({ locale, namespace: 'list' })
   return {
     title: `${t('title')} · basketch`,
@@ -30,7 +34,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 // no longer in this week's data we silently drop it (the user still sees
 // the items that ARE current rather than a hard error).
 export default async function ListSharePage({ params, searchParams }: Props) {
-  const { locale } = await params
+  const locale = parseLocale((await params).locale, routing)
   setRequestLocale(locale)
 
   return (
@@ -44,11 +48,12 @@ async function ListShareBody({
   locale,
   searchParamsP,
 }: {
-  locale: string
+  locale: Locale
   searchParamsP: Promise<Record<string, string | string[] | undefined>>
 }) {
   const sp = await searchParamsP
-  const itemsRaw = typeof sp.items === 'string' ? sp.items : Array.isArray(sp.items) ? sp.items[0] : ''
+  const itemsRaw =
+    typeof sp.items === 'string' ? sp.items : Array.isArray(sp.items) ? sp.items[0] : ''
   const ids = parseListIds(itemsRaw ?? null)
 
   const snapshot = await getWeeklySnapshot({ locale })
@@ -77,14 +82,17 @@ async function ListShareBody({
         {t('title')}
       </p>
       <h1 className="text-2xl font-semibold text-[var(--color-ink)]">
-        {t('split_summary', { items: items.length, stores: new Set(items.map((i) => i.store)).size })}
+        {t('split_summary', {
+          items: items.length,
+          stores: new Set(items.map((i) => i.store)).size,
+        })}
       </h1>
       <HydrateAndRedirect items={items} />
     </section>
   )
 }
 
-function HydratingFallback({ locale: _locale }: { locale: string }) {
+function HydratingFallback({ locale: _locale }: { locale: Locale }) {
   return (
     <section className="mx-auto max-w-[600px] px-4 py-24">
       <div className="h-6 w-48 animate-pulse rounded-[var(--radius-sm)] bg-[var(--color-line)]" />

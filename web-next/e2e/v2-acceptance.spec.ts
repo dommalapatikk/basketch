@@ -1,5 +1,10 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+
+// T3 (regression 2026-09-25: 404 served global-error (500)) — every test in
+// this file fails on a first-party pageerror. See
+// e2e/fixtures/no-first-party-errors.ts.
+import { expect, test } from './fixtures/no-first-party-errors'
 
 // v2.1 Patch 10 — acceptance suite. One file, one block per AC.
 // Selectors mirror what's actually rendered today by Header.tsx and DealCard.tsx.
@@ -11,6 +16,13 @@ const NOT_FOUND_TITLE = {
   de: 'Seite nicht gefunden',
   en: 'Page not found',
 } as const
+
+// PM decision P-11 / Designer decision 2026-09-27 (keep existing errors.*
+// keys). Primary button -> deals, secondary -> home, both locale-aware.
+const BROWSE_DEALS = { de: 'Aktionen ansehen', en: 'Browse deals' } as const
+const BACK_TO_HOME = { de: 'Zur Startseite', en: 'Back to home' } as const
+const DEALS_HREF = { de: '/deals', en: '/en/deals' } as const
+const HOME_HREF = { de: '/', en: '/en' } as const
 
 // Hex store palette (v2 §3.1 + lib/store-tokens.ts). Convert to rgb() for
 // computed-style comparison — browsers always serialise backgrounds as rgb().
@@ -36,6 +48,14 @@ const STORE_RGB = STORE_HEX.map(hexToRgb)
 
 async function gotoStable(page: Page, url: string) {
   await page.goto(url, { waitUntil: 'networkidle' })
+  // T3 (regression 2026-09-25: 404 served global-error (500)) — the other
+  // half of the global guard: a page that swallows its own error (no
+  // pageerror event, e.g. a caught render error) but still shows the
+  // unstyled global-error fallback must fail too.
+  await expect(
+    page.getByText('Something went wrong', { exact: false }),
+    `${url} rendered the global-error fallback`,
+  ).toHaveCount(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -152,29 +172,160 @@ test.describe('AC3 — about pages exist per locale', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AC4 — Localized 404. /<locale>/<random> returns 404 in the right language.
+// AC4 / T1 — Localized 404 (regression 2026-09-25: 404 served global-error
+// (500), docs/rca/2026-09-25-tech-lead-404-shows-500.md § "Final plan" step
+// 1). Replaces the long-skipped AC4 above. Every URL below used to return
+// HTTP 404 while SHOWING "Something went wrong" (the unstyled global-error
+// 500 page) — see the RCA for the mechanism (a PPR fallback shell's cached
+// error document with permanently dangling Flight rows). Fixed via
+// global-not-found.tsx + parseLocale; see also e2e/404-structural.spec.ts
+// (T2, the HTTP-level primary gate) and e2e/fixtures/no-first-party-errors.ts
+// (T3, the pageerror guard every test in this file now uses).
+//
+// Text checks use VISIBLE text (toBeVisible / getByText), not textContent
+// (architect cross-review § 4, amendment A2): global-not-found.tsx
+// server-renders BOTH locale blocks and hides one with CSS, so a plain
+// textContent check would find both locales' titles in the DOM regardless
+// of which is actually shown to the user.
 // ---------------------------------------------------------------------------
-// REAL BUG (deferred): /en/asdf renders Next.js __next_error__ template using
-// app/not-found.tsx (German hardcoded), not the locale-aware
-// app/[locale]/not-found.tsx as intended by the [locale]/[...rest]/page.tsx
-// catch-all (Patch 5 from v2.1 didn't actually work). Needs proper Next.js 16
-// + next-intl debug — likely either: (a) restructure root not-found to be
-// locale-detecting, or (b) wrap [locale]/[...rest] differently.
-test.describe
-  .skip('AC4 — localized 404', () => {
-    for (const locale of ['de', 'en'] as const) {
-      test(`/${locale}/asdf returns 404 in ${locale}`, async ({ page }) => {
-        const res = await page.goto(`/${locale}/asdf`, { waitUntil: 'networkidle' })
-        expect(res?.status(), `expected 404 for /${locale}/asdf`).toBe(404)
-        const body = (await page.locator('body').textContent())?.toLowerCase() ?? ''
-        expect(body).toContain(NOT_FOUND_TITLE[locale].toLowerCase())
-        // And critically: the OTHER locale's title must NOT appear (regression
-        // test for B4 where /en/asdf showed the German copy).
-        const other = locale === 'de' ? 'en' : 'de'
-        expect(body).not.toContain(NOT_FOUND_TITLE[other].toLowerCase())
-      })
-    }
+const UNKNOWN_URLS = [
+  { url: '/en/does-not-exist', locale: 'en', hasBrandBar: true },
+  { url: '/en/settings/hidden', locale: 'en', hasBrandBar: true },
+  { url: '/does-not-exist', locale: 'de', hasBrandBar: true },
+  { url: '/xx/foo', locale: 'de', hasBrandBar: true },
+  { url: '/en/deals/x/y', locale: 'en', hasBrandBar: true },
+  { url: '/de/nope', locale: 'de', hasBrandBar: true },
+  { url: '/en/nope/', locale: 'en', hasBrandBar: true },
+  // /foo.bar: a dotted single segment the next-intl proxy skips, reaching
+  // [locale]/layout.tsx with an invalid locale. parseLocale rejects it, and
+  // that notFound() bubbles to the root app/not-found.tsx (always German —
+  // see that file's own comment), NOT to global-not-found. That file has no
+  // brand bar (code review 2026-09-27 MUST-FIX 2: assert only its /deals and
+  // / links).
+  { url: '/foo.bar', locale: 'de', hasBrandBar: false },
+  { url: '/en/foo.bar', locale: 'en', hasBrandBar: true },
+] as const
+
+test.describe('AC4 / T1 — every unmatched URL is a real, localized 404 (never global-error)', () => {
+  // Pin the browser's Accept-Language to the app's own default (de-CH,
+  // Swiss market — CLAUDE.md). Without this, next-intl's `as-needed`
+  // middleware negotiates a locale from Accept-Language for any genuinely
+  // unprefixed or invalid-prefix path (e.g. redirecting /does-not-exist to
+  // /en/does-not-exist for an English-preferring browser like Playwright's
+  // Chromium default) BEFORE it ever reaches global-not-found or
+  // localeFromPathname — real, correct next-intl behaviour, not the defect
+  // this suite tests. Pinning it makes the "de" expectations below
+  // deterministic instead of accidentally depending on the test runner's
+  // browser locale.
+  test.use({ locale: 'de-CH' })
+
+  for (const { url, locale, hasBrandBar } of UNKNOWN_URLS) {
+    const other = locale === 'de' ? 'en' : 'de'
+
+    test(`${url} is a visible, localized 404 in ${locale}`, async ({ page }) => {
+      const res = await page.goto(url, { waitUntil: 'networkidle' })
+      expect(res?.status(), `expected 404 for ${url}`).toBe(404)
+
+      await expect(
+        page.getByRole('heading', { level: 1, name: NOT_FOUND_TITLE[locale] }),
+        `${url} should visibly show the ${locale} title`,
+      ).toBeVisible()
+      // The OTHER locale's block may still exist in the DOM (global-not-found
+      // server-renders both and hides one with CSS) — assert not VISIBLE,
+      // not absent, so this passes whether the block is hidden or missing.
+      await expect(
+        page.getByRole('heading', { level: 1, name: NOT_FOUND_TITLE[other] }),
+        `${url} must not visibly show the ${other} title`,
+      ).not.toBeVisible()
+
+      expect(
+        await page.evaluate(() => document.documentElement.lang),
+        `document.documentElement.lang should be "${locale}" for ${url}`,
+      ).toBe(locale)
+
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+
+      const bodyText = (await page.locator('body').innerText()).toLowerCase()
+      expect(bodyText).not.toContain('something went wrong')
+
+      // MUST-FIX 2 (code review 2026-09-27): P-11 assertions. Plan step 6
+      // required these; they were missing even though the behaviour was
+      // already correct — nothing protected it from regressing.
+      const primary = page.getByRole('link', { name: BROWSE_DEALS[locale] })
+      await expect(
+        primary,
+        `${url} should have a visible "${BROWSE_DEALS[locale]}" link`,
+      ).toBeVisible()
+      await expect(primary).toHaveAttribute('href', DEALS_HREF[locale])
+
+      const secondary = page.getByRole('link', { name: BACK_TO_HOME[locale] })
+      await expect(
+        secondary,
+        `${url} should have a visible "${BACK_TO_HOME[locale]}" link`,
+      ).toBeVisible()
+      await expect(secondary).toHaveAttribute('href', HOME_HREF[locale])
+
+      if (hasBrandBar) {
+        const brandLink = page.getByRole('link', { name: 'basketch — home' })
+        await expect(brandLink, `${url} should have a visible brand-bar home link`).toBeVisible()
+        await expect(brandLink).toHaveAttribute('href', HOME_HREF[locale])
+      }
+
+      // No main-site chrome: the real <Header> renders a <nav aria-label
+      //="Primary"> (Deals/About/My list) and <Footer> is a <footer>
+      // (implicit "contentinfo" landmark). Neither exists on this minimal
+      // brand-bar page (PM decision P-11).
+      await expect(page.locator('nav[aria-label="Primary"]')).toHaveCount(0)
+      await expect(page.getByRole('contentinfo')).toHaveCount(0)
+    })
+  }
+
+  // Client-side navigation to an unmatched path (architect cross-review § 4,
+  // amendment A2: "soft navigation takes a separate RSC path"; plan's exact
+  // scenario: "from /en/deals, navigate client-side to /en/nope"). There is
+  // no in-app link to an unknown page to click, so this drives the real App
+  // Router directly via `window.next.router.push()` — a debugging API Next
+  // itself exposes in production (code review 2026-09-27 SHOULD-FIX 2:
+  // `node_modules/next/dist/client/components/app-router-instance.js:387-388`,
+  // "Exists for debugging purposes. Don't use in application code" — fine
+  // for a test to reach through, since it drives the exact router path a
+  // real `<Link>` click would).
+  //
+  // FINDING, recorded rather than re-asserted here as a requirement: a
+  // `window.__softNav` marker set before a router.push() into an unmatched
+  // path does NOT survive (verified independently by both the Builder's
+  // earlier goBack() probe and the reviewer's own router.push() probe) —
+  // evidence that Next falls back to a full document (MPA) navigation for a
+  // transition into `global-not-found`, whichever way it is triggered. That
+  // is consistent with how global-not-found is documented to work ("handled at
+  // the routing level... Next.js skips rendering" — it never enters the
+  // client-side route tree at all, unlike an in-segment `notFound()`), so a
+  // client transition to a WHOLLY unmatched path arguably cannot be soft by
+  // construction. This app has no dynamic segment that can 404 from within a
+  // matched route today (architect cross-review § 3) to test the
+  // alternative, in-tree case. What this test DOES prove, and what actually
+  // matters for the user: a client-side router.push to an unknown URL still
+  // lands on the correct localized 404, not a crash or a blank screen,
+  // regardless of which navigation mechanism Next chooses underneath.
+  test('client-side router.push to /en/nope shows the not-found UI, not global-error', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/en/deals')
+    await Promise.all([
+      page.waitForLoadState('networkidle'),
+      page.evaluate(() => {
+        // @ts-expect-error window.next.router is Next's own debugging API
+        window.next.router.push('/en/nope')
+      }),
+    ])
+
+    await expect(page.getByRole('heading', { level: 1, name: NOT_FOUND_TITLE.en })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('en')
+
+    const bodyText = (await page.locator('body').innerText()).toLowerCase()
+    expect(bodyText).not.toContain('something went wrong')
   })
+})
 
 // ---------------------------------------------------------------------------
 // AC5 — Mobile DealCard: title and price-block bounding rects don't intersect.

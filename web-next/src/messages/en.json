@@ -129,7 +129,8 @@
     "browse_deals": "Browse deals",
     "server_error_title": "Something went wrong",
     "server_error_body": "We've logged the error. Try again in a moment.",
-    "try_again": "Try again"
+    "try_again": "Try again",
+    "error_reference": "Reference"
   },
   "footer": {
     "disclaimer": "Not affiliated with any store",

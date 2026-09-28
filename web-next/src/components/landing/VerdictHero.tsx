@@ -1,16 +1,15 @@
 import { useTranslations } from 'next-intl'
-
+import { Button } from '@/components/ui/button'
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { Link } from '@/i18n/navigation'
 import { CATEGORY_LABELS_DE, CATEGORY_LABELS_EN } from '@/lib/category-rules'
 import { formatShortDate } from '@/lib/format'
 import { STORE_BRAND } from '@/lib/store-tokens'
 import type { CategoryVerdict, WeeklySnapshot } from '@/lib/types'
 
-import { Button } from '@/components/ui/button'
-
 type Props = {
   snapshot: WeeklySnapshot
-  locale: string
+  locale: Locale
 }
 
 export function VerdictHero({ snapshot, locale }: Props) {

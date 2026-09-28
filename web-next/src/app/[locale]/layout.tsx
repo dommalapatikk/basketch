@@ -1,14 +1,14 @@
 import { GeistMono } from 'geist/font/mono'
-import { hasLocale, NextIntlClientProvider } from 'next-intl'
-import { setRequestLocale } from 'next-intl/server'
-import { Inter } from 'next/font/google'
-import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import { NextIntlClientProvider } from 'next-intl'
+import { setRequestLocale } from 'next-intl/server'
 import type { ReactNode } from 'react'
 
 import { Footer } from '@/components/Footer'
 import { Header } from '@/components/Header'
 import { ListDrawer } from '@/components/list/ListDrawer'
+import { parseLocale } from '@/i18n/parse-locale'
 import { routing } from '@/i18n/routing'
 
 import '../globals.css'
@@ -28,7 +28,7 @@ export async function generateMetadata({
 }: {
   params: Promise<{ locale: string }>
 }): Promise<Metadata> {
-  const { locale } = await params
+  const locale = parseLocale((await params).locale, routing)
   const isDe = locale === 'de'
   const title = isDe
     ? 'basketch — Schweizer Wochenangebote im Vergleich'
@@ -80,8 +80,7 @@ export default async function LocaleLayout({
   children: ReactNode
   params: Promise<{ locale: string }>
 }) {
-  const { locale } = await params
-  if (!hasLocale(routing.locales, locale)) notFound()
+  const locale = parseLocale((await params).locale, routing)
   setRequestLocale(locale)
 
   return (

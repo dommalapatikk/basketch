@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl'
 import { Fragment, type ReactNode } from 'react'
-
+import type { Locale } from '@/i18n/locale-from-pathname'
 import { startsAfterToday } from '@/lib/domain/validity'
 import {
   formatMemberPriceLabel,
@@ -25,7 +25,7 @@ export function ItemNote({
   today,
 }: {
   item: ListItem
-  locale: string
+  locale: Locale
   today: string
 }) {
   const memberLabel = formatMemberPriceLabel(item.priceBasis, locale)
@@ -65,7 +65,7 @@ export function ItemNote({
  * inside the `<time>` element (code review NEW-4), not the words around it.
  * Same rule as DealCard's own label, so the drawer and the card agree.
  */
-function FromDate({ iso, locale }: { iso: string; locale: string }) {
+function FromDate({ iso, locale }: { iso: string; locale: Locale }) {
   const t = useTranslations('deals')
   const date = formatValidFromShort(iso, locale)
   const label = t('from_date', { date })
