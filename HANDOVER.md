@@ -24,7 +24,17 @@ Health check, any time:
 gh run list --workflow=pipeline.yml --limit=3     # pipeline
 gh run list --workflow=ci.yml --limit=3           # tests
 curl -s https://basketch.vercel.app/de/deals | grep -c 'href="#"'   # must be 0
+gh workflow list --all                            # Deal Pipeline must say "active"
 ```
+
+**If the pipeline silently stopped running** (no new runs, healthchecks.io
+alert): GitHub auto-disables scheduled workflows in a public repo after 60 days
+with no repository activity (happened 2026-07-31). `gh workflow list --all`
+shows it as `disabled_inactivity`. Fix: `gh workflow enable pipeline.yml`, then
+optionally `gh workflow run pipeline.yml`. Since 2026-09-28 every pipeline run
+re-enables itself (job `workflow-keepalive`), so this should not recur — a red
+`Workflow Keep-Alive` job in an otherwise green run means that call failed.
+See `docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md`.
 
 ---
 

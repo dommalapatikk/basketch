@@ -26,6 +26,13 @@ concurrency:
   group: deal-pipeline
   cancel-in-progress: false
 
+# Least privilege (2026-09-28): every job gets a read-only GITHUB_TOKEN unless
+# it asks for more. Only `checkout` uses the token today (contents: read); the
+# pipeline code itself never touches it. The one job that needs a write scope
+# (`workflow-keepalive`, below) declares it at job level.
+permissions:
+  contents: read
+
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -173,3 +180,33 @@ jobs:
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
             echo "Keep-alive fallback ping (HTTP $FALLBACK)"
           fi
+
+  # Ops keepalive (docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md).
+  # GitHub auto-disables scheduled workflows in a PUBLIC repo after 60 days
+  # with no repository activity — it happened to this workflow on 2026-07-31.
+  # Every run re-enables this workflow via the REST API, the same mechanism as
+  # gautamkrishnar/keepalive-workflow@v2 and liskin/gh-workflow-keepalive, but
+  # inlined: no third-party action, no dummy commits, nothing pushed, so it
+  # cannot trigger CI. Enabling an already-enabled workflow is a no-op (204).
+  #
+  # Separate job, not a step: a failed collection must not skip it.
+  # continue-on-error: a keepalive failure must never fail the pipeline run.
+  # Backstop if GitHub disables it anyway: the healthchecks.io dead-man's
+  # switch (AP-5) goes red, then `gh workflow enable pipeline.yml`.
+  workflow-keepalive:
+    name: Workflow Keep-Alive (60-day inactivity)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable this workflow to reset the inactivity timer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fails the JOB visibly (red) on error; continue-on-error keeps the
+          # run green. On red: `gh workflow list --all` (see HANDOVER.md).
+          gh api -X PUT \
+            "repos/${{ github.repository }}/actions/workflows/pipeline.yml/enable"
+          echo "Workflow keepalive OK"
