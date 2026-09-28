@@ -39,6 +39,11 @@ describe('pipeline.yml keeps itself enabled (60-day inactivity rule)', () => {
     expect(workflow).toMatch(/\npermissions:\n {2}contents: read\n/)
   })
 
+  // Review SF-1: the job is separate so a failed collection cannot skip it.
+  it('is independent of the collection job (no needs:/if:)', () => {
+    expect(job).not.toMatch(/\n {4}(needs|if):/)
+  })
+
   it('still runs on a schedule (the thing being kept alive)', () => {
     expect(workflow).toMatch(/\n {2}schedule:\n/)
   })

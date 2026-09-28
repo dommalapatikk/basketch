@@ -35,6 +35,11 @@ optionally `gh workflow run pipeline.yml`. Since 2026-09-28 every pipeline run
 re-enables itself (job `workflow-keepalive`), so this should not recur — a red
 `Workflow Keep-Alive` job in an otherwise green run means that call failed.
 See `docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md`.
+**Check on 2026-11-26** (60 days after the last commit, 2026-09-27): GitHub does
+not document that the enable call resets the timer. Run `gh workflow list --all`.
+If `Deal Pipeline` shows `disabled_inactivity`, the call does not reset it:
+re-enable (`gh workflow enable pipeline.yml`) and switch to a periodic marker
+commit pushed with a personal access token (RCA option b).
 
 ---
 
