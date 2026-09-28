@@ -1,10 +1,13 @@
 'use client'
 
+import { useMemo } from 'react'
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
+import { hasExpired } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
 import type { DealCategory, PriceBasis } from '@/lib/types'
+import { useTodayInZurich } from '@/lib/use-today-in-zurich'
 
 // What the user "added" to their shopping list. We snapshot the relevant deal
 // fields at add-time so the list survives even if the upstream snapshot
@@ -54,6 +57,22 @@ export type ListItem = {
    * requirement.ts) — never a crash.
    */
   minQuantity?: number | null
+  /**
+   * WP-D5, RCA docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5:
+   * snapshotted at add-time, same reasoning as `validFrom`/`priceBasis`/
+   * `minQuantity` above — so `ListDrawer` can tell, days later, whether a
+   * saved item's price is still in effect at all, something it could not do
+   * before (T3 in the architect RCA §2.1: the list drawer's own clock read
+   * had no `validTo` to compare against).
+   *
+   * OPTIONAL, deliberately — same reasoning as every other field on this
+   * type added after v1: this store persists to localStorage across
+   * deploys, and an item added before this field existed rehydrates with the
+   * key simply absent. No STORAGE_VERSION bump needed — `sanitizeItems` only
+   * checks the base v1 shape (`isWellFormedItem`), so an absent `validTo`
+   * passes through unexamined exactly like `minQuantity` already does.
+   */
+  validTo?: string
 }
 
 type ListState = {
@@ -151,3 +170,28 @@ export const useListStore = create<ListState>()(
 // store mutation by subscribing only to the slice they care about.
 export const useListCount = () => useListStore((s) => s.items.length)
 export const useIsInList = (id: string) => useListStore((s) => s.has(id))
+
+/**
+ * MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: the single
+ * place "what's still valid in my saved list" is computed. `ListDrawer`
+ * (totals + share) and `BottomBar` (mobile share, components/deals/
+ * BottomBar.tsx) both call this instead of each filtering `items`
+ * themselves — the review's own reproduction (mutation M5) showed that
+ * splitting the rule across two call sites means only one of them has to be
+ * remembered correctly for the other to silently regress.
+ *
+ * `today` is read only after mount, on the same coarse interval
+ * `MidnightGuard` polls at (`useTodayInZurich`) — never during render, since
+ * this list is read by a drawer mounted in the `[locale]` layout (commit
+ * 2c39e74). Before the first effect commits, every item is treated as
+ * active: the same "claims less" reasoning `hasExpired` already applies to
+ * an item with no `validTo` at all.
+ */
+export function useActiveListItems(): ListItem[] {
+  const items = useListStore((s) => s.items)
+  const today = useTodayInZurich()
+  return useMemo(
+    () => (today === null ? items : items.filter((item) => !hasExpired(item, today))),
+    [items, today],
+  )
+}

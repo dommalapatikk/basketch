@@ -72,6 +72,7 @@ async function ListShareBody({
       sourceUrl: d.sourceUrl,
       validFrom: d.validFrom,
       priceBasis: d.priceBasis,
+      validTo: d.validTo,
     }))
 
   const t = await getTranslations({ locale, namespace: 'list' })

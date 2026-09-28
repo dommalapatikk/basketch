@@ -9,9 +9,25 @@ import { useEffect, useState } from 'react'
 
 type Props = {
   locale: string
+  /**
+   * `WeeklySnapshot.today` — the Zurich date the verdict being shared was
+   * computed for. RCA docs/rca/2026-09-27-architect-stale-expired-deals.md
+   * §6 D2: folded into the `/card` OG-image URL as `d=` so a link shared on
+   * one day gets its own URL, and can never be answered by a downstream
+   * social-preview cache's copy of a DIFFERENT day's image — `/card` itself
+   * always recomputes from a fresh `getWeeklySnapshot()` regardless of this
+   * value; it exists purely to vary the URL.
+   *
+   * REQUIRED (N-4, docs/reviews/2026-09-28-review-stale-expired-deals.md):
+   * this component's one caller (`[locale]/page.tsx`'s `HomeBody`) always
+   * has a snapshot in hand, so it always has a `today` to pass. Optional
+   * here would let a future caller silently drop `d=` and reintroduce the
+   * exact caching hazard D2 exists to prevent.
+   */
+  today: string
 }
 
-export function ShareVerdictButton({ locale }: Props) {
+export function ShareVerdictButton({ locale, today }: Props) {
   const t = useTranslations('share_verdict')
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState<string | null>(null)
@@ -31,7 +47,7 @@ export function ShareVerdictButton({ locale }: Props) {
   }
 
   const homeUrl = `${origin}/${locale === 'de' ? '' : locale}`.replace(/\/$/, '') || origin
-  const cardUrl = `${origin}/card`
+  const cardUrl = `${origin}/card?${new URLSearchParams({ locale, d: today }).toString()}`
   const text = t('share_text')
 
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${text}\n${homeUrl}`)}`
@@ -96,7 +112,12 @@ export function ShareVerdictButton({ locale }: Props) {
         </button>
       </div>
       <p className="mt-3 text-xs text-[var(--color-ink-3)]">
-        <a href={cardUrl} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">
+        <a
+          href={cardUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline-offset-4 hover:underline"
+        >
           {t('preview_card')}
         </a>
       </p>

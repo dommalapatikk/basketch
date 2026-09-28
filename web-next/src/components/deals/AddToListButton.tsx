@@ -19,6 +19,8 @@ type Props = {
   priceBasis: PriceBasis
   /** WP-W4 (D2, TP-7a) — snapshotted into the list item, same as validFrom/priceBasis. */
   minQuantity?: number | null
+  /** WP-D5 (docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D5) — snapshotted into the list item, same as validFrom/priceBasis. */
+  validTo: string
   size?: 'sm' | 'md'
 }
 
@@ -35,6 +37,7 @@ export function AddToListButton({
   validFrom,
   priceBasis,
   minQuantity,
+  validTo,
   size = 'md',
 }: Props) {
   const t = useTranslations('deals')
@@ -57,6 +60,7 @@ export function AddToListButton({
         validFrom,
         priceBasis,
         minQuantity: minQuantity ?? null,
+        validTo,
       })
     }
   }

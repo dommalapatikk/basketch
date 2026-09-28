@@ -14,6 +14,16 @@ vi.mock('@/lib/supabase/anon-server', () => ({
   createAnonClient: vi.fn(),
 }))
 
+// Wraps the real `todayInZurich` in a spy (rather than replacing it) so the
+// existing no-`today`-supplied tests below keep their real default behaviour,
+// while the RCA 2026-09-27 tests can assert the wall clock is NOT touched
+// once a caller supplies `today` explicitly.
+vi.mock('@/lib/domain/validity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/domain/validity')>()
+  return { ...actual, todayInZurich: vi.fn(actual.todayInZurich) }
+})
+
+import { todayInZurich } from '@/lib/domain/validity'
 import { createAnonClient } from '@/lib/supabase/anon-server'
 import { type DealRow, SELECT_COLUMNS, supabaseDealsProvider } from './supabase-provider'
 
@@ -26,12 +36,18 @@ type QueryResponse = { data: unknown[] | null; error: { message: string } | null
  * case breaks out of the paging loop on its first page (supabase-
  * provider.ts), and the success case here never has more than one page.
  */
-function fakeDealsClient(response: QueryResponse) {
+function fakeDealsClient(
+  response: QueryResponse,
+  onGte?: (column: string, value: unknown) => void,
+) {
   const chain = {
     from: () => chain,
     select: () => chain,
     eq: () => chain,
-    gte: () => chain,
+    gte: (column: string, value: unknown) => {
+      onGte?.(column, value)
+      return chain
+    },
     order: () => chain,
     range: () => chain,
     // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake — the chain is `await`ed like a real Supabase query builder, so it needs its own `then`
@@ -45,6 +61,37 @@ function fakeDealsClient(response: QueryResponse) {
 // biome-ignore lint/suspicious/noExplicitAny: fakeDealsClient stands in for the Supabase client type, not a domain type
 const asSupabaseClient = (chain: unknown) => chain as any
 
+/**
+ * SF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: `fakeDealsClient`
+ * above ignores `.gte()` and always returns the same canned response, so the
+ * old "Volg valid_to yesterday contributes 0 deals" test fed `data: []`
+ * directly and proved nothing about the filter itself — it would pass even
+ * if `.gte('valid_to', today)` were deleted entirely. This fake actually
+ * applies the filter to a raw row set, the same string comparison Postgres
+ * does on a `date` column, so a test built on it can show `totalDeals`
+ * genuinely differ across the midnight boundary.
+ */
+function fakeDealsClientFiltering(rows: DealRow[]) {
+  const chain = {
+    from: () => chain,
+    select: () => chain,
+    eq: () => chain,
+    gte: (column: string, value: unknown) => {
+      if (column === 'valid_to') {
+        rows = rows.filter((row) => row.valid_to >= (value as string))
+      }
+      return chain
+    },
+    order: () => chain,
+    range: () => chain,
+    // biome-ignore lint/suspicious/noThenProperty: intentional thenable fake — the chain is `await`ed like a real Supabase query builder, so it needs its own `then`
+    then(resolve: (value: QueryResponse) => void) {
+      resolve({ data: rows, error: null })
+    },
+  }
+  return chain
+}
+
 describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as fresh', () => {
   it('sets isDegraded when the deals query errors', async () => {
     vi.mocked(createAnonClient).mockReturnValue(
@@ -52,7 +99,7 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
     )
 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const snapshot = await supabaseDealsProvider.getWeeklySnapshot()
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
     spy.mockRestore()
 
     expect(snapshot.isDegraded).toBe(true)
@@ -66,7 +113,7 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
     )
 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await supabaseDealsProvider.getWeeklySnapshot()
+    await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
 
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
@@ -80,10 +127,135 @@ describe('getWeeklySnapshot — the fail-soft path is marked, not disguised as f
       asSupabaseClient(fakeDealsClient({ data: [], error: null })),
     )
 
-    const snapshot = await supabaseDealsProvider.getWeeklySnapshot()
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({ today: '2026-09-26' })
 
     expect(snapshot.isDegraded).toBeUndefined()
     expect(snapshot.totalDeals).toBe(0)
+  })
+})
+
+/**
+ * RCA docs/rca/2026-09-27-tech-lead-stale-expired-deals.md §7 item 3 /
+ * docs/rca/2026-09-27-architect-stale-expired-deals.md §6 D1: `today` must be
+ * an explicit input the provider is GIVEN, never a value it reads from the
+ * clock itself — that is what lets `server/data/snapshot.ts` make it part of
+ * the cache key. Every active Volg deal in the incident had
+ * `valid_to = '2026-09-26'`; on 2026-09-27 it must contribute zero deals and
+ * drop out of the store count entirely.
+ */
+describe('getWeeklySnapshot — today is an explicit input, not read from the clock', () => {
+  const volgRow = (validTo: string): DealRow => ({
+    id: 'volg-1',
+    store: 'volg',
+    product_name: 'Vollrahm',
+    category: 'fresh',
+    category_slug: null,
+    sub_category: null,
+    sale_price: 1.2,
+    original_price: null,
+    discount_percent: 0,
+    price_per_unit: null,
+    canonical_unit: null,
+    format: null,
+    image_url: null,
+    valid_from: '2026-09-20',
+    valid_to: validTo,
+    source_url: null,
+    product_id: 'p-volg-1',
+    taxonomy_confidence: 1,
+    is_uncertain: false,
+    storage: null,
+    price_basis: null,
+    loyalty_programme: null,
+    page_image_url: null,
+    crop_x: null,
+    crop_y: null,
+    crop_w: null,
+    crop_h: null,
+    attributes: null,
+    is_active: true,
+    updated_at: '2026-09-20T00:00:00Z',
+  })
+
+  it('issues .gte(valid_to, today) with the SUPPLIED today and returns it on the snapshot', async () => {
+    const gteCalls: [string, unknown][] = []
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(
+        fakeDealsClient({ data: [], error: null }, (column, value) =>
+          gteCalls.push([column, value]),
+        ),
+      ),
+    )
+
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2031-06-15',
+    })
+
+    expect(gteCalls).toEqual([['valid_to', '2031-06-15']])
+    expect(snapshot.today).toBe('2031-06-15')
+  })
+
+  // SF-3, docs/reviews/2026-09-28-review-stale-expired-deals.md: this method
+  // used to default `today` from `todayInZurich()` when a caller omitted it
+  // ("falls back to the wall clock only when today is omitted entirely" was
+  // the old test name here). `ProviderSnapshotInput.today` is now required,
+  // so that fallback is gone at the type level — omitting `today` fails to
+  // compile, not just a runtime check a future edit could quietly break. The
+  // one clock read stays in `server/data/snapshot.ts`'s uncached
+  // `getWeeklySnapshot`, which always supplies `today` explicitly.
+  it('never calls the wall clock (todayInZurich) — today always comes from the caller', async () => {
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [], error: null })),
+    )
+    vi.mocked(todayInZurich).mockClear()
+
+    await supabaseDealsProvider.getWeeklySnapshot({ locale: 'de', today: '2031-06-15' })
+
+    expect(todayInZurich).not.toHaveBeenCalled()
+  })
+
+  it('a real Volg fixture (valid_to 2026-09-26) contributes 0 deals on 27 Sep but 1 on 26 Sep', async () => {
+    // SF-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: the old
+    // version of this test fed `data: []` directly and asserted 0 — true
+    // whether or not `.gte('valid_to', today)` even existed. `fakeDealsClient
+    // Filtering` actually applies the filter, so `totalDeals`/`stores`
+    // visibly differ between the two days, the way the 2026-09-27 incident
+    // (every active Volg deal had `valid_to = '2026-09-26'`) did in
+    // production.
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClientFiltering([volgRow('2026-09-26')])),
+    )
+    const after = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2026-09-27',
+    })
+    expect(after.totalDeals).toBe(0)
+    expect(after.stores.find((s) => s.store === 'volg')?.dealCount ?? 0).toBe(0)
+
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClientFiltering([volgRow('2026-09-26')])),
+    )
+    const before = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2026-09-26',
+    })
+    expect(before.totalDeals).toBe(1)
+    expect(before.stores.find((s) => s.store === 'volg')?.dealCount).toBe(1)
+  })
+
+  it('a row that IS returned by the query (valid_to today or later) is included and mapped', async () => {
+    vi.mocked(createAnonClient).mockReturnValue(
+      asSupabaseClient(fakeDealsClient({ data: [volgRow('2031-06-15')], error: null })),
+    )
+
+    const snapshot = await supabaseDealsProvider.getWeeklySnapshot({
+      locale: 'de',
+      today: '2031-06-15',
+    })
+
+    expect(snapshot.totalDeals).toBe(1)
+    expect(snapshot.stores.find((s) => s.store === 'volg')?.dealCount).toBe(1)
   })
 })
 

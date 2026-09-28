@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isInEffect, startsAfterToday, todayInZurich } from './validity'
+import { hasExpired, isInEffect, startsAfterToday, todayInZurich } from './validity'
 
 /**
  * The defect this module exists to prevent (docs/rca/2026-09-15-final-plan.md
@@ -99,5 +99,28 @@ describe('startsAfterToday', () => {
     // key. Unknown start reads as "already running" (claims less than
     // "upcoming" would) rather than throwing — the code-review BLOCKER.
     expect(startsAfterToday({ validFrom: undefined }, '2026-09-17')).toBe(false)
+  })
+})
+
+describe('hasExpired', () => {
+  it('is true once validTo is before today', () => {
+    // The 2026-09-27 incident: Volg's active deals all had valid_to = '2026-09-26'.
+    expect(hasExpired({ validTo: '2026-09-26' }, '2026-09-27')).toBe(true)
+  })
+
+  it('is false on the last day it is still valid (inclusive)', () => {
+    expect(hasExpired({ validTo: '2026-09-27' }, '2026-09-27')).toBe(false)
+  })
+
+  it('is false while still running', () => {
+    expect(hasExpired({ validTo: '2026-09-30' }, '2026-09-27')).toBe(false)
+  })
+
+  it('is false — not a crash — for a persisted list item with no validTo at all', () => {
+    // stores/list-store.ts: a ListItem saved before WP-D5 has no validTo key.
+    // Unknown reads as "not expired" (claims less than "expired" would)
+    // rather than throwing — the same reasoning startsAfterToday applies to
+    // a missing validFrom.
+    expect(hasExpired({ validTo: undefined }, '2026-09-27')).toBe(false)
   })
 })

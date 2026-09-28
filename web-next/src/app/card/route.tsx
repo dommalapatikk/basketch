@@ -53,7 +53,13 @@ export async function GET(request: Request) {
   const activeStores = snapshot.stores.filter((s) => s.dealCount > 0).length
 
   const fonts = await loadFonts()
-  const sentences = snapshot.categories.map((v) => sentenceFor(v, labels, locale))
+  // Paired with its category so the render below has a stable key
+  // (`v.category`) instead of the array index — a category is never
+  // reordered or duplicated within one snapshot.
+  const sentences = snapshot.categories.map((v) => ({
+    category: v.category,
+    text: sentenceFor(v, labels, locale),
+  }))
   const t = createTranslator({ locale, messages: locale === 'de' ? de : en })
   const stat = t('share_verdict.card_stat', { deals: snapshot.totalDeals, stores: activeStores })
 
@@ -103,9 +109,9 @@ export async function GET(request: Request) {
           gap: 8,
         }}
       >
-        {sentences.map((s, i) => (
+        {sentences.map(({ category, text }) => (
           <div
-            key={`${s}-${i}`}
+            key={category}
             style={{
               fontSize: 64,
               fontWeight: 600,
@@ -113,7 +119,7 @@ export async function GET(request: Request) {
               letterSpacing: '-0.02em',
             }}
           >
-            {s}
+            {text}
           </div>
         ))}
       </div>
@@ -151,7 +157,22 @@ export async function GET(request: Request) {
         ))}
       </div>
     </div>,
-    { ...SIZE, fonts },
+    {
+      ...SIZE,
+      fonts,
+      // SF-6, docs/reviews/2026-09-28-review-stale-expired-deals.md:
+      // ImageResponse defaults to `cache-control: public, immutable,
+      // no-transform, max-age=31536000` (node_modules/next/dist/compiled/
+      // @vercel/og/index.node.js) when a route doesn't override it. This URL
+      // never changes (no `d=` — see the ADR ruling), so an unoverridden
+      // default would let a browser or proxy keep one day's verdict image
+      // for a year. `s-maxage`/`stale-while-revalidate` still let a CDN
+      // serve a cached copy under real traffic; `max-age=0` stops a
+      // BROWSER from doing the same past the next request.
+      headers: {
+        'cache-control': 'public, max-age=0, s-maxage=900, stale-while-revalidate=60',
+      },
+    },
   )
 }
 

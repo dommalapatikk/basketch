@@ -1,17 +1,15 @@
-import { createAnonClient } from '@/lib/supabase/anon-server'
+import { ACTIVE_CATEGORIES } from '@/lib/category-rules'
 import { type CropRegion, createCropRegion } from '@/lib/domain/crop-region'
 import { createPriceBasis } from '@/lib/domain/price-basis'
 import { isOk } from '@/lib/domain/result'
 import { parseStorageState } from '@/lib/domain/storage-state'
-import { todayInZurich } from '@/lib/domain/validity'
 import { STORE_KEYS, type StoreKey } from '@/lib/store-tokens'
-import type { Deal, DealCategory, SnapshotInput, WeeklySnapshot } from '@/lib/types'
-
-import { ACTIVE_CATEGORIES } from '@/lib/category-rules'
+import { createAnonClient } from '@/lib/supabase/anon-server'
+import type { Deal, DealCategory, WeeklySnapshot } from '@/lib/types'
 
 import { computeAllVerdicts } from '../verdict/algorithm'
 
-import type { DealsProvider } from './provider.contract'
+import type { DealsProvider, ProviderSnapshotInput } from './provider.contract'
 
 export type DealRow = {
   id: string
@@ -173,16 +171,90 @@ function toCropRegion(row: DealRow): CropRegion | null {
   return region.value
 }
 
-class SupabaseDealsProvider implements DealsProvider {
-  async getWeeklySnapshot(input: SnapshotInput = {}): Promise<WeeklySnapshot> {
-    const region = input.region ?? 'all'
-    const locale = input.locale ?? 'de'
-    // The Zurich calendar date, not UTC — see lib/domain/validity.ts. Used
-    // both as the `.gte('valid_to', …)` safety net below AND as the "today"
-    // every in-effect check downstream (verdicts here, buildSections and
-    // onlyStoreSubCategories client-side) must agree on.
-    const today = todayInZurich()
+/**
+ * N-1, docs/reviews/2026-09-28-review-stale-expired-deals.md: `isDegraded`
+ * instead of an `Error` value. React Flight turns an `Error` into an opaque
+ * `"$Z"` in production (react-server-dom-webpack-server.node.production.js),
+ * so on a cache hit the message was already gone — and only `Boolean(error)`
+ * was ever read downstream, never the message itself. The real error is
+ * still logged, once, right where it happens, below.
+ */
+export type FetchDealRowsResult = { deals: Deal[]; isDegraded: boolean }
 
+/**
+ * Pure, cheap assembly of a `WeeklySnapshot` from an already-fetched `Deal[]`
+ * — counts, per-store summaries and category verdicts. Deliberately kept
+ * OUTSIDE any cache boundary (architect RCA docs/rca/2026-09-27-architect-
+ * stale-expired-deals.md §6 D1): the only genuinely expensive, IO-bound step
+ * is the Supabase fetch (`fetchDealRows` below), so that is what gets cached,
+ * keyed by the Zurich date. Counts/verdicts are recomputed on every request —
+ * they are pure functions of (deals, today) and cost microseconds, so caching
+ * them would only add a second, redundant place a stale `today` could hide.
+ */
+export function computeSnapshotFromDeals(
+  deals: Deal[],
+  params: { region: string; locale: string; today: string; isDegraded?: boolean },
+): WeeklySnapshot {
+  const { region, locale, today, isDegraded } = params
+
+  if (isDegraded) {
+    // Fail soft: return an empty snapshot so the page can render a
+    // stale-data banner. `updatedAt: new Date().toISOString()` here is safe
+    // — this function is never called from inside a cached scope — but it
+    // still used to sit inside the one code path that WAS cached (pre-2026-
+    // 09-27), where a snapshot that failed completely read as "0 deals,
+    // updated just now", passing StaleBanner's own age check and hiding a
+    // total outage behind a silently empty page (code review of 422bd51/F1).
+    // `isDegraded: true` is the explicit signal, independent of `updatedAt`'s
+    // age — an outage a moment old is still an outage.
+    return {
+      updatedAt: new Date().toISOString(),
+      totalDeals: 0,
+      region,
+      locale,
+      stores: [],
+      categories: ACTIVE_CATEGORIES.map((category) => ({
+        category,
+        state: 'no-data' as const,
+        winner: null,
+        avgDiscountPct: 0,
+        dealCount: 0,
+        storeScores: [],
+      })),
+      deals: [],
+      today,
+      isDegraded: true,
+    }
+  }
+
+  const storeCounts = new Map<StoreKey, number>()
+  let latestUpdate = ''
+  for (const d of deals) {
+    storeCounts.set(d.store, (storeCounts.get(d.store) ?? 0) + 1)
+    if (d.updatedAt > latestUpdate) latestUpdate = d.updatedAt
+  }
+
+  return {
+    updatedAt: latestUpdate || new Date().toISOString(),
+    totalDeals: deals.length,
+    region,
+    locale,
+    stores: STORE_KEYS.map((store) => ({ store, dealCount: storeCounts.get(store) ?? 0 })),
+    categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES, today),
+    deals,
+    today,
+  }
+}
+
+class SupabaseDealsProvider implements DealsProvider {
+  /**
+   * The one IO-bound, cacheable step: page through Supabase and map rows to
+   * `Deal`s for a given Zurich date. `today` is REQUIRED, never defaulted —
+   * this is the function `server/data/snapshot.ts` wraps in `'use cache'`
+   * keyed on it, so it must never read the wall clock itself (RCA §3.2: a
+   * clock read inside a cached function is invisible to the cache key).
+   */
+  async fetchDealRows({ today }: { today: string }): Promise<FetchDealRowsResult> {
     const supabase = createAnonClient()
     // Pull active, non-expired rows in pages of 1000 (PostgREST max).
     // Region filtering is post-fetch for now; a canton column can replace this
@@ -210,33 +282,8 @@ class SupabaseDealsProvider implements DealsProvider {
     }
 
     if (error) {
-      // Fail soft: return an empty snapshot so the page can render a
-      // stale-data banner. `updatedAt: new Date().toISOString()` used to sit
-      // here — a snapshot that failed completely read as "0 deals, updated
-      // just now", which passed StaleBanner's own age check and hid a total
-      // outage behind a silently empty page (code review of 422bd51/F1: a
-      // live Playwright run against exactly this state reported green).
-      // `isDegraded: true` is the explicit signal now, independent of
-      // `updatedAt`'s age — an outage a moment old is still an outage.
       console.error('[supabase-provider] deals query failed', { error: error.message })
-      return {
-        updatedAt: new Date().toISOString(),
-        totalDeals: 0,
-        region,
-        locale,
-        stores: [],
-        categories: ACTIVE_CATEGORIES.map((category) => ({
-          category,
-          state: 'no-data' as const,
-          winner: null,
-          avgDiscountPct: 0,
-          dealCount: 0,
-          storeScores: [],
-        })),
-        deals: [],
-        today,
-        isDegraded: true,
-      }
+      return { deals: [], isDegraded: true }
     }
 
     const deals: Deal[] = []
@@ -244,25 +291,32 @@ class SupabaseDealsProvider implements DealsProvider {
       const mapped = mapRow(row)
       if (mapped) deals.push(mapped)
     }
+    return { deals, isDegraded: false }
+  }
 
-    const storeCounts = new Map<StoreKey, number>()
-    let latestUpdate = ''
-    for (const d of deals) {
-      storeCounts.set(d.store, (storeCounts.get(d.store) ?? 0) + 1)
-      if (d.updatedAt > latestUpdate) latestUpdate = d.updatedAt
-    }
+  /**
+   * Orchestrates `fetchDealRows` + `computeSnapshotFromDeals` for callers
+   * that want a full snapshot directly (tests, and any future non-cached
+   * caller) without going through `server/data/snapshot.ts`'s cache
+   * boundary.
+   *
+   * SF-3, docs/reviews/2026-09-28-review-stale-expired-deals.md: `today` is
+   * REQUIRED (`ProviderSnapshotInput`) — this method used to default it from
+   * `todayInZurich()` when a caller omitted it, which is exactly the shape a
+   * future `'use cache'` wrapper around this method would silently inherit,
+   * reintroducing the 2026-09-27 defect one level deeper (the review's own
+   * comparison: "same shape as M9"). The one permitted clock read stays in
+   * `server/data/snapshot.ts`'s uncached `getWeeklySnapshot`, which always
+   * supplies `today` explicitly.
+   */
+  async getWeeklySnapshot(input: ProviderSnapshotInput): Promise<WeeklySnapshot> {
+    const region = input.region ?? 'all'
+    const locale = input.locale ?? 'de'
+    const { today } = input
 
-    return {
-      updatedAt: latestUpdate || new Date().toISOString(),
-      totalDeals: deals.length,
-      region,
-      locale,
-      stores: STORE_KEYS.map((store) => ({ store, dealCount: storeCounts.get(store) ?? 0 })),
-      categories: computeAllVerdicts(deals, ACTIVE_CATEGORIES, today),
-      deals,
-      today,
-    }
+    const { deals, isDegraded } = await this.fetchDealRows({ today })
+    return computeSnapshotFromDeals(deals, { region, locale, today, isDegraded })
   }
 }
 
-export const supabaseDealsProvider: DealsProvider = new SupabaseDealsProvider()
+export const supabaseDealsProvider = new SupabaseDealsProvider()

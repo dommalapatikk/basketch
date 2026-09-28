@@ -120,7 +120,8 @@
     "clear": "Clear list",
     "empty_title": "Your list is empty",
     "empty_body": "Add items from the Deals page and share them with a shopping buddy.",
-    "browse_deals": "Browse deals"
+    "browse_deals": "Browse deals",
+    "expired_label": "Expired"
   },
   "errors": {
     "not_found_title": "Page not found",
@@ -212,5 +213,9 @@
     "share_text": "This week's grocery deals across 7 Swiss stores, side by side.",
     "preview_card": "Preview the share card",
     "card_stat": "{deals, plural, one {# deal} other {# deals}} across {stores, plural, one {# Swiss store} other {# Swiss stores}}"
+  },
+  "midnight_guard": {
+    "refresh": "It's a new day — today's deals may have changed.",
+    "refresh_cta": "Refresh"
   }
 }

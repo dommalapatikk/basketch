@@ -35,6 +35,7 @@ const renderCard = (over: Partial<DealCardProps> = {}) => {
     savingsPct: 26,
     href: 'https://coop.ch/x',
     validFrom: '2026-04-01',
+    validTo: '2026-04-08',
     priceBasis: { kind: 'everyone' },
     ...over,
   }

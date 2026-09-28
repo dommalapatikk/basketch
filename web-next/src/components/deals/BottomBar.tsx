@@ -2,14 +2,12 @@
 
 import { Share2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-
+import { MyListButton } from '@/components/list/MyListButton'
 import type { DealsFilters } from '@/lib/filters'
 import { createShareTarget } from '@/lib/share-target'
 import { useOrigin } from '@/lib/use-origin'
 import type { DealFacet } from '@/server/data/filter-deals'
-import { useListStore } from '@/stores/list-store'
-
-import { MyListButton } from '@/components/list/MyListButton'
+import { useActiveListItems } from '@/stores/list-store'
 
 import { FilterSheet } from './FilterSheet'
 
@@ -26,7 +24,12 @@ type Props = {
 // list store has ≥ 1 item.
 export function BottomBar({ filters, onChange, facets, matchedCount, locale }: Props) {
   const t = useTranslations('deals')
-  const items = useListStore((s) => s.items)
+  // MF-2, docs/reviews/2026-09-28-review-stale-expired-deals.md: this used to
+  // read the raw `items` slice and share it as-is, so an item whose validTo
+  // had already passed still went out in the WhatsApp/email text — the same
+  // rule ListDrawer applies to its own totals, just not shared with this
+  // component. `useActiveListItems` is the one place that rule now lives.
+  const items = useActiveListItems()
 
   // The destination is decided during RENDER, not inside a click handler. The
   // previous version assigned `e.currentTarget.href` on click, which meant
