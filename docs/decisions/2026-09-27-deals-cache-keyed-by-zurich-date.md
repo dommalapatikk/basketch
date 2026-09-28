@@ -45,5 +45,20 @@ written by the pipeline sweep; "expired" is never stored.
 - One small uncached function call per homepage view plus a streamed data section — within the
   free tier at 10–50 users.
 - Rule: **never read the clock inside `'use cache'`** — pass the date in as an argument.
-- Open: the `/card` link-preview image in `[locale]/layout.tsx` metadata still has no date
-  parameter (link-preview crawlers may cache it); the share button's `/card` link carries `d=`.
+- **SF-6, resolved 2026-09-28 (code review of 4c92d48).** The `/card` link in `[locale]/layout.tsx`
+  metadata (`generateMetadata`) still carries no `d=` — **on purpose, not an oversight, and this
+  stays closed.** `generateMetadata` output is part of the prerendered head: a date value read
+  there would be frozen at build/ISR time, which is exactly the defect class D1–D3 remove. Reading
+  it per request would force a clock read into metadata under Cache Components, the same mistake
+  D6 exists to catch elsewhere. The share button's own `/card?…&d=` link is the one place a date
+  belongs, because `ShareVerdictButton` reads `snapshot.today` at request time, not at build time.
+  The actual risk was somewhere else: `ImageResponse` (`next/og`) defaults to
+  `cache-control: public, immutable, no-transform, max-age=31536000` when a route doesn't override
+  it, and `/card` didn't — so a browser or proxy honouring that header could keep one day's verdict
+  image for a year, under a URL that never changes. Fixed in `app/card/route.tsx`: an explicit
+  `cache-control: public, max-age=0, s-maxage=900, stale-while-revalidate=60` on the `ImageResponse`
+  itself (`route.test.ts` pins it, asserting the 1-year default is gone). **Accepted, not fixed:**
+  third-party link-preview caches (WhatsApp, LinkedIn, iMessage) fetch and cache `/card` on their
+  own infrastructure, on their own schedule, outside our `Cache-Control` header's reach entirely —
+  a stale preview image on a message someone already sent is a known, accepted cost of link
+  previews generally, not a regression of this fix.
