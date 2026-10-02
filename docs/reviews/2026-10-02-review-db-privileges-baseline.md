@@ -136,3 +136,27 @@ Checked every added line, the PR body and the commit message for exploit narrati
 
 Mutation probes re-run (temporary files, deleted): a `20261002120000_probe.sql` with a public INSERT grant, a column-level INSERT grant, a policy with no FOR/TO, and a quoted-name INSERT policy: all four flagged. A copy of `20260427` placed after the baseline: both `user_interest` write policies flagged. A copy of `shared/002`: nothing flagged (SELECT policy; EXECUTE grants are out of scope by design).
 `pipeline`: 74 files / 1531 tests pass; `tsc --noEmit` exit 0. Check SQL parses (pglast).
+
+## Re-review round 1 (code-reviewer, head `471da32`, diff `dd81944..471da32`)
+
+This round covers only M-1, M-2, S-2, S-3, S-4, S-5 and the postgres-only note. S-1 is out of scope for this PR (pending).
+
+| Finding | Verdict | Evidence |
+|---|---|---|
+| M-1 | **Closed** | Probes flagged: `CREATE POLICY p ON public.foo USING (true);`; lowercase, multi-line `create policy p on foo using (true);`; `FOR all TO public`. A copy of `20260427` placed after the baseline flags both `user_interest` write policies (`FOR INSERT` / `FOR UPDATE`, no `TO`). |
+| M-2 | **Closed** | Probes `20261002120000_probe.sql` (public INSERT grant) and `20261002000001_probe.sql` (no-TO INSERT policy) both fail the test. Two new tests protect the frozen list: it has no stale names, and the baseline is not on it. |
+| S-2 | **Closed** | `"inserts to everyone" ON foo FOR INSERT` is flagged (it was missed before). `"writes to pipeline" ON public.foo FOR ALL TO service_role` passes (it was a false positive before). `TO service_role, anon` (mixed list, multi-line `TO`) is flagged. `AS RESTRICTIVE FOR SELECT TO anon` passes. |
+| S-3 | **Closed** | `GRANT INSERT (name) ON public.foo TO anon` and `GRANT UPDATE (a, b) ... TO authenticated WITH GRANT OPTION` are flagged; `GRANT SELECT (name) ...` passes. In the check, A-3, A-4 and A-6 use `has_any_column_privilege` for the privileges that can exist per column (SELECT, INSERT, UPDATE, REFERENCES) and `has_table_privilege` for the table-only ones (DELETE, TRUNCATE, TRIGGER). That split is correct. |
+| S-4 | **Closed** | A-8 now includes `a.grantee = 0` in both the `actual` and `ok` expressions, and they agree. |
+| S-5 | **Closed** | A-3 and A-4 include REFERENCES (column-aware) and TRIGGER, and the invariant labels are updated. |
+| postgres-only note | **Closed** | A comment on `fn_defaults` names the scope and says A-1 is the backstop. |
+
+**Residual, non-blocking (NICE, not a re-opened finding):** a *quoted* role name is still missed by both scanners. `GRANT INSERT ON public.foo TO "anon";` and `... FOR INSERT TO service_role, "anon" ...` both pass the test, because the role list is cut at the first `"`. Postgres does accept quoted role names, but nobody writes them that way in practice, and live check rows A-3 and A-5 catch the result. A one-line fix is available: strip quotes inside the role list instead of splitting on them. It is not required to approve this PR.
+
+Re-verified: `cd pipeline && npm test` gives 74 files and 1531 tests passing (exit 0); folder-local `tsc --noEmit` exits 0. All probe files were deleted afterwards. No false positive on the existing migrations.
+
+Process note: during this re-review, an untracked file appeared in the shared worktree, `supabase/migrations/20261002_least_privilege_default_tables.sql` (presumably the pending S-1 work). It was not reviewed and is not part of this commit. It sits outside the frozen list, so the guard scans it; the suite passed with it present.
+
+### Re-review verdict
+
+**Approved. Zero open MUST-FIX or SHOULD-FIX findings for this PR.** S-1 is tracked separately.
