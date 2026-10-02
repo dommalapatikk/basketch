@@ -116,9 +116,11 @@ default_write_grants AS (
 -- so older servers report nothing.
 maintain_rels AS (
   SELECT relname FROM rels
-  WHERE current_setting('server_version_num')::int >= 170000
-    AND (has_table_privilege('anon', oid, 'MAINTAIN')
-      OR has_table_privilege('authenticated', oid, 'MAINTAIN'))
+  -- CASE, not AND: only CASE guarantees the version test runs first.
+  WHERE CASE WHEN current_setting('server_version_num')::int >= 170000
+             THEN has_table_privilege('anon', oid, 'MAINTAIN')
+               OR has_table_privilege('authenticated', oid, 'MAINTAIN')
+             ELSE false END
 ),
 checks(check_id, invariant, expected, actual, ok) AS (
 
