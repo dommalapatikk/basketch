@@ -126,3 +126,30 @@ This change does not need tests of its own. I checked behaviour by running it. W
 **NITs:** 5 (absolute-SF guard), 6 (pin vitest), 7 (web-next `coverage.include`), `sonar.python.version`, check name, public-repo note.
 
 Re-review scope after fixes: only items 1-4 and 8-10.
+
+---
+
+## Re-review: commit af75c67 (diff `688f458..af75c67`)
+
+**Scope:** only items 1-4, 8-10 and the nits that were taken. Re-review date: 2026-10-02.
+
+| # | Item | Status | How I verified it |
+|---|---|---|---|
+| 1 | MUST-FIX: main and test sets must not overlap | **Closed** | I ran the properties file through a script that applies the `sonar.sources/tests/exclusions/test.inclusions/test.exclusions` patterns (Ant-style, after joining the `\` line continuations) to every file in `git ls-files`. Result: **206 main files, 135 test files, 0 overlap**, and no `*.test.*`, `*.spec.*` or `test_*.py` file in the main set. This matches the builder's numbers. The test set correctly contains `test_ocr.py`, `pipeline/test-support/*`, `web-next/e2e/*.spec.ts` and `web-next/src/test/setup.ts`. The comment is now accurate and says to keep both lists in sync. |
+| 2 | `sonar.test.exclusions` | **Closed** | `**/archive/**,**/node_modules/**,**/__fixtures__/**,**/fixtures/**`. These are part of the simulation above. |
+| 3 | Least privilege | **Closed** | Workflow-level `permissions: contents: read` (YAML parsed: `{"contents"=>"read"}`). I searched `ci.yml` for `GITHUB_TOKEN`, `github-script`, `gh`, and any `pull-requests:` or `checks:` permission: none found, so no existing job needs more than read access. |
+| 4 | Pin the scan action by SHA | **Closed** | `@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0`. Re-checked with `git ls-remote`: `refs/tags/v8.3.0` is a lightweight tag pointing at exactly this commit. |
+| 8 | Runbook "new code" setting | **Closed** | A single choice, "Number of days: 30", with the reason, and a note that PR gates always judge the PR's own diff. |
+| 9 | Runbook, under 20 lines | **Closed** | Paragraph added below the gate conditions. |
+| 10 | Runbook, red `DealsClient.test.tsx` | **Closed** | Named with its full path in step 9 (fix it before `web-next · Vitest` becomes required) and in the troubleshooting table. |
+| NIT 5 | `SF:` guard for absolute paths | **Closed** | Tested `sed "/^SF:\//!s|^SF:|SF:web-next/|"` on sample lcov: `SF:src/a.ts` → `SF:web-next/src/a.ts`, `SF:/abs/b.ts` unchanged. The `/re/!s` form works in both GNU and BSD sed. |
+| NIT | `sonar.python.version=3.12` | **Closed, correct value** | `.github/workflows/pipeline.yml:73-75` runs `actions/setup-python@v5` with `python-version: '3.12'`, and that is the runtime that imports `rapidocr_onnxruntime` for `ocr.py`. You can drop the "(confirm if it targets another)" in the comment. |
+| NIT | Check name, public-repo note | **Closed** | Both in the runbook. |
+| NIT 6 | Pin `vitest` exactly in pipeline | Not taken (still `^3.1.0`) | Non-blocking. Carried forward as a known concern. |
+| NIT 7 | web-next `coverage.include` | Not taken | Non-blocking: the gate result is unaffected. Carried forward. |
+
+The fixes introduced no new problems. The surrounding workflow lines are unchanged apart from the `sed` expression and the `uses:` line.
+
+### Re-review verdict: **Approved**. Zero open MUST-FIX and zero open SHOULD-FIX.
+
+What remains outside this review: PM setup steps 1-8 in the runbook (keys, token, Automatic Analysis off), the first real scan on a PR to confirm the keys, and fixing `DealsClient.test.tsx` before branch protection is turned on.
