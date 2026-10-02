@@ -5,7 +5,7 @@ Built with Next.js 16 (frontend, in `web-next/`), TypeScript + Python (pipeline)
 The legacy React + Vite frontend has been archived to `archive/web-vite/` — see `archive/web-vite/RETIRED.md`. Do not modify.
 
 > **Current direction (2026-09).** The data source is being replaced: aktionis.ch is dropped for six of seven retailers, offers come **direct from each retailer**, and categorisation moves to our own model. Design method is **domain-driven**, development is **test-driven**, structure is **modular**.
-> **Exception: Coop is still collected via aktionis.ch** (`createCoopAktionisSource`, `pipeline/collection/infrastructure/coop-aktionis-source.ts`). This is deliberate, not a leftover — coop.ch sits behind DataDome (see "Legal Constraints" below: an honest client is blocked there, and that is a refusal, not something to work around), and Coop's own epaper covers only ~11% of what aktionis carries. Decision recorded 2026-09-09; reconfirmed in the 2026-09-25 tech-lead cross-review (`docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md` §2.6).
+> **Exception: Coop is still collected via aktionis.ch** (`createCoopAktionisSource`, `pipeline/collection/infrastructure/coop/coop-aktionis-source.ts`). This is deliberate, not a leftover — coop.ch sits behind DataDome (see "Legal Constraints" below: an honest client is blocked there, and that is a refusal, not something to work around), and Coop's own epaper covers only ~11% of what aktionis carries. Decision recorded 2026-09-09; reconfirmed in the 2026-09-25 tech-lead cross-review (`docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md` §2.6).
 > **Read `docs/collection-module-design.md` and `docs/data-source-research-2026-09-07.md` before touching collection code.** They carry every verified endpoint, the legal position, and the per-field source matrix.
 
 ## Folder Structure (Flat -- No npm Workspaces)
@@ -13,7 +13,6 @@ The legacy React + Vite frontend has been archived to `archive/web-vite/` — se
 ```
 basketch/
 ├── pipeline/              # Data pipeline (TS + Python). Own package.json.
-│   ├── archive/migros/    # RETIRED direct Migros integration — do not revive (see legal note below)
 │   ├── product-metadata.ts # Brand/quantity/organic extraction (pure function)
 │   ├── product-resolve.ts # Product identity resolution (find/create in products table)
 │   ├── categorize.ts      # Category + sub-category assignment
@@ -29,9 +28,9 @@ basketch/
 ├── shared/                # Shared types. HAS its own package.json + vitest suite.
 │   ├── types.ts           # All types + BROWSE_CATEGORIES constant
 │   └── category-rules.ts  # Category + sub-category keyword rules
-├── supabase/migrations/   # SQL migrations (latest: 20260427_v3_concept_layer.sql)
+├── supabase/migrations/   # SQL migrations — README.md has apply order + access model
 ├── docs/                  # PM + architecture documentation
-└── .github/workflows/     # pipeline.yml (staggered weekly cron)
+└── .github/workflows/     # pipeline.yml (Mon/Tue/Thu 05:00 UTC), ci.yml (PR checks)
 ```
 
 Import shared types with a **relative path**: `import { Deal } from '../shared/types'`
@@ -41,9 +40,9 @@ Import shared types with a **relative path**: `import { Deal } from '../shared/t
 > Every existing pipeline module uses relative paths. Keep the alias for editor tooling; do not
 > rely on it in code that executes.
 
-### Planned: collection module (modular + DDD)
+### Collection module (`pipeline/collection/`, modular + DDD)
 
-Per `docs/collection-module-design.md`, the new module is layered by **import direction**:
+Per `docs/collection-module-design.md`, the module is layered by **import direction**:
 
 ```
 <module>/
@@ -86,7 +85,6 @@ Named exports only (no default exports). Union types over enums.
 - **JSON output from Python uses camelCase** to match TypeScript interfaces.
 - **Store brand colours are DATA, not UI** — dot, pill and 3px rail only, **never as backgrounds**. Canonical values live in `web-next/src/lib/store-tokens.ts` (`STORE_BRAND`); do not hardcode hexes elsewhere.
 - **WCAG 2.1 AA:** 44px touch targets, focus-visible rings, semantic HTML, no colour-only information.
-- **Lazy-load html2canvas** via dynamic `import()` on button click. Never in the main bundle.
 
 ### Domain-Driven Design (approved method)
 
@@ -227,7 +225,6 @@ NEXT     -> Move to next module
 - Do NOT skip the code-reviewer agent after building a module.
 - Do NOT duplicate types from `shared/types.ts`. Import them.
 - Do NOT use default exports (except page components if the router requires it).
-- Do NOT import html2canvas at the top of a file. Lazy-load via `import()` on user action.
 - Do NOT hardcode store brand hexes — import from `store-tokens.ts`. Brand colour is never a background.
 - Do NOT omit the date filter safety net (`.gte('valid_to', today)`) on deal queries.
 - Do NOT read the clock (`todayInZurich()`, `Date.now()`) inside a `'use cache'` function — pass the Zurich date in as an argument so it is part of the cache key (`docs/decisions/2026-09-27-deals-cache-keyed-by-zurich-date.md`).
@@ -235,11 +232,11 @@ NEXT     -> Move to next module
 - Do NOT let retailer field names into the domain layer.
 - Do NOT compute a discount for ALDI when no original price is printed — both fields stay null.
 - Do NOT publish a LIDL price without checking whether it is a Lidl Plus member price.
-- Do NOT revive `pipeline/archive/migros/` — see Legal Constraints.
+- Do NOT revive the retired direct Migros API integration (`migros-api-wrapper`) — see Legal Constraints.
 
 ## Agent Invocation Guide
 
-basketch has **19 agents** in `.claude/agents/`. Invoke with: `/agents/<agent-name>`
+basketch has **19 agents** in `.claude/agents/`. Ask for one by name ("use the builder agent"); `/agents` lists and edits them.
 (Requires Claude Code to have been launched from the basketch folder, otherwise project agents do not register.)
 
 | Agent | Model | When to use | What it does |
@@ -277,8 +274,8 @@ basketch has **19 agents** in `.claude/agents/`. Invoke with: `/agents/<agent-na
 - **Data source research (current):** `docs/data-source-research-2026-09-07.md` — endpoints, legal position, per-field source matrix
 - **Raw research evidence:** `docs/research-raw-2026-09-07/` — 11 verbatim agent reports
 - Builder pre-ship checklist: `docs/builder-checklist.md`
-- Architecture (v2.1): `docs/technical-architecture-v2.md`
+- Architecture (v2.0, 2026-10-02): `docs/technical-architecture.md`
 - Coding standards (v2.0): `docs/coding-standards.md`
-- PRD (v2.0): `docs/prd.md`
+- PRD (v4.0): `docs/prd.md`
 - Shared types: `shared/types.ts`
 - Store brand tokens: `web-next/src/lib/store-tokens.ts`

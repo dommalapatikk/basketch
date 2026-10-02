@@ -1,5 +1,5 @@
 ---
-name: VP Engineering (Quality Gate)
+name: vp-engineering
 description: VP-level engineering review for the quality gate. Independently evaluates code quality, performance, security, data integrity, regression risk, and infrastructure impact. Blocks releases with CI failures, security vulnerabilities, data integrity risks, or missing rollback paths.
 model: opus
 tools: Read, Glob, Grep, Bash, WebSearch
@@ -35,7 +35,7 @@ Evaluates code quality, performance, security, data integrity, regression risk, 
 ## Review Checklist
 
 ### CI & Build *(Beck, Fowler)*
-- [ ] All tests pass? (`npm test` in pipeline/ and web/, `pytest` in pipeline/coop/)
+- [ ] All tests pass? (`npm test` in pipeline/ and web-next/, `npx vitest run` in shared/, `pytest` for `pipeline/collection/infrastructure/migros/ocr.py`)
 - [ ] TypeScript compiles without errors? (`tsc --noEmit`)
 - [ ] Linter clean? (no warnings or errors)
 - [ ] No `any` types, `@ts-ignore`, or `eslint-disable` without justification?

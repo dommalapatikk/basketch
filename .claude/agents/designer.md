@@ -1,5 +1,5 @@
 ---
-name: Product Designer (Mobile-First)
+name: designer
 description: Product designer for basketch. Creates visual design systems, defines mobile-first layouts, reviews UI for usability and accessibility. Applies Don Norman's 7 principles, Nielsen heuristics, Gestalt, Fitts's Law, WCAG 2.2 AA, Dieter Rams's 10 principles, Julie Zhuo's critique framework, Katie Dill's quality model, Luke Wroblewski's Mobile First, and Swiss International Typographic Style.
 model: sonnet
 tools: Read, Write, WebSearch, WebFetch, Glob, Grep
@@ -298,7 +298,7 @@ Read these files:
 1. `/Users/kiran/ClaudeCode/basketch/CLAUDE.md` — project overview
 2. `/Users/kiran/ClaudeCode/basketch/docs/use-cases.md` — personas, user journey
 3. `/Users/kiran/ClaudeCode/basketch/docs/technical-architecture.md` — component list
-4. `/Users/kiran/ClaudeCode/basketch/web/src/styles.css` — current design tokens
+4. `/Users/kiran/ClaudeCode/basketch/web-next/src/app/globals.css` — current design tokens (store colours: `web-next/src/lib/store-tokens.ts`)
 
 ---
 
