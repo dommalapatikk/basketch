@@ -129,10 +129,12 @@ def ocr_tiled(ocr, img, rows=DEFAULT_ROWS, scale=DEFAULT_SCALE):
 def resolve_manifest_path(raw):
     """Returns the resolved manifest path, or raises ValueError.
 
-    The manifest is written by live-sources.ts into a fresh mkdtemp directory
-    under the OS temp dir. Anything else is refused: a regular `.json` file that
-    resolves (symlinks followed) to a place inside the temp dir. This keeps a
-    stray or hostile argv from making the script open an arbitrary file.
+    Guaranteed: the path is an existing regular `.json` file that resolves
+    (symlinks followed) to a place inside `tempfile.gettempdir()`. live-sources.ts
+    writes the manifest into a fresh mkdtemp directory under its os.tmpdir() and
+    passes TMPDIR to this process, so both sides agree on that directory.
+    NOT guaranteed: that the file's contents are well-formed (see
+    resolve_source_path for the sources) or that the temp dir is private to us.
     """
     path = Path(raw).resolve()
     allowed = Path(tempfile.gettempdir()).resolve()
@@ -141,6 +143,20 @@ def resolve_manifest_path(raw):
     if allowed not in path.parents:
         raise ValueError(f"--manifest must live inside the temp directory {allowed}, got: {path}")
     return path
+
+
+def resolve_source_path(raw, manifest_dir):
+    """Returns a manifest `source` resolved, or raises ValueError.
+
+    live-sources.ts writes every source as a local file path inside the
+    manifest's own directory (never a URL), so a source that resolves anywhere
+    else (absolute path elsewhere, `..`, a symlink out) is refused. The file
+    need not exist yet: a missing page is reported per page by process_entries.
+    """
+    path = Path(raw).resolve()
+    if manifest_dir not in path.parents:
+        raise ValueError(f"manifest source must be inside {manifest_dir}, got: {raw}")
+    return str(path)
 
 
 def build_manifest(argv):
@@ -163,7 +179,7 @@ def build_manifest(argv):
         path = resolve_manifest_path(argv[index])
         with open(path, encoding="utf-8") as f:
             entries = json.load(f)
-        return [(int(e["pageNumber"]), e["source"]) for e in entries]
+        return [(int(e["pageNumber"]), resolve_source_path(e["source"], path.parent)) for e in entries]
     sources = [a for a in argv if not a.startswith("--")]
     return list(enumerate(sources, start=1))
 

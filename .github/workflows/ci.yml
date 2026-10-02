@@ -92,7 +92,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install test dependencies
-        run: pip install pytest pytest-cov pillow numpy
+        run: pip install pytest==8.4.2 pytest-cov==7.0.0 pillow==11.3.0 numpy==2.3.3
 
       - name: Test ocr.py (with coverage)
         run: |

@@ -19,6 +19,7 @@ type Props = {
 }
 
 export function AvailabilityCellSheet({ cell, conceptName, onClose }: Props) {
+  const t = useTranslations('availability')
   useEffect(() => {
     function onEsc(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -38,7 +39,7 @@ export function AvailabilityCellSheet({ cell, conceptName, onClose }: Props) {
           have Escape (document-level) and the Close button in the panel. */}
       <button
         type="button"
-        aria-label="Close"
+        aria-label={t('help_close')}
         tabIndex={-1}
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-[rgba(11,11,15,0.45)]"
@@ -50,7 +51,7 @@ export function AvailabilityCellSheet({ cell, conceptName, onClose }: Props) {
           </h3>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t('help_close')}
             onClick={onClose}
             className="rounded-full p-1 text-[var(--color-ink-3)] hover:bg-[var(--color-page)]"
           >

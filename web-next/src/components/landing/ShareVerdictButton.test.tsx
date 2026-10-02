@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { NextIntlClientProvider } from 'next-intl'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import messages from '@/messages/en.json'
 
@@ -53,48 +53,82 @@ describe('ShareVerdictButton — /card URL carries the Zurich date', () => {
   })
 })
 
-describe('ShareVerdictButton — clipboard failure', () => {
+describe('ShareVerdictButton — share and clipboard outcomes', () => {
+  const unhandled = vi.fn()
+
+  beforeEach(() => {
+    unhandled.mockClear()
+    process.on('unhandledRejection', unhandled)
+  })
+
   afterEach(() => {
+    process.off('unhandledRejection', unhandled)
     vi.unstubAllGlobals()
   })
 
-  // Regression (Sonar S9383): copy() was fired without being awaited/handled and
-  // its catch swallowed the error silently, so a blocked clipboard looked like
-  // a button that did nothing.
-  it('tells the user when the clipboard write is rejected, with no unhandled rejection', async () => {
-    const unhandled = vi.fn()
-    process.on('unhandledRejection', unhandled)
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError')) },
-    })
-    await renderButton({ locale: 'de', today: '2026-09-27' })
+  function stubNavigator(extra: Record<string, unknown>) {
+    vi.stubGlobal('navigator', { ...navigator, ...extra })
+  }
 
+  async function clickShare() {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: messages.share_verdict.copy }))
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
+  }
 
-    expect(screen.getByRole('status').textContent).toBe(messages.share_verdict.copy_failed)
-    expect(screen.queryByText(messages.share_verdict.copied)).toBeNull()
-    expect(unhandled).not.toHaveBeenCalled()
-    process.off('unhandledRejection', unhandled)
-  })
-
-  it('shows "Copied" when the clipboard write succeeds', async () => {
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+  // Regression (Sonar S9383): copy() was fired without being awaited/handled and
+  // its catch swallowed the error silently, so a blocked clipboard looked like
+  // a button that did nothing.
+  it('tells the user when the clipboard write is rejected, with no unhandled rejection', async () => {
+    stubNavigator({
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError')) },
     })
     await renderButton({ locale: 'de', today: '2026-09-27' })
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: messages.share_verdict.copy }))
-    })
+    await clickShare()
 
-    expect(screen.getByRole('button', { name: messages.share_verdict.copied })).toBeTruthy()
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe(messages.share_verdict.copy_failed)
+    expect(unhandled).not.toHaveBeenCalled()
+  })
+
+  it('announces "Copied" in the live region when the clipboard write succeeds', async () => {
+    stubNavigator({ clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    await renderButton({ locale: 'de', today: '2026-09-27' })
+    // The live region exists before any action, so the later text change is announced.
+    expect(screen.getByRole('status').textContent).toBe('')
+
+    await clickShare()
+
+    expect(screen.getByRole('status').textContent).toBe(messages.share_verdict.copied)
+  })
+
+  // Regression (review M1): cancelling the native share sheet rejects with
+  // AbortError; it must not fall through to a surprise clipboard write.
+  it('does not copy or show an error when the user cancels the native share sheet', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const share = vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError'))
+    stubNavigator({ share, clipboard: { writeText } })
+    await renderButton({ locale: 'de', today: '2026-09-27' })
+
+    await clickShare()
+
+    expect(share).toHaveBeenCalledTimes(1)
+    expect(writeText).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
+
+  it('falls back to copy when native share fails for a reason other than cancel', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    const share = vi.fn().mockRejectedValue(new DOMException('nope', 'NotAllowedError'))
+    stubNavigator({ share, clipboard: { writeText } })
+    await renderButton({ locale: 'de', today: '2026-09-27' })
+
+    await clickShare()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('status').textContent).toBe(messages.share_verdict.copied)
   })
 })

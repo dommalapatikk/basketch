@@ -70,8 +70,10 @@ export function ShareVerdictButton({ locale, today }: Props) {
       try {
         await nav.share({ title: t('mail_subject'), text, url: homeUrl })
         return
-      } catch {
-        /* user cancelled or share unsupported — fall through to copy */
+      } catch (error) {
+        // The user dismissed the share sheet: that is a choice, not a failure.
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        // Share unsupported or failed for another reason — fall through to copy.
       }
     }
     await copy()
@@ -113,11 +115,11 @@ export function ShareVerdictButton({ locale, today }: Props) {
           <Copy className="h-4 w-4" aria-hidden /> {copied ? t('copied') : t('copy')}
         </button>
       </div>
-      {copyStatus === 'failed' && (
-        <p role="status" className="mt-3 text-sm text-[var(--color-ink-2)]">
-          {t('copy_failed')}
-        </p>
-      )}
+      {/* Always mounted: screen readers only announce changes to an existing live region. */}
+      <p role="status" className="mt-3 min-h-5 text-sm text-[var(--color-ink-2)]">
+        {copyStatus === 'copied' && t('copied')}
+        {copyStatus === 'failed' && t('copy_failed')}
+      </p>
       <p className="mt-3 text-xs text-[var(--color-ink-3)]">
         <a
           href={cardUrl}

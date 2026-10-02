@@ -95,9 +95,9 @@ def test_strips_overlap_so_a_seam_line_is_read_whole():
 def test_manifest_page_numbers_survive_a_skipped_page(tmp_path):
     # Pages 2 and 3 were not downloaded upstream — only 1, 4 and 5 arrived.
     manifest = [
-        {"pageNumber": 1, "source": "/tmp/page-1.jpg"},
-        {"pageNumber": 4, "source": "/tmp/page-4.jpg"},
-        {"pageNumber": 5, "source": "/tmp/page-5.jpg"},
+        {"pageNumber": 1, "source": str(tmp_path / "page-1.jpg")},
+        {"pageNumber": 4, "source": str(tmp_path / "page-4.jpg")},
+        {"pageNumber": 5, "source": str(tmp_path / "page-5.jpg")},
     ]
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -106,20 +106,23 @@ def test_manifest_page_numbers_survive_a_skipped_page(tmp_path):
 
     # NOT [(1, ...), (2, ...), (3, ...)] — argv-position numbering, the bug.
     assert entries == [
-        (1, "/tmp/page-1.jpg"),
-        (4, "/tmp/page-4.jpg"),
-        (5, "/tmp/page-5.jpg"),
+        (1, str((tmp_path / "page-1.jpg").resolve())),
+        (4, str((tmp_path / "page-4.jpg").resolve())),
+        (5, str((tmp_path / "page-5.jpg").resolve())),
     ]
 
 
 def test_manifest_preserves_file_order_even_when_page_numbers_are_out_of_order(tmp_path):
-    manifest = [{"pageNumber": 9, "source": "b"}, {"pageNumber": 2, "source": "a"}]
+    manifest = [
+        {"pageNumber": 9, "source": str(tmp_path / "b")},
+        {"pageNumber": 2, "source": str(tmp_path / "a")},
+    ]
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     entries = build_manifest(["--manifest", str(manifest_path)])
 
-    assert entries == [(9, "b"), (2, "a")]
+    assert entries == [(9, str((tmp_path / "b").resolve())), (2, str((tmp_path / "a").resolve()))]
 
 
 def test_positional_fallback_numbers_by_argv_position_ad_hoc_use_only():
@@ -256,3 +259,12 @@ def test_main_refuses_a_bad_manifest_with_exit_4_and_a_json_error(monkeypatch, c
 
     assert main() == 4
     assert ".json" in json.loads(capsys.readouterr().err)["error"]
+
+
+@pytest.mark.parametrize("source", ["/etc/passwd", "../outside.jpg", "https://example.com/p.jpg", "relative.jpg"])
+def test_manifest_source_outside_the_manifest_dir_is_rejected(tmp_path, source):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1, "source": source}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest source"):
+        build_manifest(["--manifest", str(manifest_path)])
