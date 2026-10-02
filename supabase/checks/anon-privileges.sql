@@ -10,8 +10,9 @@
 --
 -- WHAT A FAIL MEANS
 --   The access model declared in 20261002_least_privilege_baseline.sql has
---   drifted. Re-apply that migration (it is idempotent), then re-run this
---   check. If a FAIL persists, a new object needs an explicit decision:
+--   drifted. Re-apply that migration (it is idempotent) — or, for A-9 / A-10,
+--   20261002_least_privilege_default_tables.sql and
+--   20261002_least_privilege_revoke_maintain.sql — then re-run this check. If a FAIL persists, a new object needs an explicit decision:
 --     - a new table the site must read -> add an explicit SELECT policy and
 --       GRANT SELECT in its own migration;
 --     - a new RPC the site must call -> it must not be SECURITY DEFINER
@@ -23,6 +24,10 @@
 --   - Every base table in public has RLS enabled.
 --   - No SECURITY DEFINER function in public is executable by anon.
 --   - New functions are not executable by the public roles by default.
+--   - New tables and sequences are not writable by the public roles by
+--     default (20261002_least_privilege_default_tables.sql).
+--   - The public roles hold no MAINTAIN, on existing relations or by default
+--     (PostgreSQL 17+; 20261002_least_privilege_revoke_maintain.sql).
 --   - anon can read deals (the one relation the live site needs).
 --   - Service-only relations are not readable by anon.
 --   - The pipeline (service role) can still write.
@@ -91,6 +96,32 @@ fn_defaults AS (
   JOIN pg_roles r ON r.oid = d.defaclrole
   WHERE r.rolname = 'postgres' AND d.defaclobjtype = 'f'
 ),
+-- Write privileges that new tables ('r') and sequences ('S') created by
+-- postgres would hand to PUBLIC/anon/authenticated, from the global defaults
+-- (namespace 0) or the public schema's own. Built-in defaults grant nothing
+-- to these roles, so no row at all is also a pass.
+default_write_grants AS (
+  SELECT d.defaclobjtype::text || ':' || COALESCE(g.rolname::text, 'PUBLIC') || ':' || a.privilege_type AS grant_text
+  FROM pg_default_acl d
+  JOIN pg_roles r ON r.oid = d.defaclrole
+  CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+  LEFT JOIN pg_roles g ON g.oid = a.grantee
+  WHERE r.rolname = 'postgres'
+    AND d.defaclnamespace IN (0, 'public'::regnamespace)
+    AND (a.grantee = 0 OR g.rolname IN ('anon', 'authenticated'))
+    AND ((d.defaclobjtype = 'r' AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'))
+      OR (d.defaclobjtype = 'S' AND a.privilege_type IN ('USAGE', 'UPDATE')))
+),
+-- MAINTAIN exists from PostgreSQL 17; asking about it earlier is an error,
+-- so older servers report nothing.
+maintain_rels AS (
+  SELECT relname FROM rels
+  -- CASE, not AND: only CASE guarantees the version test runs first.
+  WHERE CASE WHEN current_setting('server_version_num')::int >= 170000
+             THEN has_table_privilege('anon', oid, 'MAINTAIN')
+               OR has_table_privilege('authenticated', oid, 'MAINTAIN')
+             ELSE false END
+),
 checks(check_id, invariant, expected, actual, ok) AS (
 
   SELECT 'A-1', 'SECURITY DEFINER functions in public executable by anon', '(none)',
@@ -149,6 +180,16 @@ checks(check_id, invariant, expected, actual, ok) AS (
                        AND a.privilege_type = 'EXECUTE'
                        AND (a.grantee = 0  -- 0 = PUBLIC
                         OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))))
+
+  UNION ALL
+  SELECT 'A-9', 'new tables/sequences writable or MAINTAINable by PUBLIC/anon/authenticated by default (r:=table, S:=sequence)', '(none)',
+         COALESCE((SELECT string_agg(grant_text, ', ' ORDER BY grant_text) FROM default_write_grants), '(none)'),
+         NOT EXISTS (SELECT 1 FROM default_write_grants)
+
+  UNION ALL
+  SELECT 'A-10', 'public relations where anon/authenticated hold MAINTAIN (PostgreSQL 17+)', '(none)',
+         COALESCE((SELECT string_agg(relname, ', ' ORDER BY relname) FROM maintain_rels), '(none)'),
+         NOT EXISTS (SELECT 1 FROM maintain_rels)
 
   -- ---------- the site and the pipeline still work ----------
   UNION ALL

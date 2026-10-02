@@ -114,6 +114,8 @@ describe('2026-09-25 §10: no pipeline write path touches the retired concept/sk
 // the public roles. SQL comments are stripped first so prose cannot trip it.
 describe('least-privilege baseline is declared in migrations', () => {
   const BASELINE = '20261002_least_privilege_baseline.sql'
+  const DEFAULT_TABLES = '20261002_least_privilege_default_tables.sql'
+  const REVOKE_MAINTAIN = '20261002_least_privilege_revoke_maintain.sql'
 
   // FROZEN: the migrations that existed before the baseline. Everything NOT on
   // this list is scanned — the baseline itself and every later file. A list,
@@ -146,10 +148,9 @@ describe('least-privilege baseline is declared in migrations', () => {
   const IDENT = String.raw`(?:"(?:[^"]|"")*"|[\w$%]+)`
 
   function sqlWithoutComments(src: string): string {
-    return src
-      .split('\n')
-      .map((l) => l.replace(/--.*$/, ''))
-      .join('\n')
+    // One left-to-right pass, so a `/*` inside a line comment (or a `--`
+    // inside a block comment) cannot swallow real SQL.
+    return src.replace(/\/\*[\s\S]*?\*\/|--[^\n]*/g, ' ')
   }
 
   function migrationNames(): string[] {
@@ -178,8 +179,9 @@ describe('least-privilege baseline is declared in migrations', () => {
       const privileges = (m[1] ?? '').replace(/\([^)]*\)/g, ' ')
       const grantees = (m[2] ?? '').replace(/\bWITH\s+GRANT\s+OPTION\b[\s\S]*$/i, '')
       // Stop at anything that is not part of a role list (e.g. the closing
-      // quote of an EXECUTE format('...') string).
-      const roleList = grantees.split(/['")]/)[0] ?? ''
+      // quote of an EXECUTE format('...') string). Double quotes are NOT a
+      // stop: they quote a role name (TO "anon") and namesAPublicRole strips them.
+      const roleList = grantees.split(/[')]/)[0] ?? ''
       if (/\b(INSERT|UPDATE|DELETE|TRUNCATE|ALL)\b/i.test(privileges) && namesAPublicRole(roleList)) {
         out.push(m[0].replace(/\s+/g, ' ').trim())
       }
@@ -197,7 +199,7 @@ describe('least-privilege baseline is declared in migrations', () => {
     for (const m of sql.matchAll(policy)) {
       const rest = m[1] ?? ''
       const clauses = rest.match(
-        /^\s*(?:AS\s+\w+\s+)?(?:FOR\s+(\w+)\s*)?(?:TO\s+([\s\S]+?))?\s*(?:\bUSING\b|\bWITH\s+CHECK\b|['";]|$)/i,
+        /^\s*(?:AS\s+\w+\s+)?(?:FOR\s+(\w+)\s*)?(?:TO\s+([\s\S]+?))?\s*(?:\bUSING\b|\bWITH\s+CHECK\b|[';]|$)/i,
       )
       const command = (clauses?.[1] ?? 'ALL').toUpperCase()
       const roles = clauses?.[2]
@@ -205,6 +207,63 @@ describe('least-privilege baseline is declared in migrations', () => {
       if (WRITE_COMMANDS.has(command) && appliesToPublicRole) out.push(m[0].replace(/\s+/g, ' ').trim())
     }
     return out
+  }
+
+  // Every table a scanned migration creates must have RLS enabled in that same
+  // file. Default privileges (20261002_least_privilege_default_tables.sql) keep
+  // a new table from being writable, but it is still readable by anon until RLS
+  // is on — so RLS is part of creating the table, not a later step.
+  function tableKey(schema: string | undefined, name: string): string {
+    const unquote = (id: string) => (id.startsWith('"') ? id.slice(1, -1).replace(/""/g, '"') : id.toLowerCase())
+    return `${schema === undefined ? 'public' : unquote(schema)}.${unquote(name)}`
+  }
+
+  function tablesWithoutRls(sql: string): string[] {
+    const created = new RegExp(
+      String.raw`CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(${IDENT})\s*\.\s*)?(${IDENT})`,
+      'gi',
+    )
+    const rlsOn = new RegExp(
+      String.raw`ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:(${IDENT})\s*\.\s*)?(${IDENT})\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY`,
+      'gi',
+    )
+    const rlsOff = new RegExp(rlsOn.source.replace('ENABLE', 'DISABLE'), 'gi')
+    const withRls = new Set([...sql.matchAll(rlsOn)].map((m) => tableKey(m[1], m[2] ?? '')))
+    for (const m of sql.matchAll(rlsOff)) withRls.delete(tableKey(m[1], m[2] ?? ''))
+    return [...sql.matchAll(created)].map((m) => tableKey(m[1], m[2] ?? '')).filter((t) => !withRls.has(t))
+  }
+
+  // Views and materialised views get no RLS of their own (a view owned by
+  // postgres reads its tables with the owner's rights unless security_invoker
+  // is set), and the defaults leave SELECT to anon on them. So every view a
+  // scanned migration creates must declare its access in the same file: an
+  // explicit GRANT or REVOKE on it, or (plain views) security_invoker.
+  function viewsWithoutDeclaredAccess(sql: string): string[] {
+    const created = new RegExp(
+      String.raw`CREATE\s+(?:OR\s+REPLACE\s+)?(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(${IDENT})\s*\.\s*)?(${IDENT})([^;]*)`,
+      'gi',
+    )
+    // Only a statement that decides whether the public roles can READ counts:
+    // GRANT/REVOKE of SELECT or ALL, naming anon/authenticated/PUBLIC. It may
+    // list several objects (GRANT SELECT ON a, b TO anon).
+    const access = /\b(?:GRANT|REVOKE)\s+([\w\s,()"]+?)\s+ON\s+(?:TABLE\s+)?([^;]+?)\s+(?:TO|FROM)\s+([^;]+)/gi
+    const object = new RegExp(String.raw`^\s*(?:(${IDENT})\s*\.\s*)?(${IDENT})\s*$`)
+    const declared = new Set<string>()
+    for (const m of sql.matchAll(access)) {
+      const privileges = (m[1] ?? '').replace(/\([^)]*\)/g, ' ')
+      const roleList = (m[3] ?? '').split(/[')]/)[0] ?? ''
+      if (!/\b(SELECT|ALL)\b/i.test(privileges) || !namesAPublicRole(roleList)) continue
+      for (const o of (m[2] ?? '').split(',')) {
+        const om = o.match(object)
+        if (om) declared.add(tableKey(om[1], om[2] ?? ''))
+      }
+    }
+    // security_invoker counts only when on: bare, or any value Postgres reads as true.
+    const invokerOn = /\bsecurity_invoker\b(?!\s*=\s*'?(?:false|off|no|f|n|0)\b)/i
+    return [...sql.matchAll(created)]
+      .filter((m) => !invokerOn.test(m[3] ?? ''))
+      .map((m) => tableKey(m[1], m[2] ?? ''))
+      .filter((v) => !declared.has(v))
   }
 
   it('the baseline migration exists and is not on the frozen pre-baseline list', () => {
@@ -239,6 +298,82 @@ describe('least-privilege baseline is declared in migrations', () => {
     expect(violations).toEqual([])
   })
 
+  it('every table created from the baseline on has RLS enabled in the same migration', () => {
+    const violations: string[] = []
+    for (const f of filesToScan(migrationNames())) {
+      const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+      for (const t of tablesWithoutRls(sql)) violations.push(`${f}: CREATE TABLE ${t} without ENABLE ROW LEVEL SECURITY`)
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('every view created from the baseline on declares its access in the same migration', () => {
+    const violations: string[] = []
+    for (const f of filesToScan(migrationNames())) {
+      const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+      for (const v of viewsWithoutDeclaredAccess(sql)) violations.push(`${f}: CREATE VIEW ${v} without GRANT/REVOKE or security_invoker`)
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('the view scanner catches the patterns it exists for (guards against a silently blind regex)', () => {
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v AS SELECT 1;')).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess('CREATE MATERIALIZED VIEW public.mv AS SELECT 1;')).toEqual(['public.mv'])
+    expect(viewsWithoutDeclaredAccess('CREATE OR REPLACE VIEW v AS SELECT 1; GRANT SELECT ON other TO anon;')).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v AS SELECT 1; REVOKE ALL ON public.v FROM anon;')).toEqual([])
+    expect(viewsWithoutDeclaredAccess('CREATE MATERIALIZED VIEW mv AS SELECT 1; GRANT SELECT ON TABLE mv TO anon;')).toEqual([])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker = true) AS SELECT 1;')).toEqual([])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker) AS SELECT 1;')).toEqual([])
+    expect(viewsWithoutDeclaredAccess('CREATE MATERIALIZED VIEW a AS SELECT 1; CREATE MATERIALIZED VIEW b AS SELECT 1; GRANT SELECT ON a, public.b TO anon;')).toEqual([])
+    // access statements that do not decide public READ access do not count
+    expect(viewsWithoutDeclaredAccess('CREATE MATERIALIZED VIEW mv AS SELECT 1; GRANT SELECT ON mv TO service_role;')).toEqual(['public.mv'])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v AS SELECT 1; REVOKE INSERT ON v FROM anon;')).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker = false) AS SELECT 1;')).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess("CREATE VIEW v WITH (security_invoker = 'off') AS SELECT 1;")).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker = f) AS SELECT 1;')).toEqual(['public.v'])
+  })
+
+  it('the default-privileges migration keeps new tables and sequences fail-closed', () => {
+    const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, DEFAULT_TABLES), 'utf8'))
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+INSERT,\s*UPDATE,\s*DELETE,\s*TRUNCATE,\s*REFERENCES,\s*TRIGGER\s+ON\s+TABLES\s+FROM\s+anon,\s*authenticated/i,
+    )
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+USAGE,\s*UPDATE\s+ON\s+SEQUENCES\s+FROM\s+anon,\s*authenticated/i,
+    )
+  })
+
+  it('the MAINTAIN migration revokes it from existing relations and new-table defaults, PG 17+ only', () => {
+    const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, REVOKE_MAINTAIN), 'utf8'))
+    expect(sql).toMatch(/server_version_num'\)::int\s*>=\s*170000/)
+    expect(sql).toMatch(/REVOKE\s+MAINTAIN\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+public\s+FROM\s+PUBLIC,\s*anon,\s*authenticated/i)
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+MAINTAIN\s+ON\s+TABLES\s+FROM\s+anon,\s*authenticated/i,
+    )
+  })
+
+  it('the RLS scanner catches the patterns it exists for (guards against a silently blind regex)', () => {
+    expect(tablesWithoutRls('CREATE TABLE foo (id int);')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE TABLE IF NOT EXISTS public.foo (id int);')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE UNLOGGED TABLE "Foo" (id int);')).toEqual(['public.Foo'])
+    // RLS on a different table does not count
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE bar ENABLE ROW LEVEL SECURITY;')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    expect(tablesWithoutRls('CREATE TABLE public.foo (id int); ALTER TABLE foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    expect(tablesWithoutRls('CREATE TABLE FOO (id int); ALTER TABLE IF EXISTS ONLY public.foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    // DISABLE is not ENABLE, and DISABLE after ENABLE undoes it
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE foo DISABLE ROW LEVEL SECURITY;')).toEqual(['public.foo'])
+    expect(
+      tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE foo ENABLE ROW LEVEL SECURITY; ALTER TABLE foo DISABLE ROW LEVEL SECURITY;'),
+    ).toEqual(['public.foo'])
+    // a `/*` inside a line comment must not hide the SQL after it
+    expect(publicWriteGrants(sqlWithoutComments('-- see dir/*.sql\nGRANT INSERT ON foo TO anon;\n-- end */\n'))).toHaveLength(1)
+    // RLS mentioned only in a block comment does not count
+    expect(tablesWithoutRls(sqlWithoutComments('CREATE TABLE foo (id int); /* ALTER TABLE foo ENABLE ROW LEVEL SECURITY; */'))).toEqual([
+      'public.foo',
+    ])
+  })
+
   it('scans a same-day migration whose name sorts before the baseline', () => {
     expect(filesToScan(['20260416_secure_favorites_rls.sql', '20261002120000_x.sql', BASELINE])).toEqual([
       '20261002120000_x.sql',
@@ -253,6 +388,12 @@ describe('least-privilege baseline is declared in migrations', () => {
     expect(publicWriteGrants('GRANT INSERT (name) ON public.foo TO anon;')).toHaveLength(1)
     expect(publicWriteGrants('GRANT UPDATE (a, b) ON public.foo TO PUBLIC;')).toHaveLength(1)
     expect(publicWriteGrants("EXECUTE format('GRANT DELETE ON %I TO anon', t);")).toHaveLength(1)
+    // a quoted role name is still that role
+    expect(publicWriteGrants('GRANT INSERT ON foo TO "anon";')).toHaveLength(1)
+    expect(publicWriteGrants('GRANT ALL ON foo TO service_role, "authenticated";')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR INSERT TO "anon" WITH CHECK (true);')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR INSERT TO service_role, "anon" WITH CHECK (true);')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR UPDATE TO "service_role", anon USING (true);')).toHaveLength(1)
     expect(publicWriteGrants('GRANT SELECT ON foo TO anon, authenticated;')).toHaveLength(0)
     expect(publicWriteGrants('GRANT SELECT (name) ON public.foo TO anon;')).toHaveLength(0)
     expect(publicWriteGrants('GRANT INSERT ON public.foo TO service_role;')).toHaveLength(0)

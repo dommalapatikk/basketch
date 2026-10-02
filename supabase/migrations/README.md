@@ -39,16 +39,18 @@ still applies.
 `supabase/checks/anon-privileges.sql` is a single read-only `SELECT` that
 returns one row per access-model invariant (anon never writes, every public
 base table has RLS, no `SECURITY DEFINER` function is executable by anon,
-new functions are not executable by the public roles by default, anon can
+new functions are not executable by the public roles by default, new tables
+and sequences are not writable by them by default, anon can
 read `deals`, the pipeline's service role can still write). Run it in the SQL
 editor after applying any migration, after any hand-run SQL, and after
 rebuilding a database from this folder. **Every row must be PASS.**
 
 If a row FAILs, re-apply `20261002_least_privilege_baseline.sql` (idempotent)
-and run the check again. If it still FAILs, a new object needs an explicit
+— or, for A-9 / A-10, `20261002_least_privilege_default_tables.sql` and
+`20261002_least_privilege_revoke_maintain.sql` — and run the check again. If it still FAILs, a new object needs an explicit
 access decision in its own migration (see "Access model" below).
 
-## Access model (declared in `20261002_least_privilege_baseline.sql`)
+## Access model (declared in `20261002_least_privilege_baseline.sql` and `20261002_least_privilege_default_tables.sql`)
 
 - The anon key only ever **reads**. No public role holds INSERT / UPDATE /
   DELETE / TRUNCATE on any relation in `public`.
@@ -59,6 +61,17 @@ access decision in its own migration (see "Access model" below).
   by default. A migration that adds an RPC the frontend must call has to
   `GRANT EXECUTE` on it explicitly — a permission error on a new RPC means
   that GRANT is missing.
+- New tables and sequences are **not writable** by `anon` or `authenticated`
+  by default (`20261002_least_privilege_default_tables.sql`). They can still
+  be read until RLS is on, so a migration that creates a table must enable RLS
+  on it in the same file — `pipeline/architecture.test.ts` fails otherwise.
+- The public roles hold no `MAINTAIN` (PostgreSQL 17+) on any relation, and
+  new tables do not get it by default
+  (`20261002_least_privilege_revoke_maintain.sql`).
+- Views and materialised views have no RLS of their own and stay readable by
+  anon by default, so a migration that creates one must declare its access in
+  the same file (an explicit `GRANT`/`REVOKE` on it, or `security_invoker` for
+  a plain view) — `pipeline/architecture.test.ts` fails otherwise.
 - The pipeline uses the service role (`BYPASSRLS`), so none of the above
   restricts it.
 
@@ -105,3 +118,5 @@ Some migrations also carry their own ordering constraints in their header
 | `20260917153000_attributes_version.sql`     | product_classification_cache.attributes_version |
 | `20260925000000_products_store_source_name_unique.sql` | UNIQUE index on products(store, source_name) |
 | `20261002_least_privilege_baseline.sql`     | Least-privilege baseline: RLS declared in migrations, no public write, legacy favourites RPC grants retired, fail-closed function defaults |
+| `20261002_least_privilege_default_tables.sql` | Fail-closed defaults for new tables and sequences: no write privilege for anon/authenticated |
+| `20261002_least_privilege_revoke_maintain.sql` | Removes MAINTAIN from anon/authenticated on every relation and from new-table defaults (PostgreSQL 17+) |
