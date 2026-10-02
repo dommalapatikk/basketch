@@ -1,95 +1,79 @@
 # basketch
 
-**Your groceries. Seven stores. One smart list.**
+**This week's grocery promotions from seven Swiss supermarkets, side by side.**
 
-> Pick your regular items. See which are on sale across Swiss supermarkets this week. Get a split shopping list that tells you exactly where to buy each. 45 seconds to set up — no app, no account, no login.
+basketch is a free web page that shows this week's promotions from Migros, Coop, LIDL, ALDI, Denner, SPAR and Volg. It compares the stores by category and lets you build a shopping list, grouped by store with an estimated total, that you can share. No app and no account are needed.
+
+Live: **https://basketch.vercel.app** (German by default, English at `/en`).
 
 ---
 
-## The Problem
+## What it does today
 
-Every weekend, Swiss shoppers face the same question: **"Which store has the best deals on the things I actually buy?"**
+- **Home.** For each of Fresh, Long-life and Household, names the store with the highest average discount this week, or says it is tied.
+- **Deals.** Every collected promotion, grouped by sub-category, with filters by type, category, storage and store, and a search.
+- **My list.** Add deals to a list that is kept only in your browser. The list is grouped by store, with a total per store and an estimated overall total. Share it by WhatsApp, email or link.
+- **Honest prices.** Each deal shows its validity dates and a link to where the price came from. Prices that apply only from a certain date or when buying several are labelled, and they never decide a winner.
 
-Existing deal sites show you 200+ promotions — but you only buy 15-20 items regularly. The problem isn't "which deals exist." It's **"which of MY products are cheaper where this week."**
+basketch compares weekly **promotions**, not regular shelf prices. It does not choose the cheapest store for each item. You pick the deals; routing each item to its cheapest store is a long-term goal that has not been built. Details, known gaps and open questions are in the [PRD](docs/prd.md).
 
-No tool in Switzerland answers that question today.
+## Where the data comes from
 
-## How basketch Works
+| Retailer | Source |
+|---|---|
+| Denner | denner.ch |
+| Volg | volg.ch weekly offers |
+| LIDL, ALDI, SPAR | the retailer's public weekly flyer |
+| Migros | the public weekly flyer (Issuu, Zurich edition), read with free OCR |
+| Coop | aktionis.ch, a public Swiss deal site, because coop.ch blocks automated access |
 
-```
-1. Pick a starter pack       →  Swiss Basics, Indian Kitchen, Mediterranean, or General Mix
-2. Customize your list       →  Remove what you don't buy, search and add what you do
-3. See your comparison       →  Which of YOUR items are on sale, at which store
-4. Get your split list       →  A per-store shopping list — one section per supermarket
-5. Save with email           →  Come back next week — your list is waiting
-```
+A scheduled pipeline collects all seven retailers on **Monday, Tuesday and Thursday**. Products are sorted into basketch's own category list by an AI model (Google Gemini, free tier), and a second AI model (via OpenRouter) checks the answers. basketch never works around a technical block.
 
-No app to install. No account to create. No password to remember.
+## Tech stack
 
-## What Makes It Different
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16 (App Router), TypeScript, Tailwind, next-intl (German and English) |
+| Pipeline | TypeScript, with Python for Migros OCR, on GitHub Actions |
+| Database | Supabase (PostgreSQL) |
+| Hosting | Vercel |
 
-| Feature | Rappn | Aktionis | Profital | Bring! | **basketch** |
-|---------|-------|----------|----------|--------|-------------|
-| Personal favorites tracking | Category-level | Wishlist | Stores only | Full lists | **Product-level** |
-| Cross-store comparison | Yes (5 stores) | No | No | No | **Yes (7 stores)** |
-| Split shopping list | No | No | No | No | **Yes** |
-| No app / no login needed | No (app) | Yes | No (app) | No (app) | **Yes** |
-| Starter pack onboarding | No | No | No | No | **Yes (45 sec)** |
+**Cost:** free tiers, plus one paid AI checker capped at USD 5 per month.
 
-## Tech Stack
-
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Frontend | React + Vite + TypeScript | Fast, mobile-first, no app needed |
-| Database | Supabase (PostgreSQL) | Free tier, REST API, row-level security |
-| Data Pipeline | Python + GitHub Actions | aktionis.ch (all stores), weekly cron |
-| Hosting | Vercel | Free, global CDN, auto-deploy from GitHub |
-
-**Total cost: CHF 0/month** — all free tiers.
-
-## Data Pipeline
-
-Every **Wednesday at 22:00 CET**, a scheduled pipeline:
-1. Scrapes promotions for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) from [aktionis.ch](https://aktionis.ch)
-2. Categorizes deals into Fresh / Long-life / Non-food
-3. Stores in Supabase — ready for Thursday morning shopping
-
-Verification run at **Thursday 07:00 CET** catches any late updates.
-
-## Project Documentation
-
-This project is built and documented as a PM case study:
+## Case-study documents
 
 | Document | What it covers |
-|----------|---------------|
-| [PRD](docs/prd.md) | Problem, users, stories, data model, risks |
-| [Technical Architecture](docs/technical-architecture.md) | System design, modules, data flow, build order |
-| [Use Cases](docs/use-cases.md) | Structured use cases with Given/When/Then acceptance criteria |
-| [Business Model Canvas](docs/business-model-canvas.md) | All 9 BMC blocks, assumptions, differentiation |
-| [Competitive Analysis](docs/competitive-analysis.md) | 18 competitors across Swiss, UK, and international markets |
-| [Coding Standards](docs/coding-standards.md) | Conventions, patterns, testing |
-| [Delivery Roadmap](docs/roadmap.md) | Phased plan |
+|---|---|
+| [PRD v4.0](docs/prd.md) | Problem, goal vs. what ships, product rules, data, status, risks, open product questions |
+| [Use cases v3.0](docs/use-cases.md) | Live and parked use cases with acceptance criteria and known defects |
+| [Technical architecture v2.0](docs/technical-architecture.md) | System design, modules, data flow |
+| [Business model canvas v2.0](docs/business-model-canvas.md) | The nine blocks, competition, assumptions to validate |
+| [Competitive analysis v2.0](docs/competitive-analysis.md) | 13 tools (6 Swiss, 7 international), sourced |
 
-## Status
+## Running it locally
 
-- [x] PRD, architecture, use cases, competitive analysis
-- [x] Shared types, database schema, starter pack seed data
-- [x] CI/CD pipelines (GitHub Actions)
-- [x] Unified data pipeline (aktionis.ch — all 7 stores)
-- [x] Categorizer + storage
-- [x] Frontend: onboarding flow (templates → customize → compare)
-- [x] Frontend: comparison view + split shopping list
-- [x] Deploy to Vercel
+Requires Node.js and Python 3.
 
-## Built With
+```bash
+./setup.sh                      # installs pipeline + frontend deps, Python OCR deps, creates .env from .env.example
+cd web-next && npm run dev      # frontend at http://localhost:3000
+```
 
-Built using [Claude Code](https://claude.ai/code) — from PRD through implementation. AI-assisted development is part of the product process, not a shortcut.
+Tests (three separate suites):
+
+```bash
+cd pipeline && npm test
+cd shared   && npx vitest run
+cd web-next && npm test && npm run lint
+```
+
+Type-check each package from its own folder: `./node_modules/.bin/tsc --noEmit -p tsconfig.json`. See `CLAUDE.md` for conventions.
+
+## Built with
+
+Built with [Claude Code](https://claude.ai/code), from PRD through implementation, as part of the product process.
 
 ## Author
 
-**Kiran Dommalapati** — Senior Product Manager, Bern, Switzerland
+**Kiran Dommalapati**, Senior Product Manager, Bern, Switzerland.
 [LinkedIn](https://linkedin.com/in/kirandommalapati) | [Email](mailto:d_kirand@yahoo.com)
-
----
-
-*basketch solves a real problem for real shoppers — and documents the entire PM process behind it.*

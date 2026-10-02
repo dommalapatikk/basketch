@@ -1,925 +1,758 @@
 # Product Specification: basketch
 
 **Author:** Kiran Dommalapati
-**Date:** 9 April 2026
-**Version:** 2.1
-**Updated:** 21 April 2026
-**Scope:** V1 — Bern region
+**Date:** 2 October 2026
+**Version:** 3.0
+**Previous version:** 2.1 (21 April 2026)
+**Scope:** Switzerland-wide weekly promotions, seven retailers. Live at https://basketch.vercel.app (German default, English under `/en`).
 
-> **What changed in v2.1 (21 Apr 2026):** Unified experience shipped. The onboarding form is no longer the primary entry point. Users now build their list directly from the Deals page using add/remove toggles. "My List" nav goes to /deals for new users (not /onboarding). UC-1b updated. UC-11 promoted to Must-have. New UC-12: Unified deals+list experience added. See `docs/human-tester-guide.md` for current test scenarios.
+> **Summary.** basketch answers one question for Swiss shoppers: which store has the stronger promotions this week, per category? It collects the weekly promotions of seven retailers, shows a per-category verdict, lets people browse and filter every deal, and lets them collect chosen deals into a list they can send to whoever is shopping. There is no account; the list stays in the browser. Thirteen use cases are live (one of them, UC-7, with known defects); five are parked or not started. Per-item cheapest-store routing was deliberately not built (decision P-8). Known defects are listed together in section 7.
 
 ---
 
-## 1. Product Goal
+## 1. Product goal
 
-### Vision
-Every Swiss shopper knows where the promotions are — before leaving the house.
+**Vision.** A Swiss shopper knows where this week's promotions are before leaving the house.
 
-### Product Goal
-Help a Bern-based shopper see which of their regular products are on promotion this week across Swiss supermarkets — and where the strongest deals are. Setup in under 60 seconds, weekly check in under 30 seconds. Plus browse all weekly promotions by category at their selected stores, side-by-side.
+**What basketch does today.** It collects the weekly promotions of seven Swiss retailers, sorts them into categories, says which store has the stronger promotions per category, lets the visitor browse and filter every deal, and lets them collect chosen deals into a list that can be sent to whoever is shopping.
 
-**Tagline:** "Your weekly promotions, compared. 7 stores, one view."
+**What basketch is not.** It does not compare regular shelf prices, it does not claim to list every promotion, and it does not route each item to its cheapest store automatically (see UC-16, Not started). The About page says the same: "basketch compares weekly promotions, not regular shelf prices."
 
-**What basketch is:** A promotions comparison tool — showing which of your items are on sale where this week.
-**What basketch is NOT:** A price comparison tool — it does not compare regular shelf prices across stores. See PRD Section 6b for why this is a deliberate product choice.
+**Constraints that shape every use case**
 
-### Success Criteria
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| Time to answer "Where should I shop this week?" | < 30 seconds | User testing (5 friends) |
-| Weekly returning visitors | 20+ within 3 months | Vercel Analytics |
-| Data freshness | Updated every Thursday by 20:00 CET | GitHub Actions logs |
-| Page load (mobile, 4G) | < 2 seconds | Lighthouse audit |
-
-### North Star Metric
-
-**Personalized comparisons viewed** — unique users who view their favorites comparison in a distinct week.
-
-Why this metric:
-- It captures the core value delivered: seeing which of YOUR products are on sale, and where
-- It is a leading indicator of retention (if people keep viewing their comparison, they find value)
-- It is actionable (improve comparison quality, freshness, starter pack templates)
-- It reflects customer value, not vanity (per Elena Verna's data hierarchy)
-
-### Activation Metric
-
-**Definition:** User adds 5+ favorites and views their first personalized comparison.
-
-**Target:** 40%+ activation rate (higher than generic product because Starter Pack removes friction).
-
-**Why this matters:** Per Lauryn Isford (Head of Growth, Airtable): "It's better to be precise and see a low activation rate among users with high likelihood of long-term value than to go broad." The Starter Pack pre-loads 15-20 items, so reaching 5+ favorites requires only removing items the user doesn't buy — near-zero effort.
-
-### Retention Targets
-
-| Timeframe | Target | Benchmark basis |
-|-----------|--------|-----------------|
-| W1 retention (return in week 2) | 50%+ | Free utility, zero switching cost |
-| W4 retention (return in week 4) | 40%+ | Consumer transactional "good" = 30%, adjusted up for zero commitment |
-| Curve shape | Flattening by W4 | Casey Winters: "If it flattens, there is a group finding value = PMF" |
-
-**How to measure:** Cohort by first-visit week. Track unique visitors per week. W4 retention = users active in week 4 / users who first visited in week 1.
-
-### PMF Measurement Plan
-
-After 4 weeks of usage by 10 friends, ask three questions (adapted from Sean Ellis + Matt Gallivan / Slack research methodology):
-
-| # | Question | PMF signal |
-|---|----------|------------|
-| 1 | "How would you feel if you could no longer see your personalized comparison on basketch?" (Very Disappointed / Somewhat / Not) | Sean Ellis test: 40%+ "Very Disappointed" = PMF |
-| 2 | "Compared to checking Migros and Coop websites yourself, basketch is:" (Much Better / Somewhat / Neither / Worse) | Alternatives comparison — need "Much Better" majority |
-| 3 | "Last Saturday, did you check basketch before shopping?" | Behavioural verification — did they actually use it? |
-
-**Additional PMF signals to watch:**
-- Unprompted sharing: if 2-3 friends share basketch with their friends without being asked (Merci Victoria Grace, ex-Slack: "Organic growth is the key indicator of PMF")
-- The "broken product" test: if the pipeline breaks and people message you asking where the deals are (Elad Gil: "If your product is broken and people are still using it, that's PMF")
+| Constraint | Detail | Source |
+|---|---|---|
+| No login | Everything works without an account. The list is stored in the browser's localStorage only. | `about.privacy` in `messages/en.json`; `stores/list-store.ts` |
+| Free to use, free to run | Personal project. Free tiers only, with one capped paid classification model on the pipeline side. | `CLAUDE.md` (Legal Constraints) |
+| Honest prices | Price comparisons must be objectively correct (Art. 3(1)(e) UWG). Show the validity window, never imply the list is exhaustive, label member-only prices. | `CLAUDE.md` |
+| No usage metrics | There is no analytics in production (`lib/observability.ts` is a no-op stub). Nothing in this document is measured usage. | `lib/observability.ts` |
 
 ---
 
 ## 2. Personas
 
-### Primary Persona: "Sarah" — The Pragmatic Weekend Shopper
+Unchanged in intent from v2.1. They are working assumptions, not research findings.
 
-| Attribute | Detail |
-|-----------|--------|
-| **Age** | 30-45 |
-| **Location** | Bern city or greater Bern area |
-| **Household** | Lives with partner or small family (2-4 people) |
-| **Income** | Middle income. Not struggling, but conscious about spending. |
-| **Language** | Multilingual (Switzerland has 4 national languages). Comfortable with English digital products. |
-| **Tech comfort** | Uses smartphone daily. WhatsApp, SBB app, Twint. Doesn't install apps unless necessary. |
+**Sarah, the pragmatic weekend shopper.** 30-45, lives in or near a Swiss city, shops once a week, usually Saturday. Will split a trip across stores if the promotions are clear. Wants: "Just tell me which store this week, and for what?"
 
-**Shopping behaviour:**
-- Shops once a week, usually **Saturday morning**
-- Has both a Migros and a Coop within 10 minutes
-- Buys a mix: fresh food for the week + restocks pantry/household when deals are good
-- Willing to split the trip across multiple stores **if the promotions are clear and easy to see**
-- Currently picks one store based on habit or proximity, occasionally checks the other
+**Marco, the deal hunter.** 25-35, buys less often but stocks up on strong deals (coffee, chocolate, detergent). Wants the discount percentage visible and wants to send deals to flatmates.
 
-**Goals:**
-1. Catch the best promotions each week without spending extra time checking multiple stores
-2. Know in advance which store has more promotions this week — for each type of shopping
-3. Stock up on long-life and household items when they're significantly discounted
+**Anti-persona.** Someone who compares regular shelf prices across stores. basketch shows promotions only.
 
-**Frustrations:**
-1. "I don't have time to check two websites and compare promotions manually."
-2. "Migros and Coop both have weekly deals, but I never know which one has more this week."
-3. "I only find out about a deal after I've already bought it at the other store."
-4. "The supermarket apps and websites are cluttered — I don't want to scroll through 200 items to find what matters."
-
-**Quote:** *"Just tell me: which store this week? For what?"*
-
-### Secondary Persona: "Marco" — The Deal Hunter
-
-| Attribute | Detail |
-|-----------|--------|
-| **Age** | 25-35 |
-| **Location** | Bern area |
-| **Household** | Single or shared flat |
-| **Shopping style** | Buys less frequently, but bulk-buys when deals are strong |
-| **Behaviour** | Checks promotions intentionally. Will go out of his way for a good deal on coffee, chocolate, or detergent. |
-
-**Goals:**
-1. Find the best bulk-buy deals each week (non-food, long-life items)
-2. Know exactly what's on sale before going to the store
-3. Share deals with flatmates
-
-**Frustrations:**
-1. "The Coop and Migros websites don't make it easy to compare across stores."
-2. "I want to see the discount percentage, not just the sale price."
-3. "I wish someone would just send me the good deals each week."
-
-### Anti-Persona: Who This Is NOT For
-
-| Profile | Why not |
-|---------|---------|
-| Price-obsessed optimizer who compares regular shelf prices across stores | basketch covers 7 Swiss supermarkets but shows promotions only, not regular prices. Power users need a price comparison tool. |
-| Tourist or non-resident | Site assumes familiarity with Swiss stores and German product names. |
-| Someone who only shops at one store by principle | No comparison needed — they already decided. |
-
----
-
-## 3. Jobs to Be Done
+## 3. Jobs to be done
 
 | # | When... | I want to... | So I can... |
-|---|---------|-------------|-------------|
-| **JTBD-1** | I'm setting up basketch for the first time | quickly select my regular products from a template | start seeing personalized comparisons without manual work |
-| **JTBD-2** | I'm planning my Saturday shopping | see which of MY favorites are on promotion this week and where | decide which store to visit for what |
-| **JTBD-3** | I see my comparison | get a split shopping list (Migros items / Coop items) | go to each store with a clear list |
-| **JTBD-4** | I want to check a specific product | search for it and see both stores' prices/deals | decide where to buy it |
-| **JTBD-5** | I return next week | enter my email and instantly see this week's comparison | get the answer in under 30 seconds without re-setup |
+|---|---|---|---|
+| JTBD-1 | I plan this week's shopping | see which store has the stronger promotions per category | decide where to go |
+| JTBD-2 | I look for something specific | search and filter all current promotions | find it and see which store has it |
+| JTBD-3 | I find deals worth buying | collect them in a list with a total per store | go to each store with a clear list |
+| JTBD-4 | someone else is shopping | send them the list | split the trip |
+| JTBD-5 | I return next week | open the site and see fresh data without setting anything up | get the answer in seconds |
 
 ---
 
-## 4. User Journey Map
+## 4. Status overview
+
+| UC | Use case | Status |
+|---|---|---|
+| UC-1 | See this week's verdict (home) | Live |
+| UC-2 | Browse, search and filter deals | Live |
+| UC-3 | Read a deal card | Live |
+| UC-4 | Add and remove deals on my list | Live |
+| UC-5 | Review my list: where to buy and estimated total | Live |
+| UC-6 | Share my list | Live |
+| UC-7 | Open a list someone shared with me | Live, with known defects (section 7); separate view is Parked (UC-18) |
+| UC-8 | Share this week's verdict | Live |
+| UC-9 | Use basketch in German or English | Live (French and Italian are Parked) |
+| UC-10 | Stay correct when data is old or a day rolls over | Live |
+| UC-11 | Read how basketch works (About) | Live |
+| UC-12 | Recover from a wrong URL or an error | Live |
+| UC-13 | Weekly data refresh (system) | Live |
+| UC-14 | Send feedback through a contact form | Not started |
+| UC-15 | "Cheapest" tag means lowest price | Not started |
+| UC-16 | Per-item cheapest-store routing | Not started (deferred, decision P-8) |
+| UC-17 | Pick a product variant, see per-store availability, get notified | Parked (components built, not mounted anywhere) |
+| UC-18 | Shared list as its own read-only page | Parked (designed, not built) |
+
+---
+
+## 5. Use cases
+
+Terms used below. **In effect:** a deal whose start date is on or before today and whose end date is on or after today, using the Zurich calendar date (`web-next/src/lib/domain/validity.ts`). **Votes in the verdict:** a deal that is in effect, not member-only, not a "from N items" price, and not category-unverified (`lib/domain/votes-in-verdict.ts`). A deal that does not vote is still shown, with its own label. In plain words, "counts toward the verdict" means "votes in the verdict".
+
+---
+
+### UC-1: See this week's verdict (home)
+
+**Status:** Live
+**Actor:** Any visitor (Sarah, Marco)
+**Job:** JTBD-1, JTBD-5
+**Trigger:** Opens https://basketch.vercel.app or `/en`, from a link, a WhatsApp message or a search.
+**Code:** `app/[locale]/page.tsx`, `components/landing/*`, `server/verdict/algorithm.ts`, `lib/category-rules.ts`
+
+**Main flow**
+
+| # | Visitor | System |
+|---|---|---|
+| 1 | Opens the home page | Reads the current snapshot at request time (never from a prerendered copy) and shows one headline sentence per category, for example "Migros wins Fresh." |
+| 2 | Reads the stat line | "Based on N deals across M Swiss stores." plus the "updated" date. |
+| 3 | Scans the three category cards | Each card shows the winning store (or "Tied", "Only store", "No data"), the average discount and the deal count for that category. The average is across all deals that count toward the verdict in that category, not the winner's own average. |
+| 4 | Taps "Browse all deals" | Goes to `/deals`. |
+| 5 | Scrolls down | Sees the three-step "How it works" strip. |
+
+**How the verdict is decided** (`server/verdict/algorithm.ts`, `lib/category-rules.ts`)
+
+- Three categories: Fresh, Long-life, Household.
+- Per store and category: the average discount percent across deals that count toward the verdict.
+- **Known defect (D-1):** a deal with no printed original price (for example many ALDI deals) is stored with a discount of 0% (`pipeline/categorize.ts:31-32`) and still counts toward the verdict, because `votesInVerdict` does not exclude it (`lib/domain/votes-in-verdict.ts:53-58`). Its 0% is averaged in. How much this moves any verdict has not been measured.
+- Winner: the top store, if it has at least 5 voting deals in that category and leads the runner-up by at least 2 percentage points. Otherwise the state is "Tied".
+- Only one store with voting deals: "Only one store offering {category} this week." No winner.
+- No voting deals: "No data for {category}."
+
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Data is more than 9 days old | A status banner reads "Showing data from {date} - this week's update is delayed." (`components/landing/StaleBanner.tsx`, `lib/format.ts` `isStale`) |
+| The deals query failed | Same banner. The snapshot is marked degraded and the banner shows regardless of age. |
+| A category has fewer than 5 voting deals at the top store | "Tied" even if the average gap is large. |
+| A category card is tapped | **Known defect (D-2):** opens `/deals` unfiltered. The card sends `?category=` (`CategoryVerdictCard.tsx:31`) but the deals page reads `type` (`lib/filters.ts`). The intended behaviour is a filter by that category; the correct parameter is `type`. |
+| Visitor is on `/en` | All copy in English. Category names: Fresh, Long-life, Household. German names: Frische, Trockensortiment, Haushalt. |
+| Tab left open past midnight (Zurich) | "It's a new day - today's deals may have changed." with a Refresh button (see UC-10). |
+
+**Acceptance criteria**
 
 ```
-FIRST VISIT — Sarah Discovers and Builds Her List (v2.1 — Unified Experience)
+GIVEN the pipeline has published deals
+WHEN a visitor opens the home page
+THEN one verdict sentence per category is shown (Fresh, Long-life, Household)
+  AND the stat line shows the deal count and the number of stores that have deals
+  AND each category card shows the winner or the tied / only-store / no-data state,
+      the average discount and the deal count
+  AND a deal that is member-only, "from N items", not yet started, expired or
+      category-unverified does not count toward any verdict
+  AND no account or setup is needed
 
-Timeline: Open basketch → Browse deals → Tap + → Sticky bar → Compare → Bookmark
-
-[Open basketch.vercel.app]
-   |
-   +-- Sees weekly verdict: "More fresh deals at Migros this week"
-   +-- Taps "Browse all deals" → /deals page
-   |
-   [/deals page]
-   +-- Sees all deals sorted by discount %, category tabs across top
-   +-- Taps "🥬 Fruits & Vegetables" → filtered to that category
-   +-- Taps + on Erdbeeren (Migros, 40% off) → turns green
-   +-- Taps + on Milch (Coop, 25% off) → turns green
-   +-- Sticky bar appears: "2 items in your list →"
-   +-- Continues browsing, adds 5-8 items total
-   |
-   +-- Taps sticky bar → /compare/:id
-   |
-   [/compare/:id — her personal page]
-   +-- Sees items grouped by category: Fruits & Veg, Dairy & Eggs, Drinks
-   +-- Each category shows ALL deals from all stores that week (not just her exact item)
-   +-- Taps "Copy link" → shares via WhatsApp with partner
-   +-- Bookmarks the page
-   |
-   Total setup time: under 60 seconds. No form. No email required.
-
-
-RETURN VISIT — Weekly (Under 30 Seconds)
-
-[Open bookmark /compare/:id]
-   |
-   +-- Deals automatically updated since last Thursday
-   +-- Sees new promotions in her categories
-   +-- Goes shopping
-   |
-   Alternative: Tap "My List" in nav → same page
-   Alternative: Go to /deals, tap + on new items → sticky bar shows updated count
+GIVEN no store has 5 voting deals in a category, or the top two are within 2 points
+THEN that category reads "tied" rather than naming a winner
 ```
 
 ---
 
-## 5. Current Alternatives (What People Do Today)
+### UC-2: Browse, search and filter deals
 
-Understanding what shoppers do today is critical for measuring whether basketch is "much better" (Sean Ellis PMF survey). These are the substitutes:
-
-| Alternative | How it works | Pain points | basketch advantage |
-|------------|-------------|-------------|-------------------|
-| **Check Migros app manually** | Open Migros app, scroll through 100+ promotions, try to remember what's good | Time-consuming (~5 min), no comparison with Coop, information overload | Side-by-side comparison, categorised, verdict in 30 sec |
-| **Check coop.ch manually** | Visit Coop website, browse promotions page | Slow site, cluttered UI, no comparison with Migros | Same as above |
-| **Check both + mentally compare** | Do both of the above, try to remember which store had what | ~15 min, error-prone, mentally exhausting | Automated comparison eliminates this entirely |
-| **Use aktionis.ch** | Browse the aggregator site that lists deals from multiple stores | Shows all deals but no side-by-side comparison, no verdict, no categorisation into shopping types | basketch adds the comparison layer + verdict + 3-bucket categorisation |
-| **Use Rappn app** | Mobile app with 10K+ offers from multiple Swiss stores | App install required, generic listing, no personalization — browse 10K deals to find yours | basketch starts with YOUR favorites, no install, no browsing |
-| **Use Profital app** | Digital leaflet viewer for Swiss retailers | App install required, shows full store leaflets — still requires manual comparison across stores | basketch extracts only your products and compares automatically |
-| **Use Bring! shopping list** | Shopping list app with shared lists and some deal integration | Not a comparison tool — shows deals from one store at a time, no cross-store comparison of your items | basketch compares your items across both stores in one view |
-| **Ignore deals entirely** | Just go to one store out of habit | Miss CHF 20-40/month in promotions the other store has | Catches promotions with zero extra effort |
-| **Ask friends on WhatsApp** | "Hey, is anything good at Migros this week?" | Unreliable, not systematic, depends on others checking | Reliable, weekly, automated |
-
-**Key insight:** None of the current alternatives answer the core question: *"Which of MY regular products are on sale this week, and where should I buy each one?"* They all show generic deals — basketch delivers a personalized comparison.
-
----
-
-## 6. Growth Engine
-
-### Strategy: SEO + WhatsApp + Word of Mouth
-
-basketch is a real product for a tiny audience, documented like a portfolio project. Three growth channels, zero budget.
-
-### Channel 1: WhatsApp Sharing (Immediate — Week 1+)
-
-The weekly verdict is inherently shareable — like a weather forecast or a sports score.
-
-**Two sharing mechanisms:**
-
-| Mechanism | How it works | Effort | Growth power |
-|-----------|-------------|--------|-------------|
-| **Link sharing** | User taps "Share" → sends link with rich preview (OG tags) → friend taps → opens basketch | Small (standard) | Medium — requires friend to tap |
-| **Screenshot sharing ("Wordle card")** | Verdict displayed as a visual card → user screenshots → posts in WhatsApp group → everyone sees the verdict WITHOUT clicking | Medium (design-focused) | **High** — zero friction, ambient awareness |
-
-**The Wordle card concept:**
-
-The weekly verdict is designed as a standalone visual card optimized for screenshotting:
-
-```
-┌──────────────────────────────────────────────┐
-│  basketch — This Week's Promotions           │
-│  Week of 7 April 2026                        │
-│                                              │
-│  🟠 MIGROS leads Fresh                       │
-│     12 deals  |  avg 28% off                 │
-│                                              │
-│  🔴 COOP leads Household                     │
-│     8 deals  |  avg 35% off                  │
-│                                              │
-│  ⚖️  Similar on Snacks & Drinks              │
-│                                              │
-│  basketch.ch — your weekly promotions        │
-└──────────────────────────────────────────────┘
-```
-
-Sarah screenshots this, posts in her family WhatsApp group. Everyone sees the verdict without tapping anything. The basketch.ch branding drives curious people to the site.
-
-See `docs/whatsapp-sharing-guide.md` for the full breakdown.
-
-### Channel 2: Kickstart — Direct Sharing (Week 1-6)
-
-| Tactic | Detail | Expected reach |
-|--------|--------|---------------|
-| **Friends network** | Share with 10 friends in Bern personally | 10-15 users |
-| **WhatsApp groups** | Share weekly verdict card in 2-3 local groups | 20-30 impressions/week |
-| **Bern subreddit / Facebook groups** | One post when live | 50-100 one-time visitors |
-
-### Channel 3: SEO Engine (Week 4+, build from day one)
-
-Basketch generates fresh, unique content every week (deal comparisons, verdicts). This is the same **DGSO strategy** (Data-Generated SEO-Optimized) that powers Tripadvisor, Thumbtack, Grubhub, and Zapier.
-
-| SEO asset | Target keywords (German) | URL structure |
-|-----------|------------------------|---------------|
-| Weekly verdict page | "Migros Angebote diese Woche", "Coop Aktionen Bern" | `/woche/2026-kw16` |
-| Category pages | "beste Angebote Frischprodukte", "Waschmittel Aktion Schweiz" | `/kategorie/frisch`, `/kategorie/non-food` |
-| Store comparison | "Migros oder Coop", "Migros vs Coop Preisvergleich", "Supermarkt Aktionen Vergleich Schweiz" | `/vergleich` |
-| Historical archive | "Migros Aktionen April 2026" | `/archiv/2026-04` |
-
-**Why SEO works for basketch:** Every Thursday, new content is generated automatically. Search engines reward fresh, structured, regularly-updated content. This is a flywheel: more weeks of data = more indexed pages = more organic traffic = more users.
-
-### Future: Share-a-List Viral Loop (if demand exists)
-
-Existing users share their favorites as a template URL. New users start with a pre-loaded list. Only build this if users ask for it.
-
-**No paid acquisition. CHF 0/month.**
-
----
-
-## 7. Timeline and Milestones
-
-| Milestone | Target date | Deliverable | Success gate |
-|-----------|------------|-------------|-------------|
-| **M0: Data pipeline working** | Week 1-2 (by 20 Apr 2026) | Python scripts fetch Migros + Coop deals, categorise, store in Supabase | Both sources return data, categories are >90% correct |
-| **M1: Frontend live** | Week 3-4 (by 4 May 2026) | Home page with verdict banner + category cards + deals browsing, deployed on Vercel | Page loads <2s, shows current week's deals, mobile-responsive |
-| **M2: Friends beta** | Week 5-6 (by 18 May 2026) | Share with 10 friends, collect feedback | 10 people use it for 1 full week |
-| **M3: PMF check** | Week 8 (by 1 Jun 2026) | Run the 3-question PMF survey (Sean Ellis + alternatives + behavioural) | 40%+ "Very Disappointed" if it disappeared |
-| **M4: Decide Phase 2** | Week 9 (by 8 Jun 2026) | Review W4 retention, feedback, and survey results | Go/no-go on personal baskets feature |
-
-**Principle:** Ship the thinnest possible thing that delivers the verdict. Then measure. Then decide what's next. (Lenny: "urgency is a quality of a great PRD.")
-
----
-
-## 8. Use Cases
-
-### UC-1: Browse Verdict & Deals (First Visit — The Aha Moment)
-
-**Persona:** Sarah, Marco
+**Status:** Live
+**Actor:** Any visitor
 **Job:** JTBD-2
-**Trigger:** First visit to basketch (via link, WhatsApp, or search)
-**Priority:** Must-have
+**Trigger:** Taps "Browse all deals" or "Deals" in the header, or opens `/deals` directly.
+**Code:** `app/[locale]/deals/page.tsx`, `DealsClient.tsx`, `components/deals/FilterRail.tsx`, `FilterSheet.tsx`, `TypeSegmented.tsx`, `DealsSearch.tsx`, `lib/filters.ts`, `server/data/filter-deals.ts`
 
-**Preconditions:**
-- Data pipeline ran successfully this week
-- Deals from both stores are in the database
+**Main flow**
 
-**Main Flow:**
+| # | Visitor | System |
+|---|---|---|
+| 1 | Opens `/deals` | Loads the full snapshot once. All later filtering happens in the browser with no server round trip. Header shows "This week's deals" and "Updated {date} - N deals". |
+| 2 | Picks a type (All / Fresh / Long-life / Household) | Desktop: radio list in the left filter rail. Mobile: a tab strip at the top. Picking a type clears category and sub-category. |
+| 3 | Narrows by category, sub-category, storage (fresh, chilled, frozen, ambient) and stores | Chips show counts. Category and storage chips stay visible and dim at zero. Store chips are disabled at zero. A "Reset (n)" control clears all filters. |
+| 4 | Types in the search box | Matches product names (case-insensitive substring), applied 250 ms after typing stops. |
+| 5 | Scrolls | Deals are grouped into one section per sub-category (largest first). Each section shows its top card in full and every other deal in that sub-category underneath (the block is labelled "Other stores", although it can include the same store's other deals); if there are more than 5 others the block starts collapsed with "Show all N". |
+| 6 | Copies the URL | Filters are in the URL (`?type=&cat=&sub=&storage=&stores=&q=`), so a filtered view can be shared. |
 
-| # | Sarah does... | System does... |
-|---|---------------|----------------|
-| 1 | Opens basketch on her phone | Shows verdict banner: "More fresh deals at Migros, more household deals at Coop this week" |
-| 2 | Sees the verdict explanation | "Based on 12 Migros deals (avg 28% off) vs 8 Coop deals (avg 22% off)" |
-| 3 | Scrolls to category cards | Three cards (Fresh / Long-life / Non-food) with top deals from both stores |
-| 4 | Taps a category or "See all deals" | Navigates to /deals page with full deal browsing |
-| 5 | Browses deals by sub-category | Migros and Coop deals grouped separately, sorted by discount % |
-| 6 | Sees "Track your items" CTA | Optionally navigates to /onboarding to set up favorites |
+On mobile a bottom bar offers My list, Filters and Share. The Filters sheet shows a live "Show N deals" count.
 
-**Time to value:** Under 5 seconds (verdict visible without scrolling). Zero setup required.
+**Order inside a section.** Biggest discount first (decision P-10). The first card that votes in the verdict is the section's top card; if none votes, the biggest-discount deal is shown without a "Cheapest" tag.
 
-**Acceptance Criteria:**
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| No stores selected | "Select at least one store to see deals." with the list of seven stores. |
+| Filters match nothing | "No deals match these filters. Try removing a filter." |
+| A sub-category has a deal at only one tracked store | That store's top card carries "Only at {store}" together with the note "No other store we track has a {category} deal right now." Only shown if the card is itself in effect and from that store. |
+| A deal has not started yet (retailer flyers publish 1-2 weeks ahead) | Shown, labelled "From {weekday date}". Excluded from verdicts and from "Cheapest". |
+| An unrecognised `type` or `storage` value in the URL | Ignored; the page shows unfiltered results. Other parameters do not degrade this way: `?stores=xyz` gives an empty store list ("Select at least one store"), and an unknown `cat` or `sub` matches nothing ("No deals match"). |
+| `?type=long-life` | Accepted as an alias for `longlife`. |
+| Migros, ALDI and SPAR publish no per-product page | The product name links to the retailer's weekly flyer instead (`sourceUrl` in `pipeline/collection/infrastructure/{migros,aldi,spar}/*-flyer-source.ts`), so the price can be checked at its source. Coop links to aktionis.ch; Denner, LIDL and Volg link to product pages. |
+| A deal has no link at all | The name is plain text, not a dead link. |
+| Deal has no image | A crop of the retailer's flyer page is shown where available; otherwise a placeholder. |
+| Tab open past Zurich midnight | Expired deals drop out of every count and filter and a refresh prompt appears (UC-10). |
+
+**Acceptance criteria**
 
 ```
-GIVEN Sarah opens basketch for the first time
+GIVEN a visitor opens /deals
 WHEN the page loads
-THEN the verdict banner is visible without scrolling
-  AND the verdict explanation line shows deal count + avg discount per store
-  AND the shareable Wordle card is available (screenshot-friendly verdict)
-  AND three category cards show top deals from both stores
-  AND she can browse all deals without any setup, account, or onboarding
-  AND a "Track your items" CTA invites her to set up favorites (not forced)
+THEN deals from the seven retailers are listed, grouped by sub-category,
+     biggest discount first within each group
+  AND the header states the update date and the number of deals shown
+
+GIVEN the visitor applies a type, category, sub-category, storage, store or search filter
+THEN the list and the counts update in the browser without a page reload
+  AND the URL reflects the filters (default values are omitted)
+  AND the control states are exposed as pressed / selected for assistive technology
+
+GIVEN every store is deselected
+THEN an explanatory message is shown instead of an empty page
+
+GIVEN a section has more than 5 other-store deals
+THEN they start collapsed behind a button that states the count and toggles open and closed
 ```
 
-**Edge cases:**
+---
+
+### UC-3: Read a deal card
+
+**Status:** Live
+**Actor:** Any visitor
+**Job:** JTBD-2
+**Trigger:** Looks at any deal on `/deals` (or an item in the list drawer).
+**Code:** `components/deals/DealCard.tsx`, `components/ui/price-block.tsx`, `lib/domain/price-basis.ts`, `lib/domain/quantity-requirement.ts`, `lib/format.ts`
+
+**What a card shows**
+
+- Store pill (store colour appears only as a dot), product name, pack format, up to three facts the retailer itself stated (never inferred).
+- Sale price, original price and discount percent when an original price exists, and a price per unit where the unit can be derived.
+- Product image, or a crop of the retailer's flyer page.
+- A link to the retailer's product page or flyer, opening in a new tab, where one exists.
+
+**Labels that protect price accuracy**
+
+| Situation | Label | Effect |
+|---|---|---|
+| Member-only price (Lidl Plus, Supercard, Cumulus) | Names the programme in text | Never votes, never "Cheapest" |
+| Price applies only from N items | "From N items" | Never votes, never "Cheapest" |
+| Deal starts later | "From {date}" | Never votes, never "Cheapest" |
+| Classifier was not confident | "Category unverified" | Never votes, never "Cheapest" |
+| Top card of its section and it votes | "Cheapest" tag (see UC-15 for what it currently means) | |
+| Only one tracked store has this sub-category | "Only at {store}" plus scope note | |
+
+**Edge cases**
 
 | Condition | Behaviour |
-|-----------|-----------|
-| Only one store has data | Show available store's deals + "[Store] data unavailable this week" banner |
-| Pipeline failed for both | Show "Deals may be outdated — last updated [date]" with stale data |
-| No deals at all | Show "No deals available. Check back Thursday." |
+|---|---|
+| No original price printed (for example ALDI) | The card shows no original price and no discount percent. The stored discount is 0, which the verdict still averages in (defect D-1). |
+| Very long product name | Wraps within the card; layout tests guard against overlap with the price (`e2e/v2-acceptance.spec.ts`). |
+| No link exists for the deal | Name shown as plain text, not a dead link. A repo-wide test forbids `href="#"` (`lib/no-dead-links.test.ts`). |
+
+**Acceptance criteria**
+
+```
+GIVEN a deal is member-only, multi-buy, not yet started or category-unverified
+THEN its card carries a text label saying so (never colour alone)
+  AND it is not counted in the category verdict
+  AND it cannot be tagged "Cheapest"
+
+GIVEN a deal has no printed original price
+THEN no discount percent is displayed for it
+```
 
 ---
 
-### UC-1b: Set Up Favorites (The Retention Moment)
+### UC-4: Add and remove deals on my list
 
-**Persona:** Sarah (primary)
-**Job:** JTBD-1
-**Trigger:** User taps "Track your items" after browsing verdict/deals (or returns after 2-3 visits)
-**Priority:** Must-have
+**Status:** Live
+**Actor:** Any visitor (Sarah, Marco)
+**Job:** JTBD-3
+**Trigger:** Taps the plus button on a deal card.
+**Code:** `components/deals/AddToListButton.tsx`, `stores/list-store.ts`, `components/list/MyListButton.tsx`
 
-**Preconditions:**
-- Data pipeline ran successfully this week (ideally 2-3 weeks of history for Coop coverage)
-- Deals from both stores are in the database
-- 5 starter pack templates validated against actual promotional data
-- Starter pack items reordered: both-store matches first, single-store after
+**Main flow**
 
-**Main Flow:**
+| # | Visitor | System |
+|---|---|---|
+| 1 | Taps the plus button on a deal | The deal is saved to the list and the button changes to a checkmark (pressed state, label "Remove from list"). |
+| 2 | Keeps browsing | The "My list" button (header, and bottom bar on mobile) shows the running count. |
+| 3 | Taps the checkmark again | The deal is removed and the button returns to the plus. |
 
-| # | Sarah does... | System does... |
-|---|---------------|----------------|
-| 1 | Taps "Track your items" on home page | Shows template selection from 5 starter packs: Swiss Basics, Indian Kitchen, Mediterranean, Studentenküche, Familientisch (plus "Build from scratch" option) |
-| 2 | Taps "Swiss Basics" | Pre-loads 15-16 items (milk, bread, butter, eggs, cheese, yogurt, tomatoes, onions, pasta, rice, coffee, chicken, cleaning spray, toilet paper, shampoo) |
-| 3 | Removes items she doesn't buy, adds 2-3 via search | Updates favorites list in real time |
-| 4 | — | Shows personalized comparison immediately |
-| 5 | Sees: "3 of your items on sale at Coop, 2 at Migros" | Products grouped into "On sale at Migros" / "On sale at Coop" with two-tier Coop status |
-| 6 | — | Prompts: "Save this? Enter your email." |
-| 7 | Enters email | Favorites saved to her profile |
+The list is saved in the browser (localStorage key `basketch-list`). It survives reloads and is not sent anywhere. Each saved item keeps a snapshot of the deal (store, name, price, image, validity dates, price basis, minimum quantity), so it remains readable after next week's data replaces the deal.
 
-**Time to value:** Under 60 seconds (setup) + immediate comparison.
-
-**Instrumentation:** Two analytics events to measure setup time:
-- `onboarding_started` — fires when user taps a starter pack template
-- `comparison_first_viewed` — fires when comparison page loads for a new basket
-- Delta between these two events = actual setup time (target: < 60 seconds)
-
-**Acceptance Criteria:**
-
-```
-GIVEN Sarah taps "Track your items"
-WHEN she selects a starter pack template
-THEN 15-16 items are pre-loaded in her favorites
-  AND she can remove/add items with one tap each
-  AND the total setup takes under 60 seconds
-  AND a soft cap of 30 items is enforced (at 30 items, show "Your list is getting long — shorter lists give better results")
-  AND she sees her personalized comparison BEFORE being asked for email
-  AND the comparison shows two-tier Coop status messages (see PRD Epic 2)
-  AND a permanent label shows: "Coop: showing promotions found. Not all products tracked yet."
-```
-
-**Edge cases:**
+**Alternatives and edge cases**
 
 | Condition | Behaviour |
-|-----------|-----------|
-| No deals match any favorites this week | "None of your favorites are on sale this week. Check back next week!" |
-| Only one store has data | Show comparison with available store only + "[Store] data unavailable this week" |
-| Pipeline failed for both | Show favorites list without deal data + "Deals may be outdated — last updated [date]" |
-| User leaves before entering email | Favorites stored in local storage, recoverable on return |
-| Coop product never seen before | Show "No Coop data yet" (Tier 2 status) |
-| Coop product seen but not on sale | Show "Not on promotion at Coop this week" (Tier 1 status) |
+|---|---|
+| Same deal added twice | Ignored; one entry per deal id. |
+| Visitor clears browser data or switches device | The list is gone. There is no account and no server copy. |
+| Stored data is old or hand-edited | Malformed items are dropped when loading; a corrupted entry cannot crash the page. |
+| Saved item's deal has since ended | Stays in the list, marked "Expired", and is left out of totals and shared text (UC-5, UC-6). |
+| Very large list | No cap exists in the live code. A cap of 200 is part of the parked shared-list design (UC-18). |
+
+**Acceptance criteria**
+
+```
+GIVEN a visitor taps the plus button on a deal
+THEN the deal is added once, the control shows the pressed state,
+     and the My list count increases by one
+
+GIVEN the visitor taps the same control again
+THEN the deal is removed and the count decreases by one
+
+GIVEN the visitor reloads the page
+THEN the list is restored from the browser
+
+GIVEN the touch target is measured
+THEN it is at least 44 x 44 px on mobile
+```
 
 ---
 
-### UC-2: View Weekly Comparison (Return Visit)
+### UC-5: Review my list: where to buy and estimated total
 
-**Persona:** Sarah, Marco
-**Job:** JTBD-2, JTBD-5
-**Trigger:** Weekly, before Saturday shopping
-**Priority:** Must-have
+**Status:** Live
+**Actor:** Any visitor with at least one saved deal, or none
+**Job:** JTBD-3
+**Trigger:** Taps "My list" in the header or bottom bar.
+**Code:** `components/list/ListDrawer.tsx`, `components/list/ItemNote.tsx`, `lib/share.ts` (`groupByStore`)
 
-**Preconditions:**
-- User has saved favorites (via UC-1)
-- Data pipeline ran successfully this week
+**Main flow**
 
-**Two return paths (both primary):**
+| # | Visitor | System |
+|---|---|---|
+| 1 | Opens My list | A drawer opens: a right-hand panel (420 px) on desktop, a bottom sheet (up to 90% of screen height) on mobile. The title shows the item count. |
+| 2 | Reads the items | Items are grouped by category with a count per group. Each row shows image, name, store, sale price and any labels (member price, "From N items", "From {date}", "Expired"). |
+| 3 | Reads "Where to buy" | One line per store with item count and subtotal, then "Estimated total". The summary sentence reads like "Your 5 items split best across 3 stores:". |
+| 4 | Removes an item with the X button, or clears the list with "Clear list" | List and totals update. |
+| 5 | Taps Done (or outside the drawer) | Drawer closes. |
 
-**Path A: Bookmark / saved link (zero friction)**
+How the grouping works: each saved item is already a specific deal at a specific store, so "Where to buy" groups the visitor's own choices by store and adds up their sale prices. It does not look for a cheaper store for an item (see UC-16).
 
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Opens saved bookmark or shared link (`/compare/:favoriteId`) | Loads comparison with this week's deals |
-| 2 | — | Shows verdict banner with explanation |
-| 3 | — | Products grouped: "On sale at Migros" / "On sale at Coop" / "No deals this week" |
-| 4 | Reads each product: name, image, original price, sale price, discount % | — |
-| 5 | Knows exactly what to buy where. Goes shopping. | — |
-
-**Path B: Email lookup (for browser resets, new devices)**
-
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Opens basketch home page | Shows "Already have a list?" with email input |
-| 2 | Enters email address | Retrieves favorites, redirects to `/compare/:favoriteId` |
-| 3-5 | Same as Path A steps 2-5 | — |
-
-**Time to value:** Under 30 seconds (Path A) / under 45 seconds (Path B).
-
-**Acceptance Criteria:**
-
-```
-GIVEN Sarah has saved favorites
-WHEN she enters her email
-THEN she sees her favorites list with current week's deals
-  AND a verdict banner shows which store has more/deeper promotions per category (store names in store colors)
-  AND products are split into "On sale at Migros" and "On sale at Coop" groups, color-coded by store (Migros orange, Coop red)
-  AND each product shows the original price, sale price, and discount %
-  AND items with no deal show "no deal this week" (not hidden)
-  AND a data freshness indicator shows when deals were last updated
-  AND the comparison loads in under 2 seconds
-  AND she can modify her favorites (add/remove) from this view
-```
-
-**Verdict banner states:**
-
-| State | Display |
-|-------|---------|
-| Normal | "More fresh deals at Migros, more household deals at Coop this week" — store names in store colors |
-| Tie (within 5%) | "Similar promotions at both stores this week" |
-| Stale data (> 7 days) | Verdict shown + amber warning: "Deals may be outdated — last updated [date]" |
-| Partial data | "Partial data — [store] unavailable this week" |
-| No data | Verdict banner not shown |
-
-**Edge cases:**
+**Alternatives and edge cases**
 
 | Condition | Behaviour |
-|-----------|-----------|
-| Email not found | "No favorites found. Set up your list?" with link to UC-1 flow |
-| No deals match any favorites this week | Show all favorites under "No deals this week" group |
-| Product image not available | Show store logo as placeholder |
-| Price data missing or CHF 0 | Show product without price, flag "price unavailable" |
-| Data older than 7 days | Amber banner: "Deals may be outdated — last updated [date]" |
-| One store's data missing | Show available store's deals + "[Store] data unavailable this week" banner |
+|---|---|
+| Empty list | "Your list is empty. Add items from the Deals page and share them with a shopping buddy." with a "Browse deals" button. |
+| One item | Singular wording ("Your item is cheapest here:"). |
+| Item expired since it was added | Row is kept and marked "Expired" so the visitor can remove it; it is excluded from store subtotals, the estimated total and share text. |
+| Item has a member-only or multi-buy price | Row carries the label, so the price is never shown unconditionally. |
+| Items from only one store | Summary says the items are cheapest at one store. |
+| Language | Wording follows the page language; totals use Swiss number formatting. |
+
+**Acceptance criteria**
+
+```
+GIVEN the list has items
+WHEN the visitor opens My list
+THEN items are grouped by category with counts
+  AND a per-store subtotal and an estimated total are shown for items still in effect
+  AND each item shows its store, price and any member / not-yet-started / expired label
+  AND a multi-buy ("From N items") label is shown for items added on /deals,
+      but not for items that arrived through a shared link (defect D-3)
+
+GIVEN an item's validity has ended
+THEN it stays visible with an "Expired" label
+  AND it is not included in totals or in shared text
+
+GIVEN the list is empty
+THEN the drawer shows an empty state with a link to the deals page
+```
 
 ---
 
-### UC-3: Quick Check at the Store
+### UC-6: Share my list
 
-**Persona:** Sarah, Marco
-**Job:** JTBD-5
-**Trigger:** Already at Migros, wondering if Coop has promotions on something
-**Priority:** Should-have
+**Status:** Live
+**Actor:** Sarah (shares with partner), Marco (shares with flatmates)
+**Job:** JTBD-4
+**Trigger:** Taps a share control in the My list drawer, or "Share" in the mobile bottom bar.
+**Code:** `lib/share.ts`, `lib/share-target.ts`, `lib/share-url.ts`, `components/list/ListDrawer.tsx`, `components/deals/BottomBar.tsx`
 
-**Main Flow:**
+**Main flow**
 
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Opens basketch on phone while in store | Loads home page (fast — already visited this week, cached) |
-| 2 | Checks the Non-food or Long-life category | Shows deals from both stores |
-| 3 | Sees Coop has 40% off Persil | Decides to stop by Coop on the way home |
+| # | Visitor | System |
+|---|---|---|
+| 1 | Opens My list | Footer offers "Share on WhatsApp", "Copy link" and "Email". |
+| 2 | Taps one | WhatsApp or the mail client opens with a prepared message; Copy link puts the link on the clipboard and shows "Copied" for 1.5 seconds. |
 
-**Acceptance Criteria:**
+**What the message contains** (`buildShareText`): a header ("My basketch list:" / "Meine basketch-Liste:"), one line per store with item count and subtotal, a total line, then the link. A store line adds a note when relevant, for example "(1 x Lidl Plus members only)", "(2 x From 2 items)" or "(1 not started yet)", because the recipient may never open basketch and must not see a conditional price without its condition.
+
+**The link** is `/list?items=<id>,<id>,...` (`/en/list?...` for English). It carries deal ids only, nothing is stored on a server.
+
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Empty list | No share footer in the drawer; on mobile the Share slot is a disabled button. |
+| Items present but all expired | The share footer is still shown (it depends on the item count, not on active items). WhatsApp and Email are disabled buttons; **Copy link stays enabled and does nothing** (defect D-7, `ListDrawer.tsx:133, 70-71`). |
+| Page not yet hydrated (origin unknown) | WhatsApp and Email render as disabled buttons for that moment, never as a link to `#`; Copy link also does nothing until the origin is known. |
+| Clipboard permission denied | Copy falls back to copying the full text; if that also fails nothing is shown (no error toast). |
+| Middle-click, Cmd-click, "Copy link address" on a share control | Works, because the destination is in the link itself and not assigned in a click handler. |
+| Expired items | Left out of the message and the total. |
+
+**Acceptance criteria**
 
 ```
-GIVEN the shopper has visited basketch before this week
-WHEN they reopen the site on mobile
-THEN the page loads from cache in < 1 second
-AND the current week's data is shown
-AND no re-authentication or onboarding is required
-```
+GIVEN the list has at least one item in effect
+WHEN the visitor taps Share on WhatsApp or Email
+THEN a message opens containing per-store counts and subtotals, a total and the link
+  AND any member-only, "from N items" or not-started item in a store group is noted in that group's line
+  AND expired items are not included
 
-**Design implication:** Service worker caching for repeat visits. No splash screens, no cookie banners (no tracking cookies used).
+GIVEN the list has no item in effect
+THEN WhatsApp and Email are disabled (Copy link is also inert, defect D-7)
+
+GIVEN a share control is rendered
+THEN it is a real link (never href="#") or a disabled button
+```
 
 ---
 
-### UC-4: Data Pipeline — Weekly Refresh
+### UC-7: Open a list someone shared with me
 
-**Actor:** System (automated)
-**Trigger:** Wednesday 21:00 UTC (GitHub Actions cron)
-**Priority:** Must-have
+**Status:** Live, with known defects D-3, D-4 and D-8 (section 7)
+**Actor:** The recipient (partner, flatmate)
+**Job:** JTBD-4
+**Trigger:** Taps a `/list?items=...` link.
+**Code:** `app/[locale]/list/page.tsx`, `components/list/HydrateAndRedirect.tsx`, `lib/share-url.ts`
 
-**Main Flow:**
+**Main flow (as built today)**
+
+| # | Recipient | System |
+|---|---|---|
+| 1 | Opens the link | Looks up each id in the current week's data on the server. |
+| 2 | — | A short page states what was found ("Your 4 items split best across 2 stores:"). |
+| 3 | — | In the browser, the recipient's list is replaced with the shared items, the My list drawer opens, and the page moves to `/deals`. |
+
+The page is marked `noindex`.
+
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Some ids are no longer in this week's data | Those items are dropped silently; the recipient sees only the items that are current. |
+| Duplicate ids | Kept as separate rows; both are counted in the heading and the totals (`lib/share-url.ts`, `stores/list-store.ts` `replaceAll`). |
+| **Multi-buy item** | **Loses its "From N items" label** (defect D-3): `list/page.tsx:65-76` does not copy `minQuantity`, so in the recipient's drawer and in anything they share on it reads as an open price. |
+| Malformed link (for example a truncated `%` sequence) | `decodeURIComponent` throws and the recipient gets the error page instead of a list (`lib/share-url.ts:15`). Read from code, not reproduced. |
+| **Recipient already has their own list** | **Known defect (D-4):** it is overwritten by the shared one. Decision P-14 (25 Sep 2026) says a shared link must never replace or merge; the fix is parked (UC-18). |
+| No id resolves, or the link has no ids | **Known defect (D-5, confirmed in code):** the same replace step runs with an empty set, so the recipient's list is emptied and an empty drawer opens (`list/page.tsx:62-64`, `HydrateAndRedirect.tsx:24`). |
+| The sender added a not-yet-started deal | Resolved normally and shown with its "From {date}" label. |
+| English link (`/en/list`) | Page and drawer in English. |
+
+**Acceptance criteria (today's behaviour)**
+
+```
+GIVEN a recipient opens a valid /list?items=... link
+THEN the items that exist in this week's data appear in their My list
+  AND the My list drawer is open on /deals
+  AND no account is required
+
+GIVEN some ids are not in this week's data
+THEN those are left out without an error page
+```
+
+The acceptance criteria for the intended behaviour (never overwrite, show the shared list on its own page) are in UC-18.
+
+---
+
+### UC-8: Share this week's verdict
+
+**Status:** Live
+**Actor:** Sarah or Marco
+**Job:** JTBD-4
+**Trigger:** On the home page, uses the "Share this week's verdict" block.
+**Code:** `components/landing/ShareVerdictButton.tsx`, `app/card/route.tsx`, `proxy.ts`
+
+**Main flow:** The block offers WhatsApp, Email and Copy, plus a "Preview the share card" link. The message is a short fixed sentence ("This week's grocery deals across 7 Swiss stores, side by side.") and the home-page link. The preview card is a generated 1200 x 630 image of the verdict for the chosen language at `/card?locale=de|en` (also reachable as `/en/card` and `/de/card`).
+
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Native share is available | The Copy button uses the device's share sheet and falls back to copying. |
+| Page not yet hydrated | The share block is not rendered until the origin is known. |
+| Preview link and email body | The card URL includes the day (`d=`). The image itself is always recomputed from current data. The Open Graph image that WhatsApp fetches for the shared home link has no `d=` (`app/[locale]/layout.tsx:56`); the card is cached for 15 minutes (`app/card/route.tsx`), so the exposure is small. |
+| Shared link previewed in WhatsApp or social apps | Uses Open Graph tags: the `/card` image, title and description for the page language (`app/[locale]/layout.tsx`). |
+
+**Acceptance criteria**
+
+```
+GIVEN the home page has loaded
+WHEN the visitor taps WhatsApp, Email or Copy
+THEN the message contains the home-page link in the visitor's language
+  AND the preview-card link opens the verdict image for that day and language
+```
+
+---
+
+### UC-9: Use basketch in German or English
+
+**Status:** Live for German and English. French and Italian: Parked.
+**Actor:** Any visitor
+**Trigger:** Opens a link with or without the `/en` prefix.
+**Code:** `i18n/routing.ts`, `i18n/navigation.ts`, `messages/de.json`, `messages/en.json`
+
+**Main flow:** German is the default and has no prefix (`/`, `/deals`, `/about`, `/list`). English lives under `/en`. Navigation links, the list drawer, share text, 404 page, metadata and the generated share card all follow the language of the URL. Alternate-language links (`hreflang`) are declared for the home and About pages.
+
+**Alternatives and edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Unknown locale in the URL | Falls back to German (`parseLocale`). |
+| Visitor on a share link in the other language | The shared text and the destination page follow the sender's language. |
+| Product names | Come from the retailers and stay as published (mostly German). |
+| French or Italian | Message files `fr.json` and `it.json` exist but the locales are not enabled (`i18n/routing.ts`). Each defines 75 of the 183 keys in `en.json`; `de.json` is complete. |
+| Switching language | There is no language switcher; the URL sets the language. See section 7, next decision 7. |
+
+**Acceptance criteria**
+
+```
+GIVEN a visitor opens /en/deals
+THEN all interface text is English and links stay within /en
+
+GIVEN a visitor opens /deals
+THEN all interface text is German
+
+GIVEN every message key
+THEN German and English both define it (messages.test.ts, message-lint.test.ts)
+```
+
+---
+
+### UC-10: Stay correct when data is old or a day rolls over
+
+**Status:** Live
+**Actor:** Any visitor; the system
+**Trigger:** Pipeline late or failing; a deal's last day passes; a tab stays open overnight.
+**Code:** `server/data/snapshot.ts`, `components/shared/MidnightGuard.tsx`, `lib/use-today-in-zurich.ts`, `stores/list-store.ts` (`useActiveListItems`), `docs/decisions/2026-09-27-deals-cache-keyed-by-zurich-date.md`
+
+**Behaviour**
+
+| Situation | What the visitor sees |
+|---|---|
+| Normal | Deals in effect today. Deal data is cached per Zurich date, so a new day can never be answered from the previous day's cache. |
+| Data more than 9 days old, or the deals query failed | Banner on the home page: "Showing data from {date} - this week's update is delayed." |
+| A deal's last day has passed | It no longer appears (the query only returns deals ending today or later, and the in-effect rule is applied on top). |
+| A deal has not started | Shown with "From {date}", never counted in verdicts or tagged "Cheapest". |
+| Tab open across midnight (Zurich) | Home and `/deals` show "It's a new day - today's deals may have changed." with a Refresh button. On `/deals`, ended deals disappear from counts and filters; in the list, ended items become "Expired" and leave the totals. The clock is checked once a minute in the browser. |
+| Pipeline run finishes | The pipeline calls a revalidate hook so the site drops its cached data (`app/api/revalidate/route.ts`). |
+
+**Acceptance criteria**
+
+```
+GIVEN the Zurich date changes while a page is open
+THEN within about a minute a refresh prompt appears
+  AND deals whose last day has passed are no longer counted or addable on /deals
+  AND saved items that have ended are excluded from totals and shared text
+
+GIVEN the data is older than 9 days or could not be loaded
+THEN the home page shows a notice with the date of the data shown
+```
+
+---
+
+### UC-11: Read how basketch works (About)
+
+**Status:** Live
+**Actor:** Any visitor
+**Trigger:** Taps "About basketch" in the header. The link is hidden below 640 px wide, so on a phone in portrait there is no link to this page from the header, and the footer does not link to it either (defect D-6).
+**Code:** `app/[locale]/about/page.tsx`
+
+**Content:** What basketch compares; how it works (collection up to three times a week, AI sorting into Fresh / Long-life / Household with a second AI check and a "Category unverified" mark where the two disagree); one line per retailer saying where its data comes from; what is and is not compared; privacy (no account, no tracking cookies, list stored only in the browser); a contact section.
+
+**Edge cases**
+
+| Condition | Behaviour |
+|---|---|
+| Coop | Described as read through aktionis.ch because coop.ch blocks automated access. |
+| English / German | Separate pages with their own titles and canonical links. |
+| Contact section | Still shows an email address in the copy. Decision P-9 (25 Sep 2026) is that this address is not used and a contact form replaces it, so the page may point visitors to an unread address (defect D-9, UC-14). |
+
+**Acceptance criteria**
+
+```
+GIVEN a visitor opens /about or /en/about
+THEN the page states the data source for each of the seven retailers
+  AND states that no account is needed and the list stays in the browser
+```
+
+---
+
+### UC-12: Recover from a wrong URL or an error
+
+**Status:** Live
+**Actor:** Any visitor
+**Trigger:** Opens an unknown URL; a page fails to render.
+**Code:** `app/global-not-found.tsx`, `app/NotFoundLocale.tsx`, `app/[locale]/not-found.tsx`, `app/[locale]/error.tsx`, `app/global-error.tsx`, `e2e/404-structural.spec.ts`
+
+**Behaviour**
+
+| Condition | Behaviour |
+|---|---|
+| Unknown URL, such as `/en/nope` or `/foo.bar` | A real 404 response with a simple page: basketch brand bar, "Page not found", and two buttons ("Browse deals", "Back to home"). German or English, matched to the link. |
+| Error while rendering a page | A page with "Something went wrong", a "Try again" button, a link home and, where available, a reference code. The copy says "We've logged the error", but production error logging is a no-op (`lib/observability.ts`; defect D-10). |
+| Error in the layout itself | Falls through to the global error page. |
+| English visitor on a 404 | May see German for a moment before the language is applied; with JavaScript off both languages are visible. Recorded as an accepted cost in `NotFoundLocale.tsx`. |
+
+**Acceptance criteria**
+
+```
+GIVEN a visitor opens an unmatched URL
+THEN the response status is 404
+  AND the page offers a way to this week's deals and a way home, in the language of the URL
+```
+
+---
+
+### UC-13: Weekly data refresh (system)
+
+**Status:** Live
+**Actor:** System (GitHub Actions)
+**Trigger:** Scheduled Monday, Tuesday and Thursday at 05:00 UTC (`.github/workflows/pipeline.yml`). GitHub may start a run hours late.
+**Code:** `pipeline/` (collection, transformation, storage); details in `docs/collection-module-design.md`, `docs/data-source-research-2026-09-07.md`
+
+**Main flow**
 
 | # | Step | Detail |
-|---|------|--------|
-| 1 | Trigger | GitHub Actions fires cron at Wednesday 21:00 UTC |
-| 2 | Fetch deals | Scrape aktionis.ch for all 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg), parse deal data |
-| 3 | — | *(merged into step 2 — all stores fetched from aktionis.ch)* |
-| 4 | Categorize | Map each product to Fresh / Long-life / Non-food using keyword rules |
-| 5 | Store | Upsert deals to Supabase (update existing, add new, mark expired) |
-| 6 | Log | Record success/failure per source, deal counts, runtime |
+|---|---|---|
+| 1 | Collect | One fetch per store per run. Six retailers directly (Migros flyer, LIDL flyer, ALDI flyer, SPAR flyer, Denner site, Volg site); Coop through aktionis.ch. |
+| 2 | Normalise and extract | Prices, validity dates, pack size, brand, storage state, member-only flag, minimum quantity. |
+| 3 | Categorise | An AI model assigns category and sub-category; a second model double-checks; disagreement is stored as "uncertain". |
+| 4 | Store | Upsert to the database, then mark expired deals. |
+| 5 | Publish | Calls the site's revalidate hook so the new data shows up. |
 
-**Acceptance Criteria:**
+**Rules that matter to the use cases above**
 
-```
-GIVEN it is Wednesday at 21:00 UTC
-WHEN the pipeline runs
-THEN deals are fetched from both sources
-  AND each deal is assigned exactly one category
-  AND deals are stored with: store, product_name, category, original_price,
-      sale_price, discount_percent, valid_from, valid_to, image_url
-  AND duplicates (same product + store + week) are updated, not created
-  AND expired deals (valid_to < today) are marked inactive
-  AND pipeline completes in < 5 minutes
-  AND a log entry records: source, status, deal_count, duration
-```
+- An empty result, or one below that store's expected minimum, from a store counts as a failure, not a success.
+- If a store prints no original price (ALDI), the card shows none and no discount is computed from one; the stored discount is 0 (defect D-1).
+- Member-only (Lidl Plus) prices are flagged, not published as open prices.
+- Legal line: no circumvention of access protection. coop.ch is behind such protection, which is why Coop stays on aktionis.ch.
+- Spending cap on the paid classification model: USD 5 per month.
 
-**Category mapping rules:**
+**Self-running state (2 Oct 2026).** Runs on 28 Sep, 29 Sep and 1 Oct finished successfully unattended and the schedule is active. A keep-alive job re-enables the workflow on every run, because GitHub disables scheduled workflows after 60 days without repository activity. The next planned check is on 26 Nov 2026.
 
-| Source keywords (German) | basketch category | Examples |
-|--------------------------|-------------------|----------|
-| Gemuse, Frucht, Milchprodukte, Fleisch, Brot, Eier, Salat | **Fresh** | Tomaten, Vollmilch, Poulet, Erdbeeren |
-| Schokolade, Nusse, Teigwaren, Reis, Kaffee, Konserven, Getranke, Chips | **Long-life food** | Ragusa, Barilla, Nespresso, Rivella |
-| Waschmittel, Reinigung, Korperpflege, Hygiene, Haushalt, Papier | **Non-food** | Persil, Tempo, Nivea, Swiffer |
-| Unknown / unmappable | **Long-life food** | Safe default — least time-sensitive bucket |
-
-**Failure handling:**
-
-| Condition | Action | User impact |
-|-----------|--------|-------------|
-| Migros source fails | Log error, continue with Coop only | Banner: "Migros data unavailable this week" |
-| Coop source fails | Log error, continue with Migros only | Banner: "Coop data unavailable this week" |
-| Both fail | Log critical, retain last week's data | Banner: "Deals may be outdated — last updated [date]" |
-| Category mapping fails | Default to Long-life + log for manual review | Minor — product in wrong category |
-| Duplicate run | Upsert prevents duplicates — safe to re-run | None |
-
----
-
-### UC-5: Mobile-First Experience
-
-**Persona:** Sarah (80% of visits will be mobile — checked at home or in store)
-**Job:** JTBD-2, JTBD-5
-**Priority:** Must-have
-
-**Acceptance Criteria:**
-
-```
-GIVEN a shopper opens basketch on a phone (viewport < 768px)
-WHEN the page loads
-THEN the verdict banner is fully visible without scrolling
-  AND category cards stack vertically
-  AND deal cards within categories stack vertically
-  AND all text is readable without zooming (min 16px body text)
-  AND touch targets are at least 44x44px (Apple HIG)
-  AND no horizontal scrolling occurs
-  AND the page loads in < 2 seconds on 4G (Lighthouse performance > 90)
-  AND store identity is conveyed through color: Migros = orange (#FF6600), Coop = red (#E10A0A)
-  AND the user can tell which store a deal belongs to without reading text (color alone is sufficient)
-  AND all non-store UI elements use neutral colors — store colors are reserved for store identity
-  AND text contrast meets WCAG 2.1 AA (4.5:1 for normal text, 3:1 for large text)
-  AND all interactive elements are keyboard accessible with visible focus states
-  AND store-colored elements also have text labels (no information by color alone for accessibility)
-  AND screen readers can identify store, product, and price for each deal (semantic HTML + aria-labels)
-```
-
----
-
-### UC-9: Email Notifications (Future)
-
-**Persona:** Marco, Sarah
-**Job:** JTBD-5
-**Trigger:** Thursday evening, automated
-**Priority:** Future (not in current build)
-
-**Summary:** Users who saved their email during onboarding receive a weekly email every Thursday evening with their personalized deal comparison for the week. One-click unsubscribe. Deferred until core product is validated with friends beta.
-
-**Acceptance criteria to be defined when this feature is prioritized.**
-
----
-
-### UC-10: Error Pages (404 / Invalid Routes)
-
-**Persona:** Any user
-**Job:** N/A (error recovery)
-**Trigger:** User navigates to an invalid URL or expired comparison link
-**Priority:** Must-have
-
-**Acceptance Criteria:**
-
-```
-GIVEN a user navigates to an unknown route (e.g., /settings, /random)
-WHEN the page loads
-THEN a "Page not found" message is displayed
-  AND a link back to the home page is shown
-  AND the page has consistent header/footer (not a blank screen)
-
-GIVEN a user navigates to /compare/:id with an invalid or expired UUID
-WHEN the page loads
-THEN a user-friendly error is shown: "This comparison list wasn't found"
-  AND a link to create a new list is shown
-  AND the page does not show a blank state or raw error
-```
-
----
-
-### UC-11: Deals Browsing
-
-**Persona:** Sarah, Marco
-**Job:** JTBD-2
-**Trigger:** User wants to browse all deals, not just their favorites
-**Priority:** Phase 2
-
-**Main Flow:**
-
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Navigates to /deals | Shows all deals with category filter pills |
-| 2 | Taps a category (e.g., "Drinks") | Filters to show only Drinks deals |
-| 3 | — | Deals grouped by store: Migros section + Coop section, color-coded |
-| 4 | Scrolls through deals sorted by discount % | Each deal shows product, price, discount, store badge |
-
-**Acceptance Criteria:**
-
-```
-GIVEN a shopper opens the deals page
-WHEN they select a category
-THEN deals are grouped by store (Migros and Coop separately)
-  AND each group is color-coded by store
-  AND deals are sorted by discount % descending
-  AND a maximum of 50 deals per store group are shown initially
-  AND a "Show more" button expands beyond 50
-  AND on desktop: store groups are side-by-side columns
-  AND on mobile: store groups are stacked vertically
-```
-
----
-
-### UC-12: Unified Deals + List Experience (v2.1 — Primary Flow)
-
-**Persona:** Sarah, Marco  
-**Job:** JTBD-1, JTBD-2  
-**Trigger:** User opens /deals and sees items they buy regularly  
-**Priority:** Must-have (shipped 21 Apr 2026)
-
-**What changed from v2.0:** The primary way to build a list is now directly from the Deals page. The onboarding form (starter pack → edit → save) still exists as an alternative path, but is no longer the default entry point.
-
-**Main Flow:**
-
-| # | Sarah does... | System does... |
-|---|---------------|----------------|
-| 1 | Opens /deals | Shows all deals, "All deals" view by default, sorted by discount % |
-| 2 | Browses by category tab and store pills | Filters deals in real time |
-| 3 | Taps + on a deal she buys regularly | Button turns green (added to list); toast confirms |
-| 4 | Taps green checkmark on same deal | Removes item; button returns to grey + |
-| 5 | Adds 5-8 items | Sticky bar appears: "N items in your list →" |
-| 6 | Taps sticky bar link | Navigates to /compare/:id |
-| 7 | Views comparison grouped by category | All deals from all stores shown per category |
-| 8 | Taps "Copy link" or "Share list" | Copies URL or opens native share sheet |
-| 9 | Bookmarks /compare/:id | Returns weekly to same URL |
-
-**Acceptance Criteria:**
-
-```
-GIVEN Sarah opens /deals
-WHEN the page loads
-THEN deals are shown in list view by default (not compare view)
-  AND each deal card has a + button to add to list
-  AND tapping + adds item and turns button green
-  AND tapping green checkmark removes item and reverts to grey +
-  AND a toast notification confirms each add/remove
-  AND a sticky bottom bar appears after adding any item
-  AND sticky bar shows correct item count
-  AND sticky bar links to /compare/:basketId
-  AND "My List" nav link goes to /compare/:id for users with items
-  AND "My List" nav link goes to /deals for users with no items
-  AND "My List" nav does NOT go to /onboarding for new users
-```
-
-**Edge cases:**
+**Alternatives and edge cases**
 
 | Condition | Behaviour |
-|-----------|-----------|
-| User not yet assigned a basket | basket created in DB on first + tap, stored in localStorage |
-| Remove fails (DB error) | Toast shows exact error message |
-| User clears localStorage | /deals still works, but sticky bar won't show previous list |
+|---|---|
+| One store fails | The other stores still publish. Whether a failed store's older deals are kept until their own end date or swept is not yet confirmed; the site never shows a deal past its end date. |
+| Pictures missing | ALDI, SPAR and Volg pictures are not complete yet (Not started). |
+| Migros names | Full-title names are built and reviewed but parked pending a decision on labels (section 7, next decision 8). |
 
----
-
-## 9. Risk Register
-
-### R1: Data Source Becomes Unavailable
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | aktionis.ch goes offline, changes structure, or blocks automated access |
-| **Likelihood** | Medium (site has been stable since 2006, but no guarantees) |
-| **Impact** | High — all store data disappears from the site |
-| **Detection** | Pipeline logs error; monitoring alert fires |
-| **Mitigation** | Fallback chain: aktionis.ch -> oferlo.ch (JSON-LD structured data) -> Rappn.ch (Next.js API). All three aggregators verified in Phase 0. |
-| **Response plan** | Show "Deal data unavailable" banner. Switch to backup source within 1 day. |
-
-### R2: aktionis.ch Structure Changes for Specific Stores
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | aktionis.ch changes HTML structure or URL patterns for one or more stores |
-| **Likelihood** | Medium (site has been stable, but per-store pages may evolve independently) |
-| **Impact** | Medium — affected store(s) lose data until scraper is updated |
-| **Detection** | Pipeline logs empty results or parse errors for specific stores |
-| **Mitigation** | Fallback chain per store: aktionis.ch -> oferlo.ch (JSON-LD structured data) -> Rappn.ch (Next.js API). Pepesto API (paid, EUR 0.05/request) as emergency backup. |
-| **Response plan** | Update scraper selectors within 1 day. Show "[Store] data unavailable" banner for affected stores. |
-
-### R3: Category Mapping Inaccuracy
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | Products miscategorized (e.g., ice cream in "Fresh" instead of "Long-life") |
-| **Likelihood** | High (guaranteed for edge cases) |
-| **Impact** | Low — slightly misleading category placement, not incorrect pricing |
-| **Detection** | Manual review of mapped categories weekly |
-| **Mitigation** | Start with top 100 product keywords manually mapped. Log unmapped products for review. Default to "Long-life food" (safest bucket). |
-| **Acceptance threshold** | > 90% correct categorization. Below that, refine rules. |
-
-### R4: Legal / Terms of Service Change
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | aktionis.ch adds bot protection or ToS prohibiting scraping |
-| **Likelihood** | Low (they've been open for 20 years) |
-| **Impact** | Medium — need to switch Coop data source |
-| **Detection** | Pipeline returns 403 or CAPTCHA |
-| **Mitigation** | Pre-validated backup sources (oferlo.ch, Rappn.ch). All use publicly available data only. No scraping of bot-protected sites (policy decision). |
-
-### R5: Low User Adoption
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | Nobody uses the site beyond the author |
-| **Likelihood** | Medium |
-| **Impact** | Low — this is a portfolio project. PM process is the deliverable, not user growth. |
-| **Mitigation** | Share with 10 friends in Bern. Collect feedback. The GitHub repo with PRD, architecture, use cases, and code demonstrates PM capability regardless of traffic. |
-| **Reframe** | If 5 friends use it weekly, it's a success. If 0 do, the PM documentation still demonstrates the skill. |
-
-### R6: Data Freshness Gap
-
-| Attribute | Detail |
-|-----------|--------|
-| **Risk** | Pipeline runs Thursday but a flash sale starts Monday, or a promotion ends mid-week |
-| **Likelihood** | Medium |
-| **Impact** | Low — users see stale or expired deals |
-| **Detection** | valid_to date comparison |
-| **Mitigation** | Show validity dates on each deal. Banner if data is > 7 days old. V2: add mid-week pipeline run (Monday). |
-
----
-
-## 10. Constraints and Boundaries
-
-| Constraint | Detail | Rationale |
-|-----------|--------|-----------|
-| **Legal** | Only publicly available data. No scraping of bot-protected sites. | Coop deployed DataDome specifically to block scraping. Respecting that is both ethical and avoids legal risk. |
-| **Region** | Bern only (MVP) | Solve own problem first. Validate with local network. Expand later. |
-| **No login** | All features work without account creation | Friction kills adoption for a utility tool. Bookmarkable URL > account. |
-| **No app** | Web only. Mobile-optimised site. | Nobody installs an app to check grocery deals. PWA possible in Phase 3. |
-| **Cost** | CHF 0/month | Free tiers only: Supabase, Vercel, GitHub Actions. Portfolio project, not a business. |
-| **Language** | English UI (MVP) | Author's preference. German product names come from source data. German UI in future if demand exists. |
-| **Seven stores** | Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg (defaults: Migros, Coop, Denner) | All sourced from aktionis.ch. Covers the stores 90%+ of Swiss residents shop at. |
-
----
-
-## 11. Traceability
-
-| Use Case | User Story | Job to Be Done | Persona | Priority |
-|----------|-----------|----------------|---------|----------|
-| UC-1: Browse Verdict & Deals | US-6, US-7, US-8, US-9 | JTBD-2 | Sarah, Marco | Must-have |
-| UC-1b: Set Up Favorites | US-1 | JTBD-1 | Sarah | Must-have |
-| UC-2: View Weekly Comparison | US-2, US-3, US-9 | JTBD-2, JTBD-5 | Sarah, Marco | Must-have |
-| UC-3: Quick Check at Store | US-1 | JTBD-5 | Sarah, Marco | Should-have |
-| UC-4: Data Pipeline | — (system) | — | — | Must-have |
-| UC-5: Mobile-First + Accessibility | NFR | JTBD-2, JTBD-5 | Sarah | Must-have |
-| UC-6: Return via Direct URL | US-4 | JTBD-5 | Sarah, Marco | Must-have |
-| UC-7: Share Comparison List | US-7 | JTBD-3 | Sarah, Marco | Must-have |
-| UC-8: Return via Email Lookup | US-4 | JTBD-5 | Sarah | Must-have |
-| UC-9: Email Notifications | US-10, US-11 | — | Marco | Future |
-| UC-10: Error Pages (404) | — (NFR) | — | Any | Must-have |
-| UC-11: Deals Browsing | US-6, US-7, US-8, US-12 | JTBD-2 | Sarah, Marco | Must-have |
-
----
-
-### UC-6: Return via Direct URL (Bookmark/Share Link)
-
-**Persona:** Sarah, Marco
-**Job:** JTBD-5
-**Trigger:** Returning to check deals next week
-**Priority:** Must-have
-
-**Rationale:** Email lookup is fragile — users forget which email they used, or skip the email step entirely. The comparison page URL (`/compare/:favoriteId`) already works as a stable, unique, unguessable link. Surfacing it prominently solves 60% of the retention problem.
-
-**Main Flow:**
-
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Completes onboarding (UC-1) | Navigates to `/compare/:favoriteId` |
-| 2 | — | Shows "Save this list" section with the direct URL |
-| 3 | Taps "Copy" or "Share" | Copies URL to clipboard, or opens native share sheet |
-| 4 | Bookmarks the page or shares via WhatsApp | — |
-| 5 | Returns next week via bookmark or chat link | Shows updated comparison with this week's deals |
-
-**Acceptance Criteria:**
+**Acceptance criteria**
 
 ```
-GIVEN the shopper has completed onboarding
-WHEN they view the comparison page
-THEN a "Save this list" section shows the direct URL
-  AND a "Copy" button copies the URL to clipboard with visual feedback
-  AND a "Share" button uses the native share API (or copies as fallback)
-  AND the URL is stable and works across devices and sessions
-  AND the URL is unguessable (UUID-based, not sequential)
+GIVEN the schedule fires
+THEN every reachable store is fetched once
+  AND each deal is stored with store, name, category, sale price, validity dates and price basis
+  AND a store that returns fewer offers than that store's expected minimum is reported as failed
+  AND the website is told to refresh its cache when the run completes
 ```
 
 ---
 
-### UC-7: Share Comparison with Partner or Friends
+### UC-14: Send feedback through a contact form
 
-**Persona:** Sarah (shares with partner), Marco (shares with flatmates)
-**Job:** JTBD-3
-**Trigger:** User wants to split shopping with someone
-**Priority:** Must-have
-
-**Main Flow:**
-
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Views comparison page | Shows "Share" button |
-| 2 | Taps "Share" | Opens native share sheet (WhatsApp, SMS, email, etc.) |
-| 3 | Sends link to partner | Partner opens same comparison page |
-| 4 | Partner sees the same split shopping list | — |
-
-**Acceptance Criteria:**
-
-```
-GIVEN a shopper has a comparison page open
-WHEN they tap "Share"
-THEN the native share API is invoked (on supported devices)
-  AND the share includes a title, description, and URL
-  AND the recipient can view the full comparison without any setup
-  AND shared links show a rich preview in WhatsApp/social apps (Open Graph meta tags: og:title, og:description, og:image, og:url)
-  AND the social preview image is 1200x630px with basketch branding
-  AND on devices without Web Share API support (desktop Firefox, older Android), a "Copy Link" button is shown as fallback
-```
-
-**Dependency:** All pages must include OG meta tags. Without them, shared links appear as bare URLs in WhatsApp — breaking the growth channel (see PRD Section 6: Growth Engine).
+**Status:** Not started
+**Actor:** Any visitor
+**Trigger:** Wants to report a wrong price or suggest something.
+**What exists:** only the About page contact section with a plain email address in the copy.
+**Decided (P-9, 25 Sep 2026):** replace the address with a contact form that sends to me, with the destination held as a secret and never in the page or the repository. Needs a mail service on a free tier and a one-time setup step.
+**Acceptance criteria:** not defined yet.
 
 ---
 
-### UC-8: Return via Email Lookup
+### UC-15: "Cheapest" tag means lowest price
 
-**Persona:** Sarah
-**Job:** JTBD-5
-**Trigger:** User lost their bookmark and wants to find their list
-**Priority:** Should-have (secondary to UC-6)
-
-**Main Flow:**
-
-| # | Shopper does... | System does... |
-|---|-----------------|----------------|
-| 1 | Opens basketch home page | Shows "Already have a list?" with email input |
-| 2 | Enters the email they saved during onboarding | Looks up favorites by email |
-| 3 | — | Redirects to `/compare/:favoriteId` |
-
-**Edge cases:**
-
-| Condition | Behaviour |
-|-----------|-----------|
-| Email not found | "No list found for this email. Try creating a new one." |
-| Multiple lists with same email | Return most recently created list |
-| User never saved email | Cannot use this flow — must use bookmark (UC-6) |
-
-**Acceptance Criteria:**
-
-```
-GIVEN a shopper saved their email during onboarding
-WHEN they enter that email on the home page
-THEN they are redirected to their comparison page
-  AND the comparison shows current week's deals
-```
-
-**Note:** Email lookup is an equal return path alongside the direct URL (UC-6). Both are primary — URL for bookmarkers, email for users who clear browsers or switch devices.
+**Status:** Not started
+**Actor:** Any visitor
+**Today:** the "Cheapest" tag marks the first card in a section that votes in the verdict, and cards are ordered by biggest discount percent. In practice it means the biggest discount among comparable offers, not the lowest price.
+**Decided (P-7, P-10, 25 Sep 2026):** make "Cheapest" mean the lowest price (per kg, per litre or per piece among comparable offers) while keeping biggest discount first in the ordering. Not built.
+**Acceptance criteria:** not defined yet. Until it is built, the wording gap is defect D-11.
 
 ---
 
-## 12. Open Decisions
+### UC-16: Per-item cheapest-store routing
 
-| # | Question | Options | Recommendation | Decision owner |
-|---|----------|---------|----------------|----------------|
-| ~~1~~ | ~~Verdict weighting~~ | ~~50/50, 40/60, 60/40~~ | **Resolved 12 Apr 2026:** 40% deal count / 60% avg discount depth. Tie threshold: 5%. Min 3 deals before showing verdict. Show explanation line. | PM |
-| 2 | How many deals to show per category before "Show more"? | 5, 10, 15 | 10 (balances completeness vs scroll fatigue on mobile) | PM — test with users |
-| 3 | Should we show store locations on the page? | Yes (map), Yes (list), No | List of nearest stores per category winner (no map in MVP) | PM |
-| 4 | Product language: translate to English or keep German? | Translate, Keep German, Both | Keep German (products are sold in German, translation adds complexity and errors) | PM |
-| 5 | aktionis.ch scraping frequency: weekly or more? | Weekly (Thu), 2x/week (Mon+Thu) | Weekly for MVP, add Monday run if users report stale data | PM |
+**Status:** Not started (deferred)
+**Actor:** Sarah
+**Intended:** for each item on her list, show which store has it cheapest and produce a forwardable shopping list per store.
+**Today:** the visitor chooses specific deals; the list groups those choices by store (UC-5). No search for a better store per item exists. Decided 25 Sep 2026 (P-8): keep today's category comparison and do not build routing now.
+**Acceptance criteria:** not defined.
+
+---
+
+### UC-17: Pick a product variant, see per-store availability, get notified
+
+**Status:** Parked (components built, unreachable)
+**What exists:** a variant picker sheet, an availability strip with "on deal / off deal / not yet seen" states per store, and a "Notify me when this drops" email form (`components/list/VariantPickerSheet.tsx`, `AvailabilityStrip.tsx`, `AvailabilityCellSheet.tsx`, `lib/concept-family-defaults.ts`). They are only used by `components/landing/V3PreviewSection.tsx`, which no page imports, so none of this appears on the live site. The email form has no sending or storage behind it. English copy for these screens still sits in `messages/en.json`.
+**Pending decision:** keep or retire (section 7, next decision 9).
+
+---
+
+### UC-18: Shared list as its own read-only page
+
+**Status:** Parked (designed, challenged with zero findings, not built)
+**Actor:** The recipient of a shared list
+**Spec:** `docs/design/2026-09-27-shared-list-view-spec.md`, `docs/design/2026-09-27-architect-shared-list-separate-view.md`; decision P-14.
+
+**Intended flow:** `/list?items=...` shows the shared list on its own page, read-only, labelled "Shared list", with the same "Where to buy" grouping and wording that says "These items" rather than "Your items". The recipient's own list is never touched until they choose: "Add all to my list", "Save as my list" (if theirs is empty) or "Replace my list with this one" (with Undo). Items no longer on offer are reported as a count; a 200-item limit is declared with its own notice; empty and nothing-available links get their own empty states.
+
+**Acceptance criteria (from the spec, abbreviated)**
+
+```
+GIVEN a recipient opens a shared link and has their own list
+THEN their list is unchanged until they tap an action
+  AND the shared items are visible without any redirect
+
+GIVEN none of the shared items are on offer this week
+THEN the page says so and offers "Browse deals", and the recipient's list is unchanged
+```
+
+---
+
+## 6. Current alternatives
+
+The v2.1 competitor table (aktionis.ch, Rappn, Profital, Bring!, manual checking) is kept in `docs/competitive-analysis.md`. It is not repeated here because its wording described the old personalised-comparison product.
+
+## 7. Known defects, gaps and next decisions
+
+### Known defects (confirmed by reading the code; none reproduced in a browser unless stated)
+
+| # | Defect | Where | Related |
+|---|---|---|---|
+| D-1 | Deals with no printed original price are stored at 0% discount and still count toward the category verdict. Effect on verdicts not measured. | `pipeline/categorize.ts:31-32`; `web-next/src/lib/domain/votes-in-verdict.ts:53-58`; `server/verdict/algorithm.ts:22-27` | UC-1, UC-3 |
+| D-2 | Home category cards open an unfiltered `/deals`. They send `?category=`; the deals page reads `type` (not `cat`, which is a sub-category slug). | `components/landing/CategoryVerdictCard.tsx:31`; `lib/filters.ts:52-74` | UC-1 |
+| D-3 | A shared link drops `minQuantity`, so "From N items" prices lose their label for the recipient and in anything they share on. | `app/[locale]/list/page.tsx:65-76` | UC-7, UC-5 |
+| D-4 | Opening a shared link overwrites the recipient's own list (decision P-14 says never). Fix designed, not built. | `components/list/HydrateAndRedirect.tsx:24`; `stores/list-store.ts:145` | UC-7, UC-18 |
+| D-5 | A shared link with no resolvable ids empties the recipient's list. | `app/[locale]/list/page.tsx:62-64`; `HydrateAndRedirect.tsx:24` | UC-7 |
+| D-6 | About page has no link on phones below 640 px, and none in the footer. | `components/Header.tsx:38`; `components/Footer.tsx` | UC-11 |
+| D-7 | With items present but all expired, Copy link stays enabled and does nothing. | `components/list/ListDrawer.tsx:133, 70-71` | UC-6 |
+| D-8 | A malformed `%` sequence in a shared link produces the error page. | `lib/share-url.ts:15` | UC-7 |
+| D-9 | About page still shows a contact email address that decision P-9 says is not used. | `messages/en.json` (`about.contact`) | UC-11, UC-14 |
+| D-10 | Error page says "We've logged the error", but production logging is a no-op. | `messages/en.json` (`errors.server_error_body`); `lib/observability.ts:21-27` | UC-12 |
+| D-11 | "Cheapest" and the list summary "cheapest at..." wording describe more than the logic does (biggest discount; chosen deals grouped by store). | `server/data/filter-deals.ts:297-301`; `messages/en.json` (`list.split_summary`) | UC-15, UC-5 |
+| D-12 | Copy inconsistencies: German category name "Frische" and "Trockensortiment" in the interface vs "Frisch" and "Lange haltbar" in the German About text. (Separately, the French and Italian message files are incomplete, 75 of 183 keys; those locales are not routed.) | `lib/category-rules.ts:15-17`; `messages/de.json:13` | UC-9 |
+
+### Next decisions
+
+1. Fix D-1: exclude no-original-price deals from the verdict (as member-only deals are), or keep them.
+2. Build the separate shared-list page (UC-18), or guard the current behaviour until then (D-4, D-5).
+3. Fix D-2 and D-3, which are small code changes.
+4. Link About from the mobile header or footer (D-6).
+5. Replace the About contact address with the planned form (UC-14), or remove the address meanwhile.
+6. Soften the "cheapest" wording now, or build UC-15.
+7. Language switcher: none exists, the language follows the URL; the browser-language redirect (next-intl default) is likely on but not tested.
+8. Migros full-title names: waiting on the label decision (persist IP-SUISSE / AOP / Fairtrade labels, keep them in the name, or accept the loss).
+9. UC-17 (variants, availability, notify-me): keep or retire the unreachable code and its copy.
+10. Not-started items without a use case here: ALDI, SPAR and Volg pictures, a Volg daily refresh, health-check alert tuning, a database index migration.
+11. `docs/human-tester-guide.md` still describes the April product and needs updating or retiring.
+
+## 8. Validation and unverified points
+
+This specification is derived from the code, the message files and the design and decision documents in `docs/`, and was reviewed against the code. Points that are genuinely unverified:
+
+- Browser-language redirect to `/en`.
+- The state of ALDI, SPAR and Volg pictures on the live site.
+- Whether a failed store's older deals are kept until their end date or swept; the site never shows a deal past its end date.
+- Weekly figures (1,537 deals in effect, counted after the 28 Sep 2026 deploy; three unattended runs on 28 Sep, 29 Sep and 1 Oct 2026) change every week.
+
+## Appendix: What changed since v2.1 (21 Apr 2026)
+
+- **No account, no email, no server-side list.** The email lookup, email notifications, starter packs, onboarding form and the `/compare/:id` page are gone. The list now lives only in the visitor's browser (`web-next/src/stores/list-store.ts`) and is shared as a link that carries deal ids.
+- **Seven retailers, not two.** Migros, Coop, LIDL, ALDI, Denner, SPAR and Volg are all live. Six are collected directly from the retailer (own site or public flyer); Coop is collected through aktionis.ch, on purpose (see UC-13).
+- **The product is a verdict plus a browsable deal list.** Home shows a per-category verdict (Fresh / Long-life / Household). `/deals` has search and filters. A "My list" drawer replaces the old comparison page.
+- **Correctness rules added.** Deals are only "in effect" between their start and end dates (Zurich calendar date). Member-only prices, "from N items" prices, not-yet-started deals and unverified categories are labelled, and none of them can decide a verdict or wear the "Cheapest" tag.
+- **Two languages are live (German, English).** French and Italian message files exist but are not routed.
+- **Each use case now carries a status** (Live / Parked / Not started) taken from the code and the decision records.
+- **Unmeasured targets removed.** v2.1 listed activation, retention and PMF targets. No usage metrics exist for this project, so none are claimed here.
+- `docs/human-tester-guide.md` still describes the April flow and is out of date.
+
+Removed from v2.1 because the code no longer has them: email lookup, email notifications, starter packs, the onboarding form, `/compare/:id`, server-side baskets, "Track your items", the favourites-based comparison and the 3-bucket onboarding. The growth-engine, milestone and PMF-survey sections are removed because they described plans and targets rather than behaviour.

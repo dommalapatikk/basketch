@@ -1,1273 +1,508 @@
 # Technical Architecture: basketch
 
-**Author:** Architect Agent
-**Date:** 9 April 2026
-**Updated:** 10 April 2026
-**Version:** 1.1
-**Status:** Draft
-**Inputs:** PRD v1.0, Use Cases v1.2, Architecture Decisions, Roadmap, Phase 0 data source validation
-**Changes:** Updated for favorites-first pivot + product search
+**Version:** 2.0 (revised after architecture review, 2 October 2026)
+**Date:** 2 October 2026
+**Status:** Describes the system as built and live at https://basketch.vercel.app (production branch `main`, merge commit `e159e4b`, 2026-09-28)
+**Supersedes:** v1.1 (10 April 2026) of this file. `docs/technical-architecture-v2.md` (v2.1, 12 April 2026) is historical. The changes since v1.1 are summarised in Appendix A.
+**Method:** Every statement below is taken from the code or a dated project document, and file paths are cited inline. Anything not confirmed is marked *(unverified)*. Internal codes used in project records (WP-, AP-, D-, P-) are explained in Appendix B.
 
 ---
 
-## 1. System Overview
+## 1. Summary (one page)
+
+**The problem.** Swiss shoppers spread their weekly groceries across several retailers, but each retailer publishes its promotions separately. Product context is in `docs/prd.md`.
+
+**What basketch does.** It collects this week's grocery promotions from seven Swiss retailers (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg). It classifies each promotion into a shared category taxonomy and publishes the result on a mobile-first website. Visitors can see which store leads each category this week, browse and filter every deal, build a shopping list, and share that list by link. There is no login and no app.
+
+**How it is built.**
 
 ```
-              WEEKLY PIPELINE (Wednesday 21:00 UTC / 22:00 CET)
-              + Verification fetch (Thursday 06:00 UTC)
-              =================================================
-
- +------------------+     +-------------------+     +------------------+
- | Migros Source    |     | Coop Source        |     | Categorizer      |
- | (TypeScript)     |     | (Python)           |     | (TypeScript)     |
- |                  |     |                    |     |                  |
- | migros-api-      |     | requests +         |     | Keyword rules    |
- | wrapper (npm)    |     | BeautifulSoup      |     | map products to  |
- | Guest OAuth2     |     | aktionis.ch/       |     | Fresh / Long-    |
- | POST promotions  |     | vendors/coop       |     | life / Non-food  |
- +--------+---------+     +--------+-----------+     +--------+---------+
-          |                         |                          |
-          v                         v                          v
- +--------+---------+     +--------+-----------+     +--------+---------+
- | Normalized JSON  |     | Normalized JSON    |     | Categorized JSON |
- | (UnifiedDeal[])  |     | (UnifiedDeal[])    |     | (Deal[])         |
- +--------+---------+     +--------+-----------+     +--------+---------+
-          |                         |                          |
-          +------------+------------+--------------------------+
-                       |
-                       v
-              +--------+---------+
-              | Storage Module   |        DATA PATH A: Pipeline
-              | (TypeScript)     |        Fills deals table weekly
-              |                  |
-              | Upsert to        |
-              | Supabase via     |
-              | @supabase/       |
-              | supabase-js      |
-              +--------+---------+
-                       |
-                       v
-              +--------+------------------+
-              | Supabase                  |
-              | (PostgreSQL)              |
-              |                           |
-              | deals table               |
-              | pipeline_runs             |
-              | starter_packs             |
-              | favorites                 |
-              | favorite_items            |
-              +--------+------------------+
-                       ^
-                       | Supabase JS client
-                       | (read deals, read/write favorites)
-                       |
-              +--------+------------------+
-              | Vercel (React SPA)        |
-              |                           |
-              | FIRST VISIT (Onboarding): |
-              |  1. TemplatePicker        |
-              |     ("How do you cook?")  |
-              |  2. FavoritesEditor       |
-              |     (remove + search)     |
-              |  3. ComparisonView        |
-              |     (which are on sale?)  |
-              |  4. EmailCapture          |
-              |     (save for next week)  |
-              |                           |    DATA PATH B: User
-              | RETURN VISIT:             |    Creates/retrieves
-              |  1. EmailLookup           |    favorites via frontend
-              |  2. ComparisonView        |
-              |  3. Shop!                 |
-              +--------+------------------+
-                       ^
-                       |
-                  User (mobile browser)
+ Retailers' published channels         GitHub Actions (Mon/Tue/Thu)           Supabase (Postgres)        Vercel
+ ─────────────────────────────        ──────────────────────────────         ───────────────────        ──────────────────────
+ Denner API · Volg HTML ·     ──►     Pipeline (TypeScript + one Python  ──►  deals, products,     ──►   Next.js 16 site
+ SPAR/ALDI PDFs · LIDL JSON ·         OCR step)                               classification cache,      (server-rendered,
+ Migros flyer images (OCR) ·          collect → validate → classify →         run history                cached per Zurich day)
+ Coop via aktionis.ch                 store → refresh site                                                 ▲
+                                                                                                           │ visitors (phone)
 ```
 
-### Deployment Model
+**Design choices that matter.**
 
-| Component | Runs on | Trigger |
-|-----------|---------|---------|
-| Migros source | GitHub Actions (Node.js 20) | Cron: Wednesday 21:00 UTC |
-| Coop source | GitHub Actions (Python 3.12) | Cron: Wednesday 21:00 UTC |
-| Categorizer + Storage | GitHub Actions (Node.js 20) | After both sources complete |
-| Verification fetch | GitHub Actions (Node.js 20 + Python 3.12) | Cron: Thursday 06:00 UTC |
-| Supabase | Supabase cloud (free tier) | Always on |
-| Frontend | Vercel (free tier, global CDN) | Auto-deploy on push to main |
+1. **Domain-driven collection.** A single `Offer` aggregate guards the price rules in its constructor. For example, ALDI never gets an invented discount, and a LIDL member price must name its programme. Each retailer adapter is an anti-corruption layer: retailer field names never get past it. See §5.1.
+2. **Honest failure.** Sources return a result instead of throwing, and an empty result counts as a failure. One retailer failing never stops the others. When the classifier is unsure about a product, the product is marked uncertain rather than guessed. See §5.1–5.2.
+3. **Correct for today in Zurich.** A deal counts as "in effect" by the Zurich calendar date. The deals cache is keyed by that date, so a page cannot carry yesterday's set past midnight. See §8.
+4. **Legal rules the code follows.** No technical protection measure is circumvented. Price comparisons show validity windows and label member-only prices. Flyer images are referenced and cropped in the browser. This is a description of the rules, not legal advice. See §12.
+5. **Runs on its own.** Scheduled runs, an in-process deadline with one retry, a dead-man ping, and keep-alive jobs. Since 28 September 2026 it has run without manual intervention. See §9.
+6. **Cost.** Hosting, the database, CI and the main classification model all run on free tiers. One paid API, the classification judge on OpenRouter, is capped at USD 5 per month and switches itself off if that cap cannot be confirmed. See §14.
 
-### Two Data Paths
-
-The system has two independent data flows:
-
-| Path | What | Who triggers | Frequency |
-|------|------|-------------|-----------|
-| **A: Pipeline** | Fetches deals from Migros + Coop, categorizes, upserts to `deals` table | GitHub Actions cron | Weekly (Wednesday night + Thursday morning verification) |
-| **B: User favorites** | User selects starter pack, customizes with search, saves with email | Frontend (user interaction) | On demand |
-
-Path A fills the `deals` table. Path B fills the `favorites` and `favorite_items` tables. The comparison view joins them: for each favorite keyword, find matching active deals.
-
-### Mixed-Language Decision
-
-The pipeline uses two languages because the data sources require it:
-
-- **TypeScript (Node.js):** Required for Migros because `migros-api-wrapper` is an npm package with no Python equivalent. It handles Cloudflare bypass via TLS 1.3 + Firefox User-Agent.
-- **Python:** Best choice for Coop because `requests` + `BeautifulSoup` is the simplest way to scrape server-rendered HTML from aktionis.ch.
-
-The orchestrator runs both in a single GitHub Actions workflow using two jobs (one Node.js, one Python) that output normalized JSON. A third Node.js job reads both outputs, categorizes, and writes to Supabase.
+**Scale.** About 1,500 deals are in effect at any time (1,537 on 2026-09-28, `docs/prd.md`). It is built by one developer for 10–50 users.
 
 ---
 
-## 2. Module Design
+## 2. System context (C4 level 1)
 
-### 2.1 Pipeline: Migros Source
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Fetch current Migros promotions and output normalized deal JSON |
-| **Language** | TypeScript (Node.js 20) |
-| **Key dependency** | `migros-api-wrapper` (npm v1.1.37) |
-| **Interface** | `fetchMigrosDeals(): Promise<UnifiedDeal[]>` |
-| **Input** | None (uses guest OAuth2 — no credentials needed) |
-| **Output** | Array of `UnifiedDeal` objects written to `migros-deals.json` (GitHub Actions artifact) |
-| **Error handling** | If API returns empty or throws, log error and output empty array. Pipeline continues with Coop only. |
-| **Testing** | Integration test: call the real API, assert response shape matches `UnifiedDeal`. Mock test: verify normalization logic with fixture data. |
-
-**API call pattern:**
-```typescript
-// POST /product-display/public/web/v2/products/promotion/search
-// Body: { period: "CURRENT" }
-// Paginate via from/until parameters until items[] is empty
+```
+                        ┌──────────────────────────────┐
+   Shopper (mobile) ───►│          basketch            │◄─── Owner: GitHub, Supabase and Vercel
+   share recipients     │  basketch.vercel.app + deal  │     dashboards; e-mail alert from
+                        │  pipeline                    │     healthchecks.io
+                        └──────┬──────────────┬────────┘
+                               │ reads public │ calls
+                               ▼              ▼
+     Retailer channels (7, see §12)     Google Gemini API (free tier)  — classification
+     aktionis.ch (Coop only)            OpenRouter (capped)            — judge model
+                                        healthchecks.io                — dead-man switch
 ```
 
-### 2.2 Pipeline: Coop Source
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Scrape current Coop promotions from aktionis.ch and output normalized deal JSON |
-| **Language** | Python 3.12 |
-| **Key dependencies** | `requests`, `beautifulsoup4` |
-| **Interface** | `fetch_coop_deals() -> list[UnifiedDeal]` |
-| **Input** | None |
-| **Output** | Array of `UnifiedDeal` dicts written to `coop-deals.json` (GitHub Actions artifact) |
-| **Error handling** | If aktionis.ch returns non-200 or HTML structure changes, log error and output empty array. Pipeline continues with Migros only. |
-| **Testing** | Integration test: fetch page 1, assert at least 1 deal parsed. Mock test: parse a saved HTML fixture, verify extraction logic. |
-
-**Scraping pattern:**
-```python
-# GET aktionis.ch/vendors/coop/1, /vendors/coop/2, etc.
-# Parse product cards from server-rendered HTML
-# Optionally fetch detail pages for schema.org JSON-LD (richer data)
-# Stop when page returns 0 products
-```
-
-### 2.3 Pipeline: Categorizer
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Map each `UnifiedDeal` to one of three categories: `fresh`, `long-life`, `non-food` |
-| **Language** | TypeScript |
-| **Interface** | `categorizeDeal(deal: UnifiedDeal): Category` |
-| **Input** | `UnifiedDeal` (with `sourceCategory` and `productName` fields) |
-| **Output** | `Deal` (same as `UnifiedDeal` + `category` field) |
-| **Logic** | Keyword matching against product name and source category. See mapping rules in use-cases.md UC-4. Default: `long-life` (safest bucket). |
-| **Dependencies** | `category-rules.ts` — a flat array of `{ keywords: string[], category: Category }` objects, checked in order. |
-| **Testing** | Unit test: pass known product names, assert correct category. Edge case test: unknown product defaults to `long-life`. |
-
-**Category rules structure:**
-```typescript
-const CATEGORY_RULES: CategoryRule[] = [
-  { keywords: ['gemüse', 'frucht', 'milch', 'fleisch', 'brot', 'eier', 'salat', 'joghurt', 'käse', 'butter'], category: 'fresh' },
-  { keywords: ['waschmittel', 'reinigung', 'pflege', 'hygiene', 'haushalt', 'papier', 'shampoo', 'seife'], category: 'non-food' },
-  // Everything else falls through to 'long-life' default
-];
-```
-
-### 2.4 Pipeline: Storage
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Write categorized deals to Supabase. Mark old deals as inactive. Log pipeline run. |
-| **Language** | TypeScript |
-| **Key dependency** | `@supabase/supabase-js` |
-| **Interface** | `storeDeal(deals: Deal[]): Promise<void>` and `logPipelineRun(run: PipelineRun): Promise<void>` |
-| **Input** | Array of `Deal` objects (already categorized) |
-| **Output** | Rows in `deals` and `pipeline_runs` tables |
-| **Upsert logic** | Match on `store + product_name + valid_from`. If exists, update prices/discount. If new, insert. |
-| **discount_percent guarantee** | Before storing, if `discount_percent` is null but `original_price` and `sale_price` are both present, calculate it: `Math.round((1 - salePrice / originalPrice) * 100)`. `discount_percent` is only allowed to be null when `original_price` is null. |
-| **Name normalization** | Before upsert, normalize product names: lowercase, collapse whitespace, standardize unit abbreviations (e.g., "1.5 L" to "1.5l", "500 G" to "500g"). This prevents duplicate rows from minor formatting differences between pipeline runs. |
-| **Expiry logic** | Before inserting new deals, set `is_active = false` on all deals where `valid_to < now()`. |
-| **Testing** | Integration test against Supabase (use a test project or mock). Unit test: verify upsert conflict key construction. |
-
-### 2.5 Pipeline: Orchestrator
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Run the full pipeline end-to-end. Coordinate Migros fetch, Coop fetch, categorization, and storage. Handle partial failures. |
-| **Implementation** | GitHub Actions workflow (YAML), not application code. Each source is a separate job. Categorization + storage is a third job that depends on the first two. |
-| **Error handling** | If Migros job fails, Coop job still runs (and vice versa). The storage job runs if at least one source succeeded. |
-| **Logging** | Each job logs to GitHub Actions console. The storage job writes a `pipeline_runs` row with source statuses and deal counts. |
-| **Testing** | Manual trigger via `workflow_dispatch`. Verify deals appear in Supabase after run. |
-| **JSON validation** | `run.ts` must validate the JSON from the Python Coop scraper against the `UnifiedDeal` schema before processing. If any field is missing or has the wrong type, log the invalid entry and skip it rather than crashing the pipeline. This is the trust boundary between the Python and TypeScript halves. |
-
-**Workflow structure:**
-```yaml
-jobs:
-  fetch-migros:      # Node.js 20, uploads migros-deals.json artifact
-  fetch-coop:        # Python 3.12, uploads coop-deals.json artifact
-  process-and-store: # Node.js 20, downloads both artifacts, categorizes, upserts
-    needs: [fetch-migros, fetch-coop]
-    if: always()     # Runs even if one source failed
-```
-
-### 2.6 Frontend: Data Layer
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Fetch deal data from Supabase for the frontend. Provide typed query functions. Manage favorites and search. |
-| **Language** | TypeScript |
-| **Key dependency** | `@supabase/supabase-js` |
-| **Interface** | `getActiveDeals(): Promise<Deal[]>`, `getDealsByCategory(category: Category): Promise<Deal[]>`, `getLatestPipelineRun(): Promise<PipelineRun>` |
-| **Caching** | React Query (`@tanstack/react-query`) with `staleTime: 1 hour`. Data changes once per week — aggressive caching is correct. |
-| **Testing** | Mock Supabase client, verify query construction. E2E: verify data renders on page. |
-
-**Additional query functions (favorites-first pivot):**
-
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `getStarterPacks(): Promise<StarterPack[]>` | Active starter packs ordered by sort_order | Feeds the TemplatePicker |
-| `searchProducts(query: string): Promise<string[]>` | Distinct product names matching the query | Used by FavoritesEditor search bar |
-| `saveFavorites(items: FavoriteItem[], email?: string): Promise<Favorite>` | Saved favorite record | Creates favorites + favorite_items rows |
-| `getFavoritesByEmail(email: string): Promise<Favorite & { items: FavoriteItem[] }>` | Favorite with items | Used by returning users to retrieve their list |
-| `getComparisonForFavorites(favoriteId: string): Promise<FavoriteComparison[]>` | Matched favorites with deals | Joins favorite keywords against active deals |
-
-### 2.7 Frontend: Verdict
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Calculate and display the weekly verdict banner. |
-| **Language** | TypeScript (React component) |
-| **Interface** | `<VerdictBanner deals={Deal[]} />` |
-| **Logic** | For each category, calculate a score per store: `(0.4 * dealCountShare) + (0.6 * avgDiscountShare)`. Winner is the store with the higher score. If within 5%, declare a tie. |
-| **Output** | Banner text: "This week: Migros for Fresh, Coop for Non-food" (or variations for ties, missing data) |
-| **Edge cases** | One store missing: "Only [store] deals available". Both missing: "Deals may be outdated — last updated [date]". |
-| **Testing** | Unit test: pass fixture deals, assert verdict text. Test tie case, single-store case, empty case. |
-
-### 2.8 Frontend: Deal Cards
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Display deal listings grouped by category, sorted by discount. |
-| **Language** | TypeScript (React components) |
-| **Components** | `<CategorySection>`, `<DealCard>`, `<StoreBadge>` |
-| **Interface** | `<CategorySection category="fresh" deals={Deal[]} />` |
-| **Sorting** | Deals sorted by `discount_percent` descending within each category. |
-| **Truncation** | Show top 10 deals per store per category. "Show all N deals" button expands. |
-| **Testing** | Snapshot test for card layout. Unit test for sort logic. |
-
-### 2.9 Shared: Types
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Single source of truth for all data types used by pipeline and frontend. |
-| **Language** | TypeScript |
-| **Location** | `shared/types.ts` |
-| **Consumed by** | Pipeline modules (Migros source, categorizer, storage) and frontend (data layer, components). Imported via `@shared/types` path alias. |
-
-### 2.10 Frontend: Onboarding Flow
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Guide first-time users through template selection, customization (remove/add via search), and email save |
-| **Language** | TypeScript (React components) |
-| **Components** | `TemplatePicker`, `FavoritesEditor`, `ProductSearch`, `EmailCapture` |
-
-**Component details:**
-
-| Component | Role |
-|-----------|------|
-| `TemplatePicker` | Shows starter pack options. Prompt: "How do you cook?" Options: Swiss Basics, Indian Kitchen, Mediterranean, General. Each loads a pre-defined list of grocery keywords. |
-| `FavoritesEditor` | Shows the pre-loaded items from the selected starter pack with remove buttons + a search bar to add new items. Users customize until their list feels right. |
-| `ProductSearch` | Searches the `deals` database for matching products. Partial/fuzzy match on `product_name`. Uses Supabase `ilike` or full-text search. Returns distinct product names for the user to add. |
-| `EmailCapture` | Appears AFTER showing the comparison view (Phil Carter Psych Framework: front-load value, back-load data collection). Simple email input: "Save your list for next week?" Optional — user can skip. |
-
-**Search implementation:**
-- Matches against `deals.product_name` using Supabase `ilike('%keyword%')`
-- Deduplicates by product_name (same product may appear in multiple weeks)
-- Returns top 20 matches, ordered by relevance (exact match first, then partial)
-- Start with `ilike`; add `pg_trgm` extension + GIN index if performance degrades
-
-### 2.11 Frontend: Comparison View
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Show personalized comparison — which favorites are on sale this week, split by store |
-| **Language** | TypeScript (React components) |
-| **Components** | `ComparisonView`, `SplitList`, `FavoriteMatchCard` |
-
-**Grouping logic:**
-- "Buy at Migros" — favorites where Migros has a better deal (or only Migros has it)
-- "Buy at Coop" — favorites where Coop has a better deal (or only Coop has it)
-- "No deals this week" — favorites with no matching active deals at either store
-
-**Card display:** Each matched item shows product name, deal price, savings (discount %), and store badge.
-
-**Availability:** The comparison view is used in two contexts:
-1. First visit — shown after template selection and customization (before email capture)
-2. Return visit — shown after email lookup retrieves saved favorites
-
-### 2.12 Frontend: Email Lookup
-
-| Attribute | Detail |
-|-----------|--------|
-| **Responsibility** | Allow returning users to retrieve their saved favorites by email |
-| **Language** | TypeScript (React component) |
-| **Component** | `EmailLookup` |
-
-**Behavior:**
-- Simple email input on the home page for returning users
-- Retrieves favorites by email from Supabase: `favorites` joined with `favorite_items`
-- If found: navigates to ComparisonView with the user's favorites
-- If not found: "No favorites found. Set up your list?" with a link to onboarding
-- No password, no auth — email is just a lookup key (acceptable for MVP because there is no sensitive data, only product keywords)
+| Actor / system | Relationship |
+|---|---|
+| Shopper | Uses the website on a phone. Nothing about the shopper is sent to a server. The list is kept in browser storage (`web-next/src/stores/list-store.ts`, zustand `persist`) |
+| Share recipient | Opens `/list?items=…`. The list is rebuilt from this week's data (`web-next/src/app/[locale]/list/page.tsx`, `lib/share-url.ts`) |
+| Retailer channels | Read during pipeline runs with an identifying User-Agent, `basketch/1.0 (+https://basketch.vercel.app; …)`, e.g. `collection/infrastructure/volg/volg-html-source.ts` |
+| Gemini | Tier-1 classifier, reflector and attribute enricher (`pipeline/composition.ts`) |
+| OpenRouter | Tier-2 judge (`openai/gpt-5-nano`), with a spend cap (`pipeline/composition.ts`, `transformation/domain/spend.ts`) |
+| healthchecks.io | Receives a ping carrying the exit code at the end of every run (`pipeline/run.ts`, `observability/healthcheck-ping.ts`) |
 
 ---
 
-## 3. Data Architecture
+## 3. Goals, non-goals, constraints
 
-### 3.1 Table: `deals`
+**Goals**
+- Show this week's promotions from all seven retailers, correct for today's Zurich date.
+- Compare stores at category level ("who leads Fresh this week"), and let visitors build and share a list.
+- Run with no human in the loop, and fail loudly rather than silently.
 
-```sql
-CREATE TABLE deals (
-  id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  store         TEXT NOT NULL CHECK (store IN ('migros', 'coop')),
-  product_name  TEXT NOT NULL,
-  category      TEXT NOT NULL CHECK (category IN ('fresh', 'long-life', 'non-food')),
-  original_price DECIMAL(10, 2),
-  sale_price    DECIMAL(10, 2) NOT NULL,
-  discount_percent INTEGER,
-  valid_from    DATE NOT NULL,
-  valid_to      DATE,
-  image_url     TEXT,
-  source_category TEXT,
-  source_url    TEXT,
-  is_active     BOOLEAN DEFAULT true,
-  fetched_at    TIMESTAMPTZ DEFAULT now(),
-  created_at    TIMESTAMPTZ DEFAULT now(),
-  updated_at    TIMESTAMPTZ DEFAULT now(),
+**Non-goals (current)**
+- No user accounts and no server-side personal data.
+- No per-item cheapest-store routing. The category comparison stays for now (PM decision, `docs/decisions/2026-09-25-pm-decisions.md`).
+- No regional pricing. Research found that prices are national and only the assortment varies (`docs/data-source-research-2026-09-07.md`, Part 4b).
+- No identity for the same product across retailers yet. Products are resolved per store (see §15).
 
-  CONSTRAINT unique_deal UNIQUE (store, product_name, valid_from)
-);
-```
-
-**Auto-update `updated_at` on row changes:**
-
-```sql
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER deals_updated_at
-  BEFORE UPDATE ON deals
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at();
-```
-
-### 3.2 Table: `pipeline_runs`
-
-```sql
-CREATE TABLE pipeline_runs (
-  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  run_at          TIMESTAMPTZ DEFAULT now(),
-  migros_status   TEXT CHECK (migros_status IN ('success', 'failed', 'skipped')),
-  migros_count    INTEGER DEFAULT 0,
-  coop_status     TEXT CHECK (coop_status IN ('success', 'failed', 'skipped')),
-  coop_count      INTEGER DEFAULT 0,
-  total_stored    INTEGER DEFAULT 0,
-  duration_ms     INTEGER,
-  error_log       TEXT
-);
-```
-
-### 3.3 Table: `starter_packs`
-
-Read-only reference table, seeded by pipeline/admin. Contains pre-defined grocery lists for onboarding.
-
-```sql
-CREATE TABLE starter_packs (
-  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,
-  label       TEXT NOT NULL,
-  description TEXT,
-  items       JSONB NOT NULL DEFAULT '[]',
-  sort_order  INTEGER DEFAULT 0,
-  is_active   BOOLEAN DEFAULT true,
-  created_at  TIMESTAMPTZ DEFAULT now()
-);
-```
-
-`items` is a JSONB array of objects:
-```json
-[
-  {"keyword": "milch", "label": "Milk", "category": "fresh"},
-  {"keyword": "reis", "label": "Rice", "category": "long-life"},
-  {"keyword": "waschmittel", "label": "Laundry Detergent", "category": "non-food"}
-]
-```
-
-### 3.4 Table: `favorites`
-
-User's saved favorite list. Email is nullable — user can browse without saving. Email is added later when they choose to save.
-
-```sql
-CREATE TABLE favorites (
-  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  email       TEXT,
-  created_at  TIMESTAMPTZ DEFAULT now(),
-  updated_at  TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE UNIQUE INDEX idx_favorites_email ON favorites (email) WHERE email IS NOT NULL;
-```
-
-### 3.5 Table: `favorite_items`
-
-Individual items within a user's favorites list.
-
-```sql
-CREATE TABLE favorite_items (
-  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  favorite_id UUID NOT NULL REFERENCES favorites(id) ON DELETE CASCADE,
-  keyword     TEXT NOT NULL,
-  label       TEXT NOT NULL,
-  category    TEXT NOT NULL CHECK (category IN ('fresh', 'long-life', 'non-food')),
-  created_at  TIMESTAMPTZ DEFAULT now(),
-  CONSTRAINT unique_favorite_item UNIQUE (favorite_id, keyword)
-);
-
-CREATE INDEX idx_favorite_items_favorite_id ON favorite_items (favorite_id);
-```
-
-### 3.6 Indexes
-
-```sql
--- Primary query: active deals for current week, grouped by category and store
-CREATE INDEX idx_deals_active_category ON deals (is_active, category, store)
-  WHERE is_active = true;
-
--- Expiry management: find deals past their valid_to date
-CREATE INDEX idx_deals_valid_to ON deals (valid_to)
-  WHERE is_active = true;
-
--- Upsert conflict resolution
--- (covered by UNIQUE constraint on store, product_name, valid_from)
-
--- Product search: partial match on product_name for favorites search
--- Start with ilike (no index needed for small tables).
--- If slow, add pg_trgm extension + GIN index:
--- CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- CREATE INDEX idx_deals_product_name_trgm ON deals USING GIN (product_name gin_trgm_ops);
-
--- Starter packs: sort by sort_order (small table, no index needed)
-
--- Favorites email lookup
--- (covered by UNIQUE INDEX idx_favorites_email above)
-
--- Favorite items by favorite_id
--- (covered by CREATE INDEX idx_favorite_items_favorite_id above)
-
--- Favorite items unique constraint
--- (covered by CONSTRAINT unique_favorite_item above)
-```
-
-### 3.7 Row-Level Security
-
-```sql
--- Enable RLS on all tables
-ALTER TABLE deals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pipeline_runs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE starter_packs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
-ALTER TABLE favorite_items ENABLE ROW LEVEL SECURITY;
-
--- Public read access (no login required)
-CREATE POLICY "Public read deals" ON deals
-  FOR SELECT USING (true);
-
-CREATE POLICY "Public read pipeline_runs" ON pipeline_runs
-  FOR SELECT USING (true);
-
-CREATE POLICY "Public read starter_packs" ON starter_packs
-  FOR SELECT USING (true);
-
--- Favorites: read/write via anon key
--- No auth for MVP. Users manage their own favorites.
--- Acceptable because there is no sensitive data (just product keywords + optional email).
-CREATE POLICY "Public read favorites" ON favorites
-  FOR SELECT USING (true);
-
-CREATE POLICY "Public insert favorites" ON favorites
-  FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Public update favorites" ON favorites
-  FOR UPDATE USING (true);
-
-CREATE POLICY "Public read favorite_items" ON favorite_items
-  FOR SELECT USING (true);
-
-CREATE POLICY "Public insert favorite_items" ON favorite_items
-  FOR INSERT WITH CHECK (true);
-
-CREATE POLICY "Public delete favorite_items" ON favorite_items
-  FOR DELETE USING (true);
-
--- Write access to deals and pipeline_runs only via service role key (used by pipeline)
--- No INSERT/UPDATE/DELETE policies for anon key on deals or pipeline_runs
-
--- Write access to starter_packs only via service role key (seeded by admin)
--- No INSERT/UPDATE/DELETE policies for anon key on starter_packs
-```
-
-### 3.8 Data Lifecycle
-
-| Event | Action |
-|-------|--------|
-| Pipeline runs (Wednesday night + Thursday morning verification) | Upsert new deals. Mark deals with `valid_to < now()` as `is_active = false`. |
-| Frontend queries (deals) | Filter `WHERE is_active = true`. Only show current deals. |
-| Frontend queries (favorites) | Retrieve by email. No expiry — favorites persist indefinitely. |
-| User creates favorites | Insert into `favorites` + `favorite_items`. Email added later via update. |
-| User modifies favorites | Add/remove rows in `favorite_items`. Update `favorites.updated_at`. |
-| Data retention | Keep expired deals indefinitely (supports future archive/history pages for SEO + broader product catalog for search). No deletion. |
-| Free tier limit | 500MB / 50K rows. Deals: ~300/week = ~15K rows/year. Starter packs: ~5 rows. Favorites: ~50 rows (friends). Favorite items: ~1000 rows. Total well within 50K limit for 3+ years. |
+**Constraints**
+- Free tiers for all infrastructure. One paid API, capped, approved by the PM (`CLAUDE.md`, "Legal Constraints"; `docs/rca/2026-09-15-final-plan.md`).
+- Never circumvent a technical protection measure (`CLAUDE.md`, "Legal Constraints").
+- The Supabase service-role key never reaches the frontend.
+- A flat repository with no npm workspaces. `pipeline/`, `web-next/` and `shared/` each have their own `package.json`.
 
 ---
 
-## 4. Folder Structure
+## 4. Containers (C4 level 2)
 
-```
-basketch/
-├── .github/
-│   └── workflows/
-│       └── pipeline.yml            # Weekly cron workflow
-│
-├── pipeline/                       # Data pipeline (TypeScript + Python)
-│   ├── migros/                     # Migros source (TypeScript)
-│   │   ├── fetch.ts                # fetchMigrosDeals()
-│   │   ├── normalize.ts            # Raw API response → UnifiedDeal[]
-│   │   ├── fetch.test.ts
-│   │   └── fixtures/               # Saved API responses for testing
-│   │       └── migros-response.json
-│   │
-│   ├── coop/                       # Coop source (Python)
-│   │   ├── fetch.py                # fetch_coop_deals()
-│   │   ├── normalize.py            # Raw HTML → UnifiedDeal dicts
-│   │   ├── test_fetch.py
-│   │   ├── fixtures/               # Saved HTML pages for testing
-│   │   │   └── coop-page-1.html
-│   │   └── requirements.txt        # requests, beautifulsoup4
-│   │
-│   ├── categorize.ts               # categorizeDeal()
-│   ├── categorize.test.ts
-│   ├── store.ts                    # storeDeal(), logPipelineRun()
-│   ├── store.test.ts
-│   ├── run.ts                      # Entry point: read JSON artifacts → categorize → store
-│   ├── package.json                # Pipeline dependencies (supabase-js, migros-api-wrapper, etc.)
-│   └── tsconfig.json
-│
-├── web/                            # Frontend (React + Vite)
-│   ├── src/
-│   │   ├── main.tsx
-│   │   ├── App.tsx
-│   │   ├── lib/
-│   │   │   ├── supabase.ts         # Supabase client init
-│   │   │   ├── queries.ts          # getActiveDeals(), getDealsByCategory(), getStarterPacks(), searchProducts(), saveFavorites(), getFavoritesByEmail(), getComparisonForFavorites()
-│   │   │   ├── verdict.ts          # calculateVerdict()
-│   │   │   └── favorites.ts        # Favorites matching logic (join keywords against deals)
-│   │   ├── components/
-│   │   │   ├── ui/                 # shadcn/ui components
-│   │   │   ├── VerdictBanner.tsx
-│   │   │   ├── CategorySection.tsx
-│   │   │   ├── DealCard.tsx
-│   │   │   ├── StoreBadge.tsx
-│   │   │   ├── DataWarning.tsx     # "Deals may be outdated" banner
-│   │   │   ├── TemplatePicker.tsx  # Starter pack selection ("How do you cook?")
-│   │   │   ├── FavoritesEditor.tsx # Remove items + search to add
-│   │   │   ├── ProductSearch.tsx   # Search deals database for products
-│   │   │   ├── ComparisonView.tsx  # Split shopping list by store
-│   │   │   ├── SplitList.tsx       # "Buy at Migros" / "Buy at Coop" / "No deals"
-│   │   │   ├── FavoriteMatchCard.tsx # Single matched item card
-│   │   │   ├── EmailCapture.tsx    # Save email after seeing value
-│   │   │   └── EmailLookup.tsx     # Returning user email input
-│   │   ├── pages/
-│   │   │   ├── Home.tsx            # Email lookup for returning users + link to onboarding
-│   │   │   ├── Onboarding.tsx      # Template → customize → compare → save email
-│   │   │   ├── Compare.tsx         # Comparison view for saved favorites
-│   │   │   └── About.tsx
-│   │   └── index.css               # Tailwind imports
-│   ├── public/
-│   │   └── favicon.svg
-│   ├── index.html
-│   ├── vite.config.ts
-│   ├── tailwind.config.ts
-│   ├── postcss.config.js
-│   ├── tsconfig.json
-│   └── package.json                # Frontend dependencies (react, vite, tanstack, etc.)
-│
-├── shared/                         # Shared types (consumed by pipeline + frontend)
-│   ├── types.ts                    # Deal, Category, Store, UnifiedDeal, PipelineRun, StarterPack, Favorite, FavoriteItem, FavoriteComparison
-│   └── category-rules.ts           # Keyword-to-category mapping rules
-│
-├── docs/                           # PM documentation
-│   ├── prd.md
-│   ├── use-cases.md
-│   ├── architecture.md             # PM-level architecture decisions
-│   ├── roadmap.md
-│   └── technical-architecture.md   # This document
-│
-├── .env.example                    # Template for required env vars
-├── package.json                    # Root scripts only (no workspaces)
-├── tsconfig.base.json              # Shared TS config
-└── README.md
-```
+| Container | Technology | Runs on | Responsibility |
+|---|---|---|---|
+| **Deal pipeline** (`pipeline/`) | Node 20, TypeScript (`tsx`), LangGraph for the classification graph, Python 3.12 for Migros OCR (`rapidocr-onnxruntime`), poppler `pdftotext` for PDF flyers | GitHub Actions, `.github/workflows/pipeline.yml` | Collect, validate, classify and store offers, then refresh the site |
+| **Database** | Supabase Postgres (free tier) | Supabase | Deals, products, classification cache, run history |
+| **Website** (`web-next/`) | Next.js 16.2.4, React 19.2.4, Tailwind 4, next-intl 4, zustand, Radix/vaul sheets, `@tanstack/react-virtual` (`web-next/package.json`) | Vercel (Hobby) | Server-render deal data; filtering, list and sharing; OG card image; revalidation endpoint |
+| **Shared kernel** (`shared/`) | TypeScript | Imported by relative path | Domain types, the `BROWSE_CATEGORIES` taxonomy, category rules, product-name normalisation (`shared/types.ts`, `shared/category-rules.ts`) |
+| **CI** | GitHub Actions, `.github/workflows/ci.yml` (Node 24) | GitHub | Type-check and test all three packages; build the website; run Playwright and axe |
 
-### Monorepo Decision
-
-**Decision:** Single repo with a flat folder structure (no npm workspaces). TypeScript path aliases resolve shared imports. Python (Coop scraper) lives alongside but is managed separately with `pip` + `requirements.txt`.
-
-**Why:** Everything in one repo means one CI/CD workflow, one PR per feature, and easy cross-referencing. A flat structure avoids the complexity of npm workspaces for a project with only two TypeScript packages. The Python module is isolated in its own directory with its own dependencies.
-
-**Shared imports:** `pipeline/` and `web/` both import from `shared/` using TypeScript path aliases configured in `tsconfig.base.json`:
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@shared/*": ["./shared/*"]
-    }
-  }
-}
-```
-Each sub-project's `tsconfig.json` extends `tsconfig.base.json`.
-
-**Package management:**
-- TypeScript: Each directory (`pipeline/`, `web/`) has its own `package.json`. The root `package.json` contains convenience scripts only (no `"workspaces"` field).
-- Python: `pip install -r requirements.txt` in the `pipeline/coop/` directory
-- No monorepo tool (Turborepo, Nx) needed — two packages is not complex enough to justify it
+**Connections**
+- **Pipeline → Supabase:** writes with the service-role key, held as a GitHub secret.
+- **Website → Supabase:** reads with the public anon key. Queries run only in the server data layer (`web-next/src/server/data/`); components never call Supabase directly. Database access policies are being consolidated into the migrations folder (§7).
+- **Pipeline → Website:** at the end of a run, `POST /api/revalidate` with a bearer secret (`web-next/src/app/api/revalidate/route.ts`, `pipeline/observability/revalidate-webhook.ts`).
 
 ---
 
-## 5. Technology Decisions
+## 5. Key components (C4 level 3)
 
-### 5.1 Pipeline Language: Mixed (TypeScript + Python)
+### 5.1 Collection module (`pipeline/collection/`)
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | TypeScript for Migros source + categorizer + storage. Python for Coop source. |
-| **Why** | `migros-api-wrapper` is npm-only (TLS 1.3 + Cloudflare bypass). Coop scraping is simplest with `requests` + `BeautifulSoup`. |
-| **Trade-off** | Two runtimes in CI. Slightly more complex workflow YAML. |
-| **Alternative rejected** | All-Python (no Migros wrapper — would need to reverse-engineer Cloudflare bypass). All-TypeScript (Cheerio works but BeautifulSoup is more battle-tested for scraping). |
+The design is in `docs/collection-module-design.md` (approved 2026-09-08). The layers are defined by import direction:
 
-### 5.2 Frontend State Management: React Query
+```
+collection/
+  domain/          Offer (aggregate root), Money, Discount, ValidityPeriod, PriceBasis,
+                   ProductImage/CropRegion, QuantityRequirement, Edition, IsoWeek,
+                   the OfferSource port, Result      → imports no infrastructure
+  application/     collect-offers (orchestrator), telemetry port
+  infrastructure/  one adapter per retailer (each with its own __fixtures__/ of captured
+                   responses), pdf/ helpers, telemetry/, live-sources.ts (wiring)
+```
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | `@tanstack/react-query` for data fetching and caching. |
-| **Why** | Built-in caching, stale-while-revalidate, loading/error states. Data changes weekly — aggressive caching is the correct strategy. |
-| **Trade-off** | One more dependency (~13KB gzipped). Worth it for the developer experience. |
-| **Alternative rejected** | SWR (similar but smaller community). Plain `fetch` + `useState` (too much boilerplate for loading/error/cache). |
+**Invariants enforced in the `Offer` constructor** (`CLAUDE.md`, "Domain-Driven Design"):
 
-### 5.3 CSS: Tailwind + shadcn/ui
+```
+salePrice > 0
+originalPrice === null  ⟺  discountPercent === null      ← the ALDI rule
+originalPrice !== null  →   originalPrice > salePrice
+validTo >= validFrom
+ProductImage is exactly one of SourceUrl | CropRegion
+PriceBasis.MemberOnly must name its programme            ← the LIDL rule
+```
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | Tailwind CSS for utility styling. shadcn/ui for pre-built components (cards, badges, buttons). |
-| **Why** | Confirmed in PM architecture decisions. Consistent design with minimal custom CSS. |
-| **Trade-off** | Tailwind class strings can be verbose. Acceptable — this is how modern React projects work. |
-| **Component pattern** | Copy shadcn/ui components into `src/components/ui/`. Compose them in app-level components (`VerdictBanner`, `DealCard`). |
+Several of these rules are repeated as database `CHECK` constraints (`supabase/migrations/20260911_offer_fields.sql`).
 
-### 5.4 Testing: Vitest
+**Adapters.** Each one implements the `OfferSource` port and is the anti-corruption layer for its retailer.
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | Vitest for all TypeScript tests (pipeline + frontend). Pytest for Python tests. |
-| **Why** | Vitest shares Vite's config and is faster than Jest. Native ESM support. Same assertion API as Jest. |
-| **Trade-off** | Less community support than Jest. Not a problem for this project size. |
-| **Alternative rejected** | Jest (slower, more config overhead with ESM). |
+| Retailer | Adapter | Mechanism | Images today |
+|---|---|---|---|
+| Denner | `denner/denner-api-source.ts` | Denner's public promotion JSON endpoint, paginated. Its own category labels also serve to score the classifier | Retailer image URL |
+| Volg | `volg/volg-html-source.ts` | The weekly promotions HTML page: three sections with different validity windows, dates without a year | Retailer image URL (often expired, §15) |
+| Coop | `coop/coop-aktionis-source.ts` | aktionis.ch Coop listing pages (reason in §12) | Image URL from the listing |
+| SPAR | `spar/spar-flyer-source.ts` | Weekly flyer PDF read with `pdftotext -bbox`; each field's role is inferred from font height | Not shown yet |
+| ALDI | `aldi/aldi-flyer-source.ts` | Publitas catalogue `data.json` → flyer PDF. There is usually no reference price, so no discount is invented | Not shown yet |
+| LIDL | `lidl/lidl-flyer-source.ts` | Flyer JSON, cross-checked against the PDF so a Lidl Plus member price is never published as a normal price | Retailer image URL |
+| Migros | `migros/migros-flyer-source.ts` + `migros/ocr.py` | The weekly flyer page images on Issuu, read with OCR (`rapidocr-onnxruntime`, CPU, free) | Flyer crop |
 
-### 5.5 CI/CD: GitHub Actions
+**Error handling** (`collection/application/collect-offers.ts`)
+- An adapter returns either `Ok(offers, warnings)` or `Failed(reason)`. The reason is one of `source-unavailable`, `source-changed`, `below-expected-yield`, `partially-parsed`.
+- If an adapter throws anyway, the error is contained and reported as a failure. A per-source timeout (default 120 s) cuts off a source that hangs.
+- **Empty is not success.** Zero offers is reported as `source-changed`. A yield far below what the source normally returns is `below-expected-yield`.
+- When one source fails, the run is `degraded`, not `failed`.
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | GitHub Actions for pipeline cron and CI checks. |
-| **Why** | Free for public repos. Supports both Node.js and Python. Cron scheduling built in. |
-| **Trade-off** | Cron timing is approximate (GitHub may delay up to 15 minutes). Acceptable — nobody is watching at exactly 21:00. |
+**Editions.** Each adapter works out which publication ("edition") it is fetching (`collection/domain/edition.ts`; ADR `docs/decisions/2026-09-17-publication-editions.md`). A ledger that skips an edition already collected is planned but not built (§15).
 
-### 5.6 Environment Variables and Secrets
+### 5.2 Transformation, i.e. classification (`pipeline/transformation/`)
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | Secrets stored in GitHub Actions secrets. Frontend uses Vite's `VITE_` prefix for public env vars. |
-| **Secrets needed** | `SUPABASE_URL` (public, safe to expose), `SUPABASE_ANON_KEY` (public, read-only via RLS), `SUPABASE_SERVICE_ROLE_KEY` (secret, pipeline-only — never exposed to frontend). |
-| **Local dev** | `.env` file (gitignored). `.env.example` checked in with placeholder values. |
+It uses the same domain / application / infrastructure layering. The layering is enforced by tests (`pipeline/architecture.test.ts`, `collection/domain/architecture.test.ts`) rather than a lint rule, because `pipeline/` has no linter.
 
-### 5.7 Error Handling and Logging
+- **Cache first.** `product_classification_cache` is keyed by the normalised product name plus the taxonomy, prompt and schema versions. Lookups are chunked by encoded size in bytes, not by key count (`shared-kernel/chunk-by-encoded-size.ts`). That fix came from an earlier outage.
+- **The classification graph** (`transformation/application/classify-graph.ts`, LangGraph):
+  1. **Tier 1:** Gemini Flash-Lite classifies products in batches of 25 (`composition.ts`; the models are in `transformation/domain/model-registry.ts`).
+  2. **Judge:** `openai/gpt-5-nano` via OpenRouter reviews the answer. It can only rate trust; it never sets a category.
+  3. **Reflector:** the same Gemini model revisits disputed items.
+  4. **Uncertain:** a product that has a category the judge disputed ends as uncertain. It is published with the category label withheld and does not count towards verdicts. A product with no classification at all (rate limit, provider down, truncated response, or not reached before the deadline) is held back: not published this run, and counted as `heldBack` (`transformation/application/classify-deals.ts`).
+- **Why the judge is the trigger.** Escalation is driven by the judge, not by the model's own confidence. In a measurement on 291 Denner products the model was often confidently wrong (header of `classify-graph.ts`).
+- **Quota and spend guards.**
+  - Each (provider, model) pair has one `ModelGate`, and everything that calls that model shares its rate limit (ADR `docs/decisions/2026-09-16-model-gate.md`).
+  - The judge's `SpendLedger` reserves the worst-case cost before each call.
+  - At the start of a run the pipeline reads the OpenRouter key's provider-side credit limit. If the limit cannot be read, or no limit is set, the run continues **without the judge** (`composition.ts#resolveJudgeSpendCeiling`).
+- **Attributes.** Optional per-category attributes (fat %, pack details) come from the same Gemini gate. Enrichment can never cost a product its category (ADR `docs/decisions/2026-09-17-attributes-version.md`).
 
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | Console logging in pipeline (GitHub Actions captures it). No external logging service. |
-| **Why** | GitHub Actions retains logs for 90 days on free tier. Enough for debugging. |
-| **Pipeline errors** | Each source logs success/failure independently. The `pipeline_runs` table records status per source. Frontend reads this to show data freshness warnings. |
-| **Frontend errors** | React error boundaries at the page level. If Supabase is unreachable, show cached data (React Query) with "Data may be outdated" banner. |
+### 5.3 Storage step (`pipeline/store.ts`, `pipeline/storage/`, `pipeline/product-resolve.ts`)
 
-### 5.8 Caching Strategy
+- Each `Offer` is mapped to a row at the module boundary (`storage/domain/offer-to-unified.ts`).
+- Product identity is resolved per store, by an upsert on `(store, source_name)` backed by a unique index (`supabase/migrations/20260925000000_products_store_source_name_unique.sql`).
+- Deals are upserted.
+- A **stale sweep** then withdraws a store's old deals, but only if that store refreshed at least half of its live set in this run (`MIN_REFRESH_SHARE = 0.5`, `storage/domain/stale-sweep.ts`).
+- Expired deals are deactivated.
+- A run record and a metrics snapshot for the alert rules are written to `pipeline_runs` (`supabase/migrations/20260917130000_pipeline_run_metrics.sql`).
+- An earlier concept/SKU "catalogue" step was retired on 2026-09-25 because nothing read its output. Its tables were kept so the change is reversible (comment in `run-pipeline.ts`; `docs/rca/2026-09-25-tech-lead-cross-review-and-plan.md` §10). An architecture test guards against new writes to that layer.
 
-| Layer | Strategy |
-|-------|----------|
-| **CDN (Vercel)** | Static assets cached at edge. HTML served with short `max-age` (Vercel default). |
-| **React Query** | `staleTime: 3600000` (1 hour). Data changes weekly — no need to refetch on every page load. |
-| **Repeat-visit performance** | Repeat-visit performance relies on Vercel CDN + browser HTTP cache + React Query client-side data cache (`staleTime: 1 hour`). No service worker in MVP. Service worker deferred to Phase 3 (PWA) for offline access. |
-| **Supabase** | No caching layer needed. Supabase handles ~50 concurrent reads easily on free tier. |
+### 5.4 Website (`web-next/src/`)
 
-### 5.9 SEO-Friendly URLs
-
-| Attribute | Detail |
-|-----------|--------|
-| **Decision** | Use React Router for client-side routing with Vercel's SPA fallback. Implement meta tags and Open Graph per page. For Phase 2+, migrate to a framework with SSR/SSG (or pre-render key pages). |
-| **Why** | MVP is a simple SPA. SEO pages (weekly archive, categories) are Phase 2+ and will need server-side rendering or static generation for proper indexing. |
-| **URL structure (future-ready)** | `/` (home), `/onboarding` (new user flow), `/compare` (comparison view), `/woche/:weekId` (weekly verdict), `/kategorie/:category`, `/archiv/:month`, `/about` |
-| **Trade-off** | SPA without SSR has limited SEO. Acceptable for MVP (traffic comes from friends, not search). When SEO becomes critical, add pre-rendering or migrate to Next.js/Astro. |
-| **Migration path** | The data layer (React Query + Supabase) and components are framework-agnostic. Moving from Vite SPA to Next.js or Astro requires changing the routing/rendering layer, not the components or data logic. |
-| **Migration trigger** | If organic search traffic is a goal by Week 8, begin migration to Astro (static-first, ships zero JS by default) at the start of Phase 2. Astro supports React components directly, so existing components carry over with minimal changes. |
+| Area | Files | Notes |
+|---|---|---|
+| Routes | `app/[locale]/page.tsx` (home, category verdicts), `deals/` (browse and filter), `list/` (entry point for shared lists), `about/`; `app/card/route.tsx` (OG image); `app/api/revalidate/route.ts`; `sitemap.ts`, `robots.ts`, `manifest.ts` | Locales are `de` (default) and `en`, with `localePrefix: 'as-needed'` (`i18n/routing.ts`). FR and IT are deferred (`docs/adr-M0-decisions.md`) |
+| Request proxy | `proxy.ts` (Next 16's name for middleware) | next-intl routing; rewrites `/<locale>/card` to `/card` |
+| Server data layer | `server/data/snapshot.ts` (the only cached step), `supabase-provider.ts` (anti-corruption layer from database rows to the domain), `filter-deals.ts` | Pages through `deals` 1,000 rows at a time with `.eq('is_active', true).gte('valid_to', today)` |
+| Domain rules (shared by server and client) | `lib/domain/validity.ts` (`todayInZurich`, `isInEffect`), `votes-in-verdict.ts`, `price-basis.ts`, `quantity-requirement.ts`, `crop-region.ts` | One "listed but does not vote" rule: uncertain, member-only, not-yet-started and multi-buy deals are shown with a label, but they never decide a verdict or carry the "Cheapest" tag |
+| Verdict | `server/verdict/algorithm.ts` | For each category, every store's average discount over its voting deals. A store wins if it leads the runner-up by ≥ 2 percentage points and has ≥ 5 deals (`lib/category-rules.ts`). Otherwise the category is tied |
+| List and sharing | `stores/list-store.ts` (localStorage), `lib/share-url.ts`, `lib/share-target.ts` | A shared list is rebuilt from deal IDs against this week's data. IDs that no longer exist are dropped |
+| Images | `components/ui/product-image.tsx`, `next.config.ts` | Retailer image URLs are rendered with `next/image`, with an allow-list of hosts. Flyer crops are a plain `<img>` of the retailer's page positioned with CSS. Image handling is under review (§15) |
+| Observability | `lib/observability.ts` | Placeholder only (§15) |
 
 ---
 
-## 6. API Contracts
+## 6. Data flow: retailer to website
 
-### 6.1 TypeScript Interfaces
+**One scheduled run** (`pipeline/run.ts` → `run-pipeline.ts#runPipeline`):
 
-```typescript
-// shared/types.ts
+1. **Collect.** `collectOffers` runs all seven adapters, each with its own timeout, and builds validated `Offer`s. It writes NDJSON telemetry to stdout.
+2. **Normalise.** Product names are normalised the same way the upsert key is (`shared/types.ts#normalizeProductName`).
+3. **Grocery filter.** Non-grocery items are dropped and counted (`grocery-filter.ts`).
+4. **Metadata.** Brand, quantity and organic flags are extracted (`product-metadata.ts`).
+5. **Classify.** Cache → tier 1 → judge → reflector → classified, uncertain, or held back (no classification yet, not published). Classification stops at the run deadline (§9).
+6. **Taxonomy.** The browse category slug is resolved through `taxonomy_alias` (`resolve-taxonomy.ts`).
+7. **Resolve products** per store.
+8. **Write.** Deals are upserted, then the guarded stale sweep runs, then expired deals are deactivated.
+9. **Record.** The run is logged in `pipeline_runs`, and the alert rules are evaluated (`transformation/domain/alerts.ts`). Alerts appear as GitHub annotations and in the job summary.
+10. **Refresh.** The pipeline calls `POST /api/revalidate`, and the site expires its `deals` cache tag immediately (`revalidateTag(tag, { expire: 0 })`).
+11. **Ping.** A dead-man ping carrying the exit code goes to healthchecks.io (`run.ts`).
 
-export type Store = 'migros' | 'coop';
-export type Category = 'fresh' | 'long-life' | 'non-food';
+**One visitor request:**
 
-/**
- * Raw deal from a source, before categorization.
- * Both Migros (TS) and Coop (Python) normalize to this shape.
- */
-export interface UnifiedDeal {
-  store: Store;
-  productName: string;
-  originalPrice: number | null;  // null if source doesn't provide it
-  salePrice: number;
-  discountPercent: number | null; // null only when originalPrice is null; otherwise calculated by storage module
-  validFrom: string;             // ISO date string: "2026-04-09"
-  validTo: string | null;
-  imageUrl: string | null;
-  sourceCategory: string | null; // Original category from source
-  sourceUrl: string | null;      // Link to deal on source site
-}
-
-/**
- * Categorized deal, ready for storage.
- */
-export interface Deal extends UnifiedDeal {
-  category: Category;
-}
-
-/**
- * Deal as stored in Supabase (snake_case column names).
- */
-export interface DealRow {
-  id: string;
-  store: Store;
-  product_name: string;
-  category: Category;
-  original_price: number | null;
-  sale_price: number;
-  discount_percent: number | null;
-  valid_from: string;
-  valid_to: string | null;
-  image_url: string | null;
-  source_category: string | null;
-  source_url: string | null;
-  is_active: boolean;
-  fetched_at: string;
-  created_at: string;
-  updated_at: string;
-}
-
-/**
- * Pipeline run log entry.
- */
-export interface PipelineRun {
-  id: string;
-  run_at: string;
-  migros_status: 'success' | 'failed' | 'skipped';
-  migros_count: number;
-  coop_status: 'success' | 'failed' | 'skipped';
-  coop_count: number;
-  total_stored: number;
-  duration_ms: number;
-  error_log: string | null;
-}
-
-/**
- * Verdict per category.
- */
-export interface CategoryVerdict {
-  category: Category;
-  winner: Store | 'tie';
-  migrosScore: number;  // 0-100
-  coopScore: number;    // 0-100
-  migrosDeals: number;  // deal count
-  coopDeals: number;
-  migrosAvgDiscount: number;
-  coopAvgDiscount: number;
-}
-
-/**
- * Full weekly verdict.
- */
-export interface WeeklyVerdict {
-  weekOf: string;           // ISO date of the Thursday
-  categories: CategoryVerdict[];
-  dataFreshness: 'current' | 'stale' | 'partial';
-  lastUpdated: string;
-}
-
-/**
- * Starter pack — pre-defined grocery list for onboarding.
- */
-export interface StarterPack {
-  id: string;
-  name: string;
-  label: string;
-  description: string | null;
-  items: StarterPackItem[];
-  sortOrder: number;
-  isActive: boolean;
-}
-
-/**
- * Single item within a starter pack.
- */
-export interface StarterPackItem {
-  keyword: string;
-  label: string;
-  category: Category;
-}
-
-/**
- * User's saved favorites list.
- */
-export interface Favorite {
-  id: string;
-  email: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Single item within a user's favorites list.
- */
-export interface FavoriteItem {
-  id: string;
-  favoriteId: string;
-  keyword: string;
-  label: string;
-  category: Category;
-  createdAt: string;
-}
-
-/**
- * Comparison result: a favorite item matched against active deals.
- */
-export interface FavoriteComparison {
-  favorite: FavoriteItem;
-  migrosDeal: DealRow | null;
-  coopDeal: DealRow | null;
-  recommendation: 'migros' | 'coop' | 'both' | 'none';
-}
-```
-
-### 6.2 Coop Source Output Format (Python)
-
-The Python Coop scraper writes a JSON file matching the `UnifiedDeal` shape. Field names use camelCase to match the TypeScript interface:
-
-```json
-[
-  {
-    "store": "coop",
-    "productName": "Persil Gel 2x 1.5L",
-    "originalPrice": 29.90,
-    "salePrice": 17.90,
-    "discountPercent": 40,
-    "validFrom": "2026-04-09",
-    "validTo": "2026-04-15",
-    "imageUrl": "https://storage.cpstatic.ch/...",
-    "sourceCategory": "Haushalt",
-    "sourceUrl": "https://aktionis.ch/products/..."
-  }
-]
-```
-
-### 6.3 Supabase Query Patterns
-
-```typescript
-// Get all active deals for current week
-// Date safety: also filter by valid_to >= today to guard against stale is_active flags
-const today = new Date().toISOString().split('T')[0];
-const { data: deals } = await supabase
-  .from('deals')
-  .select('*')
-  .eq('is_active', true)
-  .gte('valid_to', today)
-  .order('discount_percent', { ascending: false });
-
-// Get deals by category
-const { data: freshDeals } = await supabase
-  .from('deals')
-  .select('*')
-  .eq('is_active', true)
-  .eq('category', 'fresh')
-  .order('discount_percent', { ascending: false });
-
-// Get latest pipeline run (for freshness indicator)
-const { data: latestRun } = await supabase
-  .from('pipeline_runs')
-  .select('*')
-  .order('run_at', { ascending: false })
-  .limit(1)
-  .single();
-
-// Upsert deals (pipeline — uses service_role key)
-const { error } = await supabase
-  .from('deals')
-  .upsert(deals, {
-    onConflict: 'store,product_name,valid_from',
-    ignoreDuplicates: false,
-  });
-
-// Get active starter packs (frontend — anon key)
-const { data: packs } = await supabase
-  .from('starter_packs')
-  .select('*')
-  .eq('is_active', true)
-  .order('sort_order');
-
-// Search products by keyword (frontend — anon key)
-// Deduplicate by product_name (same product may appear in multiple weeks)
-const { data: products } = await supabase
-  .from('deals')
-  .select('product_name, store, category')
-  .eq('is_active', true)
-  .ilike('product_name', `%${keyword}%`)
-  .limit(20);
-// Then deduplicate: [...new Set(products.map(p => p.product_name))]
-
-// Save favorites (frontend — anon key)
-// Step 1: Insert favorites row
-const { data: favorite } = await supabase
-  .from('favorites')
-  .insert({ email: null })
-  .select()
-  .single();
-// Step 2: Insert favorite_items rows
-const { error } = await supabase
-  .from('favorite_items')
-  .insert(items.map(item => ({
-    favorite_id: favorite.id,
-    keyword: item.keyword,
-    label: item.label,
-    category: item.category,
-  })));
-// Step 3 (optional): Update email when user saves
-const { error } = await supabase
-  .from('favorites')
-  .update({ email, updated_at: new Date().toISOString() })
-  .eq('id', favorite.id);
-
-// Get favorites by email (frontend — anon key, returning users)
-const { data: favorite } = await supabase
-  .from('favorites')
-  .select('*, favorite_items(*)')
-  .eq('email', email)
-  .single();
-
-// Match favorites with deals (frontend — anon key)
-// For each favorite_item.keyword, find matching active deals
-const { data: matches } = await supabase
-  .from('deals')
-  .select('*')
-  .eq('is_active', true)
-  .ilike('product_name', `%${keyword}%`);
-```
+1. `proxy.ts` resolves the locale.
+2. The static page shell is served.
+3. Inside a `<Suspense>` hole, `getWeeklySnapshot()` runs at request time.
+4. It calls `getDealRowsForDay({ today })`, which is cached per Zurich date.
+5. Counts, verdicts and sections are computed and the page renders.
 
 ---
 
-## 7. Infrastructure
+## 7. Data model
 
-### 7.1 GitHub Actions Workflow
+Migrations live in `supabase/migrations/`. They start from `00000000000000_baseline.sql`, are applied in filename order through the Supabase SQL editor (`supabase/migrations/README.md`), and the latest is `20260925000000_products_store_source_name_unique.sql`.
 
-```yaml
-# .github/workflows/pipeline.yml
-name: Weekly Deal Pipeline
+**Tables used by the live system**
 
-on:
-  schedule:
-    - cron: '0 21 * * 3'   # Primary: Wednesday 21:00 UTC (22:00 CET winter / 23:00 CEST summer)
-    - cron: '0 6 * * 4'    # Verification: Thursday 06:00 UTC — catch late updates before peak shopping
-  workflow_dispatch:        # Manual trigger for testing
+| Table | Written by | Read by | Purpose |
+|---|---|---|---|
+| `deals` | pipeline | website | One row per promotion (column list below) |
+| `products` | pipeline | pipeline | Product identity per store; unique on `(store, source_name)` |
+| `product_groups` | seed data | pipeline | Product grouping used during resolution (`product-resolve.ts`) |
+| `product_classification_cache` | pipeline | pipeline | Memo and audit trail of which model decided what, at which tier, under which prompt version |
+| `pipeline_runs` | pipeline | pipeline | Run history and the `metrics` JSON; the previous run is read for regression alerts |
+| `taxonomy_alias`, `taxonomy_category` (+ `taxonomy_subcategory`, `taxonomy_type`) | seed data | pipeline | Map a sub-category to `deals.category_slug` |
+| `pipeline_unknown_tags` | pipeline | owner | Sub-categories with no alias |
 
-env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+Key `deals` columns:
+- **Identity and category:** `store`, `product_name`, `category` (the top-level group: fresh / long-life / non-food, shown as "Household"), `category_slug`, `sub_category`.
+- **Price:** `sale_price`, `original_price`, `discount_percent` (NOT NULL).
+- **Validity:** `valid_from`, `valid_to`.
+- **Conditions:** `price_basis` + `loyalty_programme`, `min_quantity`.
+- **Image:** `image_url` **or** `page_image_url` + `crop_x/y/w/h` (fractions 0–1).
+- **Other:** `source_url`, `is_uncertain`, `attributes`, `is_active`, `product_id`.
 
-jobs:
-  fetch-migros:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: cd pipeline && npm ci
-      - run: npx tsx pipeline/migros/fetch.ts
-      - uses: actions/upload-artifact@v4
-        with:
-          name: migros-deals
-          path: migros-deals.json
-        if: always()
+**Dormant objects.** Tables from earlier product iterations are still in the schema but are not used by the live site or the pipeline:
+- the April 2026 concept layer (`20260427_v3_concept_layer.sql`);
+- the retired v1 favourites and starter-pack features.
 
-  fetch-coop:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install -r pipeline/coop/requirements.txt
-      - run: python pipeline/coop/fetch.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coop-deals
-          path: coop-deals.json
-        if: always()
+They are scheduled for review.
 
-  process-and-store:
-    needs: [fetch-migros, fetch-coop]
-    if: always() && (needs.fetch-migros.result == 'success' || needs.fetch-coop.result == 'success')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: cd pipeline && npm ci
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-      - run: >
-          npx tsx pipeline/run.ts
-          --migros-file=artifacts/migros-deals/migros-deals.json
-          --coop-file=artifacts/coop-deals/coop-deals.json
-          --migros-status=${{ needs.fetch-migros.result }}
-          --coop-status=${{ needs.fetch-coop.result }}
-      - name: Keep Supabase alive
-        run: |
-          npx tsx -e "
-            import { createClient } from '@supabase/supabase-js';
-            const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-            const { data } = await sb.from('pipeline_runs').select('id').limit(1);
-            console.log('Keep-alive ping OK:', data?.length, 'row(s)');
-          "
-```
-
-> **Why Wednesday 21:00 UTC?** Both Migros and Coop publish their weekly deals on Wednesday evening (validated April 2026). Running the primary fetch at 21:00 UTC (22:00 CET) catches most publications. The Thursday 06:00 UTC verification fetch catches any late updates before peak shopping time.
-
-> **Why the keep-alive step?** Supabase free-tier projects auto-pause after 1 week of inactivity. The weekly pipeline run itself counts as activity, but adding an explicit SELECT at the end guarantees the project stays warm even if the upsert step is skipped due to empty data.
-
-### 7.2 Vercel Configuration
-
-```json
-// vercel.json (in web/)
-{
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
-}
-```
-
-**Deployment:** Connect GitHub repo to Vercel. Set root directory to `web/`. Auto-deploy on push to `main`. Preview deploys on PRs.
-
-### 7.3 Supabase Project Setup
-
-1. Create project on supabase.com (free tier)
-2. Run the SQL from Section 3 (tables for deals, pipeline_runs, starter_packs, favorites, favorite_items + indexes + RLS policies)
-3. Seed starter packs (run the SQL seed script from `shared/starter-packs-seed.sql` in Supabase dashboard)
-4. Copy `SUPABASE_URL` and `SUPABASE_ANON_KEY` to `.env` (frontend)
-5. Copy `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to GitHub Actions secrets (pipeline)
-
-### 7.4 Environment Variables
-
-| Variable | Used by | Secret? | Source |
-|----------|---------|---------|--------|
-| `SUPABASE_URL` | Pipeline + Frontend | No | Supabase dashboard |
-| `SUPABASE_SERVICE_ROLE_KEY` | Pipeline only | Yes | Supabase dashboard → Settings → API |
-| `VITE_SUPABASE_URL` | Frontend only | No | Same as `SUPABASE_URL`, prefixed for Vite |
-| `VITE_SUPABASE_ANON_KEY` | Frontend only | No | Supabase dashboard → Settings → API |
-
-### 7.5 Monitoring and Alerting
-
-| What | How | Cost |
-|------|-----|------|
-| Pipeline failure | GitHub Actions sends email on workflow failure (built-in) | Free |
-| Data freshness | Frontend checks `pipeline_runs.run_at`. If > 8 days old, show warning banner. | Free |
-| Uptime | Vercel provides basic uptime monitoring on free tier | Free |
-| Error tracking | No external service in MVP. Add Sentry (free tier, 5K events/month) if needed later. | Free |
+**Schema housekeeping.** The production database and a database rebuilt from this repository are not yet identical. Some constraints and access policies exist in production but are not declared in the migrations folder. Consolidating them into migrations is an open item (§15).
 
 ---
 
-## 8. Development Workflow
+## 8. Caching and rendering
 
-### 8.1 Local Development
+Next.js 16 runs with `cacheComponents: true` (`web-next/next.config.ts`).
 
-**Prerequisites:** Node.js 20+, Python 3.12+, npm 10+
+| Layer | What happens | Source |
+|---|---|---|
+| Page shell | Prerendered statically. It contains no deal data | `app/[locale]/page.tsx` (`HomeBody` inside `<Suspense>`); `/deals` and `/list` use the same pattern |
+| Deal data | `getWeeklySnapshot()` calls `await connection()`, so it runs at request time | `server/data/snapshot.ts` |
+| Data cache | `getDealRowsForDay({ today })` uses `'use cache'`, `cacheTag('deals', 'deals:<date>')` and `cacheLife({ revalidate: 900, expire: 3600 })`. The Zurich date is passed as an **argument**, so it is part of the cache key | `server/data/snapshot.ts`; ADR `docs/decisions/2026-09-27-deals-cache-keyed-by-zurich-date.md` |
+| Derived values | Counts, verdicts and sections are recomputed on every request from (deals, today). They are cheap, and they are never cached | `snapshot.ts` |
+| Pipeline refresh | `revalidateTag('deals', { expire: 0 })` expires every day's cache entry at once | `app/api/revalidate/route.ts` |
+| Browser guard | `MidnightGuard` watches the browser clock. When the Zurich day changes in a tab left open, it offers a reload button | `components/shared/MidnightGuard.tsx` |
+| Unknown URLs | `experimental.globalNotFound` returns a real 404 instead of an error page | ADR `docs/adr-002-404-handling-under-cache-components.md` |
 
-```bash
-# Clone and install
-git clone <repo-url> && cd basketch
-cd pipeline && npm install && cd ..            # Pipeline TS dependencies
-cd web && npm install && cd ..                 # Frontend dependencies
-pip install -r pipeline/coop/requirements.txt  # Python deps
-
-# Set up environment
-cp .env.example .env                           # Fill in Supabase credentials
-
-# Run frontend
-cd web && npm run dev                          # Vite dev server at localhost:5173
-
-# Run pipeline (locally)
-npx tsx pipeline/migros/fetch.ts               # Outputs migros-deals.json
-python pipeline/coop/fetch.py                  # Outputs coop-deals.json
-npx tsx pipeline/run.ts \
-  --migros-file=migros-deals.json \
-  --coop-file=coop-deals.json                  # Categorize + store in Supabase
-
-# Run tests
-cd pipeline && npx vitest                      # Vitest (pipeline tests)
-cd web && npx vitest                           # Vitest (frontend tests)
-cd pipeline/coop && python -m pytest           # Pytest (Coop scraper)
-```
-
-### 8.2 Deployment
-
-| Action | Trigger |
-|--------|---------|
-| Frontend deploy | Push to `main` (Vercel auto-deploy) |
-| Pipeline run | Wednesday 21:00 UTC + Thursday 06:00 UTC (GitHub Actions cron) or manual `workflow_dispatch` |
-| Database changes | Manual SQL in Supabase dashboard (no migration tool needed at this scale) |
-| Seed starter packs | Run `shared/starter-packs-seed.sql` manually in Supabase SQL editor |
-
-### 8.3 Branch Strategy
-
-**Decision:** Trunk-based development. Push to `main`. No long-lived feature branches.
-
-**Why:** Solo developer, portfolio project. Feature branches add overhead with no review benefit.
+A test enforces that no `'use cache'` function reads the clock (`server/data/deals-freshness-architecture.test.ts`).
 
 ---
 
-## 9. Build Order
+## 9. Operations
 
-Each module can be built and verified independently before moving to the next. This is the recommended order:
+**Schedule** (`.github/workflows/pipeline.yml`)
+- Three cron entries: Monday, Tuesday and Thursday at 05:00 UTC. GitHub often starts scheduled runs late.
+- Every run collects from all seven retailers.
+- `concurrency: deal-pipeline` queues an overlapping run instead of running two side by side.
+- Manual dispatch is available.
 
-### Step 1: Shared Types + Supabase Setup
-**Build:** `shared/types.ts` (including StarterPack, Favorite, FavoriteItem, FavoriteComparison types), `shared/category-rules.ts`, Supabase tables (deals, pipeline_runs, starter_packs, favorites, favorite_items), indexes, RLS policies. Seed starter packs via SQL.
-**Verify:** TypeScript compiles. SQL runs without errors in Supabase. Starter packs are queryable.
-**Why first:** Everything else depends on the type definitions and database schema.
+**Deadline and retry**
+- `run.ts` saves every classification it finishes. When the in-process deadline is reached (`RUN_DEADLINE_MS` = 28 min, `transformation/domain/resilience.ts`), it exits with code **75**.
+- `nick-fields/retry` retries **only** exit 75. There are at most 2 attempts, each with a 60-minute hang backstop. Each attempt collects again.
+- The second attempt sets `PIPELINE_FINAL_ATTEMPT=1` and publishes whatever it has.
+- Bugs and critical alerts exit 1 and are deliberately not retried.
+- `config.test.ts` checks that the timing budget fits inside the workflow timeout.
 
-### Step 2: Migros Source
-**Build:** `pipeline/migros/fetch.ts`, `normalize.ts`
-**Verify:** Run locally, outputs `migros-deals.json` with valid `UnifiedDeal[]` data. Write a test with fixture data.
-**Why second:** It uses the npm wrapper which is the more constrained dependency — verify it works early.
+**Safeguards for unattended running**
 
-### Step 3: Coop Source
-**Build:** `pipeline/coop/fetch.py`, `normalize.py`
-**Verify:** Run locally, outputs `coop-deals.json` with valid deal data matching the `UnifiedDeal` JSON shape. Write a test with saved HTML fixture.
-**Why third:** Independent of Migros. Can be built in parallel if desired.
+| Safeguard | Mechanism | Source |
+|---|---|---|
+| Dead-man switch | A healthchecks.io ping carrying the exit code at the end of every run. If no ping arrives, the owner gets an e-mail | `run.ts`, `observability/healthcheck-ping.ts` |
+| Database keep-alive | The `keep-alive` job pings Supabase on every run so the free project is not paused | `pipeline.yml` |
+| Schedule keep-alive | The `workflow-keepalive` job re-enables `pipeline.yml` through the GitHub REST API on every run, to keep the schedule active while the project is maintained (GitHub disables scheduled workflows in inactive public repositories). It runs with `continue-on-error` and only the `actions: write` scope | `pipeline.yml`; `docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md` |
+| Least privilege | The workflow's default permission is `contents: read` | `pipeline.yml` |
 
-### Step 4: Categorizer + Storage
-**Build:** `pipeline/categorize.ts`, `store.ts`, `run.ts`
-**Verify:** Feed the JSON files from Steps 2-3 into `run.ts`. Check Supabase: deals appear with correct categories. Run categorizer tests against known product names.
-**Why fourth:** Depends on the output format from Steps 2-3 and the Supabase schema from Step 1.
+**Known risk in the schedule keep-alive.** GitHub does not document whether the re-enable call resets its inactivity timer. A similar third-party keep-alive action has been disabled by GitHub in the past (RCA above). Both keep-alive jobs live inside the same workflow, so if GitHub disables it, the Supabase ping stops as well. The backstop is the healthchecks.io e-mail followed by re-enabling the workflow manually. A manual check is scheduled.
 
-### Step 5: GitHub Actions Workflow
-**Build:** `.github/workflows/pipeline.yml`
-**Verify:** Trigger manually via `workflow_dispatch`. Confirm deals appear in Supabase. Check that partial failure (one source down) still stores the other source's deals. Verify cron is set to Wednesday 21:00 UTC + Thursday 06:00 UTC verification.
-**Why fifth:** Orchestrates Steps 2-4. All modules must work individually first.
+**Telemetry.** OpenTelemetry was left out on purpose: running a collector would cost money (`docs/collection-module-design.md`). Instead the pipeline produces:
+- NDJSON on stdout, every line tagged with `runId`, kept in GitHub's logs;
+- a markdown summary per run in `$GITHUB_STEP_SUMMARY` (`observability/github-step-summary.ts`);
+- a run record and metrics snapshot in `pipeline_runs`.
 
-### Step 6: Frontend Data Layer
-**Build:** `web/src/lib/supabase.ts`, `queries.ts` (including favorites queries and search), `verdict.ts`, `favorites.ts` (matching logic)
-**Verify:** Write unit tests for `calculateVerdict()`. Manually call `getActiveDeals()`, `getStarterPacks()`, `searchProducts()` and confirm data returns from Supabase.
-**Why sixth:** Depends on data being in Supabase (from Step 4/5).
+The alert rules (`transformation/domain/alerts.ts`) are:
+- `pipeline-stale`
+- `run-halted`
+- `classifier-regression`
+- `classifier-drift`
+- `source-shape-changed`
+- `uncertainty-spike`
+- `invalid-category-spike`
+- `cache-hit-rate-low`
+- `run-slow`
+- `spend-near-ceiling`
+- `spend-unguarded`
 
-### Step 7: Frontend: Onboarding Flow
-**Build:** `TemplatePicker.tsx`, `FavoritesEditor.tsx`, `ProductSearch.tsx`, `EmailCapture.tsx`, `Onboarding.tsx` page
-**Verify:** Template picker shows starter packs. Selecting one loads items into editor. Search finds matching products. Email capture saves favorites to Supabase. Full flow works end-to-end.
-**Why seventh:** Depends on the data layer (Step 6) and starter packs being seeded (Step 1).
+A rule that cannot be evaluated reports `instrument-missing` instead of staying silent.
 
-### Step 8: Frontend: Comparison View
-**Build:** `ComparisonView.tsx`, `SplitList.tsx`, `FavoriteMatchCard.tsx`, `Compare.tsx` page
-**Verify:** Comparison correctly splits items into "Buy at Migros" / "Buy at Coop" / "No deals this week". Cards show correct prices and savings. Works with both onboarding flow and returning user flow.
-**Why eighth:** Depends on favorites + deals data being in place.
+**Failure modes**
 
-### Step 9: Frontend: Home + Navigation
-**Build:** `EmailLookup.tsx`, update `Home.tsx` (email lookup for returning users + link to onboarding), routing setup for `/`, `/onboarding`, `/compare`
-**Verify:** Returning user can enter email and see their comparison. New user is directed to onboarding. Navigation between pages works.
-**Why ninth:** Ties together the onboarding flow (Step 7) and comparison view (Step 8).
+| Dependency fails | What happens |
+|---|---|
+| A retailer source changes shape or is down | That source is reported as failed (`source-changed`, `source-unavailable`), the other six are published, and the stale sweep leaves that store's existing deals alone |
+| Gemini rate limit or daily quota | Products already in the classification cache are published. Products the model could not classify this run are held back (not published) and counted as `heldBack`. The retry's final attempt publishes whatever has been classified (`classify-deals.ts`) |
+| OpenRouter limit unreadable or not set | The run continues without the judge (`spend-unguarded` alert) |
+| Run exceeds its deadline | Exit 75, one retry, and the final attempt publishes what it has |
+| Supabase error during a website read | The page shows an empty or degraded state (`isDegraded`). The result can stay cached for up to the 15-minute revalidation window (§15) |
+| Supabase paused or down during a run | Exit 75 and one retry. If it is still unreachable, the run fails and healthchecks.io reports a non-zero exit |
+| GitHub disables the schedule | No runs and no keep-alive ping. The healthchecks.io e-mail is the backstop |
+| Vercel unavailable | The site is down. Nothing monitors the website itself (§15) |
 
-### Step 10: Deploy
-**Build:** Vercel project setup, connect repo, configure env vars.
-**Verify:** Visit the deployed URL. Confirm onboarding flow works. Confirm returning user flow works. Run Lighthouse audit (target: Performance > 90).
-**Why last:** Everything must work locally before deploying.
-
----
-
-## 10. Open Technical Questions
-
-| # | Question | Impact | When to resolve |
-|---|----------|--------|-----------------|
-| 1 | How does `migros-api-wrapper` handle pagination? Does `from/until` refer to item index or date? | Affects Migros fetch completeness | Step 2 (during Migros source build) |
-| 2 | Does aktionis.ch paginate beyond page 10? Is there a last-page indicator? | Affects Coop fetch completeness | Step 3 (during Coop source build) |
-| 3 | Can the GitHub Actions `process-and-store` job reliably download artifacts from failed upstream jobs? | Affects partial-failure handling | Step 5 (during workflow build) |
-| 4 | What is the exact category taxonomy from each source? Do Migros and Coop use consistent category names? | Affects categorizer accuracy | Steps 2-3 (examine real API/HTML responses) |
-| 5 | Should the Vite SPA use hash routing (`/#/about`) or history routing (`/about`) for Vercel? | Affects URL structure and SEO readiness | Step 7 (use history mode + Vercel rewrites) |
-| 6 | When to migrate from Vite SPA to Next.js/Astro for SSR/SSG? | Affects SEO growth engine | After MVP — decide based on whether organic search traffic is a priority |
-| 7 | How to handle search performance with `ilike` on a potentially large deals table? | Affects product search UX | Start with `ilike` (sufficient for ~15K rows). If slow, add `pg_trgm` extension + GIN index on `product_name`. |
-| 8 | Should search also match products from previous weeks (expired deals)? | Affects product catalog breadth for favorites | Yes — broader product catalog for favorites. Users want to track items even if not on sale this week. Consider searching all deals (not just `is_active = true`) for the search function, while comparison only matches active deals. |
-| 9 | How to seed starter packs? SQL seed script or admin endpoint? | Affects initial data setup | Recommend: SQL seed file in `shared/` directory (`starter-packs-seed.sql`), run manually in Supabase SQL editor. Admin endpoint is overkill for 4-5 static packs. |
+**Deploys.** Vercel builds `main`, and `basketch.vercel.app` follows production. Rollback uses Vercel's previous deployment.
 
 ---
 
-## Self-Check
+## 10. Security and privacy
 
-- [x] Every module has a clear single responsibility
-- [x] Each module can be tested independently (fixtures, mocks, isolated entry points)
-- [x] Folder structure is navigable — someone new can find any module in seconds
-- [x] No circular dependencies — data flows one direction: sources → categorizer → storage → Supabase → frontend
-- [x] Right-sized — no ORM, no migration framework, no monorepo tooling, no logging service
-- [x] SEO-friendly URLs are supported via React Router with a clear migration path to SSR when needed
-- [x] All environment variables and secrets are accounted for (Section 7.4)
-- [x] Build order ensures each step is independently verifiable before the next begins
-- [x] Mixed-language pipeline is handled cleanly via GitHub Actions artifacts (JSON files as the contract between TypeScript and Python)
-- [x] Two data paths (pipeline + user favorites) are clearly separated with well-defined join points
-- [x] Favorites tables have appropriate RLS policies (public read/write for MVP, no sensitive data)
-- [x] Free tier calculations updated to include starter_packs, favorites, and favorite_items tables
-- [x] Pipeline timing updated to Wednesday 21:00 UTC with Thursday 06:00 UTC verification
-- [x] Onboarding flow front-loads value (comparison) before asking for data (email) — Phil Carter Psych Framework
+- **Secrets** are kept in GitHub Actions secrets and Vercel environment variables, never in the repository.
+  - Pipeline: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WEB_REVALIDATE_URL`, `WEB_REVALIDATE_SECRET`, `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`, `HEALTHCHECK_PING_URL`.
+  - Website: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `REVALIDATE_SECRET`.
+- **The service-role key never reaches the frontend.** The website reads with the public anon key from its server data layer only. Database access policies are being consolidated into migrations (§7).
+- **The revalidation endpoint** requires `Authorization: Bearer <secret>`. It returns 401 without it, and 500 if no secret is configured.
+- **No accounts and no personal data in the product.** The shopping list stays in the visitor's browser. The site has no analytics integration in code; the observability module is a placeholder. Whether Vercel's own dashboard analytics is switched on has not been checked. Parsers must drop personal data such as reviews, usernames and staff names when parsing (`CLAUDE.md`, "Legal Constraints").
+
+---
+
+## 11. Testing approach
+
+Development is test-driven (`CLAUDE.md`, "Test-Driven Development"):
+
+1. **Domain first.** Value objects and the `Offer` invariants are pure and use no mocks.
+2. **Port contract.** One shared suite that every adapter must pass (`collection/infrastructure/port-contract.test.ts`).
+3. **Real responses.** Each adapter is tested offline against captured real responses stored in its `__fixtures__/` folder.
+4. **Named regressions.** Each regression test is named after the real defect it prevents. Fixes are proven by mutation: reintroduce the bug, watch the test fail, restore the fix.
+5. **Architecture tests.** These make the layering and freshness rules executable (`pipeline/architecture.test.ts`, `collection/domain/architecture.test.ts`, `web-next/src/server/data/deals-freshness-architecture.test.ts`).
+
+**Counts measured by running each suite on 2 October 2026**
+
+| Suite | Command | Result |
+|---|---|---|
+| Pipeline (TypeScript) | `cd pipeline && npx vitest run` | 74 files, **1,524 passed** |
+| Shared kernel | `cd shared && npx vitest run` | 6 files, **129 passed**, including 3 deliberate expected-failure markers |
+| Website | `cd web-next && npx vitest run` | 49 files, **492 passed**. 2 date-dependent tests currently fail because their fixture date has passed; a fix is scheduled |
+| Migros OCR (Python) | `pipeline/collection/infrastructure/migros/test_ocr.py` | 13 test functions; not part of CI |
+| End-to-end | `web-next/e2e/` (Playwright + axe) | Defined in CI, where it runs after the website unit tests pass. Not run for this document |
+
+CI (`.github/workflows/ci.yml`) does the following:
+- type-checks the pipeline and the website;
+- runs all three vitest suites;
+- builds the website and runs Playwright, but only after the website unit tests pass.
+
+Biome lint is warn-only.
+
+---
+
+## 12. Data sources and legal position
+
+*This section describes the rules the project has adopted. It is not legal advice.* The rules are defined in `CLAUDE.md`, "Legal Constraints". The underlying research is in `docs/data-source-research-2026-09-07.md`.
+
+1. **No circumvention.** No technical protection measure is circumvented. When an honestly identified client is refused, the project treats that as a refusal and uses an openly published channel instead.
+2. **Migros.** basketch does not fetch the migros.ch paths that its robots.txt disallows. Migros offers are read from the weekly flyer Migros publishes on Issuu (`migros-flyer-source.ts`). An earlier direct integration is retired (`pipeline/archive/migros/`).
+3. **Coop.** Coop's own published flyer covers only a small share of its weekly promotions: roughly 11–24% across the measurements (research Part 4c; `docs/design/2026-09-26-architect-coop-direct-source.md`). aktionis.ch lists about 1,000 Coop promotions a week. The project therefore reads Coop offers from aktionis.ch. Coop's own flyer is the documented fallback (decision of 2026-09-26, `docs/decisions/2026-09-25-pm-decisions.md`).
+4. **Correct price comparisons.** In practice this means:
+   - every deal shows its validity window;
+   - expired deals are removed by Zurich date;
+   - member-only prices are labelled and never decide a verdict;
+   - deals that have not started yet are labelled "from <date>";
+   - the site does not claim to list every promotion.
+5. **Images.**
+   - Flyer crops are stored only as coordinates (`page_image_url` + fractions). The visitor's browser loads the retailer's page image and crops it with CSS.
+   - Where a retailer publishes its own product image URL, that image is displayed through `next/image`.
+   - Image handling is under review.
+6. **Request volume.**
+   - Each scheduled run (Monday, Tuesday, Thursday) fetches each source once, and the one retry fetches again.
+   - Requests carry an identifying User-Agent.
+   - Paged requests to the same retailer are spaced by a 1.2-second default gap (`live-sources.ts`).
+   - A planned per-publication ledger would reduce collection to one fetch per published edition (§15).
+
+---
+
+## 13. Key decisions (ADRs)
+
+| Decision | Record |
+|---|---|
+| Frontend foundation (Next.js App Router, next-intl, deferrals) | `docs/adr-M0-decisions.md` |
+| Collection module: DDD, TDD, per-retailer sources, crop-in-browser flyer images, free local OCR | `docs/collection-module-design.md` |
+| One quota gate per (provider, model) | `docs/decisions/2026-09-16-model-gate.md` |
+| `QuantityRequirement` kept separate from `PriceBasis` | `docs/decisions/2026-09-16-quantity-requirement.md` |
+| In-effect vs upcoming validity rule | `docs/decisions/2026-09-15-in-effect-vs-upcoming.md` (its caching part is superseded) |
+| Deals cache keyed by the Zurich date | `docs/decisions/2026-09-27-deals-cache-keyed-by-zurich-date.md` |
+| Per-retailer publication editions | `docs/decisions/2026-09-17-publication-editions.md` |
+| `attributes_version` for enrichment completeness | `docs/decisions/2026-09-17-attributes-version.md` |
+| 404 handling under Cache Components | `docs/adr-002-404-handling-under-cache-components.md` |
+| Category regroup (status: **Proposed**) | `docs/adr-001-category-regroup.md` |
+| Reliability and cost plan, including the USD 5/month judge cap | `docs/rca/2026-09-15-final-plan.md` |
+| Product decisions | `docs/decisions/2026-09-17-pm-taxonomy-decisions.md`, `docs/decisions/2026-09-25-pm-decisions.md` |
+
+Incident analyses and cross-reviews are in `docs/rca/`.
+
+---
+
+## 14. Cost and free-tier limits
+
+| Service | Plan | Monthly cost |
+|---|---|---|
+| Vercel | Hobby (intended for non-commercial use) | CHF 0 |
+| Supabase | Free (500 MB) | CHF 0 |
+| GitHub Actions | Free (public repository) | CHF 0 |
+| Google Gemini (classifier, reflector, enricher) | Free tier; the Google project has no billing account (`CLAUDE.md`) | CHF 0 |
+| healthchecks.io | *Plan not recorded in the repository (unverified)* | expected CHF 0 |
+| OpenRouter (judge, `openai/gpt-5-nano`) | Paid, **capped at USD 5/month** three ways: a provider-side credit limit (monthly or non-resetting), the in-code `SpendLedger`, and an explicit `max_tokens` on every call | ≤ USD 5 |
+
+**Limits that apply first.** Website traffic is not the constraint, because deal data is cached per day. These are:
+- **Gemini free tier:** 15 requests per minute and 1,000 requests per day (`pipeline.yml` comment, `model-registry.ts`).
+- **Vercel Hobby image optimisation:** the quota is counted per source image. About 1,500 deals turn over each week, so catalogue churn drives this number, not visitors. *The current Hobby quota has not been checked against actual usage.*
+- **Website read cap:** the data layer reads at most 10 pages of 1,000 rows (`MAX_PAGES = 10`, `supabase-provider.ts`). Anything beyond 10,000 active deals would be silently cut off.
+- **Supabase 500 MB:** the `deals` table keeps history, and there is no retention policy yet.
+
+---
+
+## 15. Known limits and open items
+
+**Data coverage and quality**
+- **Pictures.**
+  - ALDI and SPAR pictures are not shown yet.
+  - Volg image URLs often stop working within a day of collection.
+  - Image handling for retailers is under review (`docs/rca/2026-09-25-architect-missing-images.md`).
+- **No product identity across retailers.** Products are resolved per store. "Only at" claims are therefore made per sub-category, never per product (`filter-deals.ts#onlyStoreSubCategories`).
+- **"Cheapest" and list wording.**
+  - The "Cheapest" tag currently goes to the deal with the largest eligible discount in a sub-category. Changing it to the lowest comparable unit price is approved but not built.
+  - The list header "Your N items split best across # stores" is also flagged for rewording until per-item routing exists (`docs/prd.md` §13).
+- **Taxonomy divergence.** The `BROWSE_CATEGORIES` list in code and the taxonomy tables in the database differ, so many deals have no `category_slug`. A fix has been designed and cross-reviewed (`docs/rca/2026-09-17-*-taxonomy-divergence.md`). *Shipping status after 2026-09-18 is not confirmed.*
+- **Migros product names.** A fix that keeps the full printed titles is built and approved, but parked until a decision on where to store certification labels.
+- **Coop count gap.** An early test collected 924 Coop offers, against about 1,006 counted by hand. The gap is unexplained (`docs/collection-module-design.md`).
+
+**Operations**
+- **Collection frequency.** Every run collects all seven sources: up to three times a week, plus a retry. A planned fetch ledger, and a split between collection and classification, would reduce this to one fetch per published edition. Neither is built.
+- **Cached empty result.** If Supabase returns an error during a website read, the degraded empty result can be cached for up to 15 minutes before it is retried.
+- **Website observability.**
+  - Frontend error reporting and analytics are placeholders. Errors routed through the observability module are not recorded in production; only uncaught errors and direct server logs reach Vercel's logs.
+  - Uptime monitoring covers only the pipeline, not the website.
+- **Timing constants.** The write phase grows with deal volume, and the timing constants are due to be re-measured (`docs/rca/2026-09-25-tech-lead-max-chunk-ms.md`).
+- **Image-coverage alert.** None exists yet. The agreed behaviour is to warn and still publish.
+- **Schedule keep-alive.** It depends on undocumented GitHub behaviour (§9).
+
+**Engineering hygiene**
+- Two date-dependent website tests currently fail. While they do, CI skips the website build and Playwright jobs, which depend on them.
+- Biome lint is warn-only. The Python OCR tests are not in CI.
+- The pipeline runs on Node 20, while CI tests it on Node 24.
+- Schema consolidation and the review of dormant tables are pending (§7).
+
+**Parked product work** (built or specified, not live):
+- a separate page for shared lists (`docs/design/2026-09-27-shared-list-view-spec.md`);
+- a contact form;
+- a daily Volg refresh.
+
+---
+
+## Appendix A. What changed since v1.1
+
+v1.1 described a planned two-store (Migros + Coop) site built with React + Vite, Python scrapers and a favourites-first flow.
+
+| Area | v1.1 (April 2026) | v2.0 (live, October 2026) |
+|---|---|---|
+| Retailers | Migros, Coop | **Seven:** Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg |
+| Data source | Python scrapers | TypeScript **collection module** (DDD), one adapter per retailer: six read from the retailer's own published channels, Coop via aktionis.ch |
+| Categorisation | Keyword rules | Model-based classifier (Gemini free tier) with a judge model, a classification cache and an "uncertain" state |
+| Frontend | React + Vite SPA | **Next.js 16** App Router, React 19, Tailwind 4, next-intl (DE/EN), Cache Components. The Vite app is archived in `archive/web-vite/` |
+| User model | Server-side favourites and starter packs | No accounts. A browser-local shopping list, shared by URL. The favourites and starter-pack features are retired |
+| Product images | None | Retailer image URLs, or flyer crops in the browser |
+| Operations | Manual | Runs on its own: cron three times a week, in-process deadline with retry, dead-man ping, keep-alive jobs |
+| Method | n/a | Domain-driven design and test-driven development. Incidents get a written root-cause analysis and a cross-review (`docs/rca/`) |
+
+## Appendix B. Internal codes used in project records
+
+| Code | Meaning |
+|---|---|
+| WP-… | A work package (a unit of build work), e.g. WP-J2 = the planned fetch ledger |
+| AP-…, TP-…, D1–D5 (no hyphen) | A numbered ruling in the 2026-09-15 reliability plan (`docs/rca/2026-09-15-final-plan.md`), e.g. AP-8 = the USD 5/month judge cap |
+| D-1…, P-… (with a hyphen) | A numbered product-owner decision (`docs/decisions/2026-09-25-pm-decisions.md`) |
+| ADR | Architecture Decision Record |
+
+## Sources
+
+- **Code:** `pipeline/run.ts`, `pipeline/run-pipeline.ts`, `pipeline/composition.ts`, `pipeline/collection/**`, `pipeline/transformation/**`, `pipeline/storage/**`, `pipeline/observability/**`, `web-next/next.config.ts`, `web-next/package.json`, `web-next/src/**`, `supabase/migrations/*.sql`, `.github/workflows/pipeline.yml`, `.github/workflows/ci.yml`.
+- **Documents:** `CLAUDE.md`, `docs/prd.md`, `docs/collection-module-design.md`, `docs/data-source-research-2026-09-07.md`, `docs/design/2026-09-26-architect-coop-direct-source.md`, `docs/decisions/*`, `docs/adr-*.md`, `docs/rca/*` (2026-09-15 to 2026-09-28).

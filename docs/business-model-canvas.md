@@ -1,372 +1,268 @@
-# basketch -- Business Model Canvas
+# basketch — Business Model Canvas
 
-| Field        | Value                                      |
-|--------------|--------------------------------------------|
-| **Author**   | Kiran Dommalapati                          |
-| **Date**     | 2026-04-10                                 |
-| **Version**  | 1.0                                        |
-| **Status**   | Draft                                      |
-| **Product**  | basketch -- Personalized Swiss grocery deal comparison (7 stores) |
-| **Scope**    | MVP -- Bern region only                    |
+| Field | Value |
+|---|---|
+| **Author** | Kiran Dommalapati |
+| **Date** | 2 October 2026 |
+| **Version** | 2.0 |
+| **Status** | Describes the product as live on 2 October 2026. Consistent with PRD v4.0 (`docs/prd.md`). Changes from v1.0 are in Appendix A. |
+| **Product** | basketch: weekly grocery promotions from seven Swiss supermarkets, compared |
+| **Scope** | National (Switzerland). Personal, non-commercial project. Unattended operation since 2026-09-28. |
 
 ---
 
-## Canvas Summary
+## Canvas summary
 
 ```
-+-------------------------------+-------------------------------+-------------------------------+
-|                               |                               |                               |
-|  8. KEY PARTNERSHIPS          |  7. KEY ACTIVITIES            |  2. VALUE PROPOSITIONS        |
-|                               |                               |                               |
-|  - aktionis.ch (all 7 stores) |  - Weekly data pipeline       |  "Which of MY products are    |
-|                               |    (Wed 21:00 UTC)            |   on sale this week, and      |
-|  - Supabase (DB, free tier)   |  - Favorites matching         |   where should I buy each?"   |
-|  - Vercel (hosting, free)     |  - Category mapping           |                               |
-|  - GitHub (CI/CD, free)       |  - SEO content generation     |  - Personalized, not generic  |
-|                               |  - PMF survey at week 8       |  - Split shopping list        |
-|                               |                               |  - Zero friction (no install, |
-+-------------------------------+-------------------------------+    no account, no login)      |
-|                               |                               |  - 45-sec setup via templates |
-|  6. KEY RESOURCES             |  4. CUSTOMER RELATIONSHIPS    |  - Saves CHF 20-40/month     |
-|                               |                               |                               |
-|  - aktionis.ch (7 stores)     |  - Self-service               +-------------------------------+
-|  - React/Vite + TS/Python     |  - Email as identifier        |                               |
-|  - Supabase + Vercel          |  - Weekly return habit         |  1. CUSTOMER SEGMENTS         |
-|  - Starter pack templates     |  - Future: Thu email alert     |                               |
-|  - PM documentation portfolio |  - Community: WhatsApp group   |  Primary: "Sarah" 30-45,     |
-|                               |                               |    weekly shopper, Bern       |
-+-------------------------------+-------------------------------+  Secondary: "Marco" 25-35,   |
-|                               |                               |    deal hunter, bulk buyer    |
-|  9. COST STRUCTURE            |  5. REVENUE STREAMS           |                               |
-|                               |                               |  Scale: 10-50 users initially |
-|  CHF 0/month -- all free tier |  V1: None (portfolio project) |                               |
-|  Supabase, Vercel, GitHub     |  Future: affiliate, premium,  +-------------------------------+
-|  Dev time: evenings/weekends  |    sponsored (hypothetical)    |                               |
-|                               |                               |  3. CHANNELS                  |
-|                               |                               |                               |
-|                               |                               |  Friends > SEO > Share-a-List |
-|                               |                               |  All channels cost CHF 0      |
-+-------------------------------+-------------------------------+-------------------------------+
++------------------------------+------------------------------+------------------------------+
+| 8. KEY PARTNERS              | 7. KEY ACTIVITIES            | 2. VALUE PROPOSITION         |
+|                              |                              |                              |
+| - Retailers' public sites /  | - Collect promotions         | "This week's promotions from |
+|   flyers (6 of 7, no formal  |   3x per week, 7 retailers   |  7 Swiss supermarkets, in    |
+|   agreement)                 | - AI categorisation + check  |  one place."                 |
+| - aktionis.ch (Coop only)    | - Enforce price-accuracy     |                              |
+| - Issuu / Publitas / iPaper  |   rules (UWG)                | - Store-by-category verdict  |
+|   (flyer hosts)              | - Keep it running unattended | - All deals by sub-category  |
+| - Google Gemini (free tier)  |                              | - Pick deals -> list grouped |
+| - OpenRouter (capped USD 5)  +------------------------------+   by store, with totals      |
+| - GitHub, Supabase, Vercel,  | 6. KEY RESOURCES             | - Share by WhatsApp/email/   |
+|   healthchecks.io            |                              |   link                       |
+|                              | - Collection pipeline (7     | - No app, no account         |
+|                              |   adapters) + own taxonomy   | - Labelled conditions        |
+|                              | - Legal research (Swiss law) |   (multi-buy, start dates)   |
+|                              | - PM / engineering docs      |                              |
++------------------------------+------------------------------+------------------------------+
+| 4. CUSTOMER RELATIONSHIPS    | 3. CHANNELS                  | 1. CUSTOMER SEGMENTS         |
+|                              |                              |                              |
+| - Self-service, no support   | - Direct link (friends)      | Hypothesis, not validated:   |
+| - No account; list stays     | - Shared list / verdict via  | weekly grocery shoppers in   |
+|   in the browser             |   WhatsApp, email, link      | Switzerland who will visit   |
+| - Reason to return: deals    | - SEO pages: planned in v1,  | more than one store for a    |
+|   change every week          |   not built                  | promotion. Plus the person   |
+|                              | - None measured              | who receives a shared list.  |
++------------------------------+------------------------------+------------------------------+
+| 9. COST STRUCTURE                                           | 5. REVENUE STREAMS           |
+|                                                             |                              |
+| Free tiers + OpenRouter capped at USD 5/month.              | None. Non-commercial.        |
+| Main investment: the owner's own time.                      | Monetisation not decided.    |
++-------------------------------------------------------------+------------------------------+
 ```
 
 ---
 
-## 1. Customer Segments
+## 1. Customer segments
 
-### Primary Persona: "Sarah"
+**Primary (hypothesis carried over from PRD v3.1, not validated):** people in Switzerland who shop for groceries weekly and are willing to visit more than one supermarket when the promotions justify it. They use a phone browser and do not want an app or an account. The illustrative persona is "Weekend Shopper Sarah" (PRD §4).
 
-| Attribute         | Detail                                                        |
-|-------------------|---------------------------------------------------------------|
-| Age               | 30-45                                                         |
-| Location          | Bern, Switzerland                                             |
-| Shopping habit     | Weekly, usually Saturday morning                             |
-| Store access      | Both Migros and Coop within 10 minutes                       |
-| Income            | Middle income -- price-aware but not extreme couponer         |
-| Device            | Phone browser (no app install)                               |
-| Pain point        | Doesn't know which store has the better deal on her regulars  |
-| Current behavior  | Picks one store, misses deals at the other                   |
+**Secondary (implied by the share feature, not researched):** the person who receives a shared list and does the shopping.
 
-### Secondary Persona: "Marco"
+**Scale:** a small audience of friends and acquaintances. The system is sized for 10–50 users (`CLAUDE.md`). No user numbers exist.
 
-| Attribute         | Detail                                                        |
-|-------------------|---------------------------------------------------------------|
-| Age               | 25-35                                                         |
-| Shopping habit     | Flexible schedule, buys in bulk when deals are strong        |
-| Motivation        | Maximizes savings per trip                                   |
-| Device            | Phone browser                                                |
-| Pain point        | Manually checks both store flyers every week                 |
+**Not served (carried over from v1.0, still true of the product):**
+- shoppers loyal to one store (no comparison needed);
+- coupon and loyalty-point optimisers (coupons and loyalty prices are not collected).
 
-### Anti-Personas (not target users)
-
-| Type                          | Why excluded                                                  |
-|-------------------------------|---------------------------------------------------------------|
-| Single-store-only shoppers    | No comparison needed if you never switch stores              |
-| Tourists / temporary visitors | No recurring shopping list to personalize                    |
-| Extreme couponers             | Need coupon stacking, loyalty point optimization -- out of scope |
-
-### Scale
-
-- Launch: 10-50 users (friends, word of mouth, Bern community)
-- No paid acquisition planned
+The v1.0 secondary persona "Marco, deal hunter" and the Bern location are removed: no research supports them, and the product no longer has a region.
 
 ---
 
-## 2. Value Propositions
+## 2. Value proposition
 
-### Core Promise
+**What basketch does today** (PRD §5):
 
-> "Which of MY regular products are on sale this week, and where should I buy each one?" -- answered in under 30 seconds.
+| Value | How it is delivered |
+|---|---|
+| One place instead of seven | Current promotions from Migros, Coop, LIDL, ALDI, Denner, SPAR and Volg, collected three times a week |
+| A quick read of the week | Home page names the store with the highest average discount in Fresh, Long-life and Household, or says "Tied" |
+| Browse by what you need | All deals by sub-category, filterable by type, category and store, with search |
+| A list to shop from | Visitor adds deals; basketch groups them by store with a total per store and an estimated overall total |
+| Easy to hand on | Share the list or the weekly verdict by WhatsApp, email or link |
+| Low friction | No app, no account, no login; German and English |
+| Prices you can check | Validity dates, source links, and labels for multi-buy and not-yet-started prices; these never decide a winner. Member-only labelling is built, but no live source produces such a price today (Lidl Plus pages are excluded rather than labelled). |
 
-### Value Breakdown
+**In one factual sentence** (competitive analysis v2.0, §4.4): a free web page that shows this week's promotions from seven Swiss supermarkets side by side, compares them by category, and lets you build a shopping list grouped by store with an estimated total that you can share; no app and no account. This makes no claim of uniqueness: Rappn's pages describe overlapping features (see Differentiation).
 
-| Value                        | Detail                                                        |
-|------------------------------|---------------------------------------------------------------|
-| Personalized                 | Starts with YOUR favorites, not 200+ random deals            |
-| Split shopping list          | "Buy these at Migros, these at Coop, these at Denner" -- one view |
-| Zero friction                | No app install, no account creation, no login                |
-| 45-second setup              | Pick a starter pack template, customize with search, done    |
-| Weekly habit                 | Check once (Thursday evening or Saturday morning), shop smart all week |
-| Real savings                 | CHF 20-40/month without extra planning time                  |
-| Favorites-first              | Not a deal feed -- a personal price tracker                  |
+**What it does not do:**
+- It does not compare regular shelf prices.
+- It does not choose the cheapest store for an item. The visitor picks each deal.
+- Its "Cheapest" tag currently marks the biggest discount in a sub-category, not the lowest price. A fix is decided (P-7) but not built.
+- It does not list every promotion: coverage depends on what each source publishes.
 
-### Starter Pack Templates
-
-| Template        | Target user                  | Example items                          |
-|-----------------|------------------------------|----------------------------------------|
-| Swiss Basics    | Default Swiss household      | Milk, bread, butter, cheese, eggs      |
-| Indian Kitchen  | South Asian households       | Basmati rice, coconut milk, spices     |
-| Mediterranean   | Southern European households | Olive oil, pasta, tomatoes, feta       |
-| General         | Broad selection              | Mix of all categories                  |
+**Long-term goal (owner's statement, not built):** route each item to its cheapest store across all seven retailers and produce a forwardable list grouped by store. PM decision P-8 (2026-09-25) defers this: "Keep today's category comparison. Do not build routing now." See PRD §3.
 
 ---
 
 ## 3. Channels
 
-### Phase 1: Kickstart (Month 1-2)
+| Channel | Mechanism | Status |
+|---|---|---|
+| Friends / word of mouth | Direct link to basketch.vercel.app | Available. Reach not measured. |
+| WhatsApp / email sharing | Share list or weekly verdict. A share image is generated for previews. | Live. Usage not tracked. |
+| SEO weekly verdict pages | Planned in v1.0 | Not built. The site has a sitemap and robots file only. |
+| Share-a-list as a growth loop | Planned in v1.0 ("Phase 3") | Sharing exists. Its effect on growth is unknown. |
 
-| Channel                  | Reach      | Cost   | Action                                       |
-|--------------------------|------------|--------|----------------------------------------------|
-| Friends network          | 10-15      | CHF 0  | Direct sharing, ask for feedback             |
-| WhatsApp groups          | 20-50      | CHF 0  | Bern expat groups, neighborhood groups       |
-| Bern subreddit/Facebook  | 100-500    | CHF 0  | Post with genuine "I built this" framing     |
-
-### Phase 2: SEO (Month 3-6)
-
-| Channel                     | Reach       | Cost   | Action                                    |
-|-----------------------------|-------------|--------|-------------------------------------------|
-| Weekly verdict pages        | Organic     | CHF 0  | "Best grocery deals in Switzerland this week" |
-| Category comparison pages   | Organic     | CHF 0  | "Cheapest dairy in Bern this week"        |
-| Store comparison pages      | Organic     | CHF 0  | Long-tail SEO, fresh content every week   |
-
-### Phase 3: Viral (Month 6+)
-
-| Channel                     | Reach       | Cost   | Action                                    |
-|-----------------------------|-------------|--------|-------------------------------------------|
-| Share-a-List                | Exponential | CHF 0  | Users share favorites as a template URL   |
-| New users start pre-loaded  | --          | --     | Reforge Type 3: demand-driving-demand     |
-
-All channels cost CHF 0.
+All channels cost nothing. v1.0's reach estimates (10–15, 20–50, 100–500) are removed: they were estimates and have never been measured.
 
 ---
 
-## 4. Customer Relationships
+## 4. Customer relationships
 
-| Relationship Type     | Mechanism                                                      |
-|-----------------------|----------------------------------------------------------------|
-| Self-service          | No support team needed; UI designed for zero-help usage        |
-| Lightweight identity  | Email as simple lookup key (no password, no OAuth)             |
-| Weekly return habit   | Deal data refreshes every week -- reason to come back          |
-| Future: email alerts  | Thursday evening notification with personalized deals summary  |
-| Future: community     | WhatsApp group for Bern shoppers sharing tips and templates    |
+| Type | Mechanism |
+|---|---|
+| Self-service | No support. The About page explains sources and rules. |
+| No identity | No account and no email. The list is stored only in the visitor's browser (`localStorage`). |
+| Weekly reason to return | Promotions change every week; data is refreshed Monday, Tuesday and Thursday. |
+| Trust through transparency | Data sources named per retailer, freshness date shown, warning banner if data is more than 9 days old, uncertain categories marked. |
+| Contact | About page names `hello@basketch.app`, which P-9 says is not used. A contact form is decided but not built (PRD §13, question 7). |
 
-### Retention Model
-
-```
-Thursday evening  -->  Check basketch  -->  Saturday morning  -->  Shop with split list
-       |                                                                    |
-       +--------------------------------------------------------------------+
-                           Weekly habit loop
-```
+v1.0's "email as identifier", "Thursday email alert" and "WhatsApp community group" are not live and are removed.
 
 ---
 
-## 5. Revenue Streams
+## 5. Revenue streams
 
-### V1: None
+**None.** basketch is a personal, non-commercial project and is presented as a PM case study.
 
-basketch is a **portfolio project**, not a business. Revenue is not the goal.
-
-**What IS the deliverable:**
-- PM process documentation (PRD, use cases, architecture, research)
-- User validation (PMF survey, retention metrics)
-- Working product that solves a real problem
-
-### Future Potential (hypothetical, not planned)
-
-| Stream                | Model                          | Feasibility         |
-|-----------------------|--------------------------------|---------------------|
-| Affiliate links       | Commission on click-through to store websites | Low -- Swiss stores don't have strong affiliate programs |
-| Premium features      | Advanced filters, price history, alerts        | Medium -- only if free users demand it |
-| Sponsored placements  | Brands pay to feature deals                   | Low -- requires significant user base |
-| Data insights         | Anonymized shopping pattern reports           | Very low -- requires scale |
-
-These are listed for Canvas completeness only. None are planned or prioritized.
+No monetisation has been decided. v1.0 listed hypothetical streams (affiliate, premium, sponsored placements, data insights) "for completeness only". They remain hypothetical and are not repeated here as options. Note for any future discussion: the legal research flags that being non-commercial is no protection under UWG (`docs/data-source-research-2026-09-07.md`, Part 4). Accuracy duties apply either way.
 
 ---
 
-## 6. Key Resources
+## 6. Key resources
 
-### Data Sources
+| Resource | Detail |
+|---|---|
+| Collection pipeline | Seven retailer adapters (JSON, HTML, PDF text, OCR on flyer images) feeding one `Offer` model with enforced rules (for example, no invented discount, member prices must name their programme). Built test-first. |
+| Own category list | One taxonomy in `shared/types.ts`, three top-level groups. Products are classified by AI against it. |
+| Price-accuracy rules | Rules for in-effect dates, member-only, multi-buy and unverified category, applied to the verdict, the "Cheapest" tag and shared messages (PRD §6) |
+| Legal research | Swiss copyright, unfair competition, data protection, case law, and per-retailer terms (`docs/data-source-research-2026-09-07.md`) |
+| Tech stack | Next.js 16 on Vercel; TypeScript + Python pipeline on GitHub Actions; Supabase (Postgres) |
+| Documentation | PRD, architecture, ADRs, a dated PM decision log, RCAs, use cases (`docs/`) |
+| Owner's time | One person: product, design direction and decisions, working with a team of AI agents |
 
-| Source                | Covers                                              | Method                      | Reliability                  |
-|-----------------------|-----------------------------------------------------|-----------------------------|------------------------------|
-| aktionis.ch           | All 7 stores (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) | Public aggregator, scraping | Medium (third-party, no SLA) |
-
-### Tech Stack
-
-| Layer      | Technology         | Cost     |
-|------------|--------------------|----------|
-| Frontend   | React + Vite       | Free     |
-| Pipeline   | TypeScript + Python | Free     |
-| Database   | Supabase           | Free tier (500MB, 50K rows) |
-| Hosting    | Vercel             | Free tier (100GB bandwidth) |
-| CI/CD      | GitHub Actions      | Free (2000 min/month, public repo) |
-
-### Starter Pack Templates
-
-Curated product lists that let new users start with a useful favorites list in 45 seconds instead of building from scratch.
-
-### Domain Knowledge
-
-- Swiss grocery market structure (Migros + Coop = ~70% market share; basketch covers 7 stores including discounters)
-- Deal cycles: promotions run Thursday to Wednesday
-- Store geography: Bern region focus for MVP
-
-### PM Documentation
-
-The portfolio artifact itself: PRD, use cases, architecture, roadmap, this canvas -- demonstrating end-to-end PM process.
+v1.0's "starter pack templates" resource is retired.
 
 ---
 
-## 7. Key Activities
+## 7. Key activities
 
-| Activity                | Frequency       | Detail                                           |
-|-------------------------|-----------------|--------------------------------------------------|
-| Data pipeline run       | Weekly (Wed 21:00 UTC) | Fetch all 7 stores from aktionis.ch, categorize, store |
-| Favorites matching      | On each user visit | Compare user favorites against active deals   |
-| Category mapping        | Ongoing         | Fresh / long-life / non-food classification      |
-| SEO content generation  | Weekly          | Auto-generated verdict pages from deal data      |
-| PMF survey              | Week 8          | Sean Ellis test: "How disappointed would you be?" |
-| User feedback           | Continuous      | In-app feedback, WhatsApp group                  |
+| Activity | Frequency | Detail |
+|---|---|---|
+| Collect promotions | Mon, Tue, Thu (scheduled 05:00 UTC; GitHub often starts hours late) | All seven retailers each run |
+| Categorise | Each run, new products only (answers are cached) | Gemini classifies; an OpenRouter model checks; results the checker disputes, or the classifier is not confident about, are marked "Category unverified" |
+| Publish | End of each run | Upsert to Supabase, deactivate expired deals, tell the site to refresh |
+| Keep it running | Every run, plus a manual check | Keep-alive job against GitHub's 60-day inactivity rule; external heartbeat; check due 2026-11-26 (`docs/rca/2026-09-28-tech-lead-pipeline-keepalive.md`) |
+| Product decisions and fixes | When the owner resumes | Parked and not-started items in PRD §9 |
 
-### Weekly Pipeline Flow
-
-```
-Wednesday 21:00 UTC
-        |
-        v
-+------------------------------------------+
-|       Fetch aktionis.ch                  |
-|  (all 7 stores in parallel via matrix)   |
-+--------------------+---------------------+
-                     |
-                     v
-+------------------------------------------+
-|         Categorize + Normalize           |
-|    (fresh / long-life / non-food)        |
-+--------------------+---------------------+
-                     |
-                     v
-+------------------------------------------+
-|          Store in Supabase               |
-|     (deals table, weekly refresh)        |
-+--------------------+---------------------+
-                     |
-                     v
-+------------------------------------------+
-|    Generate SEO verdict pages            |
-|    (weekly comparison content)           |
-+------------------------------------------+
-```
+v1.0's weekly "SEO content generation" and "PMF survey at week 8" have not happened and are removed from the activity list. The PMF survey threshold remains one of the kill criteria in PRD §10; no survey has been run.
 
 ---
 
-## 8. Key Partnerships
+## 8. Key partners
 
-| Partner               | Type              | Dependency Level | Risk if Lost                      |
-|-----------------------|-------------------|------------------|-----------------------------------|
-| aktionis.ch           | Public aggregator | High             | No deal data for any store; need direct sources |
-| Supabase              | SaaS (free tier)  | Medium           | Migrate to another Postgres host  |
-| Vercel                | SaaS (free tier)  | Medium           | Migrate to Netlify or similar     |
-| GitHub                | SaaS (free tier)  | Low              | Standard Git, easily portable     |
+No formal agreements with any party. All dependencies are public data or standard free-tier / pay-as-you-go terms.
 
-**No paid partnerships or formal agreements needed.** All dependencies are either open-source or free-tier SaaS with standard terms of service.
-
----
-
-## 9. Cost Structure
-
-### Monthly Operating Costs
-
-| Item             | Cost         | Notes                                      |
-|------------------|--------------|--------------------------------------------|
-| Supabase         | CHF 0        | Free tier: 500MB, 50K rows, auto-pause after 7 days inactivity |
-| Vercel           | CHF 0        | Free tier: 100GB bandwidth, auto-deploy    |
-| GitHub Actions   | CHF 0        | Free: 2000 min/month for public repos      |
-| Domain           | CHF 0        | basketch.vercel.app (free subdomain)       |
-| **Total**        | **CHF 0/month** |                                         |
-
-### Optional Future Costs
-
-| Item             | Cost              | Trigger                                  |
-|------------------|-------------------|------------------------------------------|
-| Custom domain    | ~CHF 15/year      | basketch.ch available at nic.ch          |
-| Supabase Pro     | ~CHF 25/month     | If exceeding 500MB or 50K rows           |
-| Vercel Pro       | ~CHF 20/month     | If exceeding 100GB bandwidth             |
-
-### Developer Time
-
-Solo builder: Kiran Dommalapati (Senior PM, evenings and weekends). Not a monetary cost but the primary investment.
+| Partner | Role | Dependency | If lost |
+|---|---|---|---|
+| Denner, Volg, LIDL, ALDI, SPAR, Migros (public sites and flyers) | Source of promotions for six retailers | High per retailer | That retailer missing until its source is replaced |
+| Issuu, Publitas, iPaper, Schwarz leaflets service | Platforms hosting the retailers' flyers | Medium | Same as above |
+| aktionis.ch | Source for Coop only (P-12). 62% of collected offers by volume (week 39). | High for Coop | Fall back to Coop's own flyer, which covers roughly 11–24% of offers |
+| Google (Gemini, free tier) | Product classification | High | Runs held back or degraded until replaced |
+| OpenRouter (OpenAI model) | Checks classifications (every product on normal runs, a sample on a cold start, skipped once the run's budget is spent); capped at USD 5/month | Medium | Run continues without the checker |
+| GitHub Actions | Scheduled pipeline, CI | High | Schedule stops |
+| Supabase (free) | Database | High | Move to another Postgres host |
+| Vercel (Hobby) | Hosting | High | Move to another Next.js host |
+| healthchecks.io | Alerts if no run happens | Low | Silent failures go unnoticed longer |
 
 ---
 
-## Differentiation
+## 9. Cost structure
 
-### How basketch differs from existing tools
+| Item | Cost | Note |
+|---|---|---|
+| GitHub Actions, Supabase, Vercel Hobby, Gemini, healthchecks.io | Free tiers | Gemini project must have no billing account (`CLAUDE.md`) |
+| OpenRouter (classification checker) | Up to USD 5 per month | Approved 2026-09-15. Enforced by the provider's monthly limit, a spend ledger and per-call token limits. |
+| Domain | None | basketch.vercel.app |
+| Owner's time | Not costed | The main investment |
 
-| Feature                  | basketch           | Aktionis          | Profital           | Bring!              | Rappn (CH)         |
-|--------------------------|--------------------|--------------------|--------------------|--------------------|---------------------|
-| **Core model**           | Your favorites vs deals | All deals, all stores | Digital flyers   | Shopping list app  | Recipe-based shopping |
-| **Personalization**      | Favorites-first    | None (browse all)  | None (browse flyers) | List-based, no deals | Recipe-based       |
-| **Split shopping list**  | Yes -- 7 stores    | No               | No                 | No                 | No                  |
-| **Setup time**           | 45 seconds (template) | 0 (but no personalization) | 0 (but no personalization) | Manual list building | Recipe selection   |
-| **Deal comparison**      | Side-by-side, your items | Per-store view | Per-store flyers  | No deal data       | No deal comparison  |
-| **Account required**     | Email only (no password) | No account     | No account         | Optional account   | Account required    |
-| **Target action**        | "Check my deals, go shop" | Browse deals  | Browse flyers      | Manage list        | Plan meals          |
-| **Weekly habit**         | Built-in (deals refresh) | Possible      | Possible           | Not deal-driven    | Meal planning cycle |
-
-### Key Differentiators
-
-1. **Favorites-first, not deals-first.** Every other tool shows you ALL deals and asks you to find what matters. basketch starts with what you already buy and tells you where it is cheaper this week.
-
-2. **Split shopping list.** No other tool in Switzerland gives you a per-store split view across 7 stores based on your personal list.
-
-3. **45-second onboarding.** Starter pack templates mean you get value on your first visit, not after manually adding 30 products.
-
-4. **Zero infrastructure.** No app to install, no account to create, no password to remember. Open the URL, pick a template, see your deals.
+Rule (`CLAUDE.md`): adding a paid service or raising the cap is a PM decision recorded in an ADR. A paid proxy to get around blocks is excluded on legal grounds, not budget.
 
 ---
 
-## Key Assumptions to Validate
+## Differentiation and competition
 
-Ranked by risk (highest first):
+Source: `docs/competitive-analysis.md` v2.0 (2 October 2026). That analysis is a desk review of 13 tools (6 Swiss, 7 international); no competitor app was installed or tested. Competitor cells state what the competitors' own pages say; "n/v" means not verified.
 
-| # | Assumption                                                     | Risk Level | Validation Method                        | Success Criteria                          |
-|---|----------------------------------------------------------------|------------|------------------------------------------|-------------------------------------------|
-| 1 | Users actually split shopping across multiple stores           | High       | User interviews + onboarding survey      | >60% of users shop at 2+ stores weekly   |
-| 2 | Deal data from aktionis.ch is reliable and complete across all 7 stores | High | Weekly data quality checks               | >90% accuracy vs manual flyer check      |
-| 3 | Users will return weekly to check deals                        | High       | Retention metrics (Week 1 vs Week 4)     | >40% weekly return rate after 4 weeks     |
-| 4 | Starter pack templates cover enough items to be useful on day 1 | Medium    | Template coverage analysis + user feedback | >70% of users find 5+ relevant items in their template |
-| 5 | CHF 20-40/month savings claim is realistic                     | Medium     | Savings calculation from actual deal data | Average basket shows >CHF 5/week in deal savings |
-| 6 | Users will customize beyond the starter pack                   | Medium     | Analytics: search usage + favorites added | >50% of users add at least 3 items beyond template |
-| 7 | Email-only identity is sufficient (no password needed)         | Low        | Drop-off rate at email entry              | >80% of users enter email without hesitation |
-| 8 | Bern region is large enough for meaningful MVP feedback        | Low        | User recruitment success                  | Reach 10+ active weekly users within 4 weeks |
+| | basketch | Rappn | Aktionis | Profital | Bring! | Preisrunter (CH) |
+|---|---|---|---|---|---|---|
+| Live in Switzerland | Yes | Yes | Yes | Yes | Yes | No (pre-launch) |
+| Retailers | 7 (Migros, Coop, LIDL, ALDI, Denner, SPAR, Volg) | 7 (Migros, Coop, Aldi, Lidl, Denner, Aligro, Otto's) | 8 listed (incl. SPAR, Volg, Otto's) | 100+ (brochures) | via Profital | 5 named, "and many more" |
+| Compares offers across stores | Yes | Yes | Lists offers; no comparison found | No | No | n/v |
+| Shopping list | In browser, grouped by store, estimated total | Shared, synced | Watchlist | Bookmarks | Core product | n/v |
+| Per-item cheapest-store routing | No (P-8) | Its page says the list shows where to buy cheapest; n/v | No | No | No | n/v |
+| Account required | No | No, for comparison (web and app) | No, for browsing | n/v | n/v | n/a |
+| Native app | No | iOS, Android, plus web | No (discontinued 2021) | iOS, Android | iOS, Android | n/v |
+| Languages | DE, EN | DE, FR, IT, EN | n/v | n/v | n/v | n/v |
+| Price alerts | No | Yes | Yes (email) | Push about offers | n/v | n/v |
 
-### Riskiest Assumption
+**Position against Rappn, the closest competitor** (competitive analysis v2.0, §4.2):
+- **Where they differ:**
+  - basketch's retailer set includes SPAR and Volg; Rappn's includes Aligro and Otto's.
+  - basketch has explicit price-label rules (§6 of the PRD).
+  - The About page describes each retailer's data source.
+  - basketch offers a category comparison.
+  - basketch keeps the list only in the browser, with no account.
+- **Whether these differences matter to users has not been tested.**
+- **Where Rappn is ahead:** native apps, four languages, price alerts, a loyalty-card wallet and receipt scanning.
+- **Not verified:** whether Rappn routes items to the cheapest store.
+- **Retailer set:** Aktionis also lists SPAR and Volg, so the retailer set differs from Rappn only.
 
-**Assumption #1: Users actually split shopping across multiple stores.** If most people are loyal to one store regardless of deals, the entire value proposition collapses. This must be validated before investing in polish or growth.
+**Competitive risks** (v2.0, §5.2):
+- Rappn overlaps in scope, is actively published, and has more features and platforms.
+- Preisrunter may launch in Switzerland; no date has been announced.
+- Bring! and Profital have large user bases and an offers section inside the list app.
 
-### Validation Timeline
-
-| Week   | Action                                          |
-|--------|-------------------------------------------------|
-| Week 1 | Launch with friends, collect onboarding data    |
-| Week 2 | Monitor return visits, check data quality       |
-| Week 4 | First retention check (>40% weekly return?)     |
-| Week 8 | Sean Ellis PMF survey ("How disappointed would you be if basketch no longer existed?") |
-
-PMF threshold: >40% answer "very disappointed."
+The positioning choice in response is an open question (below).
 
 ---
 
-*This document is part of the basketch PM portfolio. It is a living document and will be updated as assumptions are validated or invalidated.*
+## Key assumptions to validate
+
+None of these has been tested with users. No usage data exists.
+
+| # | Assumption | Risk | How it could be tested | Status |
+|---|---|---|---|---|
+| 1 | People actually split their shopping across several stores | High (riskiest) | Interviews; share of lists covering 2+ stores | Untested |
+| 2 | A category verdict helps decisions more than per-item routing would | High (bears on P-8) | User test comparing both | Untested |
+| 3 | People return weekly | High | Return visits (needs measurement, PRD §13, question 10) | Untested |
+| 4 | Coverage is good enough to trust | High | Hand-check against flyers. Known gaps: Migros OCR yield, Lidl Plus pages dropped, missing pictures. | Partly known (PRD §7.4) |
+| 5 | Shared lists reach and help the person who shops | Medium | Ask recipients | Untested |
+| 6 | basketch's differences from Rappn (retailer set, price labels, source transparency, no account) matter to shoppers | High | Ask users who know both | Untested |
+| 7 | Savings are meaningful (v1.0 claimed CHF 20–40/month) | Medium | Compute from real lists | Untested. Claim removed from the value proposition. |
+
+Measurement status: PRD §10 (no usage metrics exist). The v1.0 assumptions about starter packs, email identity and the Bern region no longer apply and are removed.
+
+---
+
+## Open product questions
+
+1. **Segment.** Who is basketch for, now that it runs unattended?
+2. **Core value.** Should the category verdict remain the core value, or should routing be built (P-8)?
+3. **Positioning.** Why would a shopper choose basketch over Rappn, and is the retailer set worth competing on?
+4. **Revenue.** Remain non-commercial permanently, or leave monetisation open?
+5. **Measurement.** Without analytics, none of the channel or assumption tests above can run. Should any be enabled?
+
+---
+
+## Appendix A. What changed since v1.0 (10 April 2026)
+
+- **Scope:** "MVP, Bern only" is retired. Prices are national, so basketch reads one edition per retailer (PRD §4).
+- **Value proposition** now matches what is live: a category comparison, the full deals list, and a list the visitor builds and shares, grouped by store. v1.0 promised personalised favourites, 45-second starter-pack setup and "CHF 20–40/month savings". None of these is live, and the savings figure was never measured.
+- **Key partners and resources:** six retailers' own public channels, aktionis.ch for Coop only, and two AI providers. v1.0 listed "aktionis.ch for all 7 stores".
+- **Cost:** free tiers plus one paid service capped at USD 5 per month (approved 2026-09-15). v1.0 said CHF 0.
+- **Customer relationship:** no email identity. The list lives in the visitor's browser.
+- **Channels and assumptions:** every reach figure and success threshold from v1.0 is marked as unmeasured. No user, traffic or revenue data exists.
+- **Tech stack:** Next.js on Vercel. React + Vite is retired.
+
+---
+
+*Part of the basketch PM case study. Updated when the product or a decision changes.*
