@@ -20,6 +20,7 @@ from ocr import (  # noqa: E402
     DEFAULT_ROWS,
     STRIP_OVERLAP_PX,
     build_manifest,
+    main,
     process_entries,
     strip_box_to_page,
 )
@@ -246,3 +247,12 @@ def test_manifest_symlink_escaping_the_temp_dir_is_rejected(monkeypatch, tmp_pat
 
     with pytest.raises(ValueError, match="temp directory"):
         build_manifest(["--manifest", str(link)])
+
+
+def test_main_refuses_a_bad_manifest_with_exit_4_and_a_json_error(monkeypatch, capsys, tmp_path):
+    bad = tmp_path / "manifest.txt"
+    bad.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["ocr.py", "--manifest", str(bad)])
+
+    assert main() == 4
+    assert ".json" in json.loads(capsys.readouterr().err)["error"]
