@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "tsx run.ts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.reporter=lcov --coverage.reporter=text-summary --coverage.reportOnFailure=true",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },
@@ -17,6 +18,7 @@
     "langsmith": "^0.10.2"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "3.2.4",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"

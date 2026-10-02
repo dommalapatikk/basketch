@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege (review 2026-10-02): every job gets a read-only GITHUB_TOKEN.
+# PR decoration comes from the SonarCloud GitHub App, not from this token, and
+# artifact up/download within a run needs no extra scope.
+permissions:
+  contents: read
+
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check (pipeline)
@@ -52,9 +58,25 @@ jobs:
       - name: Install pipeline dependencies (provides vitest)
         run: cd pipeline && npm ci
 
-      - name: Test shared
-        run: ../pipeline/node_modules/.bin/vitest run --root .
+      # Coverage (SonarQube): vitest resolves @vitest/coverage-v8 from the
+      # --root folder upwards, so shared/ needs a node_modules to find it. The
+      # symlink points at pipeline's (gitignored; the runner is thrown away).
+      - name: Test shared (with coverage)
+        run: |
+          ln -sfn ../pipeline/node_modules node_modules
+          ./node_modules/.bin/vitest run --root . --coverage \
+            --coverage.reporter=lcov --coverage.reporter=text-summary \
+            --coverage.reportOnFailure=true
         working-directory: shared
+
+      - name: Upload coverage (shared)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shared
+          path: shared/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
 
   test-typescript:
     name: Test (TypeScript)
@@ -71,8 +93,17 @@ jobs:
       - name: Install pipeline dependencies
         run: cd pipeline && npm ci
 
-      - name: Test pipeline
-        run: cd pipeline && npx vitest run
+      - name: Test pipeline (with coverage)
+        run: cd pipeline && npm run test:coverage
+
+      - name: Upload coverage (pipeline)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pipeline
+          path: pipeline/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # web-next/ — the v2.1 Next.js 16 build that lives at basketch.vercel.app.
@@ -107,8 +138,17 @@ jobs:
           cache-dependency-path: web-next/package-lock.json
       - name: Install
         run: cd web-next && npm ci
-      - name: Vitest
-        run: cd web-next && npx vitest run
+      - name: Vitest (with coverage)
+        run: cd web-next && npm run test:coverage
+
+      - name: Upload coverage (web-next)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-web-next
+          path: web-next/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
 
   build-web-next:
     name: web-next · Build
@@ -172,3 +212,76 @@ jobs:
           name: playwright-report
           path: web-next/playwright-report
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # SonarQube Cloud quality gate (PM decision 2026-10-02: block merges via PRs).
+  # Runs on pull requests and on main only (not on feat/** pushes — those get
+  # analysed when their PR opens). Runs even when a test job failed
+  # (!cancelled()) so the PR still shows the Sonar result next to the red test.
+  # CI-based analysis: "Automatic Analysis" must be OFF in SonarCloud.
+  # See docs/runbooks/sonarqube-cloud.md.
+  # ---------------------------------------------------------------------------
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    needs: [test-typescript, test-shared, test-web-next]
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Sonar needs full history for new-code and blame
+
+      # Secrets are not exposed to PRs from forks. Skip only in that case;
+      # anywhere else (main, same-repo PR) a missing token is a setup error
+      # and must fail loudly.
+      - name: Check SONAR_TOKEN
+        id: token
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$IS_FORK_PR" = "true" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=SonarQube skipped::PR from a fork: GitHub does not pass secrets to fork PRs, so the quality gate cannot run here. A maintainer must re-run it from a branch in this repo."
+          else
+            echo "::error title=SONAR_TOKEN missing::Add the repository secret SONAR_TOKEN (Settings > Secrets and variables > Actions). Steps: docs/runbooks/sonarqube-cloud.md"
+            exit 1
+          fi
+
+      - name: Download coverage reports
+        if: steps.token.outputs.present == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-in
+
+      # vitest writes SF: paths relative to each package (SF:categorize.ts).
+      # Sonar resolves them from the repo root, so prefix the package folder
+      # (absolute SF: paths are left alone).
+      - name: Make lcov paths repo-root-relative
+        if: steps.token.outputs.present == 'true'
+        run: |
+          mkdir -p .sonar-coverage
+          for pkg in pipeline shared web-next; do
+            src="coverage-in/coverage-$pkg/lcov.info"
+            if [ -f "$src" ]; then
+              sed "/^SF:\//!s|^SF:|SF:$pkg/|" "$src" > ".sonar-coverage/$pkg.lcov"
+              echo "$pkg: $(grep -c '^SF:' ".sonar-coverage/$pkg.lcov") files with coverage"
+            else
+              echo "::warning title=No coverage for $pkg::$src not found (its test job probably failed before writing coverage)."
+            fi
+          done
+
+      - name: SonarQube scan + wait for quality gate
+        if: steps.token.outputs.present == 'true'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          # Job turns red when the gate fails (polls up to 5 min).
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300

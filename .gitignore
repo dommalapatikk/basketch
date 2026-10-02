@@ -47,3 +47,11 @@ session-handoff-architecture-split.md
 
 # Claude Code agent worktrees (isolated build copies; never commit)
 .claude/worktrees/
+
+# Test coverage + SonarQube scanner scratch
+coverage/
+.scannerwork/
+.sonar-coverage/
+coverage-in/
+# shared/ borrows pipeline node_modules via symlink; a symlink is not matched by "node_modules/"
+/shared/node_modules
