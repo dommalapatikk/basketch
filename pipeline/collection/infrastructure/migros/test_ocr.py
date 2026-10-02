@@ -15,10 +15,12 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import pytest  # noqa: E402
 from ocr import (  # noqa: E402
     DEFAULT_ROWS,
     STRIP_OVERLAP_PX,
     build_manifest,
+    main,
     process_entries,
     strip_box_to_page,
 )
@@ -93,9 +95,9 @@ def test_strips_overlap_so_a_seam_line_is_read_whole():
 def test_manifest_page_numbers_survive_a_skipped_page(tmp_path):
     # Pages 2 and 3 were not downloaded upstream — only 1, 4 and 5 arrived.
     manifest = [
-        {"pageNumber": 1, "source": "/tmp/page-1.jpg"},
-        {"pageNumber": 4, "source": "/tmp/page-4.jpg"},
-        {"pageNumber": 5, "source": "/tmp/page-5.jpg"},
+        {"pageNumber": 1, "source": str(tmp_path / "page-1.jpg")},
+        {"pageNumber": 4, "source": str(tmp_path / "page-4.jpg")},
+        {"pageNumber": 5, "source": str(tmp_path / "page-5.jpg")},
     ]
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -104,20 +106,23 @@ def test_manifest_page_numbers_survive_a_skipped_page(tmp_path):
 
     # NOT [(1, ...), (2, ...), (3, ...)] — argv-position numbering, the bug.
     assert entries == [
-        (1, "/tmp/page-1.jpg"),
-        (4, "/tmp/page-4.jpg"),
-        (5, "/tmp/page-5.jpg"),
+        (1, str((tmp_path / "page-1.jpg").resolve())),
+        (4, str((tmp_path / "page-4.jpg").resolve())),
+        (5, str((tmp_path / "page-5.jpg").resolve())),
     ]
 
 
 def test_manifest_preserves_file_order_even_when_page_numbers_are_out_of_order(tmp_path):
-    manifest = [{"pageNumber": 9, "source": "b"}, {"pageNumber": 2, "source": "a"}]
+    manifest = [
+        {"pageNumber": 9, "source": str(tmp_path / "b")},
+        {"pageNumber": 2, "source": str(tmp_path / "a")},
+    ]
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     entries = build_manifest(["--manifest", str(manifest_path)])
 
-    assert entries == [(9, "b"), (2, "a")]
+    assert entries == [(9, str((tmp_path / "b").resolve())), (2, str((tmp_path / "a").resolve()))]
 
 
 def test_positional_fallback_numbers_by_argv_position_ad_hoc_use_only():
@@ -195,3 +200,103 @@ def test_process_entries_never_touches_the_network_for_a_local_path(tmp_path, mo
     )
 
     assert results == [{"pageNumber": 1, "width": 4, "height": 4, "items": []}]
+
+
+# ---------------------------------------------------------------------------
+# --manifest hardening: argv must not make the script open an arbitrary file.
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_outside_the_temp_dir_is_rejected(monkeypatch, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "manifest.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(work))
+
+    with pytest.raises(ValueError, match="temp directory"):
+        build_manifest(["--manifest", str(outside / "manifest.json")])
+
+
+def test_manifest_must_be_a_json_file(tmp_path):
+    not_json = tmp_path / "manifest.txt"
+    not_json.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=".json"):
+        build_manifest(["--manifest", str(not_json)])
+
+
+def test_manifest_directory_or_missing_file_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        build_manifest(["--manifest", str(tmp_path)])
+    with pytest.raises(ValueError):
+        build_manifest(["--manifest", str(tmp_path / "absent.json")])
+
+
+def test_manifest_flag_without_a_path_is_rejected():
+    with pytest.raises(ValueError, match="needs a path"):
+        build_manifest(["--manifest"])
+
+
+def test_manifest_symlink_escaping_the_temp_dir_is_rejected(monkeypatch, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    secret = tmp_path / "secret.json"
+    secret.write_text("[]", encoding="utf-8")
+    link = work / "manifest.json"
+    link.symlink_to(secret)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(work))
+
+    with pytest.raises(ValueError, match="temp directory"):
+        build_manifest(["--manifest", str(link)])
+
+
+def test_main_refuses_a_bad_manifest_with_exit_4_and_a_json_error(monkeypatch, capsys, tmp_path):
+    bad = tmp_path / "manifest.txt"
+    bad.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["ocr.py", "--manifest", str(bad)])
+
+    assert main() == 4
+    assert ".json" in json.loads(capsys.readouterr().err)["error"]
+
+
+@pytest.mark.parametrize("source", ["/etc/passwd", "../outside.jpg", "https://example.com/p.jpg", "relative.jpg"])
+def test_manifest_source_outside_the_manifest_dir_is_rejected(tmp_path, source):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1, "source": source}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest source"):
+        build_manifest(["--manifest", str(manifest_path)])
+
+
+def test_manifest_source_cannot_climb_out_with_dotdot_segments(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    sneaky = f"{tmp_path}/../secret.jpg"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1, "source": sneaky}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest source"):
+        build_manifest(["--manifest", str(manifest_path)])
+
+
+# Regression (re-review M2): resolve() gave /private/var/... on macOS while the
+# caller's source paths used /var/..., so every Migros page was rejected.
+def test_manifest_via_a_symlinked_temp_dir_is_accepted(monkeypatch, tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(link))
+    source = str(link / "page-3-0.jpg")
+    manifest_path = link / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 3, "source": source}]), encoding="utf-8")
+
+    assert build_manifest(["--manifest", str(manifest_path)]) == [(3, source)]
+
+
+def test_manifest_entry_missing_source_is_a_clean_error(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pageNumber and source"):
+        build_manifest(["--manifest", str(manifest_path)])

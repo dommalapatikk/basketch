@@ -29,7 +29,8 @@ type Props = {
 
 export function ShareVerdictButton({ locale, today }: Props) {
   const t = useTranslations('share_verdict')
-  const [copied, setCopied] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copied = copyStatus === 'copied'
   const [origin, setOrigin] = useState<string | null>(null)
 
   useEffect(() => {
@@ -37,10 +38,10 @@ export function ShareVerdictButton({ locale, today }: Props) {
   }, [])
 
   useEffect(() => {
-    if (!copied) return
-    const id = setTimeout(() => setCopied(false), 1500)
+    if (copyStatus === 'idle') return
+    const id = setTimeout(() => setCopyStatus('idle'), copyStatus === 'copied' ? 1500 : 5000)
     return () => clearTimeout(id)
-  }, [copied])
+  }, [copyStatus])
 
   if (!origin) {
     return null
@@ -56,9 +57,10 @@ export function ShareVerdictButton({ locale, today }: Props) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(`${text}\n${homeUrl}`)
-      setCopied(true)
+      setCopyStatus('copied')
     } catch {
-      /* swallow — user can long-press to copy as fallback */
+      // Clipboard can be refused (permissions, insecure context): say so.
+      setCopyStatus('failed')
     }
   }
 
@@ -68,11 +70,13 @@ export function ShareVerdictButton({ locale, today }: Props) {
       try {
         await nav.share({ title: t('mail_subject'), text, url: homeUrl })
         return
-      } catch {
-        /* user cancelled or share unsupported — fall through to copy */
+      } catch (error) {
+        // The user dismissed the share sheet: that is a choice, not a failure.
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        // Share unsupported or failed for another reason — fall through to copy.
       }
     }
-    copy()
+    await copy()
   }
 
   return (
@@ -111,6 +115,16 @@ export function ShareVerdictButton({ locale, today }: Props) {
           <Copy className="h-4 w-4" aria-hidden /> {copied ? t('copied') : t('copy')}
         </button>
       </div>
+      {/* Always mounted: screen readers only announce changes to an existing live
+          region. Idle it is sr-only (zero layout height, so HomeSkeleton's fixed
+          height stays accurate); it takes space only once there is a message. */}
+      <p
+        role="status"
+        className={copyStatus === 'idle' ? 'sr-only' : 'mt-3 text-sm text-[var(--color-ink-2)]'}
+      >
+        {copyStatus === 'copied' && t('copied')}
+        {copyStatus === 'failed' && t('copy_failed')}
+      </p>
       <p className="mt-3 text-xs text-[var(--color-ink-3)]">
         <a
           href={cardUrl}

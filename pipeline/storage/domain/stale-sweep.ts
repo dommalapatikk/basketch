@@ -181,6 +181,12 @@ function candidateWindows(
   return candidates
 }
 
+/** ISO `YYYY-MM-DD` strings order chronologically by code unit; explicit so the intent is visible. */
+function compareIsoDates(a: string, b: string): number {
+  if (a < b) return -1
+  return a > b ? 1 : 0
+}
+
 /**
  * Builds one store's plan. Returns `null` if this run wrote nothing for the
  * store — there is no range to define, and nothing to protect by sweeping.
@@ -189,7 +195,7 @@ function planForStore(store: string, input: SweepPlanInput): StoreSweepPlan | nu
   const written = input.writtenByWindow.get(store)
   if (!written || written.size === 0) return null
 
-  const writtenDates = [...written.keys()].sort()
+  const writtenDates = [...written.keys()].sort(compareIsoDates)
   const range = { min: writtenDates[0]!, max: writtenDates[writtenDates.length - 1]! }
   const live = input.liveByWindow?.get(store) ?? new Map<string, number>()
   const candidates = candidateWindows(writtenDates, live, range)

@@ -654,6 +654,20 @@ describe('createOcrRunner — fetch once, real page numbers, through the actual 
     expect(manifest.every((m) => !m.source.startsWith('http'))).toBe(true)
   })
 
+  it('passes TMPDIR to ocr.py so Python validates the manifest against the dir Node used', async () => {
+    const { tmpdir } = await import('node:os')
+    let childEnv: NodeJS.ProcessEnv | undefined
+    const fakeExec = async (_python: string, _args: readonly string[], opts: { env: NodeJS.ProcessEnv }) => {
+      childEnv = opts.env
+      return { stdout: '', stderr: '' }
+    }
+
+    await createOcrRunner(fakeExec)([flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg')], false)
+
+    expect(childEnv?.TMPDIR).toBe(tmpdir())
+    expect(childEnv?.PATH).toBe(process.env.PATH)
+  })
+
   it('writes each image\'s bytes to disk exactly once — never asks ocr.py to fetch a url', async () => {
     const images = [flyerImage(1, 'https://image.isu.pub/rev/jpg/page_1.jpg')]
     let manifestSources: string[] = []

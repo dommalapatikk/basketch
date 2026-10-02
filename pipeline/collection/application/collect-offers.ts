@@ -9,6 +9,8 @@
 //
 // Application layer: may import the domain, never infrastructure.
 
+import { randomUUID } from 'node:crypto'
+
 import type { IsoWeek } from '../domain/iso-week'
 import { type Offer, type Retailer, dedupeOffers } from '../domain/offer'
 import type { CollectionResult, OfferSource } from '../domain/offer-source'
@@ -43,7 +45,7 @@ export type CollectOffersOutcome = {
 const DEFAULT_TIMEOUT_MS = 120_000
 
 function defaultRunId(): string {
-  return `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  return `run_${Date.now().toString(36)}_${randomUUID().replaceAll('-', '').slice(0, 6)}`
 }
 
 /** Rejects if the source has not settled in time, without leaving a dangling timer. */

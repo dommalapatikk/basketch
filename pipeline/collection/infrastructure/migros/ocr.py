@@ -58,8 +58,11 @@ before — production (live-sources.ts) never uses it.
 
 import io
 import json
+import os
 import sys
+import tempfile
 import urllib.request
+from pathlib import Path
 
 # Overlap between strips so a line sitting on a seam is still read whole.
 # Also the source of duplicate tokens, which the caller must dedupe.
@@ -124,6 +127,42 @@ def ocr_tiled(ocr, img, rows=DEFAULT_ROWS, scale=DEFAULT_SCALE):
     return items
 
 
+def resolve_manifest_path(raw):
+    """Returns the resolved manifest path, or raises ValueError.
+
+    Guaranteed: the path is an existing regular `.json` file that resolves
+    (symlinks followed) to a place inside `tempfile.gettempdir()`. live-sources.ts
+    writes the manifest into a fresh mkdtemp directory under its os.tmpdir() and
+    passes TMPDIR to this process, so both sides agree on that directory.
+    NOT guaranteed: that the file's contents are well-formed (see
+    resolve_source_path for the sources) or that the temp dir is private to us.
+    """
+    path = Path(raw).resolve()
+    allowed = Path(tempfile.gettempdir()).resolve()
+    if path.suffix != ".json" or not path.is_file():
+        raise ValueError(f"--manifest must be an existing .json file, got: {raw}")
+    if allowed not in path.parents:
+        raise ValueError(f"--manifest must live inside the temp directory {allowed}, got: {path}")
+    return path
+
+
+def resolve_source_path(raw, manifest_dir):
+    """Returns a manifest `source` as a normalised path, or raises ValueError.
+
+    live-sources.ts writes every source as an absolute local file path inside
+    the manifest's own directory (never a URL). The check is LEXICAL (no
+    filesystem access): the normalised path must sit under `manifest_dir`, which
+    rejects `..` segments, absolute paths elsewhere, relative paths and URLs.
+    Symlinks inside the directory are NOT followed or checked; the directory is
+    one we created, so planting one needs write access to it already.
+    """
+    normalised = os.path.normpath(str(raw))
+    prefix = os.path.join(str(manifest_dir), "")
+    if not os.path.isabs(normalised) or not normalised.startswith(prefix):
+        raise ValueError("manifest source must be a path inside the manifest's own directory")
+    return normalised
+
+
 def build_manifest(argv):
     """Returns [(page_number, source), ...] from argv.
 
@@ -138,10 +177,21 @@ def build_manifest(argv):
     page turns into a silently wrong CropRegion.
     """
     if "--manifest" in argv:
-        path = argv[argv.index("--manifest") + 1]
+        index = argv.index("--manifest") + 1
+        if index >= len(argv):
+            raise ValueError("--manifest needs a path")
+        path = resolve_manifest_path(argv[index])
+        # Sources are compared against the manifest's directory AS THE CALLER
+        # SPELLED IT (lexically), not the symlink-resolved one: on macOS os.tmpdir()
+        # is /var/... while resolve() gives /private/var/..., and the caller writes
+        # its source paths under the former.
+        source_dir = os.path.dirname(os.path.normpath(os.path.abspath(argv[index])))
         with open(path, encoding="utf-8") as f:
             entries = json.load(f)
-        return [(int(e["pageNumber"]), e["source"]) for e in entries]
+        try:
+            return [(int(e["pageNumber"]), resolve_source_path(e["source"], source_dir)) for e in entries]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"manifest entries need pageNumber and source ({exc!r})") from exc
     sources = [a for a in argv if not a.startswith("--")]
     return list(enumerate(sources, start=1))
 
@@ -171,7 +221,11 @@ def process_entries(entries, ocr, tiled, load_image_fn=load_image):
 def main():
     argv = sys.argv[1:]
     tiled = "--tiled" in argv
-    entries = build_manifest(argv)
+    try:
+        entries = build_manifest(argv)
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 4
     if not entries:
         print("usage: ocr.py [--tiled] --manifest <manifest.json> | <image-or-url> [...]", file=sys.stderr)
         return 2
