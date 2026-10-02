@@ -258,8 +258,8 @@ describe('least-privilege baseline is declared in migrations', () => {
         if (om) declared.add(tableKey(om[1], om[2] ?? ''))
       }
     }
-    // security_invoker counts only when on: bare, or = true / on / 1.
-    const invokerOn = /\bsecurity_invoker\b(?!\s*=\s*'?(?:false|off|0)\b)/i
+    // security_invoker counts only when on: bare, or any value Postgres reads as true.
+    const invokerOn = /\bsecurity_invoker\b(?!\s*=\s*'?(?:false|off|no|f|n|0)\b)/i
     return [...sql.matchAll(created)]
       .filter((m) => !invokerOn.test(m[3] ?? ''))
       .map((m) => tableKey(m[1], m[2] ?? ''))
@@ -330,6 +330,7 @@ describe('least-privilege baseline is declared in migrations', () => {
     expect(viewsWithoutDeclaredAccess('CREATE VIEW v AS SELECT 1; REVOKE INSERT ON v FROM anon;')).toEqual(['public.v'])
     expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker = false) AS SELECT 1;')).toEqual(['public.v'])
     expect(viewsWithoutDeclaredAccess("CREATE VIEW v WITH (security_invoker = 'off') AS SELECT 1;")).toEqual(['public.v'])
+    expect(viewsWithoutDeclaredAccess('CREATE VIEW v WITH (security_invoker = f) AS SELECT 1;')).toEqual(['public.v'])
   })
 
   it('the default-privileges migration keeps new tables and sequences fail-closed', () => {
