@@ -194,7 +194,7 @@ export function parseOcrErrors(stderr: string): OcrPageError[] {
 type ExecPython = (
   python: string,
   args: readonly string[],
-  opts: { maxBuffer: number },
+  opts: { maxBuffer: number; env: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string; stderr: string }>
 
 /**
@@ -232,7 +232,11 @@ export function createOcrRunner(
       await writeFile(manifestPath, JSON.stringify(manifest))
 
       const args = [OCR_SCRIPT, ...(tiled ? ['--tiled'] : []), '--manifest', manifestPath]
-      const { stdout, stderr } = await exec(python, args, { maxBuffer: 128 * 1024 * 1024 })
+      const { stdout, stderr } = await exec(python, args, {
+        maxBuffer: 128 * 1024 * 1024,
+        // ocr.py only accepts a manifest inside ITS temp dir; make that the dir we used.
+        env: { ...process.env, TMPDIR: tmpdir() },
+      })
       const errors = parseOcrErrors(stderr)
       for (const e of errors) {
         // Structured, one line per failed page — not the page's full OCR

@@ -209,6 +209,7 @@
     "email": "Email",
     "copy": "Copy",
     "copied": "Copied",
+    "copy_failed": "Could not copy the link. Please copy it from the address bar.",
     "mail_subject": "basketch — this week's grocery verdict",
     "share_text": "This week's grocery deals across 7 Swiss stores, side by side.",
     "preview_card": "Preview the share card",

@@ -1,0 +1,4 @@
+[run]
+# Repo-root-relative file names so SonarQube can match coverage.xml to sources.
+relative_files = True
+omit = */test_*.py

@@ -25,13 +25,18 @@ export function AvailabilityHelpPopover({ onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="availability-help-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(11,11,15,0.45)] p-4"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
     >
-      <div
-        className="max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-paper)] p-5 shadow-[var(--shadow-md)]"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Presentational scrim: pointer users click it to dismiss; keyboard users
+          have Escape (document-level) and the Close button in the panel. */}
+      <button
+        type="button"
+        aria-label={t('help_close')}
+        tabIndex={-1}
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-[rgba(11,11,15,0.45)]"
+      />
+      <div className="relative max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-paper)] p-5 shadow-[var(--shadow-md)]">
         <div className="mb-3 flex items-center justify-between">
           <h3 id="availability-help-title" className="text-base font-semibold text-[var(--color-ink)]">
             {t('help_title')}

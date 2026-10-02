@@ -78,6 +78,38 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # Python: the Migros OCR helper (ocr.py) had no CI run at all, so its pytest
+  # suite never gated anything and SonarQube saw 0% coverage on it. pillow and
+  # numpy are needed by two tests; rapidocr itself is not (the OCR model is
+  # injected / not under test).
+  test-python:
+    name: Test (Python, ocr.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: pip install pytest==8.4.2 pytest-cov==7.0.0 pillow==11.3.0 numpy==2.3.3
+
+      - name: Test ocr.py (with coverage)
+        run: |
+          python -m pytest pipeline/collection/infrastructure/migros/test_ocr.py \
+            --cov=pipeline/collection/infrastructure/migros \
+            --cov-config=pipeline/.coveragerc \
+            --cov-report=xml:pipeline/coverage.xml --cov-report=term
+
+      - name: Upload coverage (python)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-python
+          path: pipeline/coverage.xml
+          if-no-files-found: warn
+          retention-days: 7
+
   test-typescript:
     name: Test (TypeScript)
     runs-on: ubuntu-latest
@@ -224,7 +256,7 @@ jobs:
   sonarqube:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
-    needs: [test-typescript, test-shared, test-web-next]
+    needs: [test-typescript, test-shared, test-web-next, test-python]
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
     steps:
       - uses: actions/checkout@v4
@@ -273,6 +305,15 @@ jobs:
               echo "::warning title=No coverage for $pkg::$src not found (its test job probably failed before writing coverage)."
             fi
           done
+
+      - name: Place Python coverage where sonar-project.properties expects it
+        if: steps.token.outputs.present == 'true'
+        run: |
+          if [ -f coverage-in/coverage-python/coverage.xml ]; then
+            cp coverage-in/coverage-python/coverage.xml .sonar-coverage/python.xml
+          else
+            echo "::warning title=No coverage for python::coverage-in/coverage-python/coverage.xml not found."
+          fi
 
       - name: SonarQube scan + wait for quality gate
         if: steps.token.outputs.present == 'true'

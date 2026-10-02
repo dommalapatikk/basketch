@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { Drawer as Vaul } from 'vaul'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 
+import { uniqueStrings } from '@/lib/unique-strings'
 import { useIsDesktop } from '@/lib/use-is-desktop'
 import { cn } from '@/lib/utils'
 import type { Concept, ConceptFamily, ConceptVariantTile } from '@/lib/v3-types'
@@ -350,9 +351,6 @@ function ToggleRow({
 
 function uniqueNumbers(xs: number[]): number[] {
   return Array.from(new Set(xs)).sort((a, b) => a - b)
-}
-function uniqueStrings(xs: string[]): string[] {
-  return Array.from(new Set(xs)).sort()
 }
 function notNull<T>(x: T | null): x is T {
   return x !== null
