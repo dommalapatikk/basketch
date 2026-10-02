@@ -1,3 +1,11 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: it is a legacy bootstrap script whose policies and
+-- grants predate the baseline.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- basketch Supabase setup
 -- Run this SQL in your Supabase dashboard: SQL Editor > New Query
 -- This creates all tables, indexes, triggers, and RLS policies.

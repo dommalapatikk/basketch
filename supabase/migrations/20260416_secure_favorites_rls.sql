@@ -1,3 +1,11 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: it re-grants EXECUTE on the legacy favourites RPCs
+-- to anon, which the baseline retires.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- Migration: Secure favorites + favorite_items via SECURITY DEFINER RPCs
 -- Revokes direct table access from anon, routes all operations through functions
 -- that require the favorite UUID (the access token) as a parameter.
