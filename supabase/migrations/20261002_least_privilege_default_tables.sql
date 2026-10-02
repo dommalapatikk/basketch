@@ -8,8 +8,10 @@
 --   write access to every table and sequence postgres creates in public. The
 --   baseline revoked those privileges from every object that existed when it
 --   ran, but a table added later would still be born writable by the anon key,
---   guarded only by RLS. After this migration a new table is readable at most,
---   and only once its own migration enables RLS and adds a SELECT policy.
+--   guarded only by RLS. After this migration a new table can at most be
+--   read: anon can read it until its migration enables RLS, and after that
+--   only through an explicit SELECT policy. That is why every CREATE TABLE
+--   must enable RLS in the same migration (pipeline/architecture.test.ts).
 --
 -- WHAT IT DOES NOT DO
 --   Existing objects are untouched (the baseline already covers them).
