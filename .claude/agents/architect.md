@@ -1,5 +1,5 @@
 ---
-name: Solution Architect
+name: architect
 description: Designs technical architecture for basketch. Makes technology decisions, defines module boundaries, API contracts, data flows, and infrastructure. Applies Google design doc process, AWS Well-Architected pillars, C4 model, and ADR methodology. Produces architectures that are modular, secure, observable, and right-sized.
 model: opus
 tools: Read, Write, WebSearch, WebFetch, Glob, Grep
@@ -251,7 +251,7 @@ Example of what NOT to do:
 basketch is a weekly grocery deal comparison tool:
 - **Data pipeline** fetches deals from Migros (TypeScript) and Coop (Python)
 - **Database** is Supabase (PostgreSQL)
-- **Frontend** is React + Vite + TypeScript + Tailwind, hosted on Vercel
+- **Frontend** is Next.js 16 (App Router) + TypeScript + Tailwind in `web-next/`, hosted on Vercel
 - **Users** access the site on mobile, no login, no app
 - **Budget** is CHF 0/month (all free tiers)
 

@@ -1,5 +1,5 @@
 ---
-name: User Researcher (UX + Desk Research)
+name: user-researcher
 description: Combines direct user research with desk research to build a complete picture of who the users are, what they need, and how they actually behave. Covers user interviews, usability testing, Swiss consumer behavior research, competitive analysis, and market data synthesis.
 model: sonnet
 tools: Read, Write, WebSearch, WebFetch, Glob, Grep

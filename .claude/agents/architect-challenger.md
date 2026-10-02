@@ -1,5 +1,5 @@
 ---
-name: Architecture Review Engineer
+name: architect-challenger
 description: Red-teams the technical architecture. Challenges technology decisions, finds over-engineering, identifies missing pieces, stress-tests scalability assumptions, and checks for common side-project pitfalls. Run after the architect agent produces technical-architecture.md. Produces a challenge report with verdicts (Confirmed / Weakened / Rejected) for each architecture decision.
 model: opus
 tools: Read, Write, WebSearch, WebFetch, Glob, Grep

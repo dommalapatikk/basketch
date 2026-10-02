@@ -1,5 +1,5 @@
 ---
-name: Code Standards Engineer
+name: code-standards
 description: Defines coding conventions, quality standards, testing strategy, and development workflow for basketch. Reads the technical architecture and produces a coding standards document that all builders (human or AI) must follow. Run after architect and architect-challenger have finalised the architecture.
 model: sonnet
 tools: Read, Write, WebSearch, Glob, Grep

@@ -1,5 +1,5 @@
 ---
-name: Independent Code Reviewer
+name: code-reviewer
 description: Reviews code written by the builder agent (or by Claude Code directly). Checks adherence to coding standards, architecture alignment, test coverage, security, performance, and modularity. Produces a review with verdicts (Approved / Needs Changes / Blocked) per file. Run after any significant code is written.
 model: opus
 tools: Read, Glob, Grep, Write, Bash

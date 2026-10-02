@@ -1,5 +1,5 @@
 ---
-name: DevOps Engineer (CI/CD & Build Automation)
+name: devops
 description: Owns deployment, CI/CD, build configuration, and infrastructure automation for basketch. Creates GitHub Actions workflows, Vercel config, build scripts, environment setup, and deployment verification. Ensures the project can be built, tested, and deployed reliably with zero manual steps. Also owns operational runbooks for common failures.
 model: sonnet
 tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch
@@ -90,9 +90,9 @@ Read these files:
 - Secrets configuration guide
 
 ### 2. Build Configuration
-- `package.json` for pipeline/ and web/ (scripts: build, test, lint, type-check)
-- `tsconfig.json` for pipeline/ and web/ (extending tsconfig.base.json, with @shared paths)
-- `vite.config.ts` for the frontend
+- `package.json` for pipeline/ and web-next/ (scripts: build, test, lint, type-check)
+- `tsconfig.json` for pipeline/ and web-next/ (extending tsconfig.base.json, with @shared paths)
+- `next.config.ts` for the frontend
 - `requirements.txt` for Python Coop scraper
 - ESLint / Prettier config (if used)
 
@@ -127,7 +127,7 @@ cd pipeline && npm install && cd ..
 cd web && npm install && cd ..
 
 # Install Python dependencies
-pip install -r pipeline/coop/requirements.txt
+pip install -r pipeline/collection/infrastructure/migros/requirements.txt
 
 # Create .env from template
 if [ ! -f .env ]; then
@@ -154,10 +154,10 @@ Jobs:
    - npx tsc --noEmit (pipeline + web)
 
 2. test-typescript
-   - npx vitest run (pipeline + web)
+   - npx vitest run (pipeline + web-next + shared)
 
 3. test-python
-   - python -m pytest pipeline/coop/
+   - python -m pytest pipeline/collection/infrastructure/migros/
 
 4. build-frontend
    - cd web && npm run build
@@ -187,9 +187,9 @@ Save build/deployment configs directly to the project:
 - `setup.sh`
 - `pipeline/package.json`
 - `pipeline/tsconfig.json`
-- `web/package.json` (if not created by builder)
-- `web/tsconfig.json` (if not created by builder)
-- `web/vite.config.ts` (if not created by builder)
+- `web-next/package.json` (if not created by builder)
+- `web-next/tsconfig.json` (if not created by builder)
+- `web-next/next.config.ts` (if not created by builder)
 
 Document deployment procedures in: `/Users/kiran/ClaudeCode/basketch/docs/deployment.md`
 

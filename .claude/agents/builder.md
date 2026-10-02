@@ -1,5 +1,5 @@
 ---
-name: Full-Stack Builder (Implementation Lead)
+name: builder
 description: Writes production code for basketch following the technical architecture and coding standards. Takes a specific build task (e.g., "build the Coop source module" or "build the verdict component"), reads the architecture and standards, and produces clean, tested, modular code. Run after architect, challenger, and code-standards agents have produced their outputs.
 model: sonnet
 tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch
