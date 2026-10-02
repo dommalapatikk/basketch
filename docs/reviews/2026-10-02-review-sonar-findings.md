@@ -193,3 +193,81 @@ Nits:
 ## Final verdict
 
 **Needs work (small).** Fix M1. S1–S3 are recommended in the same pass because each is a few lines. On re-review I will check only M1 and whichever SHOULD-FIX items are taken. The pipeline changes (`stale-sweep`, run id, `ocr.py` hardening, CI coverage) are approved as they stand, and they do not put the live Migros collector at risk.
+
+---
+
+## Re-review 1 (head `ce0146f`, diff `74b413c..ce0146f`)
+
+**Scope:** only the items flagged above, plus the unrequested lexical source check added for Sonar `pythonsecurity:S6549`.
+
+### What I ran
+
+| Command | Result |
+|---|---|
+| `pipeline: npm test` | 74 files / 1525 tests pass |
+| `pipeline: tsc --noEmit` | exit 0 |
+| `web-next: npm test` | 52 files / 510 tests pass |
+| `web-next: tsc --noEmit` | exit 0 |
+| CI on `ce0146f` | All checks green. pytest: **24 passed**, `ocr.py` 67%. The `dc41278` run failed; `ce0146f` is the fix for that |
+
+### Item by item
+
+| ID | Status | Notes |
+|---|---|---|
+| **M1** AbortError | **Closed** | `nativeShare` returns early on `DOMException` with name `AbortError`; other failures still fall through to copy. Two new tests: cancel → no `writeText` and an empty status; `NotAllowedError` → copy runs. Correct |
+| **S1** docstring + source check + TMPDIR | **Partly closed. New MUST-FIX M2 below** | The docstring is now honest (states what is guaranteed and what is not). `TMPDIR: tmpdir()` is passed to the child with the rest of `process.env` kept, and a test asserts both. Good. But the source check has a macOS defect (M2) |
+| **S2** live region | **Closed, with a new SHOULD-FIX S4** | `role="status"` is always mounted and its text changes. The test asserts it starts empty. Correct. Side effect: see S4 |
+| **S3** `t('help_close')` | **Closed** | Both the scrim and the panel button use `t('help_close')` |
+| N1 listener cleanup | Closed | `process.on`/`off` moved into `beforeEach`/`afterEach` |
+| N2 pinned pip deps, coverage omit | Closed | Versions are pinned; `omit = */test_*.py` added |
+| N3 scrim DOM order | Open (nit, optional) | Not taken. Acceptable |
+
+### The lexical source check (`resolve_source_path`): bypass analysis
+
+The check runs `normalised = os.path.normpath(raw)` and requires it to be absolute and to start with `join(manifest_dir, "")`. I tried every case the coordinator listed and found **no bypass**:
+- **`..` segments:** `normpath` collapses them before the prefix test, so `/d/../secret.jpg` becomes `/secret.jpg` and is rejected. A test covers this.
+- **`//`:** inner `//` is collapsed. A leading `//` is kept by POSIX `normpath` (`//tmp/...`), and it then fails the `/tmp/...` prefix. That is a rejection, not a bypass.
+- **Prefix confusion:** the prefix always ends with a separator, so `/tmp/migros-ocr-abcd/x` does not match `/tmp/migros-ocr-abc/`.
+- **Trailing separators:** `/tmp/migros-ocr-abc/` normalises to the directory itself, which does not start with `dir/`, so it is rejected.
+- **URLs, relative paths, non-strings:** a URL or relative path is not absolute and is rejected. `str(None)` becomes `"None"`, which is relative and rejected.
+- **Case or Unicode tricks:** these only make the match stricter. They cannot widen it.
+- **Symlinks inside the directory:** these are not followed, as the docstring says. The directory is a 0700 `mkdtemp` that we created, so this is acceptable.
+- **The manifest file itself as a source:** this passes the check, but `Image.open` fails and the result is a per-page error. Harmless.
+
+Nit (not blocking): a manifest entry with no `"source"` key raises `KeyError`, which `main()` does not catch (it only catches `ValueError`). You get a traceback with exit 1 instead of a JSON error with exit 4. The failure is still visible.
+
+### MUST-FIX M2: `ocr.py:186` (`resolve_source_path(..., path.parent)`) rejects every page on macOS
+
+- `manifest_dir` is `path.parent`, where `path = Path(raw).resolve()`, so symlinks are followed. The sources, however, are compared **lexically** and never resolved.
+- `live-sources.ts` builds both the manifest path and every source from the **unresolved** `mkdtemp(join(tmpdir(), ...))`.
+- On macOS, `tmpdir()` is `/var/folders/.../T`, and `/var` is a symlink to `/private/var`. That gives:
+  - `manifest_dir` = `/private/var/folders/.../T/migros-ocr-XXXX`
+  - each source = `/var/folders/.../T/migros-ocr-XXXX/page-1-0.jpg`
+- The prefix test fails for every entry, `build_manifest` raises, `ocr.py` exits with 4, and **Migros collection fails on every local macOS run**.
+- On GitHub ubuntu, `/tmp` is not a symlink, so the **live pipeline still works**. That is why CI is green.
+
+**Why the tests miss it:** pytest's `tmp_path` is created under `Path(tempfile.gettempdir()).resolve()`, so it is already a resolved path. In the tests the manifest path and the sources agree whatever OS they run on, and the test expectations even encode `.resolve()`.
+
+**Fix (choose one):**
+1. **Python side (preferred, keeps the check lexical):** take the prefix from the manifest path **as passed on argv**, normalised lexically, not from the resolved path. For example, `manifest_dir = os.path.dirname(os.path.normpath(os.path.abspath(argv_path)))`. Pass that to `resolve_source_path`, and keep `Path.resolve()` only for the temp-dir containment check on the manifest itself.
+2. **TS side:** `const dir = await realpath(await mkdtemp(...))` in `createOcrRunner`, so that every path written is already canonical.
+
+Add a regression test that does not depend on the platform: create a symlinked directory (`link -> real`), write a manifest under `link/` whose sources are `link/page-1.jpg`, and assert that `build_manifest` accepts it. That reproduces the macOS layout on ubuntu.
+
+### SHOULD-FIX S4: `ShareVerdictButton.tsx:119` makes the home-page skeleton too short
+
+- The always-mounted `<p role="status" className="mt-3 min-h-5 ...">` permanently adds about 32 px (12 px margin + 20 px minimum height) to the share block.
+- `HomeSkeleton` in `app/[locale]/page.tsx:120` reserves `h-[172px]`. That height was tuned to the block's real rendered height in review N-5 (2026-09-28) to remove a layout shift.
+- That layout shift now comes back on every home page load.
+- Fix: either raise the skeleton to about `h-[204px]` and update its comment, or keep the live region at zero height while idle (drop `min-h-5`, and add the margin only when there is text). The first option is simpler.
+
+Nit: on success, "Copied" now shows twice, once on the button label and once in the status line. That is acceptable for sighted users. Optionally make the status line `sr-only` for the success case only.
+
+### Re-review verdict
+
+**Needs work (small).**
+- **Open MUST-FIX:** M2 (macOS source-path mismatch; local runs only, the live pipeline is unaffected).
+- **Open SHOULD-FIX:** S4 (skeleton height).
+- **Closed:** M1, S1 (except M2), S2, S3, N1, N2.
+
+On the next pass I will re-check only M2 and S4.
