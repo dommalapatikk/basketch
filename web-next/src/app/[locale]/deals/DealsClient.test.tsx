@@ -2,7 +2,7 @@
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { NextIntlClientProvider } from 'next-intl'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DEFAULT_FILTERS } from '@/lib/filters'
 import type { Deal, WeeklySnapshot } from '@/lib/types'
@@ -93,6 +93,16 @@ async function renderDealsClient(deals: Deal[]) {
 }
 
 describe('DealsClient threads the "from" label to DealCard', () => {
+  // Pin the browser clock to TODAY: the fixtures (validTo 2026-09-30) are
+  // relative to it. Left on the real clock these deals expire and vanish
+  // (date bomb, failed from 2026-10-01).
+  beforeEach(() => {
+    clock.today = TODAY
+  })
+  afterEach(() => {
+    clock.today = undefined
+  })
+
   it('shows a "From" date on a card for a deal that has not started yet', async () => {
     const { container } = await renderDealsClient([
       deal({ id: 'future', validFrom: '2026-09-17', discountPercent: 40 }),
