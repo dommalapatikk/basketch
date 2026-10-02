@@ -23,6 +23,8 @@
 --   - Every base table in public has RLS enabled.
 --   - No SECURITY DEFINER function in public is executable by anon.
 --   - New functions are not executable by the public roles by default.
+--   - New tables and sequences are not writable by the public roles by
+--     default (20261002_least_privilege_default_tables.sql).
 --   - anon can read deals (the one relation the live site needs).
 --   - Service-only relations are not readable by anon.
 --   - The pipeline (service role) can still write.
@@ -91,6 +93,22 @@ fn_defaults AS (
   JOIN pg_roles r ON r.oid = d.defaclrole
   WHERE r.rolname = 'postgres' AND d.defaclobjtype = 'f'
 ),
+-- Write privileges that new tables ('r') and sequences ('S') created by
+-- postgres would hand to PUBLIC/anon/authenticated, from the global defaults
+-- (namespace 0) or the public schema's own. Built-in defaults grant nothing
+-- to these roles, so no row at all is also a pass.
+default_write_grants AS (
+  SELECT d.defaclobjtype::text || ':' || COALESCE(g.rolname::text, 'PUBLIC') || ':' || a.privilege_type AS grant_text
+  FROM pg_default_acl d
+  JOIN pg_roles r ON r.oid = d.defaclrole
+  CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+  LEFT JOIN pg_roles g ON g.oid = a.grantee
+  WHERE r.rolname = 'postgres'
+    AND d.defaclnamespace IN (0, 'public'::regnamespace)
+    AND (a.grantee = 0 OR g.rolname IN ('anon', 'authenticated'))
+    AND ((d.defaclobjtype = 'r' AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'))
+      OR (d.defaclobjtype = 'S' AND a.privilege_type IN ('USAGE', 'UPDATE')))
+),
 checks(check_id, invariant, expected, actual, ok) AS (
 
   SELECT 'A-1', 'SECURITY DEFINER functions in public executable by anon', '(none)',
@@ -149,6 +167,11 @@ checks(check_id, invariant, expected, actual, ok) AS (
                        AND a.privilege_type = 'EXECUTE'
                        AND (a.grantee = 0  -- 0 = PUBLIC
                         OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))))
+
+  UNION ALL
+  SELECT 'A-9', 'new tables/sequences writable by PUBLIC/anon/authenticated by default (r:=table, S:=sequence)', '(none)',
+         COALESCE((SELECT string_agg(grant_text, ', ' ORDER BY grant_text) FROM default_write_grants), '(none)'),
+         NOT EXISTS (SELECT 1 FROM default_write_grants)
 
   -- ---------- the site and the pipeline still work ----------
   UNION ALL

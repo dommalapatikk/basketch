@@ -178,8 +178,9 @@ describe('least-privilege baseline is declared in migrations', () => {
       const privileges = (m[1] ?? '').replace(/\([^)]*\)/g, ' ')
       const grantees = (m[2] ?? '').replace(/\bWITH\s+GRANT\s+OPTION\b[\s\S]*$/i, '')
       // Stop at anything that is not part of a role list (e.g. the closing
-      // quote of an EXECUTE format('...') string).
-      const roleList = grantees.split(/['")]/)[0] ?? ''
+      // quote of an EXECUTE format('...') string). Double quotes are NOT a
+      // stop: they quote a role name (TO "anon") and namesAPublicRole strips them.
+      const roleList = grantees.split(/[')]/)[0] ?? ''
       if (/\b(INSERT|UPDATE|DELETE|TRUNCATE|ALL)\b/i.test(privileges) && namesAPublicRole(roleList)) {
         out.push(m[0].replace(/\s+/g, ' ').trim())
       }
@@ -205,6 +206,28 @@ describe('least-privilege baseline is declared in migrations', () => {
       if (WRITE_COMMANDS.has(command) && appliesToPublicRole) out.push(m[0].replace(/\s+/g, ' ').trim())
     }
     return out
+  }
+
+  // Every table a scanned migration creates must have RLS enabled in that same
+  // file. Default privileges (20261002_least_privilege_default_tables.sql) keep
+  // a new table from being writable, but it is still readable by anon until RLS
+  // is on — so RLS is part of creating the table, not a later step.
+  function tableKey(schema: string | undefined, name: string): string {
+    const unquote = (id: string) => (id.startsWith('"') ? id.slice(1, -1).replace(/""/g, '"') : id.toLowerCase())
+    return `${schema === undefined ? 'public' : unquote(schema)}.${unquote(name)}`
+  }
+
+  function tablesWithoutRls(sql: string): string[] {
+    const created = new RegExp(
+      String.raw`CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(${IDENT})\s*\.\s*)?(${IDENT})`,
+      'gi',
+    )
+    const rlsOn = new RegExp(
+      String.raw`ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:(${IDENT})\s*\.\s*)?(${IDENT})\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY`,
+      'gi',
+    )
+    const withRls = new Set([...sql.matchAll(rlsOn)].map((m) => tableKey(m[1], m[2] ?? '')))
+    return [...sql.matchAll(created)].map((m) => tableKey(m[1], m[2] ?? '')).filter((t) => !withRls.has(t))
   }
 
   it('the baseline migration exists and is not on the frozen pre-baseline list', () => {
@@ -239,6 +262,38 @@ describe('least-privilege baseline is declared in migrations', () => {
     expect(violations).toEqual([])
   })
 
+  it('every table created from the baseline on has RLS enabled in the same migration', () => {
+    const violations: string[] = []
+    for (const f of filesToScan(migrationNames())) {
+      const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+      for (const t of tablesWithoutRls(sql)) violations.push(`${f}: CREATE TABLE ${t} without ENABLE ROW LEVEL SECURITY`)
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('the default-privileges migration keeps new tables and sequences fail-closed', () => {
+    const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, '20261002_least_privilege_default_tables.sql'), 'utf8'))
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+INSERT,\s*UPDATE,\s*DELETE,\s*TRUNCATE,\s*REFERENCES,\s*TRIGGER\s+ON\s+TABLES\s+FROM\s+anon,\s*authenticated/i,
+    )
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+USAGE,\s*UPDATE\s+ON\s+SEQUENCES\s+FROM\s+anon,\s*authenticated/i,
+    )
+  })
+
+  it('the RLS scanner catches the patterns it exists for (guards against a silently blind regex)', () => {
+    expect(tablesWithoutRls('CREATE TABLE foo (id int);')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE TABLE IF NOT EXISTS public.foo (id int);')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE UNLOGGED TABLE "Foo" (id int);')).toEqual(['public.Foo'])
+    // RLS on a different table does not count
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE bar ENABLE ROW LEVEL SECURITY;')).toEqual(['public.foo'])
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    expect(tablesWithoutRls('CREATE TABLE public.foo (id int); ALTER TABLE foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    expect(tablesWithoutRls('CREATE TABLE FOO (id int); ALTER TABLE IF EXISTS ONLY public.foo ENABLE ROW LEVEL SECURITY;')).toEqual([])
+    // DISABLE is not ENABLE
+    expect(tablesWithoutRls('CREATE TABLE foo (id int); ALTER TABLE foo DISABLE ROW LEVEL SECURITY;')).toEqual(['public.foo'])
+  })
+
   it('scans a same-day migration whose name sorts before the baseline', () => {
     expect(filesToScan(['20260416_secure_favorites_rls.sql', '20261002120000_x.sql', BASELINE])).toEqual([
       '20261002120000_x.sql',
@@ -253,6 +308,10 @@ describe('least-privilege baseline is declared in migrations', () => {
     expect(publicWriteGrants('GRANT INSERT (name) ON public.foo TO anon;')).toHaveLength(1)
     expect(publicWriteGrants('GRANT UPDATE (a, b) ON public.foo TO PUBLIC;')).toHaveLength(1)
     expect(publicWriteGrants("EXECUTE format('GRANT DELETE ON %I TO anon', t);")).toHaveLength(1)
+    // a quoted role name is still that role
+    expect(publicWriteGrants('GRANT INSERT ON foo TO "anon";')).toHaveLength(1)
+    expect(publicWriteGrants('GRANT ALL ON foo TO service_role, "authenticated";')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR INSERT TO "anon" WITH CHECK (true);')).toHaveLength(1)
     expect(publicWriteGrants('GRANT SELECT ON foo TO anon, authenticated;')).toHaveLength(0)
     expect(publicWriteGrants('GRANT SELECT (name) ON public.foo TO anon;')).toHaveLength(0)
     expect(publicWriteGrants('GRANT INSERT ON public.foo TO service_role;')).toHaveLength(0)
