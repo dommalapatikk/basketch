@@ -1,7 +1,8 @@
 # SonarQube Cloud setup and daily use
 
 Plain-English guide for the PM. SonarQube Cloud (sonarcloud.io) is free for
-public repos. It reads our code on every pull request and gives a pass/fail
+public repos (the repo must stay public; private repos need a paid plan, and our
+budget rule allows only one paid service). It reads our code on every pull request and gives a pass/fail
 "quality gate". The gate plus our existing CI checks decide whether a PR can merge.
 
 Code side is already done (`sonar-project.properties`, the `SonarQube Cloud` job
@@ -13,8 +14,10 @@ in `.github/workflows/ci.yml`). The steps below are the parts only you can do.
 2. Click **+** (top right) > **Analyze new project**. Choose organization
    `dommalapatikk` (import it from GitHub if asked), then select the
    `basketch` repository and click **Set Up**.
-3. If asked what counts as "new code", choose **Previous version** (or "Number of
-   days: 30"). If asked how to analyse, choose **With GitHub Actions**, but do not
+3. If asked what counts as "new code", choose **Number of days: 30**. (We do not
+   set a project version, so "Previous version" would grow forever. PR gates always
+   judge the PR's own changes; this setting only affects the `main` branch view.)
+   If asked how to analyse, choose **With GitHub Actions**, but do not
    copy the workflow it offers: ours is already in the repo. Do not paste any
    token into a file.
 4. **Turn OFF Automatic Analysis.** Project > **Administration** > **Analysis Method**
@@ -32,8 +35,11 @@ in `.github/workflows/ci.yml`). The steps below are the parts only you can do.
    > **New repository secret**. Name: `SONAR_TOKEN`. Value: the token. Save.
 8. Quality gate: Project > **Quality Gate**. Leave the default **Sonar way**
    (see below).
-9. Hand back to the engineer. They will open a first PR, check the Sonar job runs,
-   then turn on branch protection (required checks listed in the hand-off).
+9. Hand back to the engineer. They will open a first PR and check the Sonar job
+   runs. **Before branch protection makes `web-next · Vitest` a required check,
+   the 2 failing tests in `web-next/src/app/[locale]/deals/DealsClient.test.tsx`
+   (the "From" date label) must be fixed.** While they are red, every PR is blocked.
+   Then turn on branch protection.
 
 ## What the default "Sonar way" gate checks
 
@@ -47,10 +53,14 @@ not block you. To pass:
 - New code duplication at most 3%
 - Maintainability rating on new code A
 
+If a PR changes fewer than 20 lines, the coverage and duplication conditions are
+skipped, so a tiny PR without tests can still pass.
+
 ## Reading a failed gate on a PR
 
 1. Open the PR. In the checks list at the bottom, find **SonarQube Cloud** (red) and
-   **SonarCloud Code Analysis** (the gate verdict).
+   **SonarCloud / SonarQube Cloud Code Analysis** (the gate verdict; the name
+   depends on SonarSource's current branding).
 2. Click **Details** on the SonarCloud one. It opens the SonarCloud PR page
    showing which condition failed, for example "Coverage on New Code 62% (needs 80%)".
 3. Click the failed condition to see the exact files and lines.
@@ -68,6 +78,6 @@ not block you. To pass:
 | "Automatic Analysis is enabled" | Step 4 not done | Step 4 |
 | Job skipped with a notice about forks | PR is from a fork; GitHub hides secrets | Re-create the branch inside this repo |
 | Coverage shows 0% | A test job failed before writing coverage | Fix the red test job first |
-| Whole CI red but Sonar fine | Unrelated test failing (see hand-off) | Fix that test |
+| Whole CI red but Sonar fine | A test is failing, for now `DealsClient.test.tsx` in web-next | Fix that test |
 
 Rotate the token: repeat steps 6 and 7 (replace the secret), and revoke the old one.

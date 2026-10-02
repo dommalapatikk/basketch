@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege (review 2026-10-02): every job gets a read-only GITHUB_TOKEN.
+# PR decoration comes from the SonarCloud GitHub App, not from this token, and
+# artifact up/download within a run needs no extra scope.
+permissions:
+  contents: read
+
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check (pipeline)
@@ -252,7 +258,8 @@ jobs:
           path: coverage-in
 
       # vitest writes SF: paths relative to each package (SF:categorize.ts).
-      # Sonar resolves them from the repo root, so prefix the package folder.
+      # Sonar resolves them from the repo root, so prefix the package folder
+      # (absolute SF: paths are left alone).
       - name: Make lcov paths repo-root-relative
         if: steps.token.outputs.present == 'true'
         run: |
@@ -260,7 +267,7 @@ jobs:
           for pkg in pipeline shared web-next; do
             src="coverage-in/coverage-$pkg/lcov.info"
             if [ -f "$src" ]; then
-              sed "s|^SF:|SF:$pkg/|" "$src" > ".sonar-coverage/$pkg.lcov"
+              sed "/^SF:\//!s|^SF:|SF:$pkg/|" "$src" > ".sonar-coverage/$pkg.lcov"
               echo "$pkg: $(grep -c '^SF:' ".sonar-coverage/$pkg.lcov") files with coverage"
             else
               echo "::warning title=No coverage for $pkg::$src not found (its test job probably failed before writing coverage)."
@@ -269,7 +276,7 @@ jobs:
 
       - name: SonarQube scan + wait for quality gate
         if: steps.token.outputs.present == 'true'
-        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
