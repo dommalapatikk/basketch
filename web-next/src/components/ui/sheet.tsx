@@ -34,7 +34,10 @@ export function SheetContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[rgba(11,11,15,0.45)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out data-[state=open]:fade-in" />
       <DialogPrimitive.Content
-        aria-describedby={description ? undefined : undefined}
+        // Radix wires aria-describedby to its Description and warns when none is
+        // rendered. With no description, pass an explicit undefined to opt out;
+        // with one, leave Radix's own wiring alone.
+        {...(description ? {} : { 'aria-describedby': undefined })}
         className={cn(
           'fixed top-0 z-50 flex h-full w-[420px] max-w-[90vw] flex-col bg-[var(--color-paper)] shadow-[var(--shadow-md)] border-[var(--color-line)]',
           sideClass,

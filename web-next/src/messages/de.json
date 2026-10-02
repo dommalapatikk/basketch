@@ -209,6 +209,7 @@
     "email": "E-Mail",
     "copy": "Kopieren",
     "copied": "Kopiert",
+    "copy_failed": "Link konnte nicht kopiert werden. Bitte aus der Adressleiste kopieren.",
     "mail_subject": "basketch — Lebensmittel-Verdict dieser Woche",
     "share_text": "Die Aktionen dieser Woche bei 7 Schweizer Läden, im Vergleich.",
     "preview_card": "Share-Bild anzeigen",

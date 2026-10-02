@@ -15,6 +15,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import pytest  # noqa: E402
 from ocr import (  # noqa: E402
     DEFAULT_ROWS,
     STRIP_OVERLAP_PX,
@@ -195,3 +196,53 @@ def test_process_entries_never_touches_the_network_for_a_local_path(tmp_path, mo
     )
 
     assert results == [{"pageNumber": 1, "width": 4, "height": 4, "items": []}]
+
+
+# ---------------------------------------------------------------------------
+# --manifest hardening: argv must not make the script open an arbitrary file.
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_outside_the_temp_dir_is_rejected(monkeypatch, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "manifest.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(work))
+
+    with pytest.raises(ValueError, match="temp directory"):
+        build_manifest(["--manifest", str(outside / "manifest.json")])
+
+
+def test_manifest_must_be_a_json_file(tmp_path):
+    not_json = tmp_path / "manifest.txt"
+    not_json.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=".json"):
+        build_manifest(["--manifest", str(not_json)])
+
+
+def test_manifest_directory_or_missing_file_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        build_manifest(["--manifest", str(tmp_path)])
+    with pytest.raises(ValueError):
+        build_manifest(["--manifest", str(tmp_path / "absent.json")])
+
+
+def test_manifest_flag_without_a_path_is_rejected():
+    with pytest.raises(ValueError, match="needs a path"):
+        build_manifest(["--manifest"])
+
+
+def test_manifest_symlink_escaping_the_temp_dir_is_rejected(monkeypatch, tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    secret = tmp_path / "secret.json"
+    secret.write_text("[]", encoding="utf-8")
+    link = work / "manifest.json"
+    link.symlink_to(secret)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(work))
+
+    with pytest.raises(ValueError, match="temp directory"):
+        build_manifest(["--manifest", str(link)])

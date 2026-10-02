@@ -32,13 +32,18 @@ export function AvailabilityCellSheet({ cell, conceptName, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="availability-sheet-title"
-      className="fixed inset-x-0 bottom-0 z-50 flex justify-center bg-[rgba(11,11,15,0.45)]"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end justify-center"
     >
-      <div
-        className="w-full max-w-md rounded-t-[var(--radius-xl)] bg-[var(--color-paper)] p-5 shadow-[var(--shadow-md)]"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Presentational scrim: pointer users click it to dismiss; keyboard users
+          have Escape (document-level) and the Close button in the panel. */}
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-[rgba(11,11,15,0.45)]"
+      />
+      <div className="relative w-full max-w-md rounded-t-[var(--radius-xl)] bg-[var(--color-paper)] p-5 shadow-[var(--shadow-md)]">
         <div className="mb-3 flex items-center justify-between">
           <h3 id="availability-sheet-title" className="text-base font-semibold text-[var(--color-ink)]">
             <StoreName slug={cell.storeSlug} />

@@ -59,7 +59,9 @@ before — production (live-sources.ts) never uses it.
 import io
 import json
 import sys
+import tempfile
 import urllib.request
+from pathlib import Path
 
 # Overlap between strips so a line sitting on a seam is still read whole.
 # Also the source of duplicate tokens, which the caller must dedupe.
@@ -124,6 +126,23 @@ def ocr_tiled(ocr, img, rows=DEFAULT_ROWS, scale=DEFAULT_SCALE):
     return items
 
 
+def resolve_manifest_path(raw):
+    """Returns the resolved manifest path, or raises ValueError.
+
+    The manifest is written by live-sources.ts into a fresh mkdtemp directory
+    under the OS temp dir. Anything else is refused: a regular `.json` file that
+    resolves (symlinks followed) to a place inside the temp dir. This keeps a
+    stray or hostile argv from making the script open an arbitrary file.
+    """
+    path = Path(raw).resolve()
+    allowed = Path(tempfile.gettempdir()).resolve()
+    if path.suffix != ".json" or not path.is_file():
+        raise ValueError(f"--manifest must be an existing .json file, got: {raw}")
+    if allowed not in path.parents:
+        raise ValueError(f"--manifest must live inside the temp directory {allowed}, got: {path}")
+    return path
+
+
 def build_manifest(argv):
     """Returns [(page_number, source), ...] from argv.
 
@@ -138,7 +157,10 @@ def build_manifest(argv):
     page turns into a silently wrong CropRegion.
     """
     if "--manifest" in argv:
-        path = argv[argv.index("--manifest") + 1]
+        index = argv.index("--manifest") + 1
+        if index >= len(argv):
+            raise ValueError("--manifest needs a path")
+        path = resolve_manifest_path(argv[index])
         with open(path, encoding="utf-8") as f:
             entries = json.load(f)
         return [(int(e["pageNumber"]), e["source"]) for e in entries]
@@ -171,7 +193,11 @@ def process_entries(entries, ocr, tiled, load_image_fn=load_image):
 def main():
     argv = sys.argv[1:]
     tiled = "--tiled" in argv
-    entries = build_manifest(argv)
+    try:
+        entries = build_manifest(argv)
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 4
     if not entries:
         print("usage: ocr.py [--tiled] --manifest <manifest.json> | <image-or-url> [...]", file=sys.stderr)
         return 2
