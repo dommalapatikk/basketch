@@ -268,3 +268,12 @@ def test_manifest_source_outside_the_manifest_dir_is_rejected(tmp_path, source):
 
     with pytest.raises(ValueError, match="manifest source"):
         build_manifest(["--manifest", str(manifest_path)])
+
+
+def test_manifest_source_cannot_climb_out_with_dotdot_segments(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    sneaky = f"{tmp_path}/../secret.jpg"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1, "source": sneaky}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest source"):
+        build_manifest(["--manifest", str(manifest_path)])

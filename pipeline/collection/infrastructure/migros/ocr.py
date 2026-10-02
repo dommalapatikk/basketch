@@ -58,6 +58,7 @@ before — production (live-sources.ts) never uses it.
 
 import io
 import json
+import os
 import sys
 import tempfile
 import urllib.request
@@ -146,17 +147,20 @@ def resolve_manifest_path(raw):
 
 
 def resolve_source_path(raw, manifest_dir):
-    """Returns a manifest `source` resolved, or raises ValueError.
+    """Returns a manifest `source` as a normalised path, or raises ValueError.
 
-    live-sources.ts writes every source as a local file path inside the
-    manifest's own directory (never a URL), so a source that resolves anywhere
-    else (absolute path elsewhere, `..`, a symlink out) is refused. The file
-    need not exist yet: a missing page is reported per page by process_entries.
+    live-sources.ts writes every source as an absolute local file path inside
+    the manifest's own directory (never a URL). The check is LEXICAL (no
+    filesystem access): the normalised path must sit under `manifest_dir`, which
+    rejects `..` segments, absolute paths elsewhere, relative paths and URLs.
+    Symlinks inside the directory are NOT followed or checked; the directory is
+    one we created, so planting one needs write access to it already.
     """
-    path = Path(raw).resolve()
-    if manifest_dir not in path.parents:
-        raise ValueError(f"manifest source must be inside {manifest_dir}, got: {raw}")
-    return str(path)
+    normalised = os.path.normpath(str(raw))
+    prefix = os.path.join(str(manifest_dir), "")
+    if not os.path.isabs(normalised) or not normalised.startswith(prefix):
+        raise ValueError("manifest source must be a path inside the manifest's own directory")
+    return normalised
 
 
 def build_manifest(argv):
