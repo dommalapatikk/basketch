@@ -271,3 +271,43 @@ Nit: on success, "Copied" now shows twice, once on the button label and once in 
 - **Closed:** M1, S1 (except M2), S2, S3, N1, N2.
 
 On the next pass I will re-check only M2 and S4.
+
+---
+
+## Re-review 2 (head `4bf5341`, diff `322e5f3..4bf5341`)
+
+**Scope:** M2 and S4 only.
+
+**What I ran:**
+- web-next: 52 files / 510 tests pass, and `tsc --noEmit` exits 0.
+- pipeline: `tsc --noEmit` exits 0.
+- CI on `4bf5341`: every check is green, including pytest (**26 passed**: 24 before, plus the 2 new tests) and Playwright + axe.
+
+### M2: manifest source prefix on macOS. **Closed**
+- **The fix:** `source_dir` is now `dirname(normpath(abspath(argv_path)))`, the folder exactly as the caller wrote it. `resolve()` is still used, but only for the check that the manifest itself is inside the temp folder.
+- **Why it works on macOS:**
+  - `live-sources.ts` passes `/var/folders/.../migros-ocr-X/manifest.json` and writes its sources under that same `/var/...` folder, so the prefix test passes.
+  - The temp-folder check still resolves both sides to `/private/var/...`, so it also passes.
+- **The new regression test reproduces the macOS layout on any OS.** It uses a symlinked folder as `gettempdir()` and writes the manifest and source through the link. The test passes in CI.
+- **Malformed entries:** a missing key or a non-dict entry (`KeyError`/`TypeError`) is now reported as a `ValueError`, so `main()` prints a JSON error and exits with 4.
+  - A bad `pageNumber` also exits with 4 (`int()` raises `ValueError`), and so does malformed JSON (`JSONDecodeError` is a `ValueError`).
+  - `resolve_source_path`'s own `ValueError` is not swallowed by the new `except`.
+  - The earlier `KeyError` nit is therefore closed too.
+- **No bypass.** The lexical prefix check (`..`, `//`, prefix confusion, trailing separator) is unchanged from Re-review 1.
+- **Informational only, no action needed:** a deliberately crafted `--manifest` spelling such as `/tmp/a/../m.json`, where `a` is a symlink, could make the lexical source folder broader than the manifest's real folder.
+  - This needs control of argv. Our only caller is `live-sources.ts`, which passes a plain `mkdtemp` path.
+  - Anyone with argv can already open any file through the positional form, so it does not widen the real threat model.
+
+### S4: home skeleton height. **Closed**
+- While idle, the status `<p>` is `sr-only`, which is absolutely positioned and 1 px, so it takes no layout height. `HomeSkeleton`'s `h-[172px]` is accurate again.
+- It takes up layout space (`mt-3 text-sm`) only once it has a message. Any shift then follows the user's click, and layout shifts within 500 ms of user input are excluded from CLS.
+- It is the same DOM element in both states (only its class changes), so the live region stays mounted and is announced reliably. The S2 behaviour is preserved, and the S2 tests still pass.
+
+### Final verdict (Re-review 2)
+
+**Approved: zero open MUST-FIX or SHOULD-FIX items.** Ready to merge.
+
+Carried forward, non-blocking:
+- **N3:** the scrim button is read before the dialog heading (optional).
+- **F1:** focus management in the availability overlays and their roughly 24 px Close button. Fix before `V3PreviewSection` is mounted.
+- **F2:** design sign-off on the full-viewport cell-sheet scrim.
