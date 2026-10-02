@@ -119,3 +119,20 @@ Checked every added line, the PR body and the commit message for exploit narrati
 ## Final verdict
 
 **Needs work (small).** The migration, check, headers and README are approved as an accurate record of production. Fix M-1 and M-2 in `pipeline/architecture.test.ts`, then re-review only those items. S-1 should be scheduled as its own follow-up migration (Tech Lead decision, PM to apply).
+
+## Fix round 1 (Tech Lead)
+
+| Finding | Status | Change |
+|---|---|---|
+| M-1 | Fixed | Policy scanner treats a missing `FOR` as `ALL` (and a missing `TO` as `PUBLIC`). Self-tests: `CREATE POLICY p ON foo USING (true)` and `... ON public.foo USING (true)` flagged. |
+| M-2 | Fixed | Frozen `PRE_BASELINE_MIGRATIONS` set (the 15 pre-baseline files); every other `.sql` is scanned. Self-test: `20261002120000_x.sql` is scanned. Guard test: no stale names on the frozen list. |
+| S-2 | Fixed | Policy parsed by structure (`CREATE POLICY <name> ON <table>[.<table>] [AS] [FOR] [TO] [USING/WITH CHECK]`); roles tested as a split list. Self-tests for both confirmed cases (quoted name containing "to"; `public.` prefix with `TO service_role`). |
+| S-3 | Fixed | Grant regex accepts column lists (`GRANT INSERT (col) ON`); self-tests. Check rows A-3/A-4/A-6 use `has_any_column_privilege`. |
+| S-4 | Fixed | A-8 also fails on a per-schema default granting EXECUTE to PUBLIC (grantee 0). |
+| S-5 | Fixed | A-3/A-4 also check REFERENCES (column-aware) and TRIGGER. |
+| Nice-to-have: postgres-only defaults | Fixed | Comment on `fn_defaults` in the check. |
+| S-1 | Deferred | Pending PM decision; not in this PR. |
+| Other nice-to-haves | Discarded for this PR | Per coordinator. |
+
+Mutation probes re-run (temporary files, deleted): a `20261002120000_probe.sql` with a public INSERT grant, a column-level INSERT grant, a policy with no FOR/TO, and a quoted-name INSERT policy: all four flagged. A copy of `20260427` placed after the baseline: both `user_interest` write policies flagged. A copy of `shared/002`: nothing flagged (SELECT policy; EXECUTE grants are out of scope by design).
+`pipeline`: 74 files / 1531 tests pass; `tsc --noEmit` exit 0. Check SQL parses (pglast).

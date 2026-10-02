@@ -18,7 +18,8 @@
 --       unless reviewed, and needs an explicit GRANT EXECUTE.
 --
 -- THE MODEL BEING CHECKED
---   - The anon key only ever READS. It holds no write privilege anywhere.
+--   - The anon key only ever READS. It holds no write privilege anywhere,
+--     at table or column level.
 --   - Every base table in public has RLS enabled.
 --   - No SECURITY DEFINER function in public is executable by anon.
 --   - New functions are not executable by the public roles by default.
@@ -39,19 +40,26 @@ rels AS (
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
 ),
+-- has_any_column_privilege is true for a table-level privilege OR a
+-- privilege on any single column, so a column-level grant cannot hide.
+-- (DELETE / TRUNCATE / TRIGGER exist only at table level.)
 anon_write_rels AS (
   SELECT relname FROM rels
-  WHERE has_table_privilege('anon', oid, 'INSERT')
-     OR has_table_privilege('anon', oid, 'UPDATE')
+  WHERE has_any_column_privilege('anon', oid, 'INSERT')
+     OR has_any_column_privilege('anon', oid, 'UPDATE')
+     OR has_any_column_privilege('anon', oid, 'REFERENCES')
      OR has_table_privilege('anon', oid, 'DELETE')
      OR has_table_privilege('anon', oid, 'TRUNCATE')
+     OR has_table_privilege('anon', oid, 'TRIGGER')
 ),
 authenticated_write_rels AS (
   SELECT relname FROM rels
-  WHERE has_table_privilege('authenticated', oid, 'INSERT')
-     OR has_table_privilege('authenticated', oid, 'UPDATE')
+  WHERE has_any_column_privilege('authenticated', oid, 'INSERT')
+     OR has_any_column_privilege('authenticated', oid, 'UPDATE')
+     OR has_any_column_privilege('authenticated', oid, 'REFERENCES')
      OR has_table_privilege('authenticated', oid, 'DELETE')
      OR has_table_privilege('authenticated', oid, 'TRUNCATE')
+     OR has_table_privilege('authenticated', oid, 'TRIGGER')
 ),
 public_write_policies AS (
   SELECT tablename, policyname
@@ -73,6 +81,10 @@ service_only AS (
   WHERE r.relname IN ('favorites', 'favorite_items', 'user_interest',
                       'worth_picking_up_candidates', 'pipeline_runs')
 ),
+-- Default privileges are inspected for role postgres only: the role that runs
+-- migrations from the SQL editor and the Supabase CLI. Objects created by any
+-- other role (e.g. supabase_admin) follow that role's defaults and are outside
+-- A-7 / A-8; A-1 still catches a resulting SECURITY DEFINER function.
 fn_defaults AS (
   SELECT d.defaclnamespace, d.defaclacl
   FROM pg_default_acl d
@@ -93,12 +105,12 @@ checks(check_id, invariant, expected, actual, ok) AS (
          NOT EXISTS (SELECT 1 FROM rels WHERE relkind IN ('r', 'p') AND NOT relrowsecurity)
 
   UNION ALL
-  SELECT 'A-3', 'public relations where anon holds INSERT/UPDATE/DELETE/TRUNCATE', '(none)',
+  SELECT 'A-3', 'public relations where anon holds INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER (table or column)', '(none)',
          COALESCE((SELECT string_agg(relname, ', ' ORDER BY relname) FROM anon_write_rels), '(none)'),
          NOT EXISTS (SELECT 1 FROM anon_write_rels)
 
   UNION ALL
-  SELECT 'A-4', 'public relations where authenticated holds INSERT/UPDATE/DELETE/TRUNCATE', '(none)',
+  SELECT 'A-4', 'public relations where authenticated holds INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER (table or column)', '(none)',
          COALESCE((SELECT string_agg(relname, ', ' ORDER BY relname) FROM authenticated_write_rels), '(none)'),
          NOT EXISTS (SELECT 1 FROM authenticated_write_rels)
 
@@ -110,8 +122,8 @@ checks(check_id, invariant, expected, actual, ok) AS (
   UNION ALL
   SELECT 'A-6', 'service-only relations readable by anon', '(none)',
          COALESCE((SELECT string_agg(relname, ', ' ORDER BY relname) FROM service_only
-                   WHERE has_table_privilege('anon', oid, 'SELECT')), '(none)'),
-         NOT EXISTS (SELECT 1 FROM service_only WHERE has_table_privilege('anon', oid, 'SELECT'))
+                   WHERE has_any_column_privilege('anon', oid, 'SELECT')), '(none)'),
+         NOT EXISTS (SELECT 1 FROM service_only WHERE has_any_column_privilege('anon', oid, 'SELECT'))
 
   UNION ALL
   SELECT 'A-7', 'new functions (owner postgres) executable by PUBLIC by default', 'false',
@@ -126,15 +138,17 @@ checks(check_id, invariant, expected, actual, ok) AS (
                                    WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'))
 
   UNION ALL
-  SELECT 'A-8', 'new functions in public executable by anon/authenticated by default', 'false',
+  SELECT 'A-8', 'new functions in public executable by PUBLIC/anon/authenticated by default (per-schema)', 'false',
          EXISTS (SELECT 1 FROM fn_defaults f, aclexplode(f.defaclacl) a
                  WHERE f.defaclnamespace = 'public'::regnamespace
                    AND a.privilege_type = 'EXECUTE'
-                   AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated')))::text,
+                   AND (a.grantee = 0  -- 0 = PUBLIC
+                        OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))))::text,
          NOT EXISTS (SELECT 1 FROM fn_defaults f, aclexplode(f.defaclacl) a
                      WHERE f.defaclnamespace = 'public'::regnamespace
                        AND a.privilege_type = 'EXECUTE'
-                       AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated')))
+                       AND (a.grantee = 0  -- 0 = PUBLIC
+                        OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))))
 
   -- ---------- the site and the pipeline still work ----------
   UNION ALL
