@@ -1,3 +1,13 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: it re-creates public policies on user_interest,
+-- and its CREATE FUNCTION and CREATE MATERIALIZED VIEW statements pick up
+-- the platform's default grants to the public roles; the baseline removes
+-- both.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- Migration: v3 concept layer (additive — does not break live site).
 --
 -- BACKGROUND

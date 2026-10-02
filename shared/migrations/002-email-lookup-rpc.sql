@@ -1,3 +1,12 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: it re-grants EXECUTE on a legacy favourites RPC
+-- to anon and re-creates a public SELECT policy on favorites; the baseline
+-- retires both.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- Migration 002: Secure email lookup via RPC
 -- Prevents email enumeration by moving lookup to a server function.
 -- The function returns only the favorite ID (not the email itself).

@@ -1,3 +1,12 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: its DROP + CREATE of the materialised views and
+-- its explicit GRANT SELECT re-grant worth_picking_up_candidates to the
+-- public roles, which the baseline removes.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- Migration: concept_cheapest_now and worth_picking_up_candidates expose
 -- price_basis/loyalty_programme AND min_quantity, so the home page can label
 -- a member-only or multi-buy price the same way the main deals list already

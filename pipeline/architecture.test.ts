@@ -105,3 +105,91 @@ describe('2026-09-25 §10: no pipeline write path touches the retired concept/sk
     expect(violations).toEqual([])
   })
 })
+
+// Least-privilege baseline (supabase/migrations/20261002_least_privilege_baseline.sql,
+// checked live by supabase/checks/anon-privileges.sql). The anon key only ever
+// reads. These static checks keep a database rebuilt from this folder from
+// drifting away from that: the baseline must keep declaring the model, and no
+// migration that sorts AFTER it may hand a write privilege or a write policy
+// to the public roles. SQL comments are stripped first so prose cannot trip it.
+describe('least-privilege baseline is declared in migrations', () => {
+  const BASELINE = '20261002_least_privilege_baseline.sql'
+  const PUBLIC_ROLE = /\b(anon|authenticated|public)\b/i
+
+  function sqlWithoutComments(src: string): string {
+    return src
+      .split('\n')
+      .map((l) => l.replace(/--.*$/, ''))
+      .join('\n')
+  }
+
+  function sortedMigrations(): string[] {
+    return readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+  }
+
+  // Each scanner returns one string per offending statement, so a failure
+  // names exactly what to fix.
+  function publicWriteGrants(sql: string): string[] {
+    const out: string[] = []
+    for (const m of sql.matchAll(/GRANT\s+([A-Z_,\s]+?)\s+ON\b[^;]*?\bTO\s+([^;]+)/gi)) {
+      const privileges = m[1] ?? ''
+      const grantees = m[2] ?? ''
+      if (/\b(INSERT|UPDATE|DELETE|TRUNCATE|ALL)\b/i.test(privileges) && PUBLIC_ROLE.test(grantees)) {
+        out.push(m[0].replace(/\s+/g, ' ').trim())
+      }
+    }
+    return out
+  }
+
+  function publicWritePolicies(sql: string): string[] {
+    const out: string[] = []
+    for (const m of sql.matchAll(/CREATE\s+POLICY[^;]*?\bFOR\s+(INSERT|UPDATE|DELETE|ALL)\b[^;]*/gi)) {
+      const stmt = m[0]
+      // A policy with no TO clause applies to PUBLIC.
+      const to = stmt.match(/\bTO\s+([\s\S]+?)(\bUSING\b|\bWITH\s+CHECK\b|$)/i)
+      if (!to || PUBLIC_ROLE.test(to[1] ?? '')) out.push(stmt.replace(/\s+/g, ' ').trim())
+    }
+    return out
+  }
+
+  it('the baseline migration exists', () => {
+    expect(sortedMigrations()).toContain(BASELINE)
+  })
+
+  it('the baseline revokes every public write privilege, sweeps RLS on, and fails closed for new functions', () => {
+    const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, BASELINE), 'utf8'))
+    expect(sql).toMatch(
+      /REVOKE\s+INSERT,\s*UPDATE,\s*DELETE,\s*TRUNCATE,\s*REFERENCES,\s*TRIGGER\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+public\s+FROM\s+PUBLIC,\s*anon,\s*authenticated/i,
+    )
+    expect(sql).toMatch(/NOT\s+c\.relrowsecurity/i)
+    expect(sql).toMatch(/ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+REVOKE\s+EXECUTE\s+ON\s+FUNCTIONS\s+FROM\s+PUBLIC/i)
+    expect(sql).toMatch(
+      /ALTER\s+DEFAULT\s+PRIVILEGES\s+FOR\s+ROLE\s+postgres\s+IN\s+SCHEMA\s+public\s+REVOKE\s+EXECUTE\s+ON\s+FUNCTIONS\s+FROM\s+anon,\s*authenticated/i,
+    )
+  })
+
+  it('no migration after the baseline grants a write privilege or a write policy to anon/authenticated/PUBLIC', () => {
+    const files = sortedMigrations()
+    const later = files.slice(files.indexOf(BASELINE) + 1)
+    const violations: string[] = []
+    for (const f of later) {
+      const sql = sqlWithoutComments(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+      for (const g of publicWriteGrants(sql)) violations.push(`${f}: ${g}`)
+      for (const p of publicWritePolicies(sql)) violations.push(`${f}: ${p}`)
+    }
+    expect(violations).toEqual([])
+  })
+
+  it('the scanners catch the patterns they exist for (guards against a silently blind regex)', () => {
+    expect(publicWriteGrants('GRANT INSERT, UPDATE ON foo TO anon;')).toHaveLength(1)
+    expect(publicWriteGrants('GRANT ALL ON TABLE foo TO authenticated;')).toHaveLength(1)
+    expect(publicWriteGrants('GRANT SELECT ON foo TO anon, authenticated;')).toHaveLength(0)
+    expect(publicWriteGrants('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;')).toHaveLength(0)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR INSERT WITH CHECK (true);')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR UPDATE TO anon USING (true);')).toHaveLength(1)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR ALL TO service_role USING (true) WITH CHECK (true);')).toHaveLength(0)
+    expect(publicWritePolicies('CREATE POLICY p ON foo FOR SELECT TO anon USING (true);')).toHaveLength(0)
+  })
+})

@@ -1,3 +1,12 @@
+-- SUPERSEDED FOR ACCESS CONTROL by
+-- supabase/migrations/20261002_least_privilege_baseline.sql.
+-- Do NOT re-apply this file standalone: its DROP + CREATE of the materialised views picks
+-- up the platform's default grants to the public roles, which the baseline
+-- removes from worth_picking_up_candidates.
+-- If it is ever re-run (e.g. while rebuilding a database), re-apply
+-- 20261002_least_privilege_baseline.sql afterwards and run
+-- supabase/checks/anon-privileges.sql; every row must be PASS.
+--
 -- Migration: concept_cheapest_now and worth_picking_up_candidates honour the
 -- FULL validity window, not just its end bound (#10, WP-W3).
 --
