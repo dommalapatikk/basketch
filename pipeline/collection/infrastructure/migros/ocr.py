@@ -181,9 +181,17 @@ def build_manifest(argv):
         if index >= len(argv):
             raise ValueError("--manifest needs a path")
         path = resolve_manifest_path(argv[index])
+        # Sources are compared against the manifest's directory AS THE CALLER
+        # SPELLED IT (lexically), not the symlink-resolved one: on macOS os.tmpdir()
+        # is /var/... while resolve() gives /private/var/..., and the caller writes
+        # its source paths under the former.
+        source_dir = os.path.dirname(os.path.normpath(os.path.abspath(argv[index])))
         with open(path, encoding="utf-8") as f:
             entries = json.load(f)
-        return [(int(e["pageNumber"]), resolve_source_path(e["source"], path.parent)) for e in entries]
+        try:
+            return [(int(e["pageNumber"]), resolve_source_path(e["source"], source_dir)) for e in entries]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"manifest entries need pageNumber and source ({exc!r})") from exc
     sources = [a for a in argv if not a.startswith("--")]
     return list(enumerate(sources, start=1))
 

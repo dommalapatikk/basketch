@@ -115,8 +115,13 @@ export function ShareVerdictButton({ locale, today }: Props) {
           <Copy className="h-4 w-4" aria-hidden /> {copied ? t('copied') : t('copy')}
         </button>
       </div>
-      {/* Always mounted: screen readers only announce changes to an existing live region. */}
-      <p role="status" className="mt-3 min-h-5 text-sm text-[var(--color-ink-2)]">
+      {/* Always mounted: screen readers only announce changes to an existing live
+          region. Idle it is sr-only (zero layout height, so HomeSkeleton's fixed
+          height stays accurate); it takes space only once there is a message. */}
+      <p
+        role="status"
+        className={copyStatus === 'idle' ? 'sr-only' : 'mt-3 text-sm text-[var(--color-ink-2)]'}
+      >
         {copyStatus === 'copied' && t('copied')}
         {copyStatus === 'failed' && t('copy_failed')}
       </p>

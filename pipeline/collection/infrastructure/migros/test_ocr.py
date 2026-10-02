@@ -277,3 +277,26 @@ def test_manifest_source_cannot_climb_out_with_dotdot_segments(tmp_path):
 
     with pytest.raises(ValueError, match="manifest source"):
         build_manifest(["--manifest", str(manifest_path)])
+
+
+# Regression (re-review M2): resolve() gave /private/var/... on macOS while the
+# caller's source paths used /var/..., so every Migros page was rejected.
+def test_manifest_via_a_symlinked_temp_dir_is_accepted(monkeypatch, tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(link))
+    source = str(link / "page-3-0.jpg")
+    manifest_path = link / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 3, "source": source}]), encoding="utf-8")
+
+    assert build_manifest(["--manifest", str(manifest_path)]) == [(3, source)]
+
+
+def test_manifest_entry_missing_source_is_a_clean_error(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps([{"pageNumber": 1}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pageNumber and source"):
+        build_manifest(["--manifest", str(manifest_path)])
