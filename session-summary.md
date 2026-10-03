@@ -1,4 +1,77 @@
+# ⏸ LATEST: 2026-10-02 (evening, saved 2026-10-03) — DB defaults fail closed + MAINTAIN revoked (prod) · PR #6 · prompt audit PR #7 (restart inside basketch/)
+
+**Session date range:** 2026-10-02 → 2026-10-03. main = abdd58c. Agents now register under short names (`builder`, `code-reviewer`, `tech-lead`, …).
+
+**Production DB (applied 2026-10-02, PM-approved, verified):** new tables/sequences in public give anon/authenticated no write privilege; MAINTAIN revoked from anon/authenticated on all 20 existing relations and from new-table defaults (PG 17.6). Defaults now: tables/sequences `anon=r, authenticated=r`. `supabase/checks/anon-privileges.sql` → 14/14 PASS (new rows A-9 defaults, A-10 MAINTAIN). Live deals page 200.
+
+**PR #6 `chore/db-default-privileges`** (https://github.com/dommalapatikk/basketch/pull/6): migrations `20261002_least_privilege_default_tables.sql` + `20261002_least_privilege_revoke_maintain.sql`, checks A-9/A-10, static guards in `pipeline/architecture.test.ts` (CREATE TABLE ⇒ RLS in same file; views must declare public SELECT access; quoted role names caught; one-pass comment strip), README. Code review `docs/reviews/2026-10-02-review-db-default-privileges.md`: Approved after 2 re-reviews. All CI checks green. **Merged 2026-10-02 as 2e78172** (Kiran added allow rule `Bash(gh pr merge:*)` so Claude can merge; main protection still requires the 10 green checks).
+
+**Prompt audit (PR #7, merged abdd58c):** `/claude-api prompt-audit` run on CLAUDE.md + 19 agents + skills. Report `docs/reviews/2026-10-02-prompt-audit.md`. Fixed: stale doc refs/paths in CLAUDE.md, April-era stack (React+Vite, web/, pipeline/coop/) in 5 agents, agent frontmatter `name:` = file slug (restart Claude Code from basketch/ to pick up). **Open for Kiran — F-10:** legal rule "one fetch per store per week" vs pipeline collecting all 7 retailers Mon/Tue/Thu → limit the pipeline or reword the rule. Also flagged: build-order status (F-11), deeper per-agent refresh (F-12), docs/coding-standards.md from April (F-13).
+
+**Kiran's decisions this session:** run the default-privileges SQL on prod; added allow rule `Bash(supabase db query:*)` via /permissions (Claude can now query prod; still confirm writes first); revoke MAINTAIN (recommended option).
+
+**Accepted residual NIT:** view scanner counts `REVOKE GRANT OPTION FOR SELECT … FROM anon` as a declaration; live A-6 is the backstop.
+
+**NEXT SESSION — start here:**
+1. ✅ PR #6 merged (2e78172), worktree `db-default-privs` removed.
+2. ✅ Worktree cleanup done 2026-10-02 (31 removed with Kiran's OK). Kept: `agent-a93682…` (Migros full-title names, parked), `agent-a41ae…` + `tl-ocr-exp` (unmerged WP-10 OCR commit a5c4b57 + uncommitted edit). `tl-ocr-bench/` is a plain 1.2 GB folder of OCR benchmark scripts/crops (not a worktree) — Kiran to decide.
+3. **Kiran decides F-10** (weekly-fetch legal rule vs 3×/week pipeline): limit the pipeline per day, or reword the rule.
+4. Site bugs D-1..D-12 (private open items §2 in `/Users/kiran/ClaudeCode/basketch-private-notes/2026-10-02-open-items.md`), Kiran's 14 decisions (§3), LangSmith (§4).
+5. Untracked `docs/reviews/2026-10-02-{architect-challenger,vp-product-*}.md` (4 files) still contain security detail — do not push as-is.
+
+# ⏸ LATEST: 2026-10-02 (afternoon) — SonarQube Cloud + protected main + DB least-privilege baseline (restart inside basketch/)
+
+**Merged to main today (all via PR, all CI green, each code-reviewed to zero open findings):**
+| PR | What |
+|---|---|
+| #2 | DealsClient date-bomb test fix (clock pinned) — unblocked CI |
+| #3 | SonarQube Cloud in CI (`SonarQube Cloud` job, lcov coverage for pipeline/shared/web-next, runbook `docs/runbooks/sonarqube-cloud.md`, review `docs/reviews/2026-10-02-review-sonarqube-ci.md`) |
+| #4 | Sonar BUG/VULN fixes: ISO-date comparator, de-CH sort for origin chips, ShareVerdictButton (AbortError = cancel, always-mounted sr-only status), sheet.tsx aria-describedby, accessible scrims, randomUUID run id, ocr.py manifest/source path checks, `**/*.sql` excluded, new `Test (Python, ocr.py)` CI job. Review: `docs/reviews/2026-10-02-review-sonar-findings.md` |
+| #5 | DB least-privilege baseline migration `supabase/migrations/20261002_least_privilege_baseline.sql`, read-only check `supabase/checks/anon-privileges.sql`, superseded headers on old migrations, README, static guard in `pipeline/architecture.test.ts`. Review: `docs/reviews/2026-10-02-review-db-privileges-baseline.md` |
+
+**Kiran's decisions today:** SonarQube **Cloud, Free plan** (no card; public repo; ~21.5k LoC analysed); **gate = block merges via PRs**; e-mail data not needed; new tables should fail closed by default (approved, not yet applied).
+
+**SonarCloud setup (done by Kiran):** org `dommalapatikk`, project `dommalapatikk_basketch`, Automatic Analysis OFF, New Code = 30 days, secret `SONAR_TOKEN` added 2026-10-02 — **token expiry: check the date Kiran chose (max 1 year); CI's Sonar job fails when it expires → regenerate (My account → Access Tokens) and update the GitHub secret.**
+Main-branch baseline after first scan: coverage 84.4%, 21,512 LoC, ~327 code smells (not chased; gate judges new code only).
+
+**Branch protection on main (since 2026-10-02):** PR required, strict (up to date), enforce_admins ON, no force-push/deletion, no review required. Required checks (10): Lint & Type Check (pipeline), Test (shared types + taxonomy), Test (TypeScript), Test (Python, ocr.py), web-next · Lint & Type Check, web-next · Vitest, web-next · Build, web-next · Playwright + axe, SonarQube Cloud, SonarCloud Code Analysis. **Direct pushes to main (incl. this file) now need a PR.**
+
+**Security item (§1 of private open items): DONE in production + repo.** Detail is ONLY in `/Users/kiran/ClaudeCode/basketch-private-notes/` (repo is public — keep it out of tracked files).
+
+**NEXT SESSION — start here:**
+1. ✅ DONE (evening, see above). **Kiran:** run in Supabase SQL Editor (new tables/sequences fail closed — approved):
+   `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES FROM anon, authenticated;`
+   `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE USAGE, UPDATE ON SEQUENCES FROM anon, authenticated;`
+   Then coordinator runs `supabase/checks/anon-privileges.sql` read-only (`supabase db query --linked -f ...`) to confirm.
+2. ✅ DONE as PR #6 (see above). Repo side of the same (small PR): migration file drafted, uncommitted, in worktree `.claude/worktrees/agent-a76f34591780b9626/supabase/migrations/20261002_least_privilege_default_tables.sql`; still to add check row A-9 + static rule "every CREATE TABLE has ENABLE ROW LEVEL SECURITY" + README line. Builder was blocked by Claude Code permissions on `supabase/` edits — Kiran to allow, or do in a fresh session.
+3. Then: site bugs D-1..D-12 (private open items §2), Kiran's 14 decisions (§3), LangSmith (§4).
+
+**Known concerns carried forward:** guard test misses quoted role names (`TO "anon"`, one-line fix); unused availability overlays need focus trap/return + 44px close + design sign-off before V3PreviewSection goes live; 5 skipped e2e tests (AC8 deliberate skip without owner/expiry; AC16 ×4 find no compact cards); web-next `biome check` red on main (CI step is `|| true`); ~20 test files with hard-coded 2026 dates may rot (highest risk: DealCard, ListDrawer, ItemNote, list-store, snapshot, supabase-provider, stale-sweep tests); pipeline vitest `^3.1.0` not exact-pinned; web-next coverage lacks `coverage.include`.
+**Auto-mode classifier blocked:** production DB writes and repo edits under `supabase/` for agents — Kiran approved several prod steps explicitly; plan around it.
+**Cleanup:** stale agent worktrees under `.claude/worktrees/` (agent-a7d480…, agent-aedfd1…, agent-a01b00…, agent-a76f34…) — merged branches; remove after item 2 is done. Untracked `docs/reviews/2026-10-02-*.md` (4 files) still must not be pushed as-is.
+
+# ⏸ LATEST: 2026-10-02 — case-study docs + GitHub profile refreshed; bug fixes next (restart inside basketch/)
+
+**Done and published (verified on GitHub):**
+- basketch commit b153c60 on main: PRD v4.0, business model canvas v2.0, competitive analysis v2.0 (13 tools, sourced; section 6 "My positioning" dictated by Kiran), technical architecture v2.0, use cases v3.0, repo README. Each written by its owning agent (run as stand-ins — session started outside basketch/) and reviewed to zero MUST-FIX (VP Product / Architect Challenger, 2 rounds).
+- Profile repo dommalapatikk commit 95abde3: profile README refreshed (current product, Next.js 16 stack, AI categorisation row, cost = free tiers + one paid AI judge capped USD 5/month, 2,100+ tests, 19 agents, 13 competitors, Background with dates).
+
+**Kiran's decisions this session:** rewrite docs in place (old versions in git history); publish when reviews are clean; positioning = personal shopping list, UX is the core, SPAR + Volg coverage stressed, P-8 routing deferred (no reason recorded).
+
+**Corrections found while documenting:** per-item routing is NOT built (P-8); "Cheapest" tag = biggest discount (P-7 not built); cost is not CHF 0 (OpenRouter judge, USD 5 cap); test counts measured 2026-10-02: pipeline 1,524 · shared 129 (incl. 3 expected-fail) · web 492 passed + 2 failing.
+
+**NEXT SESSION — start here:** read `/Users/kiran/ClaudeCode/basketch-private-notes/2026-10-02-open-items.md` (kept outside the public repo). Order:
+1. SECURITY item §1 (Tech Lead) — do first.
+2. Site bugs §2 (D-1 0% discount in verdict, D-2 category card link, D-3 shared link drops "From N items", D-4/5 shared link overwrites/wipes list, "cheapest" list copy, 2 date-bomb tests blocking CI build + Playwright, cached empty result on DB error, no-op error logging, D-6..12).
+3. Kiran's 14 decisions §3.
+**LangSmith tracing — designed + installed (2026-09-11, dc9a0a4; design docs/component-2-agent-design.md §7b.5 + tech table), never switched on:** no LANGSMITH_* secret/variable in GitHub, nothing in pipeline.yml. LangGraph traces automatically once env is set. Steps: Kiran creates free LangSmith Developer account + API key → add secret LANGSMITH_API_KEY and env LANGSMITH_TRACING=true, LANGSMITH_PROJECT=basketch to the classify step in pipeline.yml → set a hard trace cap (design says ~240/mo vs 5,000 free) → verify traces appear after a run → then add LangSmith to the GitHub profile AI row (profile currently names LangGraph only, commit on 2026-10-02).
+Also: root `.env.example` still has old Vite keys (README local setup incomplete); stale `github-profile-README.md` in repo (Kiran to decide delete/replace).
+
+**Untracked on purpose (do not push as-is — contain security detail):** `docs/reviews/2026-10-02-*.md` (4 review files).
+
 # ⏸ LATEST: 2026-09-28 — basketch handed over to SELF-RUNNING (PM moving to an insurance-tech project)
+
+**Update 2026-10-02:** pipeline ran unattended 2026-09-28, 09-29 and 10-01 — all success; schedule `active`. The Monday 09-28 run started at 11:33 UTC (GitHub delay), so no manual run was needed. Still to do when resuming: check the WP-1c/1d/1e next-run checklist (`docs/qa/2026-09-26-qa-pipeline-wp1c-1d-1e.md` §4) against these runs.
 
 **Live and verified on basketch.vercel.app (main e159e4b):**
 - Stale expired deals fixed: deals cache keyed by the Zurich date, homepage deal data rendered per request, webhook `expire: 0`, MidnightGuard on home + /deals, expired list items excluded from totals/share. Live counts matched the DB (1,537 in effect) after deploy.
